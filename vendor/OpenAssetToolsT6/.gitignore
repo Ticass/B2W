@@ -1,0 +1,6 @@
+local/
+/build/
+.vscode
+.idea
+user*.*
+*.aps

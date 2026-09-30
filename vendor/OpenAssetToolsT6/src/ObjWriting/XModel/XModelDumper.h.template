@@ -1,0 +1,28 @@
+#options GAME (IW3, IW4, IW5, T5, T6)
+
+#filename "Game/" + GAME + "/XModel/XModelDumper" + GAME + ".h"
+
+#set GAME_HEADER "\"Game/" + GAME + "/" + GAME + ".h\""
+
+// This file was templated.
+// See XModelDumper.h.template.
+// Do not modify, changes will be lost.
+
+#pragma once
+
+#include "Dumping/AbstractAssetDumper.h"
+#include GAME_HEADER
+
+#set CLASS_NAME "Dumper" + GAME
+
+namespace xmodel
+{
+    class CLASS_NAME final : public AbstractAssetDumper<GAME::AssetXModel>
+    {
+    public:
+        explicit CLASS_NAME (const AssetPool<GAME::AssetXModel::Type>& pool);
+
+    protected:
+        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<GAME::AssetXModel::Type>& asset) override;
+    };
+} // namespace xmodel

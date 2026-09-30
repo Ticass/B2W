@@ -1,0 +1,14 @@
+{
+  "_doc": [
+    "BO2 asset with the same ROLE as a WaW asset, used ONLY when the WaW asset is absent from the whole WaW lookup",
+    "(GUIDELINES 2a). Keys are WaW asset names that recur across maps (stock or shared community assets), never",
+    "map-specific names. Exact-name BO2 assets are found automatically and need no entry. Every use is reported.",
+    "lukkie_bottle_*: the community BO2-perk bottle pack (chugabud = Who's Who in BO2)."
+  ],
+  "xmodel": {
+    "lukkie_bottle_chugabud_view": "t6_wpn_zmb_perk_bottle_whoswho_view",
+    "lukkie_bottle_chugabud_world": "t6_wpn_zmb_perk_bottle_whoswho_world",
+    "lukkie_bottle_thombstone_view": "t6_wpn_zmb_perk_bottle_tombstone_view",
+    "lukkie_bottle_thombstone_world": "t6_wpn_zmb_perk_bottle_tombstone_world"
+  }
+}

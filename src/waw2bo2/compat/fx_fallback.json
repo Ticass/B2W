@@ -1,0 +1,25 @@
+{
+  "_doc": [
+    "OPT-IN debugging aid (stage-bridge --fx-fallback; run_bridge -FxFallback), OFF by default, NOT conversion:",
+    "stock WaW effect name -> the closest stock BO2 effect. Every use is reported as FX_FALLBACK.",
+    "The user does not want stock BO2 substitutes in real builds: WaW FX must be converted.",
+    "Remove an entry once WaW FX conversion (FxEffectDef -> iwfx -> BO2 Linker) handles it."
+  ],
+  "fx": {
+    "misc/fx_zombie_eye_single": "misc/fx_zombie_eye_single",
+    "explosions/fx_default_explosion": "explosions/fx_default_explosion",
+    "env/electrical/fx_elec_wire_spark_burst": "env/electrical/fx_elec_wire_spark_burst",
+    "env/electrical/fx_elec_player_md": "system_elements/fx_elec_spark_emit",
+    "maps/zombie/fx_zombie_wire_spark": "env/electrical/fx_elec_sparking_oneshot",
+    "maps/zombie/fx_zombie_tesla_shock": "maps/zombie/fx_zombie_tesla_shock",
+    "maps/zombie/fx_zombie_tesla_shock_eyes": "maps/zombie/fx_zombie_tesla_shock_eyes",
+    "env/fire/fx_fire_brush_smolder_sm": "env/fire/fx_fire_sm",
+    "env/fire/fx_fire_campfire_small": "env/fire/fx_fire_sm",
+    "env/fire/fx_fire_detail_fade_14": "env/fire/fx_fire_detail_sm_nodlight",
+    "env/fire/fx_fire_oil_md": "env/fire/fx_fire_zombie_md",
+    "env/fire/fx_fire_player_torso": "env/fire/fx_fire_zombie_torso",
+    "env/weather/fx_ash_embers_light_nuke": "maps/zombie/fx_zmb_nuke_radioactive_embers",
+    "weapon/bouncing_betty/fx_explosion_betty_generic": "explosions/fx_grenadeexp_default",
+    "explosions/tank_impact_dirt": "explosions/fx_grenadeexp_dirt"
+  }
+}

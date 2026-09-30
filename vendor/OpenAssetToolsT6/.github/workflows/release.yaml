@@ -1,0 +1,101 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-release-linux:
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install g++ and multilib
+        run: |
+          apt-get update
+          apt-get install -y wget tar git make gcc-13 g++-13 gcc-13-multilib g++-13-multilib
+          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 13
+          update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 13
+          update-alternatives --set gcc /usr/bin/gcc-13
+          update-alternatives --set g++ /usr/bin/g++-13
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Premake generate
+        working-directory: ${{ github.workspace }}
+        env:
+          PREMAKE_NO_PROMPT: 1
+        run: ./generate.sh --oat-version=${{ github.ref_name }}
+
+      - name: Build
+        working-directory: ${{ github.workspace }}
+        run: |
+          make -C build -j$(nproc) config=release_x86 all
+          chmod +x build/bin/Release_x86/{ImageConverter,Unlinker,Linker}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: oat-linux
+          path: |
+            ${{ github.workspace }}/build/bin/Release_x86
+
+  build-release-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2.0.0
+
+      - name: Premake generate
+        working-directory: ${{ github.workspace }}
+        env:
+          PREMAKE_NO_PROMPT: 1
+        run: ./generate.bat --oat-version=${{ github.ref_name }}
+
+      - name: Build
+        working-directory: ${{ github.workspace }}
+        run: msbuild /m /p:Configuration=Release /p:Platform=Win32 build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: oat-windows
+          path: |
+            ${{ github.workspace }}/build/bin/Release_x86
+
+  release:
+    needs:
+      - build-release-linux
+      - build-release-windows
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+      - name: Zip artifacts
+        run: |
+          7z a oat-linux.tar ./oat-linux/*
+          7z a oat-linux.tar.gz ./oat-linux.tar
+          7z a oat-windows.zip ./oat-windows/*
+      - uses: ncipollo/release-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          artifacts: "oat-linux.tar.gz,oat-windows.zip"
+          artifactErrorsFailBuild: true
+          allowUpdates: true
+          draft: true
+          omitBodyDuringUpdate: true
+          omitDraftDuringUpdate: true

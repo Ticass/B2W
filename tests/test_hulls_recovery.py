@@ -1,0 +1,59 @@
+import unittest
+from types import SimpleNamespace
+
+from waw2bo2 import hulls, world
+
+
+def box(lo, hi, contents=1):
+    planes = [((-1.0, 0.0, 0.0), -lo[0], 0), ((1.0, 0.0, 0.0), hi[0], 0), ((0.0, -1.0, 0.0), -lo[1], 0),
+              ((0.0, 1.0, 0.0), hi[1], 0), ((0.0, 0.0, -1.0), -lo[2], 0), ((0.0, 0.0, 1.0), hi[2], 0)]
+    return world.Brush(tuple(lo), tuple(hi), contents, planes, [])
+
+
+class UnlistedWorldBrushTests(unittest.TestCase):
+    def test_unlisted_brushes_outside_entity_local_bounds_are_world(self):
+        brushes = [box((0, 0, 0), (10, 10, 10)),              # listed world brush
+                   box((-4, -4, -4), (4, 4, 4)),               # door brush (entity local space)
+                   box((500, 500, 0), (600, 600, 50), 0x2080),  # unlisted missile clip in the world
+                   box((-2, -2, -2), (2, 2, 2))]               # unlisted, inside a door's local bounds
+        clip = SimpleNamespace(brushes=brushes, materials=[], static_models=[],
+                               submodels=[world.SubModel((0, 0, 0), (0, 0, 0), [0]),
+                                          world.SubModel((-5, -5, -5), (5, 5, 5), [1])])
+        out, summary = hulls.collision_brushes(clip)
+        self.assertEqual(summary["world_brushes_recovered_unlisted"], 1)
+        self.assertEqual(summary["unlisted_brushes_ambiguous_skipped"], 1)
+        self.assertEqual(sorted(tuple(b["mins"]) for b in out), [(0, 0, 0), (500, 500, 0)])
+
+
+class StaticModelCollisionTests(unittest.TestCase):
+    @staticmethod
+    def tri():
+        # XModelCollTri_s for corners (0,0,0), (10,0,0), (0,10,0): plane z=0, s=x/10, t=y/10
+        return (0.0, 0.0, 1.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0)
+
+    def model(self, contents=1, surfaces=True, origin=(100.0, 0.0, 0.0)):
+        surfs = [world.CollSurf(1, 0, (0, 0, 0), (10, 10, 0), -1, [self.tri()])] if surfaces else []
+        return world.ClipStaticModel("house", origin, (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+                                     (origin[0], 0.0, 0.0), (origin[0] + 10, 10.0, 0.0), contents, surfs)
+
+    def test_static_models_stay_native_not_brushes(self):
+        clip = SimpleNamespace(brushes=[], materials=[], submodels=[],
+                               static_models=[self.model(), self.model(contents=0), self.model(surfaces=False)])
+        out, summary = hulls.collision_brushes(clip)
+        self.assertEqual(out, [])
+        records, summary = hulls.static_model_records(clip)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["name"], "house")
+        self.assertEqual(records[0]["invScaledAxis"], [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+        self.assertEqual(summary["static_models_without_collision"], 2)
+        self.assertEqual(summary["static_model_triangles_outside_waw_bounds"], 0)
+
+    def test_transform_mismatch_is_counted(self):
+        bad = self.model()
+        bad.absmin, bad.absmax = (500.0, 500.0, 0.0), (510.0, 510.0, 0.0)
+        clip = SimpleNamespace(static_models=[bad])
+        self.assertEqual(hulls.static_model_records(clip)[1]["static_model_triangles_outside_waw_bounds"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

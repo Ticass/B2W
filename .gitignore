@@ -1,0 +1,21 @@
+# Extracted game data, build outputs and third-party game tools never go in the repo
+/work/
+/raw/
+/wawModTools/
+/Template maps/
+/console.log
+__pycache__/
+*.pyc
+*.exe
+*.dll
+*.i64
+*.idb
+*.log
+
+# T4 OpenAssetTools: upstream clone; our changes live in vendor/OpenAssetTools.patch
+/vendor/OpenAssetTools/
+
+# T6 OpenAssetTools fork: source only
+/vendor/OpenAssetToolsT6/build/
+/vendor/OpenAssetToolsT6/thirdparty/
+/vendor/OpenAssetToolsT6/.git.broken-worktree

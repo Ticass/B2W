@@ -1,0 +1,1080 @@
+diff --git a/src/Common/Game/T4/T4_Assets.h b/src/Common/Game/T4/T4_Assets.h
+index 4b572bf..487d8ae 100644
+--- a/src/Common/Game/T4/T4_Assets.h
++++ b/src/Common/Game/T4/T4_Assets.h
+@@ -1774,11 +1774,11 @@ namespace T4
+         float minPriorityThreshold;
+         float maxPriorityThreshold;
+         float reverbSend;
+-        int gap2;
+-        int gap3;
++        float teamVolMod;
++        float teamPitchMod;
+         float occlusionLevel;
+         float occlusionWetDry;
+-        unsigned int moveTime;
++        float moveTime;
+         unsigned int startDelay;
+         unsigned int speakerMap;
+         int flags;
+@@ -1786,14 +1786,14 @@ namespace T4
+         unsigned int reverbFalloffCurve;
+         unsigned int volumeMinFalloffCurve;
+         unsigned int reverbMinFalloffCurve;
++        unsigned int limitCount;
+         snd_limit_type_t limitType;
+-        int gap5;
+         unsigned int entityLimitCount;
+-        int gap6;
++        snd_limit_type_t entityLimitType;
+         snd_randomize_type_t randomizeType;
+-        int gap7;
+-        int gap8;
+-        int gap9;
++        float cylInnerRadius;
++        float cylOuterRadius;
++        float cylOuterLevel;
+     };
+ 
+     struct snd_alias_list_t
+diff --git a/src/ObjCommon/XModel/JsonXModel.h.template b/src/ObjCommon/XModel/JsonXModel.h.template
+index 124fd59..fbdba09 100644
+--- a/src/ObjCommon/XModel/JsonXModel.h.template
++++ b/src/ObjCommon/XModel/JsonXModel.h.template
+@@ -55,6 +55,32 @@ namespace GAME
+         {JsonXModelType::VIEWHANDS, "viewhands" }
+     });
+ 
++    // Per-model collision triangles (XModelCollSurf_s / XModelCollTri_s; the
++    // layout is identical in T4 and T6). The bone is stored by name because the
++    // bone order of a model rebuilt from GLTF can differ. waw2bo2 addition.
++    class JsonXModelCollTri
++    {
++    public:
++        std::vector<float> plane;
++        std::vector<float> svec;
++        std::vector<float> tvec;
++    };
++
++    NLOHMANN_DEFINE_TYPE_EXTENSION(JsonXModelCollTri, plane, svec, tvec);
++
++    class JsonXModelCollSurf
++    {
++    public:
++        std::vector<JsonXModelCollTri> tris;
++        std::vector<float> mins;
++        std::vector<float> maxs;
++        std::string bone;
++        int contents;
++        int surfFlags;
++    };
++
++    NLOHMANN_DEFINE_TYPE_EXTENSION(JsonXModelCollSurf, tris, mins, maxs, bone, contents, surfFlags);
++
+     class JsonXModel
+     {
+     public:
+@@ -73,6 +99,8 @@ namespace GAME
+         float lightingOriginRange;
+ #endif
+         unsigned flags;
++        std::optional<std::vector<JsonXModelCollSurf>> collSurfs;
++        std::optional<int> contents;
+     };
+ 
+     NLOHMANN_DEFINE_TYPE_EXTENSION(
+@@ -91,6 +119,8 @@ namespace GAME
+         lightingOriginOffset,
+         lightingOriginRange,
+ #endif
+-        flags
++        flags,
++        collSurfs,
++        contents
+     );
+ } // namespace GAME
+diff --git a/src/ObjWriting/Game/T4/ObjWriterT4.cpp b/src/ObjWriting/Game/T4/ObjWriterT4.cpp
+index de5cd74..9c7b674 100644
+--- a/src/ObjWriting/Game/T4/ObjWriterT4.cpp
++++ b/src/ObjWriting/Game/T4/ObjWriterT4.cpp
+@@ -1,8 +1,10 @@
+ #include "ObjWriterT4.h"
+ 
++#include "Fx/FxJsonDumperT4.h"
+ #include "Game/T4/Font/FontDumperT4.h"
+ #include "Game/T4/Image/ImageDumperT4.h"
+ #include "Game/T4/Maps/MapEntsDumperT4.h"
++#include "Game/T4/Maps/WorldConverterDumperT4.h"
+ #include "Game/T4/Material/MaterialJsonDumperT4.h"
+ #include "Game/T4/XAnim/XAnimDumperT4.h"
+ #include "Game/T4/XModel/XModelDumperT4.h"
+@@ -11,6 +13,7 @@
+ #include "PhysPreset/PhysPresetInfoStringDumperT4.h"
+ #include "RawFile/RawFileDumperT4.h"
+ #include "Sound/LoadedSoundDumperT4.h"
++#include "Sound/SoundAliasJsonDumperT4.h"
+ #include "StringTable/StringTableDumperT4.h"
+ #include "Weapon/WeaponDumperT4.h"
+ 
+@@ -25,10 +28,17 @@ void ObjWriter::RegisterAssetDumpers(AssetDumpingContext& context)
+     RegisterAssetDumper(std::make_unique<material::JsonDumperT4>());
+     RegisterAssetDumper(std::make_unique<image::DumperT4>());
+     RegisterAssetDumper(std::make_unique<sound::LoadedSoundDumperT4>());
++    RegisterAssetDumper(std::make_unique<sound::AliasJsonDumperT4>());
++    RegisterAssetDumper(std::make_unique<sound::DriverGlobalsJsonDumperT4>());
+     RegisterAssetDumper(std::make_unique<map_ents::DumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::GfxWorldDumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::ComWorldDumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::ClipMapDumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::PathDataDumperT4>());
+     RegisterAssetDumper(std::make_unique<font::JsonDumperT4>());
+     RegisterAssetDumper(std::make_unique<localize::DumperT4>());
+     RegisterAssetDumper(std::make_unique<weapon::DumperT4>());
+     RegisterAssetDumper(std::make_unique<raw_file::DumperT4>());
++    RegisterAssetDumper(std::make_unique<fx::JsonDumperT4>());
+     RegisterAssetDumper(std::make_unique<string_table::DumperT4>());
+ }
+diff --git a/src/ObjWriting/Material/MaterialJsonDumper.cpp.template b/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
+index 592e20e..1ba27c2 100644
+--- a/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
++++ b/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
+@@ -381,6 +381,75 @@ namespace material
+             return;
+ 
+         const auto* material = asset.Asset();
++#if defined(FEATURE_T4)
++        // Preserve native shader bytecode for measured cross-engine translation.
++        if (material->techniqueSet)
++        {
++            nlohmann::json sourceSet;
++            sourceSet["name"] = material->techniqueSet->name;
++            sourceSet["techniques"] = nlohmann::json::array();
++            for (const auto* technique : material->techniqueSet->techniques)
++            {
++                nlohmann::json techJs = nlohmann::json::object();
++                if (!technique)
++                {
++                    sourceSet["techniques"].push_back(techJs);
++                    continue;
++                }
++                techJs["name"] = technique->name;
++                techJs["passes"] = nlohmann::json::array();
++                for (unsigned p = 0; p < technique->passCount; ++p)
++                {
++                    const auto& pass = technique->passArray[p];
++                    nlohmann::json passJs;
++                    passJs["pixelShader"] = pass.pixelShader ? pass.pixelShader->name : "";
++                    passJs["vertexShader"] = pass.vertexShader ? pass.vertexShader->name : "";
++                    passJs["args"] = nlohmann::json::array();
++                    const unsigned count = pass.perPrimArgCount + pass.perObjArgCount + pass.stableArgCount;
++                    for (unsigned a = 0; a < count; ++a)
++                    {
++                        const auto& arg = pass.args[a];
++                        nlohmann::json aj;
++                        aj["type"] = arg.type;
++                        aj["dest"] = arg.dest;
++                        aj["frequency"] = a < pass.perPrimArgCount ? 0 : a < static_cast<unsigned>(pass.perPrimArgCount + pass.perObjArgCount) ? 1 : 2;
++                        if (arg.type == MTL_ARG_LITERAL_VERTEX_CONST || arg.type == MTL_ARG_LITERAL_PIXEL_CONST)
++                            aj["literal"] = {(*arg.u.literalConst)[0], (*arg.u.literalConst)[1], (*arg.u.literalConst)[2], (*arg.u.literalConst)[3]};
++                        else if (arg.type == MTL_ARG_CODE_VERTEX_CONST || arg.type == MTL_ARG_CODE_PIXEL_CONST)
++                        {
++                            aj["index"] = arg.u.codeConst.index;
++                            aj["firstRow"] = arg.u.codeConst.firstRow;
++                            aj["rowCount"] = arg.u.codeConst.rowCount;
++                        }
++                        else
++                            aj["value"] = arg.u.nameHash;
++                        passJs["args"].push_back(aj);
++                    }
++                    techJs["passes"].push_back(passJs);
++                    const auto* shader = technique->passArray[p].pixelShader;
++                    if (shader && shader->name && shader->prog.loadDef.program)
++                    {
++                        const auto file = context.OpenAssetFile(std::string("shader_bin/ps_") + shader->name + ".cso");
++                        if (file)
++                            file->write(reinterpret_cast<const char*>(shader->prog.loadDef.program),
++                                        shader->prog.loadDef.programSize * sizeof(unsigned int));
++                    }
++                    const auto* vertexShader = technique->passArray[p].vertexShader;
++                    if (vertexShader && vertexShader->name && vertexShader->prog.loadDef.program)
++                    {
++                        const auto file = context.OpenAssetFile(std::string("shader_bin/vs_") + vertexShader->name + ".cso");
++                        if (file)
++                            file->write(reinterpret_cast<const char*>(vertexShader->prog.loadDef.program),
++                                        vertexShader->prog.loadDef.programSize * sizeof(unsigned int));
++                    }
++                }
++                sourceSet["techniques"].push_back(techJs);
++            }
++            const auto sourceFile = context.OpenAssetFile(std::string("waw_techniquesets/") + material->techniqueSet->name + ".json");
++            if (sourceFile)
++                *sourceFile << sourceSet.dump(2);
++        }
++#endif
+ #if defined(FEATURE_T5)
+         assert(material->info.gameFlags < 0x400);
+         assert(material->maxStreamedMips == 0);
+diff --git a/src/ObjWriting/XModel/XModelDumper.cpp.template b/src/ObjWriting/XModel/XModelDumper.cpp.template
+index 9398f99..c336987 100644
+--- a/src/ObjWriting/XModel/XModelDumper.cpp.template
++++ b/src/ObjWriting/XModel/XModelDumper.cpp.template
+@@ -393,6 +393,39 @@ namespace
+             jXModel.lods.emplace_back(std::move(lod));
+         }
+ 
++#if defined(FEATURE_T4)
++        // waw2bo2: the model's collision triangles, losslessly (identical T6 layout).
++        // Entities (script_model, brush-less props) collide through them.
++        jXModel.contents = model.contents;
++        if (model.collSurfs && model.numCollSurfs > 0)
++        {
++            std::vector<JsonXModelCollSurf> surfs;
++            for (auto s = 0; s < model.numCollSurfs; s++)
++            {
++                const auto& surf = model.collSurfs[s];
++                JsonXModelCollSurf jSurf;
++                jSurf.mins.assign(surf.mins, surf.mins + 3);
++                jSurf.maxs.assign(surf.maxs, surf.maxs + 3);
++                jSurf.contents = surf.contents;
++                jSurf.surfFlags = surf.surfFlags;
++                if (model.boneNames && surf.boneIdx >= 0 && surf.boneIdx < model.numBones
++                    && model.boneNames[surf.boneIdx] < context.m_zone.m_script_strings.Count())
++                    jSurf.bone = context.m_zone.m_script_strings[model.boneNames[surf.boneIdx]];
++                for (auto t = 0; t < surf.numCollTris; t++)
++                {
++                    const auto& tri = surf.collTris[t];
++                    JsonXModelCollTri jTri;
++                    jTri.plane.assign(tri.plane, tri.plane + 4);
++                    jTri.svec.assign(tri.svec, tri.svec + 4);
++                    jTri.tvec.assign(tri.tvec, tri.tvec + 4);
++                    jSurf.tris.emplace_back(std::move(jTri));
++                }
++                surfs.emplace_back(std::move(jSurf));
++            }
++            jXModel.collSurfs = std::move(surfs);
++        }
++#endif
++
+         if (model.physPreset && model.physPreset->name)
+             jXModel.physPreset = AssetName(model.physPreset->name);
+ 
+diff --git a/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp
+new file mode 100644
+index 0000000..1d86b29
+--- /dev/null
++++ b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp
+@@ -0,0 +1,221 @@
++#include "FxJsonDumperT4.h"
++
++#include <format>
++#include <iomanip>
++#include <nlohmann/json.hpp>
++
++using namespace nlohmann;
++using namespace T4;
++
++namespace
++{
++    // Asset references may be the real asset or a "," prefixed reference name.
++    std::string RefName(const char* name)
++    {
++        if (!name)
++            return "";
++        if (name[0] == ',')
++            return name + 1;
++        return name;
++    }
++
++    json Range(const FxFloatRange& r)
++    {
++        return json::array({r.base, r.amplitude});
++    }
++
++    json Range(const FxIntRange& r)
++    {
++        return json::array({r.base, r.amplitude});
++    }
++
++    json Vec3(const float* v)
++    {
++        return json::array({v[0], v[1], v[2]});
++    }
++
++    json Vec3Range(const FxElemVec3Range& r)
++    {
++        return json{{"base", Vec3(r.base)}, {"amplitude", Vec3(r.amplitude)}};
++    }
++
++    json VelFrame(const FxElemVelStateInFrame& f)
++    {
++        return json{{"velocity", Vec3Range(f.velocity)}, {"totalDelta", Vec3Range(f.totalDelta)}};
++    }
++
++    json VisState(const FxElemVisualState& s)
++    {
++        return json{
++            {"color",         json::array({static_cast<uint8_t>(s.color[0]),
++                                   static_cast<uint8_t>(s.color[1]),
++                                   static_cast<uint8_t>(s.color[2]),
++                                   static_cast<uint8_t>(s.color[3])})},
++            {"rotationDelta", s.rotationDelta                           },
++            {"rotationTotal", s.rotationTotal                           },
++            {"size",          json::array({s.size[0], s.size[1]})       },
++            {"scale",         s.scale                                   },
++        };
++    }
++
++    json Visual(const FxElemDef& elem, const FxElemVisuals& v)
++    {
++        switch (elem.elemType)
++        {
++        case FX_ELEM_TYPE_MODEL:
++            return json{{"model", v.model ? RefName(v.model->name) : ""}};
++        case FX_ELEM_TYPE_RUNNER:
++            return json{{"effect", RefName(v.effectDef.name)}};
++        case FX_ELEM_TYPE_SOUND:
++            return json{{"sound", v.soundName ? v.soundName : ""}};
++        case FX_ELEM_TYPE_OMNI_LIGHT:
++        case FX_ELEM_TYPE_SPOT_LIGHT:
++            return json::object();
++        default:
++            return json{{"material", v.material ? RefName(v.material->info.name) : ""}};
++        }
++    }
++
++    json Elem(const FxElemDef& e)
++    {
++        json j;
++        j["flags"] = static_cast<uint32_t>(e.flags);
++        j["spawnLooping"] = json::array({e.spawn.looping.intervalMsec, e.spawn.looping.count});
++        j["spawnOneShot"] = Range(e.spawn.oneShot.count);
++        j["spawnRange"] = Range(e.spawnRange);
++        j["fadeInRange"] = Range(e.fadeInRange);
++        j["fadeOutRange"] = Range(e.fadeOutRange);
++        j["spawnFrustumCullRadius"] = e.spawnFrustumCullRadius;
++        j["spawnDelayMsec"] = Range(e.spawnDelayMsec);
++        j["lifeSpanMsec"] = Range(e.lifeSpanMsec);
++        j["spawnOrigin"] = json::array({Range(e.spawnOrigin[0]), Range(e.spawnOrigin[1]), Range(e.spawnOrigin[2])});
++        j["spawnOffsetRadius"] = Range(e.spawnOffsetRadius);
++        j["spawnOffsetHeight"] = Range(e.spawnOffsetHeight);
++        j["spawnAngles"] = json::array({Range(e.spawnAngles[0]), Range(e.spawnAngles[1]), Range(e.spawnAngles[2])});
++        j["angularVelocity"] = json::array({Range(e.angularVelocity[0]), Range(e.angularVelocity[1]), Range(e.angularVelocity[2])});
++        j["initialRotation"] = Range(e.initialRotation);
++        j["gravity"] = Range(e.gravity);
++        j["reflectionFactor"] = Range(e.reflectionFactor);
++        j["atlas"] = json{
++            {"behavior",     static_cast<uint8_t>(e.atlas.behavior)    },
++            {"index",        static_cast<uint8_t>(e.atlas.index)       },
++            {"fps",          static_cast<uint8_t>(e.atlas.fps)         },
++            {"loopCount",    static_cast<uint8_t>(e.atlas.loopCount)   },
++            {"colIndexBits", static_cast<uint8_t>(e.atlas.colIndexBits)},
++            {"rowIndexBits", static_cast<uint8_t>(e.atlas.rowIndexBits)},
++            {"entryCount",   e.atlas.entryCount                        },
++        };
++        j["windInfluence"] = e.windInfluence;
++        j["elemType"] = static_cast<uint8_t>(e.elemType);
++        j["visualCount"] = static_cast<uint8_t>(e.visualCount);
++        j["velIntervalCount"] = static_cast<uint8_t>(e.velIntervalCount);
++        j["visStateIntervalCount"] = static_cast<uint8_t>(e.visStateIntervalCount);
++
++        auto vel = json::array();
++        if (e.velSamples)
++        {
++            for (auto i = 0; i <= static_cast<uint8_t>(e.velIntervalCount); i++)
++                vel.push_back(json{{"local", VelFrame(e.velSamples[i].local)}, {"world", VelFrame(e.velSamples[i].world)}});
++        }
++        j["velSamples"] = vel;
++
++        auto vis = json::array();
++        if (e.visSamples)
++        {
++            for (auto i = 0; i <= static_cast<uint8_t>(e.visStateIntervalCount); i++)
++                vis.push_back(json{{"base", VisState(e.visSamples[i].base)}, {"amplitude", VisState(e.visSamples[i].amplitude)}});
++        }
++        j["visSamples"] = vis;
++
++        auto visuals = json::array();
++        const auto count = static_cast<uint8_t>(e.visualCount);
++        if (e.elemType == FX_ELEM_TYPE_DECAL)
++        {
++            for (auto i = 0; e.visuals.markArray && i < count; i++)
++            {
++                const auto& m = e.visuals.markArray[i];
++                visuals.push_back(json{
++                    {"materials",
++                     json::array({m.materials[0] ? RefName(m.materials[0]->info.name) : "", m.materials[1] ? RefName(m.materials[1]->info.name) : ""})}
++                });
++            }
++        }
++        else if (count > 1)
++        {
++            for (auto i = 0; e.visuals.array && i < count; i++)
++                visuals.push_back(Visual(e, e.visuals.array[i]));
++        }
++        else if (count == 1)
++            visuals.push_back(Visual(e, e.visuals.instance));
++        j["visuals"] = visuals;
++
++        j["collMins"] = Vec3(e.collMins);
++        j["collMaxs"] = Vec3(e.collMaxs);
++        j["effectOnImpact"] = RefName(e.effectOnImpact.name);
++        j["effectOnDeath"] = RefName(e.effectOnDeath.name);
++        j["effectEmitted"] = RefName(e.effectEmitted.name);
++        j["emitDist"] = Range(e.emitDist);
++        j["emitDistVariance"] = Range(e.emitDistVariance);
++
++        if (e.trailDef)
++        {
++            const auto& t = *e.trailDef;
++            auto verts = json::array();
++            for (auto i = 0; t.verts && i < t.vertCount; i++)
++                verts.push_back(json{
++                    {"pos",      json::array({t.verts[i].pos[0], t.verts[i].pos[1]})      },
++                    {"normal",   json::array({t.verts[i].normal[0], t.verts[i].normal[1]})},
++                    {"texCoord", t.verts[i].texCoord                                      },
++                });
++            auto inds = json::array();
++            for (auto i = 0; t.inds && i < t.indCount; i++)
++                inds.push_back(t.inds[i]);
++            j["trail"] = json{
++                {"scrollTimeMsec", t.scrollTimeMsec},
++                {"repeatDist",     t.repeatDist    },
++                {"splitDist",      t.splitDist     },
++                {"verts",          verts           },
++                {"inds",           inds            },
++            };
++        }
++        else
++            j["trail"] = nullptr;
++
++        j["sortOrder"] = static_cast<uint8_t>(e.sortOrder);
++        j["lightingFrac"] = static_cast<uint8_t>(e.lightingFrac);
++        j["useItemClip"] = static_cast<uint8_t>(e.useItemClip);
++        return j;
++    }
++} // namespace
++
++namespace fx
++{
++    void JsonDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<FxEffectDef>& asset)
++    {
++        const auto* fx = asset.Asset();
++        const auto assetFile = context.OpenAssetFile(std::format("fx/{}.w2bfx.json", asset.m_name));
++        if (!assetFile)
++            return;
++
++        json j;
++        j["_type"] = "waw2bo2_fx";
++        j["_game"] = "T4";
++        j["_version"] = 1;
++        j["name"] = asset.m_name;
++        j["flags"] = static_cast<uint32_t>(fx->flags);
++        j["totalSize"] = fx->totalSize;
++        j["msecLoopingLife"] = fx->msecLoopingLife;
++        j["elemDefCountLooping"] = fx->elemDefCountLooping;
++        j["elemDefCountOneShot"] = fx->elemDefCountOneShot;
++        j["elemDefCountEmission"] = fx->elemDefCountEmission;
++        j["efPriority"] = static_cast<uint8_t>(fx->efPriority);
++
++        auto elems = json::array();
++        const auto total = fx->elemDefCountLooping + fx->elemDefCountOneShot + fx->elemDefCountEmission;
++        for (auto i = 0; fx->elemDefs && i < total; i++)
++            elems.push_back(Elem(fx->elemDefs[i]));
++        j["elemDefs"] = elems;
++
++        *assetFile << std::setw(1) << std::setfill('\t') << j << "\n";
++    }
++} // namespace fx
+diff --git a/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h
+new file mode 100644
+index 0000000..c04a708
+--- /dev/null
++++ b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h
+@@ -0,0 +1,16 @@
++#pragma once
++
++#include "Dumping/AbstractAssetDumper.h"
++#include "Game/T4/T4.h"
++
++namespace fx
++{
++    // waw2bo2: lossless dump of a compiled T4 FxEffectDef (fx/<name>.w2bfx.json).
++    // Every field of the runtime struct is written as is (samples, ranges, raw
++    // flags); referenced assets are written by name. The converter translates it.
++    class JsonDumperT4 final : public AbstractAssetDumper<T4::AssetFx>
++    {
++    protected:
++        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::FxEffectDef>& asset) override;
++    };
++} // namespace fx
+diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
+new file mode 100644
+index 0000000..bcd7ccd
+--- /dev/null
++++ b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
+@@ -0,0 +1,384 @@
++#include "WorldConverterDumperT4.h"
++
++#include <array>
++#include <algorithm>
++#include <cstdint>
++#include <format>
++#include <ostream>
++#include <set>
++#include <stdexcept>
++#include <string>
++#include <vector>
++#include <iomanip>
++#include <nlohmann/json.hpp>
++
++using namespace T4;
++
++namespace
++{
++    constexpr std::array<char, 8> MAGIC{'W', '2', 'B', 'S', 'P', '0', '0', '1'};
++
++    template <typename T> void Write(std::ostream& stream, const T& value)
++    {
++        stream.write(reinterpret_cast<const char*>(&value), sizeof(value));
++        if (!stream)
++            throw std::runtime_error("Could not write WaW world interchange data");
++    }
++
++    template <typename T> void WriteArray(std::ostream& stream, const T* values, const size_t count)
++    {
++        if (count && !values)
++            throw std::runtime_error("WaW world asset contains a null array");
++        stream.write(reinterpret_cast<const char*>(values), static_cast<std::streamsize>(sizeof(T) * count));
++        if (!stream)
++            throw std::runtime_error("Could not write WaW world interchange array");
++    }
++
++    void WriteString(std::ostream& stream, const char* value)
++    {
++        // A leading comma is OAT's internal asset-reference marker. Material
++        // dumpers remove it before writing JSON, so the world interchange
++        // format must use the same canonical asset name.
++        const std::string text = value && value[0] == ',' ? std::string(value + 1) : (value ? value : "");
++        if (text.size() > UINT32_MAX)
++            throw std::runtime_error("WaW asset name is too long");
++        Write(stream, static_cast<uint32_t>(text.size()));
++        stream.write(text.data(), static_cast<std::streamsize>(text.size()));
++    }
++
++    std::string OutputName(const std::string& assetName, const char* suffix)
++    {
++        return std::format("waw2bo2/{}{}", assetName, suffix);
++    }
++
++    void WritePlane(std::ostream& stream, const float x, const float y, const float z, const float distance, const uint32_t material)
++    {
++        Write(stream, x);
++        Write(stream, y);
++        Write(stream, z);
++        Write(stream, distance);
++        Write(stream, material);
++    }
++} // namespace
++
++namespace world_converter
++{
++    void ComWorldDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<ComWorld>& asset)
++    {
++        using nlohmann::json;
++        const auto* world = asset.Asset();
++        json out = {{"_type", "waw2bo2_primary_lights"}, {"_game", "T4"}, {"_version", 1},
++                    {"lights", json::array()}};
++        for (unsigned int i = 0; i < world->primaryLightCount; ++i)
++        {
++            const auto& light = world->primaryLights[i];
++            json row = {{"index", i}, {"defName", light.defName ? light.defName : ""}};
++#define LIGHT_FIELD(field) row[#field] = light.field
++            LIGHT_FIELD(type); LIGHT_FIELD(canUseShadowMap); LIGHT_FIELD(exponent); LIGHT_FIELD(priority);
++            LIGHT_FIELD(cullDist); LIGHT_FIELD(color); LIGHT_FIELD(dir); LIGHT_FIELD(origin);
++            LIGHT_FIELD(radius); LIGHT_FIELD(cosHalfFovOuter); LIGHT_FIELD(cosHalfFovInner);
++            LIGHT_FIELD(cosHalfFovExpanded); LIGHT_FIELD(rotationLimit); LIGHT_FIELD(translationLimit);
++#undef LIGHT_FIELD
++            out["lights"].push_back(row);
++        }
++        const auto file = context.OpenAssetFile(OutputName(asset.m_name, ".primarylights.json"));
++        if (file) *file << std::setw(2) << out << '\n';
++    }
++
++    void GfxWorldDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<GfxWorld>& asset)
++    {
++        const auto* world = asset.Asset();
++        const auto file = context.OpenAssetFile(OutputName(asset.m_name, ".gfx.bin"));
++        if (!file)
++            return;
++
++        auto& stream = *file;
++        WriteArray(stream, MAGIC.data(), MAGIC.size());
++        Write(stream, uint32_t{2});
++        Write(stream, world->vertexCount);
++        Write(stream, static_cast<uint32_t>(world->indexCount));
++        Write(stream, static_cast<uint32_t>(world->surfaceCount));
++        Write(stream, world->dpvs.smodelCount);
++        WriteString(stream, world->name);
++        WriteString(stream, world->baseName);
++        WriteString(stream, world->skyBoxModel);
++
++        for (uint32_t i = 0; i < world->vertexCount; ++i)
++        {
++            const auto& vertex = world->vd.vertices[i];
++            WriteArray(stream, vertex.xyz, 3);
++            Write(stream, vertex.color.packed);
++            WriteArray(stream, vertex.texCoord, 2);
++            WriteArray(stream, vertex.lmapCoord, 2);
++            Write(stream, vertex.normal.packed);
++            Write(stream, vertex.tangent.packed);
++            Write(stream, vertex.binormalSign);
++        }
++        WriteArray(stream, world->indices, world->indexCount);
++
++        for (int i = 0; i < world->surfaceCount; ++i)
++        {
++            const auto& surface = world->dpvs.surfaces[i];
++            Write(stream, surface.tris.firstVertex);
++            Write(stream, surface.tris.vertexCount);
++            Write(stream, surface.tris.triCount);
++            Write(stream, surface.tris.baseIndex);
++            WriteString(stream, surface.material ? surface.material->info.name : "");
++            Write(stream, surface.lightmapIndex);
++            Write(stream, surface.reflectionProbeIndex);
++            Write(stream, surface.primaryLightIndex);
++            Write(stream, surface.flags);
++            WriteArray(stream, surface.bounds[0], 3);
++            WriteArray(stream, surface.bounds[1], 3);
++        }
++
++        for (uint32_t i = 0; i < world->dpvs.smodelCount; ++i)
++        {
++            const auto& model = world->dpvs.smodelDrawInsts[i];
++            WriteString(stream, model.model ? model.model->name : "");
++            WriteArray(stream, model.placement.origin, 3);
++            WriteArray(stream, model.placement.axis[0], 9);
++            Write(stream, model.placement.scale);
++            Write(stream, model.flags);
++            Write(stream, model.cullDist); // v2
++        }
++
++        // Keep compiled lighting independently of the geometry interchange.
++        // T4 and T6 shader encodings differ: these are ORIGINAL source data,
++        // not a claim that copying a lightmap into T6 produces correct light.
++        using nlohmann::json;
++        const auto& sun = world->sunParse;
++        json lighting = {{"_type", "waw2bo2_lighting"}, {"_game", "T4"}, {"_version", 1},
++                         {"primaryLightCount", world->primaryLightCount},
++                         {"sunPrimaryLightIndex", world->sunPrimaryLightIndex}, {"lightmaps", json::array()}};
++        auto& s = lighting["sun"];
++        s["name"] = std::string(sun.name, std::find(sun.name, sun.name + sizeof(sun.name), '\0'));
++        s["ambientScale"] = sun.ambientScale;
++        s["diffuseFraction"] = sun.diffuseFraction;
++        s["sunLight"] = sun.sunLight;
++        s["diffuseColorHasBeenSet"] = sun.diffuseColorHasBeenSet;
++        s["treeScatterIntensity"] = sun.treeScatterIntensity;
++        s["treeScatterAmount"] = sun.treeScatterAmount;
++        s["ambientColor"] = sun.ambientColor;
++        s["sunColor"] = sun.sunColor;
++        s["diffuseColor"] = sun.diffuseColor;
++        s["angles"] = sun.angles;
++        lighting["sunColorFromBsp"] = world->sunColorFromBsp;
++        for (int i = 0; i < world->lightmapCount; ++i)
++        {
++            const auto& lm = world->lightmaps[i];
++            lighting["lightmaps"].push_back({{"index", i},
++                {"primary", lm.primary && lm.primary->name ? lm.primary->name : ""},
++                {"secondary", lm.secondary && lm.secondary->name ? lm.secondary->name : ""}});
++        }
++        const auto jsonFile = context.OpenAssetFile(OutputName(asset.m_name, ".lighting.json"));
++        if (jsonFile) *jsonFile << std::setw(2) << lighting << '\n';
++
++        const auto& grid = world->lightGrid;
++        if (grid.rowAxis > 2 || grid.colAxis > 2 || grid.maxs[grid.rowAxis] < grid.mins[grid.rowAxis])
++            throw std::runtime_error("Invalid WaW light-grid axes/bounds");
++        const auto gridFile = context.OpenAssetFile(OutputName(asset.m_name, ".lightgrid.bin"));
++        if (!gridFile) return;
++        auto& gs = *gridFile;
++        constexpr std::array<char, 8> gridMagic{'W','2','B','L','G','R','D','1'};
++        WriteArray(gs, gridMagic.data(), gridMagic.size());
++        Write(gs, uint32_t{1});
++        Write(gs, static_cast<uint32_t>(grid.hasLightRegions));
++        Write(gs, grid.sunPrimaryLightIndex);
++        WriteArray(gs, grid.mins, 3);
++        WriteArray(gs, grid.maxs, 3);
++        Write(gs, grid.rowAxis);
++        Write(gs, grid.colAxis);
++        const uint32_t rows = grid.rowDataStart ? grid.maxs[grid.rowAxis] - grid.mins[grid.rowAxis] + 1u : 0u;
++        Write(gs, rows);
++        Write(gs, grid.rawRowDataSize);
++        Write(gs, grid.entryCount);
++        Write(gs, grid.colorCount);
++        WriteArray(gs, grid.rowDataStart, rows);
++        WriteArray(gs, grid.rawRowData, grid.rawRowDataSize);
++        static_assert(sizeof(GfxLightGridEntry) == 4 && sizeof(GfxLightGridColors) == 168);
++        WriteArray(gs, grid.entries, grid.entryCount);
++        WriteArray(gs, grid.colors, grid.colorCount);
++    }
++
++    void ClipMapDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<clipMap_t>& asset)
++    {
++        const auto* clip = asset.Asset();
++        const auto file = context.OpenAssetFile(OutputName(asset.m_name, ".clip.bin"));
++        if (!file)
++            return;
++
++        auto& stream = *file;
++        WriteArray(stream, MAGIC.data(), MAGIC.size());
++        Write(stream, uint32_t{3});
++        WriteString(stream, clip->name);
++        Write(stream, clip->numMaterials);
++        for (uint32_t i = 0; i < clip->numMaterials; ++i)
++        {
++            WriteString(stream, clip->materials[i].material);
++            Write(stream, clip->materials[i].surfaceFlags);
++            Write(stream, clip->materials[i].contentFlags);
++        }
++
++        Write(stream, clip->vertCount);
++        WriteArray(stream, clip->verts, clip->vertCount);
++        Write(stream, static_cast<uint32_t>(clip->triCount));
++        WriteArray(stream, clip->triIndices, static_cast<size_t>(clip->triCount) * 3);
++
++        Write(stream, static_cast<uint32_t>(clip->numBrushes));
++        for (uint32_t i = 0; i < clip->numBrushes; ++i)
++        {
++            const auto& brush = clip->brushes[i];
++            WriteArray(stream, brush.mins, 3);
++            WriteArray(stream, brush.maxs, 3);
++            Write(stream, brush.contents);
++            Write(stream, static_cast<uint32_t>(brush.numsides + 6));
++
++            WritePlane(stream, -1.0f, 0.0f, 0.0f, -brush.mins[0], static_cast<uint16_t>(brush.axialMaterialNum[0][0]));
++            WritePlane(stream, 1.0f, 0.0f, 0.0f, brush.maxs[0], static_cast<uint16_t>(brush.axialMaterialNum[1][0]));
++            WritePlane(stream, 0.0f, -1.0f, 0.0f, -brush.mins[1], static_cast<uint16_t>(brush.axialMaterialNum[0][1]));
++            WritePlane(stream, 0.0f, 1.0f, 0.0f, brush.maxs[1], static_cast<uint16_t>(brush.axialMaterialNum[1][1]));
++            WritePlane(stream, 0.0f, 0.0f, -1.0f, -brush.mins[2], static_cast<uint16_t>(brush.axialMaterialNum[0][2]));
++            WritePlane(stream, 0.0f, 0.0f, 1.0f, brush.maxs[2], static_cast<uint16_t>(brush.axialMaterialNum[1][2]));
++            for (uint32_t side = 0; side < brush.numsides; ++side)
++            {
++                const auto& source = brush.sides[side];
++                if (!source.plane)
++                    throw std::runtime_error("WaW brush contains a null side plane");
++                WritePlane(stream, source.plane->normal[0], source.plane->normal[1], source.plane->normal[2], source.plane->dist, source.materialNum);
++            }
++
++            Write(stream, brush.numverts);
++            WriteArray(stream, brush.verts, brush.numverts);
++        }
++
++        // v3: brushes reachable from each submodel. cmodel 0 is the world and
++        // owns what its BSP leafs reference; brush models (doors, blockers)
++        // belong to entities and must not become static world collision.
++        Write(stream, clip->numSubModels);
++        for (uint32_t i = 0; i < clip->numSubModels; ++i)
++        {
++            const auto& model = clip->cmodels[i];
++            WriteArray(stream, model.mins, 3);
++            WriteArray(stream, model.maxs, 3);
++
++            std::vector<uint16_t> owned;
++            std::set<uint32_t> visited;
++            std::set<uint16_t> seenBrushes;
++            std::vector<uint32_t> pending;
++            if (i == 0)
++            {
++                for (uint32_t leaf = 0; leaf < clip->numLeafs; ++leaf)
++                    if (clip->leafs[leaf].brushContents && clip->leafs[leaf].leafBrushNode >= 0)
++                        pending.push_back(static_cast<uint32_t>(clip->leafs[leaf].leafBrushNode));
++            }
++            else if (model.leaf.brushContents && model.leaf.leafBrushNode >= 0)
++                pending.push_back(static_cast<uint32_t>(model.leaf.leafBrushNode));
++            while (!pending.empty())
++            {
++                const auto index = pending.back();
++                pending.pop_back();
++                if (index >= clip->leafbrushNodesCount || !visited.insert(index).second)
++                    continue;
++                const auto& node = clip->leafbrushNodes[index];
++                if (node.leafBrushCount > 0)
++                {
++                    for (int16_t b = 0; b < node.leafBrushCount; ++b)
++                        if (seenBrushes.insert(node.data.leaf.brushes[b]).second)
++                            owned.push_back(node.data.leaf.brushes[b]);
++                    continue;
++                }
++                for (const auto offset : node.data.children.childOffset)
++                    if (offset)
++                        pending.push_back(index + offset);
++            }
++            Write(stream, static_cast<uint32_t>(owned.size()));
++            WriteArray(stream, owned.data(), owned.size());
++        }
++
++        // v3: collidable static models with their model-space collision hulls
++        Write(stream, clip->numStaticModels);
++        for (uint32_t i = 0; i < clip->numStaticModels; ++i)
++        {
++            const auto& sm = clip->staticModelList[i];
++            const auto* model = sm.xmodel;
++            WriteString(stream, model ? model->name : "");
++            WriteArray(stream, sm.origin, 3);
++            WriteArray(stream, sm.invScaledAxis[0], 9);
++            WriteArray(stream, sm.absmin, 3);
++            WriteArray(stream, sm.absmax, 3);
++            Write(stream, model ? model->contents : 0);
++            const auto surfCount = model && model->collSurfs ? static_cast<uint32_t>(model->numCollSurfs) : 0u;
++            Write(stream, surfCount);
++            for (uint32_t s = 0; s < surfCount; ++s)
++            {
++                const auto& surf = model->collSurfs[s];
++                Write(stream, surf.contents);
++                Write(stream, surf.surfFlags);
++                WriteArray(stream, surf.mins, 3);
++                WriteArray(stream, surf.maxs, 3);
++                Write(stream, surf.boneIdx);
++                Write(stream, static_cast<uint32_t>(surf.numCollTris));
++                // each collTri is one triangle: its plane plus the s/t barycentric vectors
++                for (int t = 0; t < surf.numCollTris; ++t)
++                {
++                    WriteArray(stream, surf.collTris[t].plane, 4);
++                    WriteArray(stream, surf.collTris[t].svec, 4);
++                    WriteArray(stream, surf.collTris[t].tvec, 4);
++                }
++            }
++        }
++    }
++    namespace
++    {
++        std::string JsonString(const std::string& value)
++        {
++            std::string out = "\"";
++            for (const auto ch : value)
++            {
++                if (ch == '"' || ch == '\\')
++                    out += '\\';
++                if (static_cast<unsigned char>(ch) < 0x20)
++                    out += std::format("\\u{:04x}", static_cast<unsigned char>(ch));
++                else
++                    out += ch;
++            }
++            return out + "\"";
++        }
++    } // namespace
++
++    void PathDataDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<GameWorldSp>& asset)
++    {
++        const auto& path = asset.Asset()->path;
++        const auto file = context.OpenAssetFile(OutputName(asset.m_name, ".paths.json"));
++        if (!file)
++            return;
++
++        const auto& strings = context.m_zone.m_script_strings;
++        const auto str = [&strings](const unsigned idx) { return JsonString(idx && idx < strings.Count() ? strings.Value(idx) : std::string()); };
++
++        auto& out = *file;
++        out << "{\n  \"version\": 1,\n  \"nodeCount\": " << path.nodeCount << ",\n  \"visBytes\": " << path.visBytes << ",\n  \"nodes\": [\n";
++        for (auto i = 0u; i < path.nodeCount; i++)
++        {
++            const auto& c = path.nodes[i].constant;
++            out << std::format("    {{\"type\": {}, \"spawnflags\": {}, \"targetname\": {}, \"script_linkname\": {}, \"script_noteworthy\": {}, "
++                               "\"target\": {}, \"animscript\": {}, \"animscriptfunc\": {}, \"origin\": [{:.9g}, {:.9g}, {:.9g}], \"angle\": {:.9g}, "
++                               "\"forward\": [{:.9g}, {:.9g}], \"radius\": {:.9g}, \"minUseDistSq\": {:.9g}, \"overlap\": [{}, {}], \"links\": [",
++                               static_cast<int>(c.type), c.spawnflags, str(c.targetname), str(c.script_linkName), str(c.script_noteworthy), str(c.target),
++                               str(c.animscript), c.animscriptfunc, c.vOrigin[0], c.vOrigin[1], c.vOrigin[2], c.fAngle, c.forward[0], c.forward[1], c.fRadius,
++                               c.minUseDistSq, c.wOverlapNode[0], c.wOverlapNode[1]);
++            for (auto l = 0u; l < c.totalLinkCount; l++)
++            {
++                const auto& link = c.Links[l];
++                out << std::format("{}[{}, {:.9g}, {}, {}]", l ? ", " : "", link.nodeNum, link.fDist, static_cast<int>(link.disconnectCount),
++                                   static_cast<int>(link.negotiationLink));
++            }
++            out << "]}" << (i + 1 < path.nodeCount ? ",\n" : "\n");
++        }
++        out << "  ],\n  \"pathVis\": \"";
++        for (auto b = 0; path.pathVis && b < path.visBytes; b++)
++            out << std::format("{:02x}", static_cast<unsigned char>(path.pathVis[b]));
++        out << "\"\n}\n";
++    }
++} // namespace world_converter
+diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h
+new file mode 100644
+index 0000000..0c1e2c4
+--- /dev/null
++++ b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h
+@@ -0,0 +1,32 @@
++#pragma once
++
++#include "Dumping/AbstractAssetDumper.h"
++#include "Game/T4/T4.h"
++
++namespace world_converter
++{
++    class ComWorldDumperT4 final : public AbstractAssetDumper<T4::AssetComWorld>
++    {
++    protected:
++        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::ComWorld>& asset) override;
++    };
++    class GfxWorldDumperT4 final : public AbstractAssetDumper<T4::AssetGfxWorld>
++    {
++    protected:
++        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::GfxWorld>& asset) override;
++    };
++
++    // T4 custom maps store their usable collision asset in the PVS slot.  The
++    // non-PVS slot is exposed as "clipmap_unused" by OAT and is normally empty.
++    class ClipMapDumperT4 final : public AbstractAssetDumper<T4::AssetClipMapPvs>
++    {
++    protected:
++        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::clipMap_t>& asset) override;
++    };
++    // Path nodes of the SP gameworld (WaW zombie maps are SP maps) as JSON
++    class PathDataDumperT4 final : public AbstractAssetDumper<T4::AssetGameWorldSp>
++    {
++    protected:
++        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::GameWorldSp>& asset) override;
++    };
++} // namespace world_converter
+diff --git a/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp
+new file mode 100644
+index 0000000..59edb7d
+--- /dev/null
++++ b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp
+@@ -0,0 +1,114 @@
++#include "SoundAliasJsonDumperT4.h"
++#include <format>
++#include <iomanip>
++#include <nlohmann/json.hpp>
++#include <algorithm>
++
++using namespace T4;
++using nlohmann::json;
++namespace
++{
++    std::string Name(const char* text)
++    {
++        return text ? (text[0] == ',' ? text + 1 : text) : "";
++    }
++}
++void sound::DriverGlobalsJsonDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<SndDriverGlobals>& asset)
++{
++    const auto& globals = *asset.Asset();
++    json out = {{"_type", "waw2bo2_sound_globals"}, {"_game", "T4"}, {"_version", 1}};
++    const auto boundedName = [](const char (&name)[32]) { return std::string(name, std::find(name, name + 32, '\0')); };
++    out["buses"] = json::array();
++    for (unsigned i = 0; i < 64; ++i)
++    {
++        const auto& bus = globals.buses[i];
++        out["buses"].push_back({{"index", i}, {"name", boundedName(bus.name)}, {"volumeMod", bus.volumeMod},
++            {"maxVoices", bus.maxVoices}, {"restricted", bus.restricted}, {"pausable", bus.pausable},
++            {"stopOnDeath", bus.stopOnDeath}, {"isMusic", bus.isMusic}, {"category", bus.category},
++            {"voiceLimitType", bus.voiceLimitType}});
++    }
++    out["curves"] = json::array();
++    out["speakerMaps"] = json::array();
++    for (unsigned i = 0; i < 32; ++i)
++    {
++        const auto& curve = globals.curves[i];
++        out["curves"].push_back({{"index", i}, {"name", boundedName(curve.name)}, {"pointCount", curve.pointCount},
++                                 {"points", curve.points}});
++        const auto& speakers = globals.speakerMaps[i];
++        json set = {{"index", i}, {"name", boundedName(speakers.name)}, {"maps", json::array()}};
++        for (const auto& map : speakers.channelMaps)
++            set["maps"].push_back({{"inputChannels", map.input_channel_count}, {"outputChannels", map.output_channel_count},
++                                   {"volumes", map.volumes}});
++        out["speakerMaps"].push_back(std::move(set));
++    }
++    out["reverbPatches"] = json::array();
++    for (unsigned i = 0; i < 64; ++i)
++    {
++        const auto& patch = globals.reverbPatches[i];
++        json row = {{"index", i}, {"name", boundedName(patch.name)}};
++#define PATCH_FIELD(field) row[#field] = patch.field
++        PATCH_FIELD(room); PATCH_FIELD(roomHF); PATCH_FIELD(roomRolloffFactor); PATCH_FIELD(decayTime);
++        PATCH_FIELD(decayHFRatio); PATCH_FIELD(reflections); PATCH_FIELD(reflectionsDelay); PATCH_FIELD(reverb);
++        PATCH_FIELD(reverbDelay); PATCH_FIELD(diffusion); PATCH_FIELD(density); PATCH_FIELD(HFReference);
++#undef PATCH_FIELD
++        out["reverbPatches"].push_back(std::move(row));
++    }
++    out["masterEffects"] = json::array();
++    for (unsigned i = 0; i < 16; ++i)
++    {
++        const auto& master = globals.masterEffects[i];
++        out["masterEffects"].push_back({{"index", i}, {"name", boundedName(master.name)},
++            {"masterRingmod", master.masterRingmod}, {"reverbRingmod", master.reverbRingmod},
++            {"masterLPRatio", master.masterLPRatio}, {"masterLPDB", master.masterLPDB},
++            {"masterHPRatio", master.masterHPRatio}, {"masterHPDB", master.masterHPDB}});
++    }
++    const auto file = context.OpenAssetFile(std::format("soundglobals/{}.w2bsndglobals.json", asset.m_name));
++    if (file) *file << std::setw(2) << out << '\n';
++}
++void sound::AliasJsonDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<snd_alias_list_t>& asset)
++{
++    const auto* list = asset.Asset();
++    // Layout verified against the official WaW linker sub_404D50. Previous
++    // gap fields are team modulation, entity limits and cylindrical falloff;
++    // moveTime is FLOAT, not unsigned milliseconds. Offsets/size are unchanged.
++    static_assert(sizeof(snd_alias_t) == 184 && offsetof(snd_alias_t, flags) == 132);
++    json out = {{"_type", "waw2bo2_sound"}, {"_game", "T4"}, {"_version", 2},
++                {"name", Name(list->aliasName)}, {"aliases", json::array()}};
++    for (int i = 0; i < list->count; ++i)
++    {
++        const auto& a = list->head[i];
++        json row = {{"aliasName", Name(a.aliasName)}, {"aliasNameHash", a.aliasNameHash},
++                    {"subtitle", Name(a.subtitle)}, {"secondaryAliasName", Name(a.secondaryAliasName)},
++                    {"chainAliasName", Name(a.chainAliasName)}};
++#define FIELD(field) row[#field] = a.field
++        FIELD(sequence); FIELD(volMin); FIELD(volMax); FIELD(pitchMin); FIELD(pitchMax);
++        FIELD(distMin); FIELD(distMax); FIELD(distReverbMax); FIELD(slavePercentage); FIELD(probability);
++        FIELD(lfePercentage); FIELD(centerPercentage); FIELD(envelopMin); FIELD(envelopMax);
++        FIELD(envelopPercentage); FIELD(minPriority); FIELD(maxPriority); FIELD(minPriorityThreshold);
++        FIELD(maxPriorityThreshold); FIELD(reverbSend); FIELD(teamVolMod); FIELD(teamPitchMod);
++        FIELD(occlusionLevel); FIELD(occlusionWetDry); FIELD(moveTime); FIELD(startDelay); FIELD(speakerMap);
++        FIELD(flags); FIELD(volumeFalloffCurve); FIELD(reverbFalloffCurve); FIELD(volumeMinFalloffCurve);
++        FIELD(reverbMinFalloffCurve); FIELD(limitCount); FIELD(limitType); FIELD(entityLimitCount);
++        FIELD(entityLimitType); FIELD(randomizeType); FIELD(cylInnerRadius); FIELD(cylOuterRadius); FIELD(cylOuterLevel);
++#undef FIELD
++        if (a.soundFile)
++        {
++            const auto& f = *a.soundFile;
++            json file = {{"type", f.type}, {"exists", f.exists}};
++            if (f.type == SAT_LOADED && f.u.loadSnd)
++                file["name"] = Name(f.u.loadSnd->name);
++            else if (f.type == SAT_STREAMED || f.type == SAT_PRIMED)
++            {
++                file["dir"] = Name(f.u.streamSnd.filename.dir);
++                file["name"] = Name(f.u.streamSnd.filename.name);
++                file["hash"] = f.u.streamSnd.filename.hash;
++                if (f.u.streamSnd.primeSnd) file["primedName"] = Name(f.u.streamSnd.primeSnd->name);
++            }
++            row["soundFile"] = file;
++        }
++        else row["soundFile"] = nullptr;
++        out["aliases"].push_back(row);
++    }
++    const auto file = context.OpenAssetFile(std::format("soundaliases/{}.w2bsnd.json", asset.m_name));
++    if (file) *file << std::setw(2) << out << '\n';
++}
+diff --git a/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h
+new file mode 100644
+index 0000000..64ce35b
+--- /dev/null
++++ b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h
+@@ -0,0 +1,17 @@
++#pragma once
++#include "Dumping/AbstractAssetDumper.h"
++#include "Game/T4/T4.h"
++
++namespace sound
++{
++    class DriverGlobalsJsonDumperT4 final : public AbstractAssetDumper<T4::AssetSoundDriverGlobals>
++    {
++    protected:
++        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::SndDriverGlobals>& asset) override;
++    };
++    class AliasJsonDumperT4 final : public AbstractAssetDumper<T4::AssetSound>
++    {
++    protected:
++        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::snd_alias_list_t>& asset) override;
++    };
++}
