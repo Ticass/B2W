@@ -696,13 +696,24 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
             f"({', '.join(sorted(tool_surfaces))}) removed from the render world")
     world.surfaces = kept
     write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data))
-    write_collision_fbx(clip, bsp / "map_col.fbx")
+    slot_materials = write_collision_fbx(clip, bsp / "map_col.fbx")
+    # BSP/clipmaterials.json: FBX collision material -> WaW clip flags. The
+    # bridge linker gives every terrain partition its own clip material.
+    clip_materials = [{"fbx": "waw_collision", "name": "waw_collision", "contentFlags": 1, "surfaceFlags": 0}
+                      if m < 0 else
+                      {"fbx": f"clip_{m}", "name": clip.materials[m].name,
+                       "contentFlags": hulls._signed(clip.materials[m].content_flags),
+                       "surfaceFlags": hulls._signed(clip.materials[m].surface_flags)} for m in slot_materials]
+    (bsp / "clipmaterials.json").write_text(json.dumps({"materials": clip_materials}, indent=1) + "\n", encoding="utf-8")
     brushes, summary = hulls.collision_brushes(clip)
     (bsp / "brushes.json").write_text(json.dumps({"brushes": brushes}, separators=(",", ":")) + "\n",
                                       encoding="utf-8")
     subs = hulls.submodel_records(clip)
     (bsp / "submodels.json").write_text(json.dumps({"submodels": subs}, separators=(",", ":")) + "\n",
                                         encoding="utf-8")
+    summary["collision_triangle_materials"] = len(clip_materials)
+    summary["collision_triangles_noncolliding_dropped"] = sum(
+        1 for m in clip.triangle_materials if m == 0xFFFF or not clip.materials[m].content_flags)
     summary["submodels"] = len(subs)
     summary["empty_submodels"] = sum(1 for s in subs if not s["brushes"])
     static_models, static_summary = hulls.static_model_records(clip)

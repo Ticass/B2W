@@ -1,5 +1,9 @@
 #pragma once
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include "Asset/IAssetCreator.h"
 #include "Game/T6/BSP/BSP.h"
 #include "Game/T6/BSP/BSPCalculation.h"
@@ -47,7 +51,9 @@ namespace BSP
         void AddAABBTreeFromLeaf(T6::clipMap_t& clipMap, const BSPTree& tree, size_t& outParentCount, size_t& outParentStartIndex);
         int16_t LoadBSPNode(T6::clipMap_t& clipMap, const BSPTree& tree);
         bool LoadBSPTree(T6::clipMap_t& clipMap, const BSPData& bsp);
-        bool LoadPartitions(T6::clipMap_t& clipMap, const BSPData& bsp) const;
+        bool LoadPartitions(T6::clipMap_t& clipMap, const BSPData& bsp);
+        bool LoadClipMaterials(T6::clipMap_t& clipMap);
+        [[nodiscard]] int LeafTerrainContents(const BSPTree& tree) const;
         bool LoadWorldCollision(T6::clipMap_t& clipMap, const BSPData& bsp);
 
         bool ReadBrushFile();
@@ -69,5 +75,8 @@ namespace BSP
         size_t pendingLeafAabbStart = 0;
         std::vector<T6::CollisionAabbTree> AABBTreeVec;
         size_t highestLeafObjectCount = 0;
+        std::map<std::string, uint16_t> materialByFbx; // collision FBX material -> clip material
+        std::vector<int> materialContents;              // clip material contents
+        std::vector<uint16_t> partitionMaterials;       // clip material of each partition
     };
 } // namespace BSP

@@ -509,10 +509,10 @@ index 0000000..c04a708
 +} // namespace fx
 diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
 new file mode 100644
-index 0000000..bcd7ccd
+index 0000000..cbf3d85
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
-@@ -0,0 +1,384 @@
+@@ -0,0 +1,404 @@
 +#include "WorldConverterDumperT4.h"
 +
 +#include <array>
@@ -725,7 +725,7 @@ index 0000000..bcd7ccd
 +
 +        auto& stream = *file;
 +        WriteArray(stream, MAGIC.data(), MAGIC.size());
-+        Write(stream, uint32_t{3});
++        Write(stream, uint32_t{4});
 +        WriteString(stream, clip->name);
 +        Write(stream, clip->numMaterials);
 +        for (uint32_t i = 0; i < clip->numMaterials; ++i)
@@ -843,6 +843,26 @@ index 0000000..bcd7ccd
 +                }
 +            }
 +        }
++
++        // v4: clip material of every collision triangle. WaW keeps it on the
++        // leaf aabb nodes (childCount 0 -> partition -> triangles); decals and
++        // other non-solid surfaces (contents 0) live in the same triangle soup.
++        std::vector<uint16_t> triMaterial(static_cast<size_t>(clip->triCount), 0xFFFF);
++        for (int a = 0; a < clip->aabbTreeCount; ++a)
++        {
++            const auto& tree = clip->aabbTrees[a];
++            if (tree.childCount != 0 || tree.u.partitionIndex < 0 || tree.u.partitionIndex >= clip->partitionCount)
++                continue;
++            const auto& partition = clip->partitions[tree.u.partitionIndex];
++            for (int t = 0; t < partition.triCount; ++t)
++            {
++                const auto tri = static_cast<size_t>(partition.firstTri + t);
++                if (tri < triMaterial.size())
++                    triMaterial[tri] = tree.materialIndex;
++            }
++        }
++        Write(stream, static_cast<uint32_t>(triMaterial.size()));
++        WriteArray(stream, triMaterial.data(), triMaterial.size());
 +    }
 +    namespace
 +    {

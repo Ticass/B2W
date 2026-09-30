@@ -258,94 +258,140 @@ namespace BSP
         assert(leafObjectCount > 0);
         highestLeafObjectCount = std::max(leafObjectCount, highestLeafObjectCount);
 
-        // BO2 has a maximum limit of 128 children per AABB tree (essentially),
-        // so this is fixed by adding multiple parent AABB trees that hold 128 children each
-        size_t result = leafObjectCount / BSPGameConstants::MAX_AABB_TREE_CHILDREN;
-        size_t remainder = leafObjectCount % BSPGameConstants::MAX_AABB_TREE_CHILDREN;
-        size_t parentCount = result;
-        if (remainder > 0)
-            parentCount++;
-
-        size_t parentAABBArrayIndex = AABBTreeVec.size();
-        AABBTreeVec.resize(AABBTreeVec.size() + parentCount);
-        size_t unaddedObjectCount = leafObjectCount;
-        size_t addedObjectCount = 0;
-        for (size_t parentIdx = 0; parentIdx < parentCount; parentIdx++)
+        // Parents are material-homogeneous: the engine checks the PARENT's
+        // clip material contents against the trace mask before visiting its
+        // children (sub_6B9730), then each child's own material.
+        std::vector<int> partitionIndices;
+        partitionIndices.reserve(leafObjectCount);
+        for (size_t objectIdx = 0; objectIdx < leafObjectCount; objectIdx++)
+            partitionIndices.emplace_back(tree.leaf->GetObject(objectIdx)->partitionIndex);
+        const auto materialOf = [this](const int partitionIndex)
         {
-            size_t childObjectCount = BSPGameConstants::MAX_AABB_TREE_CHILDREN;
-            if (unaddedObjectCount <= BSPGameConstants::MAX_AABB_TREE_CHILDREN)
-                childObjectCount = unaddedObjectCount;
-            else
-                unaddedObjectCount -= BSPGameConstants::MAX_AABB_TREE_CHILDREN;
+            return partitionIndex < static_cast<int>(partitionMaterials.size()) ? partitionMaterials[partitionIndex] : uint16_t{0};
+        };
+        std::ranges::stable_sort(partitionIndices, {}, materialOf);
 
-            // add the parent AABB
-            vec3_t parentMins;
-            vec3_t parentMaxs;
-            for (size_t objectIdx = 0; objectIdx < childObjectCount; objectIdx++)
+        const auto partitionBounds = [&clipMap](const int partitionIndex, vec3_t& mins, vec3_t& maxs, const bool first)
+        {
+            const CollisionPartition& partition = clipMap.partitions[partitionIndex];
+            for (int uindIdx = 0; uindIdx < partition.nuinds; uindIdx++)
             {
-                int partitionIndex = tree.leaf->GetObject(addedObjectCount + objectIdx)->partitionIndex;
-                CollisionPartition* partition = &clipMap.partitions[partitionIndex];
-                for (int uindIdx = 0; uindIdx < partition->nuinds; uindIdx++)
+                const vec3_t vert = clipMap.verts[clipMap.info.uinds[partition.fuind + uindIdx]];
+                if (first && uindIdx == 0)
                 {
-                    uint16_t uind = clipMap.info.uinds[partition->fuind + uindIdx];
-                    vec3_t vert = clipMap.verts[uind];
-
-                    // initalise the parent AABB with the first vertex
-                    if (objectIdx == 0 && uindIdx == 0)
-                    {
-                        parentMins = vert;
-                        parentMaxs = vert;
-                    }
-
-                    UpdateAABBWithPoint(vert, parentMins, parentMaxs);
+                    mins = vert;
+                    maxs = vert;
                 }
+                UpdateAABBWithPoint(vert, mins, maxs);
             }
-            size_t childObjectStartIndex = AABBTreeVec.size();
+        };
 
-            CollisionAabbTree parentAABB;
+        // chunks: runs of one material, at most MAX_AABB_TREE_CHILDREN children each
+        std::vector<std::pair<size_t, size_t>> chunks;
+        for (size_t start = 0; start < partitionIndices.size();)
+        {
+            auto end = start + 1;
+            while (end < partitionIndices.size() && end - start < BSPGameConstants::MAX_AABB_TREE_CHILDREN
+                   && materialOf(partitionIndices[end]) == materialOf(partitionIndices[start]))
+                end++;
+            chunks.emplace_back(start, end);
+            start = end;
+        }
+
+        const size_t parentAABBArrayIndex = AABBTreeVec.size();
+        AABBTreeVec.resize(AABBTreeVec.size() + chunks.size());
+        for (size_t parentIdx = 0; parentIdx < chunks.size(); parentIdx++)
+        {
+            const auto [start, end] = chunks[parentIdx];
+            const auto material = materialOf(partitionIndices[start]);
+            vec3_t parentMins{}, parentMaxs{};
+            for (auto i = start; i < end; i++)
+                partitionBounds(partitionIndices[i], parentMins, parentMaxs, i == start);
+
+            CollisionAabbTree parentAABB{};
             parentAABB.origin = CalcMiddleOfAABB(parentMins, parentMaxs);
             parentAABB.halfSize = CalcHalfSizeOfAABB(parentMins, parentMaxs);
-            parentAABB.materialIndex = 0; // always use the first material
-            parentAABB.childCount = static_cast<uint16_t>(childObjectCount);
-            parentAABB.u.firstChildIndex = static_cast<int>(childObjectStartIndex);
+            parentAABB.materialIndex = material;
+            parentAABB.childCount = static_cast<uint16_t>(end - start);
+            parentAABB.u.firstChildIndex = static_cast<int>(AABBTreeVec.size());
             AABBTreeVec.at(parentAABBArrayIndex + parentIdx) = parentAABB;
 
-            // add child AABBs
-            for (size_t objectIdx = 0; objectIdx < childObjectCount; objectIdx++)
+            for (auto i = start; i < end; i++)
             {
-                int partitionIndex = tree.leaf->GetObject(addedObjectCount + objectIdx)->partitionIndex;
-                CollisionPartition* partition = &clipMap.partitions[partitionIndex];
-                vec3_t childMins;
-                vec3_t childMaxs;
-                for (int uindIdx = 0; uindIdx < partition->nuinds; uindIdx++)
-                {
-                    uint16_t uind = clipMap.info.uinds[partition->fuind + uindIdx];
-                    vec3_t vert = clipMap.verts[uind];
-
-                    // initalise the child AABB with the first vertex
-                    if (uindIdx == 0)
-                    {
-                        childMins = vert;
-                        childMaxs = vert;
-                    }
-
-                    UpdateAABBWithPoint(vert, childMins, childMaxs);
-                }
-
+                vec3_t childMins{}, childMaxs{};
+                partitionBounds(partitionIndices[i], childMins, childMaxs, true);
                 CollisionAabbTree childAABBTree{};
-                childAABBTree.materialIndex = 0; // always use the first material
+                childAABBTree.materialIndex = material;
                 childAABBTree.childCount = 0;
-                childAABBTree.u.partitionIndex = partitionIndex;
+                childAABBTree.u.partitionIndex = partitionIndices[i];
                 childAABBTree.origin = CalcMiddleOfAABB(childMins, childMaxs);
                 childAABBTree.halfSize = CalcHalfSizeOfAABB(childMins, childMaxs);
                 AABBTreeVec.emplace_back(childAABBTree);
             }
-
-            addedObjectCount += childObjectCount;
         }
 
-        outParentCount = parentCount;
+        outParentCount = chunks.size();
         outParentStartIndex = parentAABBArrayIndex;
+    }
+
+    int ClipMapLinker::LeafTerrainContents(const BSPTree& tree) const
+    {
+        if (materialContents.empty())
+            return BSPEditableConstants::LEAF_TERRAIN_CONTENTS;
+        int contents = 0;
+        for (size_t objectIdx = 0; objectIdx < tree.leaf->GetObjectCount(); objectIdx++)
+        {
+            const auto partitionIndex = tree.leaf->GetObject(objectIdx)->partitionIndex;
+            const auto material = partitionIndex < static_cast<int>(partitionMaterials.size()) ? partitionMaterials[partitionIndex] : 0;
+            contents |= materialContents[material];
+        }
+        return contents;
+    }
+
+    bool ClipMapLinker::LoadClipMaterials(clipMap_t& clipMap)
+    {
+        // BSP/clipmaterials.json: one clip material per collision FBX material
+        // { "materials": [ { "fbx", "name", "contentFlags", "surfaceFlags" } ] }
+        const auto path = GetFileNameForBSPAsset("clipmaterials.json");
+        const auto file = m_search_path.Open(path);
+        if (!file.IsOpen())
+        {
+            clipMap.info.numMaterials = 1;
+            clipMap.info.materials = m_memory.Alloc<ClipMaterial>(1);
+            clipMap.info.materials[0].name = m_memory.Dup(BSPLinkingConstants::MISSING_IMAGE_NAME);
+            clipMap.info.materials[0].contentFlags = BSPEditableConstants::MATERIAL_CONTENT_FLAGS;
+            clipMap.info.materials[0].surfaceFlags = BSPEditableConstants::MATERIAL_SURFACE_FLAGS;
+            return true;
+        }
+        json js;
+        try
+        {
+            js = json::parse(*file.m_stream);
+        }
+        catch (const json::exception& e)
+        {
+            con::error("JSON error when parsing {}: {}", path, e.what());
+            return false;
+        }
+        const auto& entries = js.at("materials");
+        if (entries.empty() || entries.size() > std::numeric_limits<uint16_t>::max())
+        {
+            con::error("ERROR: {} has {} clip materials", path, entries.size());
+            return false;
+        }
+        clipMap.info.numMaterials = static_cast<unsigned int>(entries.size());
+        clipMap.info.materials = m_memory.Alloc<ClipMaterial>(entries.size());
+        for (size_t i = 0; i < entries.size(); i++)
+        {
+            const auto& entry = entries[i];
+            clipMap.info.materials[i].name = m_memory.Dup(entry.at("name").get<std::string>().c_str());
+            clipMap.info.materials[i].contentFlags = entry.at("contentFlags").get<int>();
+            clipMap.info.materials[i].surfaceFlags = entry.at("surfaceFlags").get<int>();
+            materialByFbx[entry.at("fbx").get<std::string>()] = static_cast<uint16_t>(i);
+            materialContents.emplace_back(clipMap.info.materials[i].contentFlags);
+        }
+        con::info("Loaded {} terrain clip materials", entries.size());
+        return true;
     }
 
     constexpr vec3_t normalX = {
@@ -370,7 +416,8 @@ namespace BSP
 
             leaf.cluster = 0;       // always use cluster 0
             leaf.brushContents = 0; // no brushes used so contents is 0
-            leaf.terrainContents = BSPEditableConstants::LEAF_TERRAIN_CONTENTS;
+            // what the leaf's partitions can stop (0 when it has none)
+            leaf.terrainContents = tree.leaf->GetObjectCount() > 0 ? LeafTerrainContents(tree) : 0;
 
             // unused when leafBrushNode == 0
             leaf.mins.x = 0.0f;
@@ -574,7 +621,7 @@ namespace BSP
         return true;
     }
 
-    bool ClipMapLinker::LoadPartitions(clipMap_t& clipMap, const BSPData& bsp) const
+    bool ClipMapLinker::LoadPartitions(clipMap_t& clipMap, const BSPData& bsp)
     {
         // Collision only needs positions: weld the FBX vertices (which are split by
         // normals/uvs) so shared corners use one clipmap vertex.
@@ -664,6 +711,8 @@ namespace BSP
         std::vector<uint16_t> uniqueIndicesVec;
         for (const BSPSurface& surface : bsp.colWorld.surfaces)
         {
+            const auto found = materialByFbx.find(surface.material.materialName);
+            const uint16_t surfaceMaterial = found != materialByFbx.end() ? found->second : uint16_t{0};
             const auto indexOfFirstTri = static_cast<int>(surface.indexOfFirstIndex / 3);
             auto triIdx = 0;
             while (triIdx < static_cast<int>(surface.triCount))
@@ -695,6 +744,7 @@ namespace BSP
                 partition.nuinds = static_cast<int>(unique.size());
                 uniqueIndicesVec.insert(uniqueIndicesVec.end(), unique.begin(), unique.end());
                 partitionVec.emplace_back(partition);
+                partitionMaterials.emplace_back(surfaceMaterial);
                 triIdx += count;
             }
         }
@@ -1129,13 +1179,10 @@ namespace BSP
         if (!LoadXModelCollision(*clipMap))
             return nullptr;
 
-        // Clipmap materials define the properties of a material (bullet penetration, no collision, water, etc)
-        // Right now there is no way to define properties per material so only one material is used
-        clipMap->info.numMaterials = 1;
-        clipMap->info.materials = m_memory.Alloc<ClipMaterial>(clipMap->info.numMaterials);
-        clipMap->info.materials[0].name = m_memory.Dup(BSPLinkingConstants::MISSING_IMAGE_NAME);
-        clipMap->info.materials[0].contentFlags = BSPEditableConstants::MATERIAL_CONTENT_FLAGS;
-        clipMap->info.materials[0].surfaceFlags = BSPEditableConstants::MATERIAL_SURFACE_FLAGS;
+        // Clip materials: one per WaW collision material (BSP/clipmaterials.json), so
+        // missile/shot clip, player clip and glass keep their own contents.
+        if (!LoadClipMaterials(*clipMap))
+            return nullptr;
 
         if (!LoadWorldCollision(*clipMap, bsp))
             return nullptr;

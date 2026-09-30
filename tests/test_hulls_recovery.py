@@ -55,5 +55,21 @@ class StaticModelCollisionTests(unittest.TestCase):
         self.assertEqual(hulls.static_model_records(clip)[1]["static_model_triangles_outside_waw_bounds"], 1)
 
 
+
+class CollisionMaterialSlotTests(unittest.TestCase):
+    def test_triangles_keep_their_clip_material_and_noncolliding_ones_are_dropped(self):
+        from waw2bo2 import fbx
+        mats = [world.ClipMaterial('solid', 0, 1), world.ClipMaterial('decal', 0, 0), world.ClipMaterial('missileclip', 0, 0x2080)]
+        clip = SimpleNamespace(indices=[0, 1, 2] * 5, triangle_materials=[2, 0, 1, 0xFFFF, 2], materials=mats)
+        per_triangle, slots = fbx.collision_material_slots(clip)
+        self.assertEqual(per_triangle, [0, 1, None, None, 0])
+        self.assertEqual(slots, [2, 0])
+
+    def test_dumps_without_triangle_materials_stay_solid(self):
+        from waw2bo2 import fbx
+        clip = SimpleNamespace(indices=[0, 1, 2] * 2, triangle_materials=[], materials=[])
+        self.assertEqual(fbx.collision_material_slots(clip), ([0, 0], [-1]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -144,13 +144,43 @@ def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset
         out.write("}\n")
 
 
-def write_collision_fbx(collision: CollisionWorld, path: Path) -> None:
-    """Write the original T4 collision triangles as one T6 BSP source mesh."""
+def collision_material_slots(collision: CollisionWorld) -> tuple[list[int | None], list[int]]:
+    """Per-triangle FBX material slot and the WaW clip material of each slot.
+
+    WaW keeps a clip material on every collision triangle (dump v4): on the
+    measured map only 51% of the triangles are solid; the rest are missile/shot
+    clip (0x2080), player/monster clip or glass. Triangles without a recorded
+    material or without contents never collide in WaW and are left out (slot
+    None). Dumps without the table keep one solid slot (material -1)."""
+    if not collision.triangle_materials:
+        return [0] * (len(collision.indices) // 3), [-1]
+    slots: dict[int, int] = {}
+    per_triangle: list[int | None] = []
+    for material in collision.triangle_materials:
+        if material == 0xFFFF or not collision.materials[material].content_flags:
+            per_triangle.append(None)
+            continue
+        per_triangle.append(slots.setdefault(material, len(slots)))
+    return per_triangle, list(slots)
+
+
+def write_collision_fbx(collision: CollisionWorld, path: Path) -> list[int]:
+    """Write the original T4 collision triangles as one T6 BSP source mesh.
+
+    One FBX material per WaW clip material (``clip_<index>``) so the bridge
+    linker gives every partition its original content/surface flags. Returns
+    the WaW clip material index of each FBX material slot."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    per_triangle, slot_materials = collision_material_slots(collision)
     used: dict[int, int] = {}
     compact_indices: list[int] = []
-    for source_index in collision.indices:
-        compact_indices.append(used.setdefault(source_index, len(used)))
+    polygon_slots: list[int] = []
+    for t, slot in enumerate(per_triangle):
+        if slot is None:
+            continue
+        polygon_slots.append(slot)
+        for source_index in collision.indices[t * 3: t * 3 + 3]:
+            compact_indices.append(used.setdefault(source_index, len(used)))
     positions: list[float] = []
     for source_index in used:
         x, y, z = collision.vertices[source_index]
@@ -177,9 +207,17 @@ def write_collision_fbx(collision: CollisionWorld, path: Path) -> None:
         out.write(f"  PolygonVertexIndex: *{len(polygons)} {{ a: {_numbers(polygons)} }}\n")
         out.write("  GeometryVersion: 124\n  LayerElementUV: 0 {\n   Version: 101\n   Name: \"UVChannel_1\"\n   MappingInformationType: \"ByVertice\"\n   ReferenceInformationType: \"Direct\"\n")
         out.write(f"   UV: *{len(uvs)} {{ a: {_numbers(uvs)} }}\n  }}\n")
-        out.write("  LayerElementMaterial: 0 {\n   Version: 101\n   Name: \"\"\n   MappingInformationType: \"AllSame\"\n   ReferenceInformationType: \"IndexToDirect\"\n   Materials: *1 { a: 0 }\n  }\n")
+        out.write("  LayerElementMaterial: 0 {\n   Version: 101\n   Name: \"\"\n   MappingInformationType: \"ByPolygon\"\n   ReferenceInformationType: \"IndexToDirect\"\n")
+        out.write(f"   Materials: *{len(polygon_slots)} {{ a: {_numbers(polygon_slots)} }}\n  }}\n")
         out.write("  Layer: 0 {\n   Version: 100\n   LayerElement: {\n    Type: \"LayerElementMaterial\"\n    TypedIndex: 0\n   }\n   LayerElement: {\n    Type: \"LayerElementUV\"\n    TypedIndex: 0\n   }\n  }\n }\n")
         out.write(" Model: 10001, \"Model::waw_collision\", \"Mesh\" {\n  Version: 232\n  Properties70: {\n   P: \"Lcl Scaling\", \"Lcl Scaling\", \"\", \"A\",100,100,100\n  }\n  Shading: T\n  Culling: \"CullingOff\"\n }\n")
-        out.write(" Material: 20000, \"Material::waw_collision\", \"\" {\n  Version: 102\n  ShadingModel: \"phong\"\n  MultiLayer: 0\n }\n}\n")
-        out.write("Connections: {\n C: \"OO\",10000,10001\n C: \"OO\",10001,0\n C: \"OO\",20000,10001\n}\n")
+        names = [f"clip_{m}" if m >= 0 else "waw_collision" for m in slot_materials]
+        for i, name in enumerate(names):
+            out.write(f" Material: {20000 + i}, {_quoted('Material::' + name)}, \"\" {{\n  Version: 102\n  ShadingModel: \"phong\"\n  MultiLayer: 0\n }}\n")
+        out.write("}\nConnections: {\n C: \"OO\",10000,10001\n C: \"OO\",10001,0\n")
+        # connection order defines the FBX material slot order
+        for i in range(len(names)):
+            out.write(f" C: \"OO\",{20000 + i},10001\n")
+        out.write("}\n")
+    return slot_materials
 

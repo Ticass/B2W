@@ -211,12 +211,14 @@ class CollisionWorld:
     # index 0 is the world; brushes owned by 1.. belong to brush entities
     submodels: list[SubModel] = field(default_factory=list)
     static_models: list[ClipStaticModel] = field(default_factory=list)
+    # v4: clip material index per collision triangle (0xFFFF = none recorded)
+    triangle_materials: list[int] = field(default_factory=list)
 
 
 def read_collision(path: Path) -> CollisionWorld:
     with path.open("rb") as stream:
         r = Reader(stream)
-        if r.exact(8) != MAGIC or (version := r.unpack("I")) not in (2, 3):
+        if r.exact(8) != MAGIC or (version := r.unpack("I")) not in (2, 3, 4):
             raise FormatError(f"{path} is not a W2BSP001 clip-world file")
         name = r.string()
         material_count = r.unpack("I")
@@ -269,10 +271,18 @@ def read_collision(path: Path) -> CollisionWorld:
                     surfs.append(CollSurf(surf_contents & 0xFFFFFFFF, surf_flags & 0xFFFFFFFF, smins, smaxs, bone, tris))
                 static_models.append(ClipStaticModel(model_name, origin, inv_scaled_axis, absmin, absmax,
                                                      model_contents, surfs))
+        triangle_materials = []
+        if version >= 4:
+            if r.unpack("I") != triangle_count:
+                raise FormatError("triangle material table does not match the triangle count")
+            values = r.unpack(f"{triangle_count}H") if triangle_count else ()
+            triangle_materials = [values] if isinstance(values, int) else list(values)
+            if any(m != 0xFFFF and m >= material_count for m in triangle_materials):
+                raise FormatError("collision triangle references a material outside the material table")
         if stream.read(1):
             raise FormatError("clip-world file has trailing data (schema mismatch)")
     summary = CollisionSummary(name, material_count, vertex_count, triangle_count, brush_count)
-    return CollisionWorld(summary, vertices, indices, materials, brushes, submodels, static_models)
+    return CollisionWorld(summary, vertices, indices, materials, brushes, submodels, static_models, triangle_materials)
 
 
 def inspect_collision(path: Path) -> CollisionSummary:
