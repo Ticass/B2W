@@ -132,3 +132,41 @@ class EffectMaterials(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EffectImageStreaming(unittest.TestCase):
+    def test_effect_images_use_stock_effect_streaming_mode(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from waw2bo2 import t6bridge
+        with tempfile.TemporaryDirectory() as tmp:
+            path = t6bridge.write_image_streaming(Path(tmp), {"fxt_smk_gen", "fxt_fx_raygun_ring"})
+            data = json.loads(path.read_text())
+        self.assertEqual(path.name, "streaming.json")
+        self.assertEqual(data, {"streamingMode": {"fxt_fx_raygun_ring": 2, "fxt_smk_gen": 2}})
+
+    def test_prefixed_effect_image_is_staged_from_the_waw_image(self):
+        # BO2 ships images with the same names (e.g. fxt_smk_def_3 in common_zm),
+        # so effect materials reference a prefixed copy of the WaW pixels.
+        import json
+        import struct
+        import tempfile
+        from pathlib import Path
+        from waw2bo2 import t6bridge
+        header = bytearray(128)
+        header[:4] = b'DDS '
+        struct.pack_into('<7I', header, 4, 124, 0x100F, 4, 4, 0, 1, 1)
+        struct.pack_into('<2I4s5I', header, 76, 32, 0x41, b'\0\0\0\0', 32, 0xFF, 0xFF00, 0xFF0000, 0xFF000000)
+        with tempfile.TemporaryDirectory() as tmp:
+            root, src = Path(tmp) / "out", Path(tmp) / "src"
+            src.mkdir()
+            (src / "fxt_smk_def_3.dds").write_bytes(bytes(header) + bytes(64))
+            mat = root / "materials" / "waw_fx" / "smoke.json"
+            mat.parent.mkdir(parents=True)
+            mat.write_text(json.dumps({"textures": [{"image": t6bridge.FX_IMAGE_PREFIX + "fxt_smk_def_3"}]}))
+            report = t6bridge.StageReport("p", materials=[{"file": "materials/waw_fx/smoke.json"}])
+            written = t6bridge.stage_images(report, [src], root)
+            self.assertIn("waw_fx/fxt_smk_def_3", written)
+            self.assertTrue((root / "images" / "waw_fx" / "fxt_smk_def_3.iwi").exists())
+            self.assertFalse([e for e in report.errors if "fxt_smk_def_3" in e])

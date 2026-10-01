@@ -58,7 +58,7 @@ if (-not (Test-Path -LiteralPath $XwmaDecoder)) { throw "Native XWMA bridge miss
 
 Write-Host "== 0. dumping WaW clipmap and companion zones"
 & (Join-Path $OatT4 'Unlinker.exe') --no-color --search-path $wawSearch `
-    --model-format GLTF --include-assets 'clipmap,gfxworld,gameworldsp,comworld,fx,weapon,xanim,sound,loadedsound,rawfile,physpreset,snddriverglobals,xmodel' --output-folder $Stage (Join-Path $MapMod "$MapZone.ff") *> (Join-Path $Stage 'clip_dump.log')
+    --model-format GLTF --include-assets 'clipmap,gfxworld,gameworldsp,comworld,lightdef,fx,weapon,xanim,sound,loadedsound,rawfile,physpreset,snddriverglobals,xmodel' --output-folder $Stage (Join-Path $MapMod "$MapZone.ff") *> (Join-Path $Stage 'clip_dump.log')
 if ($LASTEXITCODE) { throw "clipmap dump failed ($LASTEXITCODE)" }
 # map scripts are plain rawfiles in the WaW map zone (zone graph, etc.)
 & (Join-Path $OatT4 'Unlinker.exe') --no-color --search-path $wawSearch `
@@ -92,27 +92,35 @@ $companions = @(
     @{ name = 'code_post_gfx'; ff = (Join-Path $Waw 'zone\english\code_post_gfx.ff') }
 )
 $extraRoots = @()
+$lightingCode = Join-Path $WawDumps 'lighting_code'
+if ($Redump -or -not (Test-Path (Join-Path $lightingCode '.lighting_assets_v1'))) {
+    & (Join-Path $OatT4 'Unlinker.exe') --no-color --search-path $wawSearch --include-assets 'image,lightdef' `
+        --output-folder $lightingCode (Join-Path $Waw 'zone\english\code_post_gfx.ff') *> "$lightingCode.log"
+    if ($LASTEXITCODE) { throw "lighting code assets dump failed ($LASTEXITCODE)" }
+    New-Item -ItemType File -Force (Join-Path $lightingCode '.lighting_assets_v1') | Out-Null
+}
+$extraRoots += @('--extra-root', $lightingCode)
 New-Item -ItemType Directory -Force $WawDumps | Out-Null
 # The map zone's own materials carry the world (lightmapped) techniques and
 # their programs; step 0 dumps no materials, so dump them here (after $Stage
 # in lookup order: identical material files, adds waw_techniquesets/shader_bin).
 $mapMaterials = Join-Path $WawDumps 'map_materials'
-if ($Redump -or -not (Test-Path (Join-Path $mapMaterials '.dump_v8_shader_bindings'))) {
+if ($Redump -or -not (Test-Path (Join-Path $mapMaterials '.dump_v9_lightdefs'))) {
     & (Join-Path $OatT4 'Unlinker.exe') --no-color --search-path $wawSearch `
         --include-assets 'material' --output-folder $mapMaterials (Join-Path $MapMod "$MapZone.ff") *> "$mapMaterials.log"
     if ($LASTEXITCODE) { throw "map material dump failed ($LASTEXITCODE)" }
-    New-Item -ItemType File -Force (Join-Path $mapMaterials '.dump_v8_shader_bindings') | Out-Null
+    New-Item -ItemType File -Force (Join-Path $mapMaterials '.dump_v9_lightdefs') | Out-Null
 }
 $extraRoots += @('--extra-root', $mapMaterials)
 foreach ($c in $companions) {
     if (-not (Test-Path $c.ff)) { continue }
     $out = Join-Path $WawDumps $c.name
-    # v8: original shader argument bindings; v7: vertex/pixel bytecode.
-    if ($Redump -or -not (Test-Path (Join-Path $out '.dump_v8_shader_bindings'))) {
+    # v9: source light definitions; v8: shader argument bindings.
+    if ($Redump -or -not (Test-Path (Join-Path $out '.dump_v9_lightdefs'))) {
         & (Join-Path $OatT4 'Unlinker.exe') --no-color --search-path $wawSearch --image-format DDS --model-format GLTF `
-            --include-assets 'material,image,xmodel,fx,weapon,xanim,sound,loadedsound,rawfile,comworld,physpreset,snddriverglobals' --output-folder $out $c.ff *> "$out.log"
+            --include-assets 'material,image,xmodel,fx,weapon,xanim,sound,loadedsound,rawfile,comworld,lightdef,physpreset,snddriverglobals' --output-folder $out $c.ff *> "$out.log"
         if ($LASTEXITCODE) { throw "dump of $($c.ff) failed ($LASTEXITCODE)" }
-        New-Item -ItemType File -Force (Join-Path $out '.dump_v8_shader_bindings') | Out-Null
+        New-Item -ItemType File -Force (Join-Path $out '.dump_v9_lightdefs') | Out-Null
     }
     $extraRoots += @('--extra-root', $out)
 }

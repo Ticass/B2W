@@ -98,6 +98,17 @@ namespace image
     void DumperT6::DumpAsset(AssetDumpingContext& context, const XAssetInfo<AssetImage::Type>& asset)
     {
         const auto* image = asset.Asset();
+        // Runtime residency metadata (streaming mode, inline base data, loadDef
+        // header) for comparing linked images with stock ones.
+        const auto* loadDef = image->texture.loadDef;
+        con::info("ImageMeta {} {}x{}x{} mapType {} semantic {} category {} streaming {} delayLoad {} noPicmip {} levelCount {} baseSize {} "
+                  "loadDef {} loadLevels {} format {} flags 0x{:x} resourceSize {} parts {} part0 levels {} size {} cardMemory {}",
+                  asset.m_name, image->width, image->height, image->depth, static_cast<int>(image->mapType), static_cast<int>(image->semantic),
+                  static_cast<int>(image->category), static_cast<int>(image->streaming), image->delayLoadPixels, image->noPicmip,
+                  static_cast<int>(image->levelCount), image->baseSize, loadDef != nullptr, loadDef ? static_cast<int>(loadDef->levelCount) : -1, loadDef ? loadDef->format : -1,
+                  loadDef ? static_cast<unsigned>(static_cast<unsigned char>(loadDef->flags)) : 0u, loadDef ? loadDef->resourceSize : -1,
+                  static_cast<int>(image->streamedPartCount), static_cast<unsigned>(image->streamedParts[0].levelCount),
+                  static_cast<unsigned>(image->streamedParts[0].levelSize), image->cardMemory.platform[0]);
         const auto texture = LoadImageData(context.m_obj_search_path, *image);
         if (!texture)
             return;

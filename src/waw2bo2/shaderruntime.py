@@ -79,6 +79,15 @@ def waw_hash(name: str) -> int:
     return value
 
 
+def t6_hash(name: str) -> int:
+    """T6 R_HashString: ORs 0x20 into each byte, so '_' differs from lower()
+    (verified on 175,770 stock zm_nuked material arguments)."""
+    value = 0
+    for byte in name.encode():
+        value = ((value * 33) ^ (byte | 0x20)) & 0xFFFFFFFF
+    return value
+
+
 def material_literal(source_material, hash_value):
     """The source material's own value for a material constant argument."""
     for constant in (source_material or {}).get('constants', []):
@@ -193,10 +202,9 @@ def native_sqrt_hdr_output(native_ps):
     return bool(used) and bool(re.search(r'^sqrt o0\.xyz', native_ps, re.M))
 
 
-# Lit technique slots a world surface can be drawn with: the bridge emits only
-# the sun primary light (BSP_DEFAULT_LIGHT_COUNT), so T6 never selects the
-# spot/omni slots (7, 8, 13, 14) for world surfaces.
-REACHABLE_LIT_SLOTS = (4, 5, 6)
+# Imported primary lights make spot/omni passes reachable as well as sun.
+# Every reachable lightmap reader must agree on the surface page encoding.
+REACHABLE_LIT_SLOTS = (4, 5, 6, 7, 8, 13, 14)
 # Samplers both engines bind per surface, outside the pass arguments.
 PER_SURFACE_SAMPLERS = {'lightmapSamplerPrimary', 'lightmapSamplerSecondary', 'reflectionProbeSampler'}
 
@@ -296,7 +304,8 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
             texture = sampler = slots[0]
             arg = {'type': 4}
         native_name, native_dim = native_textures.get(texture, (None, None))
-        if {'2d': '2d', 'volume': '3d', 'cube': 'cube'}[dim] != native_dim:
+        source_sky_texture = arg['type'] == 2 and (source_material or {}).get('techniqueSet', '').startswith('mc_sky')
+        if not source_sky_texture and {'2d': '2d', 'volume': '3d', 'cube': 'cube'}[dim] != native_dim:
             raise shaders.ShaderError(f'texture dimension differs for {reg}: {dim} vs {native_dim}')
         entry = {'texture': texture, 'sampler': sampler}
         if arg['type'] == 4:
@@ -308,6 +317,17 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
                     raise shaders.ShaderError('native sun shadow sampler mode not recognized')
                 entry['point_load'] = True
                 contract.setdefault('unit_conversions', []).append('shadowmapSamplerSun: texel load at mip 0')
+            elif source_name == 'floatZSampler':
+                # Native soft-particle PS decodes reciprocal depth as zNear.x/abs(z).
+                # WaW soft-particle PS consumes camera-space depth directly.
+                near = native_fields.get('zNear')
+                if near is None or near[0] != 0 or near[1] % 16:
+                    raise shaders.ShaderError('native reciprocal-depth scale absent')
+                near_row = near[1] // 16
+                if not re.search(rf'div r\d+\.x, cb0\[{near_row}\]\.x, r\d+\.x', ps):
+                    raise shaders.ShaderError('native soft-particle depth encoding unrecognized')
+                entry.update(texel_expr=f'float4(t6_cb0[{near_row}].x / max(abs(T.x), 1e-20), T.yzw)', uses=[[0, near_row]])
+                contract.setdefault('unit_conversions', []).append('floatZ: reciprocal to camera depth')
             elif source_name == 'modelLightingSampler' and sqrt_hdr:
                 # Measured: T6 lprobe = sqrt(hdr * 32 * L^2 * C^2) = sqrt(32 hdr) L C;
                 # WaW = 2 L' C, so L' = sqrt(8 hdr) L keeps the WaW arithmetic.
@@ -345,13 +365,26 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
     return contract
 
 
-def vertex_contract(source_assembly, source_pass, native_pass, native_root, paired=False):
+def vertex_contract(source_assembly, source_pass, native_pass, native_root, paired=False, source_material=None):
     _, ir = shaders.translate(source_assembly)
     native_vs = _native_program(native_root, 'vs', native_pass)
     incoming = signature(native_vs, 'Input')
+    # The native sky program does not consume the model's stored vertex color.
+    # Original sky layers do; GfxPackedVertex still supplies that COLOR0 field.
+    if paired and source_material and source_material.get('techniqueSet', '').startswith('mc_sky'):
+        incoming.setdefault('COLOR0', (4, 'float'))
+        incoming.setdefault('TEXCOORD0', (2, 'float'))
     fields = buffers(native_vs)
     names = registers(source_assembly)
     contract = {'inputs': {}, 'outputs': {}, 'constants': {}, 'samplers': {}}
+    if paired and source_material and source_material.get('techniqueSet', '').startswith('mc_sky'):
+        # Source sky fog uses a normalized direction at a shader-defined
+        # distance, independent of the dome's physical radius.
+        match = re.search(r'nrm (r\d+)\.xyz, v\d+\s*\n\s*mul \1\.xyz, \1, (c\d+)\.([xyzw])', source_assembly)
+        if match:
+            literal = re.search(rf'def {match[2]}, ([^\n]+)', source_assembly)
+            if literal:
+                contract['sky_fog_distance'] = float(literal[1].split(',')['xyzw'.index(match[3])])
     for reg, (semantic, width) in ir['inputs'].items():
         key = semantic.upper()
         allowed = ('POSITION0', 'COLOR0', 'TEXCOORD0') + (PACKED_VECTOR_INPUTS if paired else ())
@@ -388,8 +421,44 @@ def vertex_contract(source_assembly, source_pass, native_pass, native_root, pair
             raise shaders.ShaderError(f'vertex varying adapter required for {semantic}')
         contract['outputs'][reg] = {'semantic': semantic, 'width': width}
     for reg in ir['constants']:
+        material_arg = next((a for a in source_pass['args'] if a['type'] == 0 and a['dest'] == int(reg[1:])), None)
+        if material_arg is not None:
+            literal = material_literal(source_material, material_arg['value'])
+            if literal is None:
+                raise shaders.ShaderError(f'original vertex material constant absent for {reg}')
+            contract['constants'][reg] = {'expr': 'float4(' + ', '.join(repr(v) for v in literal) + ')', 'uses': []}
+            continue
         arg = next((a for a in source_pass['args'] if a['type'] == 3 and a['dest'] <= int(reg[1:]) < a['dest'] + a['rowCount']), None)
         source_name = names.get(reg, (None, 0))[0]
+        if arg is not None and source_name == 'gameTime' and source_material and source_material.get('techniqueSet', '').startswith('mc_sky'):
+            # T6 CONST_SRC_CODE_GAMETIME (0x19), routed to a free material row.
+            # This sky donor omits time because its original variant is static.
+            binding = {'type': 3, 'buffer': 2, 'location': 240, 'size': 16, 'u': {'value': 0x01000019}}
+            if binding not in native_pass['args']:
+                native_pass['args'].append(binding)
+                native_pass['stableArgCount'] = native_pass.get('stableArgCount', 0) + 1
+            contract['constants'][reg] = {'buffer': 2, 'index': 15}
+            continue
+        if arg is not None and source_name == 'worldViewProjectionMatrix':
+            wm = fields.get('worldMatrix')
+            vp = fields.get('viewProjectionMatrix')
+            if not wm or not vp or wm[2] != 64 or vp[2] != 64:
+                raise shaders.ShaderError('matrix composition inputs absent')
+            row = arg.get('firstRow', 0) + int(reg[1:]) - arg['dest']
+            v = f't6_cb{vp[0]}[{vp[1]//16+row}]'
+            sky = source_material and source_material.get('techniqueSet', '').startswith('mc_sky')
+            w = [f't6_cb{wm[0]}[{wm[1]//16+i}]' for i in range(4)]
+            if sky:
+                w = [f'float4({r}.xyz, 0)' for r in w]
+            contract['constants'][reg] = {'expr': ' + '.join(f'{v}.{c} * {r}' for c, r in zip('xyzw', w)),
+                'uses': [[vp[0], vp[1]//16+row]] + [[wm[0], wm[1]//16+i] for i in range(4)]}
+            continue
+        if arg is not None and source_name in ('clipSpaceLookupScale', 'clipSpaceLookupOffset'):
+            # D3D11 pixel centres need no D3D9 half-texel bias. The source
+            # computes projected texture coordinates scale*clip + offset*clip.w.
+            value = 'float4(0.5, -0.5, 1, 1)' if source_name == 'clipSpaceLookupScale' else 'float4(0.5, 0.5, 0, 0)'
+            contract['constants'][reg] = {'expr': value, 'uses': []}
+            continue
         if arg is not None and source_name in NEUTRAL_CODE_UNIFORMS and source_name not in fields:
             contract['constants'][reg] = {'expr': NEUTRAL_CODE_UNIFORMS[source_name], 'uses': []}
             contract.setdefault('neutral', []).append(source_name)
@@ -523,6 +592,10 @@ def native_fog_adapter(hlsl, source_assembly, contract, native_pass, native_root
     float fog_density = fog_ratio*{f}.y*fog_dist+{f}.z;
     {fog_reg}.{fog_comp} = 1-(1-min(exp2(fog_density),1))*fog_alpha;
 '''
+    if 'sky_fog_distance' in contract:
+        sky_position = 'float3(' + ', '.join(f'dot({position}.xyz, {row}.xyz)' for row in wm) + ')'
+        start = code.index('    float fog_dist')
+        code = f'\n    float3 fog_p = normalize({sky_position}) * {contract["sky_fog_distance"]};\n' + code[start:]
     return hlsl.replace('Output output;', code + '\nOutput output;')
 
 
@@ -583,6 +656,11 @@ def bind_material(source_material, output_material, roots, project_root, native_
     for slot, source_slot in SLOTS.items():
         target = native['techniques'][slot]
         source = original['techniques'][source_slot] if source_slot < len(original['techniques']) else None
+        if source_name.startswith('mc_sky') and slot == 3 and not source:
+            # T6 routes the sky through both UNLIT and EMISSIVE. WaW's sky
+            # exposes the same unlit program in its lit slots, without an
+            # emissive slot; both T6 routes need the complete sky pair.
+            source = original['techniques'][4]
         if not target or not source:
             continue
         if len(source['passes']) != 1 or len(target['passArray']) != 1:
@@ -599,7 +677,7 @@ def bind_material(source_material, output_material, roots, project_root, native_
         if vertex_binary:
             try:
                 vertex_assembly = embed_literals(_assembly(vertex_binary), source_pass, 'vs')
-                vertex_binding = vertex_contract(vertex_assembly, source_pass, target_pass, native_root, paired=True)
+                vertex_binding = vertex_contract(vertex_assembly, source_pass, target_pass, native_root, paired=True, source_material=source_material)
                 vertex_hlsl, vertex_info = shaders.translate(vertex_assembly, vertex_binding)
                 vertex_hlsl = native_fog_adapter(vertex_hlsl, vertex_assembly, vertex_binding, target_pass, native_root)
                 vertex_code = shaders.compile_hlsl(vertex_hlsl, 'vs_5_0')
@@ -610,6 +688,16 @@ def bind_material(source_material, output_material, roots, project_root, native_
                 hlsl, info = shaders.translate(assembly, contract)
                 dxbc = shaders.compile_hlsl(hlsl, 'ps_5_0')
                 check_linkage(vertex_code, dxbc)
+                if source_name.startswith('mc_sky'):
+                    # Donor skies stream only POSITION. The translated dome
+                    # also consumes stored color/UV; changing the HLSL input
+                    # signature alone does not add these streams in T6.
+                    streams = {'POSITION0': (0, 0), 'COLOR0': (1, 2), 'TEXCOORD0': (2, 5)}
+                    routing = [dict(zip(('source', 'dest'), streams[e['semantic'].upper()]))
+                               for e in vertex_binding['inputs'].values()]
+                    target_pass['vertexDecl'] = {'streamCount': len(routing), 'hasOptionalSource': False,
+                        'isLoaded': False, 'routing': routing + [{'source': 0, 'dest': 0}] * (16-len(routing))}
+                    prune_missing_material_constants(target_pass, output_material, (vertex_binding, contract))
                 shader_name = _write_program(project_root, 'ps', dxbc, binary, contract, info)
                 vertex_name = _write_program(project_root, 'vs', vertex_code, vertex_binary, vertex_binding, vertex_info)
                 target_pass['pixelShader'] = {'name': shader_name}
@@ -632,7 +720,7 @@ def bind_material(source_material, output_material, roots, project_root, native_
             if vertex_binary:
                 try:
                     vertex_assembly = embed_literals(_assembly(vertex_binary), source_pass, 'vs')
-                    vertex_binding = vertex_contract(vertex_assembly, source_pass, target_pass, native_root)
+                    vertex_binding = vertex_contract(vertex_assembly, source_pass, target_pass, native_root, source_material=source_material)
                     vertex_hlsl, vertex_info = shaders.translate(vertex_assembly, vertex_binding)
                     vertex_hlsl = native_fog_adapter(vertex_hlsl, vertex_assembly, vertex_binding, target_pass, native_root)
                     vertex_code = shaders.compile_hlsl(vertex_hlsl, 'vs_5_0')
@@ -672,3 +760,36 @@ def bind_material(source_material, output_material, roots, project_root, native_
         path.write_text(json.dumps(native, indent=2))
         output_material['techniqueSet'] = ts_name
     return result
+
+
+def prune_missing_material_constants(native_pass, material, contracts):
+    """Remove unused donor constants; T6's hash lookup has no missing-key bound.
+
+    Keep argument frequency groups intact. A shader still reading a missing
+    material row must be rejected rather than receiving an uninitialized row.
+    """
+    hashes = {c.get('nameHash', t6_hash(c.get('name', ''))) for c in material.get('constants', [])}
+    counts = ('perPrimArgCount', 'perObjArgCount', 'stableArgCount')
+    args, cursor, new_counts = [], 0, {}
+    for count in counts:
+        group = native_pass['args'][cursor:cursor + native_pass[count]]
+        cursor += native_pass[count]
+        kept = []
+        for arg in group:
+            if arg['type'] in (0, 6) and arg['u']['value'] not in hashes:
+                start, end = arg['location'], arg['location'] + arg['size']
+                for contract in contracts:
+                    for binding in contract['constants'].values():
+                        uses = binding.get('uses', [])
+                        if 'buffer' in binding:
+                            uses = [*uses, [binding['buffer'], binding['index']]]
+                        if any(buffer == arg['buffer'] and start <= row*16 < end for buffer, row in uses):
+                            raise shaders.ShaderError('translated shader reads an absent donor material constant')
+                continue
+            kept.append(arg)
+        new_counts[count] = len(kept)
+        args.extend(kept)
+    if cursor != len(native_pass['args']):
+        raise shaders.ShaderError('native argument frequency counts do not cover all bindings')
+    native_pass.update(new_counts)
+    native_pass['args'] = args

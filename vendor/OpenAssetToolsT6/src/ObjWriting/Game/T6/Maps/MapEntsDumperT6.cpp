@@ -12,6 +12,7 @@
 #include <string>
 #include <format>
 #include <ostream>
+#include <nlohmann/json.hpp>
 
 using namespace T6;
 
@@ -19,6 +20,46 @@ using namespace T6;
 
 namespace
 {
+    void DumpLightGrid(std::ostream& out, const GfxLightGrid& grid)
+    {
+        const auto write = [&out](const auto& value) { out.write(reinterpret_cast<const char*>(&value), sizeof(value)); };
+        out.write("W2BT6LG1", 8);
+        const uint32_t version = 1, regions = 0;
+        const uint32_t rows = grid.rowDataStart ? grid.maxs[grid.rowAxis] - grid.mins[grid.rowAxis] + 1u : 0u;
+        write(version); write(regions); write(grid.sunPrimaryLightIndex); write(grid.mins); write(grid.maxs);
+        write(grid.rowAxis); write(grid.colAxis); write(rows); write(grid.rawRowDataSize); write(grid.entryCount); write(grid.colorCount);
+        out.write(reinterpret_cast<const char*>(grid.rowDataStart), rows * 2u);
+        out.write(reinterpret_cast<const char*>(grid.rawRowData), grid.rawRowDataSize);
+        out.write(reinterpret_cast<const char*>(grid.entries), grid.entryCount * 4u);
+        out.write(reinterpret_cast<const char*>(grid.colors), grid.colorCount * 168u);
+    }
+    void DumpCollisionGeometry(std::ostream& out, const clipMap_t& cm)
+    {
+        using nlohmann::json;
+        json data;
+        const auto vec = [](const vec3_t& v) { return json::array({v.x, v.y, v.z}); };
+        data["vertices"] = json::array();
+        data["triangles"] = json::array();
+        data["materials"] = json::array();
+        data["partitions"] = json::array();
+        data["aabbs"] = json::array();
+        for (unsigned i = 0; i < cm.vertCount; ++i)
+            data["vertices"].push_back(vec(cm.verts[i]));
+        for (int i = 0; i < cm.triCount; ++i)
+            data["triangles"].push_back(json::array({cm.triIndices[i][0], cm.triIndices[i][1], cm.triIndices[i][2]}));
+        for (unsigned i = 0; i < cm.info.numMaterials; ++i)
+            data["materials"].push_back({{"name", cm.info.materials[i].name}, {"contents", cm.info.materials[i].contentFlags},
+                {"surface_flags", cm.info.materials[i].surfaceFlags}});
+        for (int i = 0; i < cm.partitionCount; ++i)
+            data["partitions"].push_back(json::array({cm.partitions[i].firstTri, static_cast<unsigned char>(cm.partitions[i].triCount)}));
+        for (int i = 0; i < cm.aabbTreeCount; ++i)
+        {
+            const auto& a = cm.aabbTrees[i];
+            data["aabbs"].push_back({{"origin", vec(a.origin)}, {"half_size", vec(a.halfSize)},
+                {"material", a.materialIndex}, {"children", a.childCount}, {"index", a.u.partitionIndex}});
+        }
+        out << data.dump();
+    }
     // Diagnostic: plain-text layout of the zone's clipmap next to the .ents
     // file (waw2bo2 compares stock and bridge-built collision with it).
     void DumpClipMapLayout(std::ostream& out, const clipMap_t& cm)
@@ -206,6 +247,20 @@ namespace
             for (const auto& [count, n] : childHistogram)
                 children += std::format("{}:{} ", count, n);
             OUTF("aabb parent child-count histogram {}\n", children);
+            // triangles per clip material contents (leaf aabbs -> partitions)
+            std::map<unsigned, int> trisByContents;
+            for (auto a = 0; a < cm.aabbTreeCount; a++)
+            {
+                const auto& tree = cm.aabbTrees[a];
+                if (tree.childCount || tree.materialIndex >= cm.info.numMaterials)
+                    continue;
+                trisByContents[static_cast<unsigned>(cm.info.materials[tree.materialIndex].contentFlags)] +=
+                    cm.partitions[tree.u.partitionIndex].triCount;
+            }
+            std::string byContents;
+            for (const auto& [contents, tris] : trisByContents)
+                byContents += std::format("0x{:X}:{} ", contents, tris);
+            OUTF("clip materials {} terrain triangles by contents {}\n", cm.info.numMaterials, byContents);
         }
         for (auto p = 0; p < cm.partitionCount && p < 4; p++)
             OUTF("partition {} triCount {} firstTri {} nuinds {} fuind {}\n", p, static_cast<int>(cm.partitions[p].triCount),
@@ -328,6 +383,10 @@ namespace
     // Diagnostic: world draw buffers and a sample of surfaces per technique set
     void DumpGfxWorldLayout(std::ostream& out, const GfxWorld& world)
     {
+        const auto& grid = world.lightGrid;
+        OUTF("primaryLights {} grid sun {} mins {} {} {} maxs {} {} {} axes {} {} entries {} colors {} coeffs {} offset {}\n",
+             world.primaryLightCount, grid.sunPrimaryLightIndex, grid.mins[0], grid.mins[1], grid.mins[2], grid.maxs[0], grid.maxs[1], grid.maxs[2],
+             grid.rowAxis, grid.colAxis, grid.entryCount, grid.colorCount, grid.coeffCount, grid.offset);
         OUTF("lutMaterial {}\n", world.lutMaterial ? world.lutMaterial->info.name : "<default>");
         const auto& draw = world.draw;
         OUTF("vertexCount {} vertexDataSize0 {} (stride {:.2f}) vertexDataSize1 {} indexCount {} surfaces {} lightmaps {} probes {}\n", draw.vertexCount,
@@ -510,6 +569,9 @@ namespace map_ents
                 const auto layoutFile = context.OpenAssetFile(std::format("{}.gfxworld.txt", mapEnts->name));
                 if (layoutFile)
                     DumpGfxWorldLayout(*layoutFile, *gfxWorld->Asset());
+                const auto gridFile = context.OpenAssetFile(std::format("{}.t6lightgrid.bin", mapEnts->name));
+                if (gridFile)
+                    DumpLightGrid(*gridFile, gfxWorld->Asset()->lightGrid);
             }
         }
         if (pools && pools->m_game_world_mp)
@@ -528,6 +590,9 @@ namespace map_ents
                 const auto layoutFile = context.OpenAssetFile(std::format("{}.clipmap.txt", mapEnts->name));
                 if (layoutFile)
                     DumpClipMapLayout(*layoutFile, *clipMap->Asset());
+                const auto geometryFile = context.OpenAssetFile(std::format("{}.collision.json", mapEnts->name));
+                if (geometryFile)
+                    DumpCollisionGeometry(*geometryFile, *clipMap->Asset());
             }
         }
     }

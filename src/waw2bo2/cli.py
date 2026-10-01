@@ -297,6 +297,10 @@ def _build_mod(args: argparse.Namespace) -> int:
     extra_lines = extra.read_text(encoding="utf-8").splitlines() if extra.exists() else []
     # converted sound banks name their PCM relative to the decoded audio root
     project_root = extra.parent
+    modzone.stage_lobby_map_table(args.bo2.resolve() / "raw/zm/mapstable.csv", project_root, args.project)
+    lobby_entry = "stringtable,zm/mapstable.csv"
+    if lobby_entry not in extra_lines:
+        extra_lines.append(lobby_entry)
     if args.linker and args.techset_dump:
         with modzone.baseline_shader_materials(project_root, args.techset_dump) as active:
             ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,

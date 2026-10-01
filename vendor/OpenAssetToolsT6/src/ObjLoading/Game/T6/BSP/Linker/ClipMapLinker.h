@@ -55,6 +55,7 @@ namespace BSP
         bool LoadClipMaterials(T6::clipMap_t& clipMap);
         [[nodiscard]] int LeafTerrainContents(const BSPTree& tree) const;
         bool LoadWorldCollision(T6::clipMap_t& clipMap, const BSPData& bsp);
+        bool LoadWalkableEdges(T6::clipMap_t& clipMap);
 
         bool ReadBrushFile();
         uint16_t BuildLeafBrushNode(std::vector<uint16_t>& brushIds, std::vector<T6::cLeafBrushNode_s>& nodes,

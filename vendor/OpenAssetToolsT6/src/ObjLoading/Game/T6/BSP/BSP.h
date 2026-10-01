@@ -41,6 +41,7 @@ namespace BSP
         unsigned indexOfFirstVertex;
         unsigned indexOfFirstIndex;
         int lightmapPage = -1; // source lightmap page from a "_lm<N>" mesh name suffix, -1 when absent
+        int primaryLightIndex = -1;
     };
 
     struct BSPWorld

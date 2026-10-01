@@ -284,7 +284,8 @@ namespace BSP
             const BSPSurface& bspSurface = bsp.gfxWorld.surfaces.at(surfIdx);
             GfxSurface* gfxSurface = &gfxWorld.dpvs.surfaces[surfIdx];
 
-            gfxSurface->primaryLightIndex = BSPEditableConstants::DEFAULT_SURFACE_LIGHT;
+            gfxSurface->primaryLightIndex = bspSurface.primaryLightIndex < 0 ? BSPEditableConstants::DEFAULT_SURFACE_LIGHT
+                : static_cast<unsigned char>(bspSurface.primaryLightIndex);
             gfxSurface->lightmapIndex = SurfaceLightmap(plan, bspSurface);
             gfxSurface->reflectionProbeIndex = BSPEditableConstants::DEFAULT_SURFACE_REFLECTION_PROBE;
             gfxSurface->flags = BSPEditableConstants::DEFAULT_SURFACE_FLAGS;
@@ -466,7 +467,7 @@ namespace BSP
                 const auto cullDist = entry.value("cullDist", 0.0f);
                 drawInst.cullDist = cullDist > 0.0f ? cullDist : BSPEditableConstants::DEFAULT_SMODEL_CULL_DIST;
                 drawInst.flags = BSPEditableConstants::DEFAULT_SMODEL_FLAGS;
-                drawInst.primaryLightIndex = BSPEditableConstants::DEFAULT_SMODEL_LIGHT;
+                drawInst.primaryLightIndex = entry.value("primaryLightIndex", BSPEditableConstants::DEFAULT_SMODEL_LIGHT);
                 drawInst.reflectionProbeIndex = BSPEditableConstants::DEFAULT_SMODEL_REFLECTION_PROBE;
                 drawInst.smid = static_cast<unsigned int>(drawInsts.size());
 
@@ -629,6 +630,8 @@ namespace BSP
     {
         // there must be 2 or more lights, first is the static light and second is the sun light
         gfxWorld.primaryLightCount = BSPGameConstants::BSP_DEFAULT_LIGHT_COUNT;
+        if (const auto* world = m_context.LoadDependency<AssetComWorld>(gfxWorld.name))
+            gfxWorld.primaryLightCount = world->Asset()->primaryLightCount;
         gfxWorld.sunPrimaryLightIndex = BSPGameConstants::SUN_LIGHT_INDEX;
 
         gfxWorld.shadowGeom = m_memory.Alloc<GfxShadowGeometry>(gfxWorld.primaryLightCount);
@@ -654,8 +657,51 @@ namespace BSP
             gfxWorld.primaryLightEntityShadowVis = nullptr;
     }
 
-    void GfxWorldLinker::LoadLightGrid(GfxWorld& gfxWorld) const
+    bool GfxWorldLinker::LoadLightGrid(GfxWorld& gfxWorld) const
     {
+        const auto file = m_search_path.Open(GetFileNameForBSPAsset("lightgrid.bin"));
+        if (file.IsOpen())
+        {
+            auto& stream = *file.m_stream;
+            auto& grid = gfxWorld.lightGrid;
+            const auto read = [&stream](auto& value) { stream.read(reinterpret_cast<char*>(&value), sizeof(value)); };
+            char magic[8]; uint32_t version, regions, rowCount;
+            read(magic); read(version); read(regions); read(grid.sunPrimaryLightIndex);
+            read(grid.mins); read(grid.maxs); read(grid.rowAxis); read(grid.colAxis); read(rowCount);
+            read(grid.rawRowDataSize); read(grid.entryCount); read(grid.colorCount);
+            if (!stream || std::memcmp(magic, "W2BT6LG1", 8) || version != 1 || grid.rowAxis > 1 || grid.colAxis > 1
+                || grid.rowAxis == grid.colAxis || grid.maxs[grid.rowAxis] < grid.mins[grid.rowAxis]
+                || rowCount != grid.maxs[grid.rowAxis] - grid.mins[grid.rowAxis] + 1u
+                || grid.sunPrimaryLightIndex >= gfxWorld.primaryLightCount)
+            {
+                con::error("Invalid translated light-grid header"); return false;
+            }
+            const uint64_t expected = 56ull + rowCount * 2ull + grid.rawRowDataSize + grid.entryCount * 4ull + grid.colorCount * 168ull;
+            if (expected != static_cast<uint64_t>(file.m_length))
+            {
+                con::error("Invalid translated light-grid payload length"); return false;
+            }
+            grid.rowDataStart = m_memory.Alloc<uint16_t>(rowCount);
+            grid.rawRowData = static_cast<aligned_byte_pointer*>(m_memory.AllocRaw(grid.rawRowDataSize));
+            grid.entries = m_memory.Alloc<GfxLightGridEntry>(grid.entryCount);
+            grid.colors = m_memory.Alloc<GfxCompressedLightGridColors>(grid.colorCount);
+            stream.read(reinterpret_cast<char*>(grid.rowDataStart), rowCount * 2u);
+            stream.read(reinterpret_cast<char*>(grid.rawRowData), grid.rawRowDataSize);
+            stream.read(reinterpret_cast<char*>(grid.entries), grid.entryCount * 4u);
+            stream.read(reinterpret_cast<char*>(grid.colors), grid.colorCount * 168u);
+            for (unsigned i = 0; i < grid.entryCount; ++i)
+                if (grid.entries[i].colorsIndex >= grid.colorCount
+                    || (static_cast<unsigned char>(grid.entries[i].primaryLightIndex) != 255
+                        && static_cast<unsigned char>(grid.entries[i].primaryLightIndex) >= gfxWorld.primaryLightCount))
+                {
+                    con::error("Light-grid entry {} references an absent palette or primary light", i); return false;
+                }
+            grid.offset = 0.0f;
+            grid.coeffCount = 0; grid.coeffs = nullptr;
+            grid.skyGridVolumeCount = 0; grid.skyGridVolumes = nullptr;
+            con::info("Loaded source light grid: {} rows, {} entries, {} palettes", rowCount, grid.entryCount, grid.colorCount);
+            return static_cast<bool>(stream);
+        }
         // there is almost no basis for the values in this code, they were chosen based on what looks correct when reverse engineering.
 
         // mins and maxs define the range that the lightgrid will work in.
@@ -710,6 +756,7 @@ namespace BSP
         gfxWorld.lightGrid.coeffs = nullptr;
         gfxWorld.lightGrid.skyGridVolumeCount = 0;
         gfxWorld.lightGrid.skyGridVolumes = nullptr;
+        return true;
     }
 
     void GfxWorldLinker::LoadGfxCells(GfxWorld& gfxWorld) const
@@ -892,6 +939,33 @@ namespace BSP
         gfxWorld.sunParse.initWorldFog->sunFogOuter = 80.84f;
         gfxWorld.sunParse.initWorldFog->sunFogPitch = -29.0f;
         gfxWorld.sunParse.initWorldFog->sunFogYaw = 254.0f;
+        const auto file = m_search_path.Open(GetFileNameForBSPAsset("lighting.json"));
+        if (file.IsOpen())
+        {
+            const auto data = json::parse(*file.m_stream);
+            const auto& source = data.at("sun");
+            auto& sun = *gfxWorld.sunParse.initWorldSun;
+            for (unsigned i = 0; i < 3; ++i)
+            {
+                sun.angles.v[i] = source.at("angles").at(i).get<float>();
+                // T6 stores the renderer's linear light, while WaW's source
+                // parameters and translated programs operate in gamma units.
+                const auto color = source.at("sunColor").at(i).get<float>();
+                const auto ambient = source.at("ambientColor").at(i).get<float>();
+                sun.sunCd.v[i] = color * color;
+                sun.ambientColor.v[i] = ambient * ambient;
+            }
+            const auto ambientScale = source.at("ambientScale").get<float>();
+            // T4 sub_705920 removes ambient and the diffuse share before
+            // forming sunDiffuse. Squaring raw sunLight overlights T6 models.
+            const auto strength = std::max(0.0f, (source.at("sunLight").get<float>() - ambientScale)
+                * (1.0f - source.at("diffuseFraction").get<float>()));
+            sun.sunCd.v[3] = strength * strength;
+            sun.ambientColor.v[3] = ambientScale * ambientScale;
+            const auto name = source.value("name", std::string());
+            std::strncpy(gfxWorld.sunParse.name, name.c_str(), sizeof(gfxWorld.sunParse.name) - 1);
+            con::info("Loaded source sun angles and colors (WaW direct strength {})", strength);
+        }
     }
 
     bool GfxWorldLinker::LoadReflectionProbeData(GfxWorld& gfxWorld) const
@@ -1124,9 +1198,8 @@ namespace BSP
         // gfx cells depend on surface/smodel count
         LoadGfxCells(*gfxWorld);
 
-        LoadLightGrid(*gfxWorld);
-
         LoadGfxLights(*gfxWorld);
+        if (!LoadLightGrid(*gfxWorld)) return nullptr;
 
         LoadModels(*gfxWorld);
 

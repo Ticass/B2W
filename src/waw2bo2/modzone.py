@@ -9,6 +9,9 @@ which Plutonium loads with the mod.
 """
 from __future__ import annotations
 
+import csv
+import math
+import io
 import re
 import subprocess
 import json
@@ -272,6 +275,51 @@ def _drop_entry(zone_text: str, kind: str, name: str) -> tuple[str, str | None]:
             del lines[i]
             return "\n".join(lines) + "\n", line
     return zone_text, None
+
+
+def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path:
+    """Keep custom-map lobby metadata in mod.ff after the map zone unloads.
+
+    GameGlobeZombie reads numeric longitude/latitude from columns 16/17.
+    An unknown map returns empty strings, becomes nil in Lua, and crashes
+    MoveToUpDirectly during the return to the lobby. A neutral globe position
+    is frontend metadata, not a replacement for source map content.
+    """
+    rows = list(csv.reader(io.StringIO(stock.read_text(encoding="utf-8-sig"))))
+    if not rows or len(rows[0]) < 20:
+        raise ValueError("unsupported zombies map table schema")
+    existing = next((row for row in rows if row and row[0] == project), None)
+    if existing is None:
+        defaults = next((row for row in rows if row and row[0] == "default"), None)
+        if defaults is None:
+            raise ValueError("zombies map table lacks default metadata")
+        existing = defaults[:] + [""] * max(0, 20 - len(defaults))
+        existing[0] = project
+        existing[3] = project
+        existing[19] = "top"
+        rows.insert(next(i for i, row in enumerate(rows) if row and row[0] == "default"), existing)
+    existing += [""] * max(0, 20 - len(existing))
+    for column in (16, 17, 18):
+        if not existing[column].strip():
+            existing[column] = "0"
+        try:
+            value = float(existing[column])
+        except ValueError as error:
+            raise ValueError(f"invalid globe coordinate for {project}") from error
+        if not math.isfinite(value):
+            raise ValueError(f"nonfinite globe coordinate for {project}")
+    maps = [row for row in rows[1:] if row and row[0] not in ("maxnum_map", "default")]
+    count = next((row for row in rows if row and row[0] == "maxnum_map"), None)
+    if count is None:
+        raise ValueError("zombies map table lacks map count")
+    count[1] = str(len(maps))
+    if not existing[5].strip():
+        existing[5] = str(maps.index(existing))
+    result = project_root / "zm/mapstable.csv"
+    result.parent.mkdir(parents=True, exist_ok=True)
+    with result.open("w", encoding="utf-8", newline="") as stream:
+        csv.writer(stream, lineterminator="\n").writerows(rows)
+    return result
 
 
 def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),

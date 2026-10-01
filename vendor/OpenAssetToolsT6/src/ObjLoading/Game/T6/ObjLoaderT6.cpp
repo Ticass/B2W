@@ -2,6 +2,7 @@
 
 #include "Asset/GlobalAssetPoolsLoader.h"
 #include "BSP/LoaderBSP_T6.h"
+#include "BSP/Linker/ComWorldLinker.h"
 #include "FontIcon/CsvLoaderFontIconT6.h"
 #include "FontIcon/JsonLoaderFontIconT6.h"
 #include "Game/T6/CommonT6.h"
@@ -400,6 +401,7 @@ namespace T6
             collection.AddAssetCreator(material::CreateLoaderT6(memory, searchPath));
             collection.AddAssetCreator(technique_set::CreateLoaderT6(memory, searchPath));
             collection.AddAssetCreator(image::CreateLoaderT6(memory, searchPath));
+            collection.AddAssetCreator(BSP::CreateLightDefLoader(memory, searchPath));
             collection.AddAssetCreator(sound::CreateSoundBankLoaderT6(memory, searchPath));
             collection.AddAssetCreator(sound::CreateRawDriverLoaderT6(memory, searchPath));
             // collection.AddAssetCreator(std::make_unique<AssetLoaderSoundPatch>(memory));

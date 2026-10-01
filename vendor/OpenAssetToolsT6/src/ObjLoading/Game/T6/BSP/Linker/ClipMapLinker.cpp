@@ -5,7 +5,10 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -17,6 +20,31 @@ using namespace T6;
 
 namespace BSP
 {
+    namespace
+    {
+        // Debug bisection only: WAW2BO2_DEBUG_DROP="tris|brushes:x0,y0,z0,x1,y1,z1"
+        // drops terrain triangles / world brushes whose bounds meet the box.
+        bool DebugDropBox(const char* kind, float box[6])
+        {
+            const char* env = std::getenv("WAW2BO2_DEBUG_DROP");
+            if (!env)
+                return false;
+            const std::string spec(env);
+            const auto colon = spec.find(':');
+            if (colon == std::string::npos || spec.substr(0, colon) != kind)
+                return false;
+            return std::sscanf(spec.c_str() + colon + 1, "%f,%f,%f,%f,%f,%f", &box[0], &box[1], &box[2], &box[3], &box[4], &box[5]) == 6;
+        }
+
+        bool BoundsMeetBox(const float mins[3], const float maxs[3], const float box[6])
+        {
+            for (auto k = 0; k < 3; k++)
+                if (maxs[k] < box[k] || mins[k] > box[3 + k])
+                    return false;
+            return true;
+        }
+    } // namespace
+
     ClipMapLinker::ClipMapLinker(MemoryManager& memory, ISearchPath& searchPath, AssetCreationContext& context)
         : m_memory(memory),
           m_search_path(searchPath),
@@ -652,27 +680,115 @@ namespace BSP
 
         // The clipmap index buffer has a unique index for each vertex in the world, compared to the gfxworld's
         //  index buffer having a unique index for each vertex on a surface. This code converts gfxworld indices to clipmap indices.
-        // Within each surface, order triangles along a Morton curve of their
-        // centroids so consecutive triangles are spatial neighbours: partitions
-        // are runs of consecutive triangles, and compact runs keep the number of
-        // partitions a query gathers low (the engine keeps only 512 per query).
+        //
+        // Partitions. The engine builds a GJK shape from each partition's unique
+        // vertices (gjk_partition_t, sub_47AE30 reads uinds), i.e. the CONVEX
+        // HULL of the partition, and player/physics collision uses it; rays still
+        // test each triangle (sub_4F6DB0). A non-convex partition therefore adds
+        // invisible, player-only solid: hulls spanning door arches, mounds over
+        // rubble, wedges on stairs. Stock zones keep partitions convex (zm_nuked:
+        // 91% have no vertex in front of any face, 16 of 6,866 dent by > 8 units).
+        // Each partition is grown from a seed over shared edges of one surface,
+        // and a triangle joins only if the partition stays convex: no vertex in
+        // front of any of its faces and none beyond any boundary edge (which also
+        // rejects flat L shapes and gaps). Up to 16 triangles / 256 units, as stock.
+        // Seeds follow a Morton curve so partitions stay spatially compact: the
+        // engine gathers at most 512 partitions per movement/missile query.
+        constexpr size_t MAX_PARTITION_TRIS = 16;
+        constexpr float MAX_PARTITION_EXTENT = 256.0f;
+        constexpr float CONVEX_EPSILON = 0.1f;
+        using Tri = std::array<uint16_t, 3>;
+        const auto vsub = [](const vec3_t& a, const vec3_t& b)
+        {
+            return vec3_t{{.x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z}};
+        };
+        const auto vdot = [](const vec3_t& a, const vec3_t& b)
+        {
+            return a.x * b.x + a.y * b.y + a.z * b.z;
+        };
+        const auto vcross = [](const vec3_t& a, const vec3_t& b)
+        {
+            return vec3_t{{.x = a.y * b.z - a.z * b.y, .y = a.z * b.x - a.x * b.z, .z = a.x * b.y - a.y * b.x}};
+        };
+        const auto edgeKey = [](const uint16_t a, const uint16_t b)
+        {
+            return a < b ? (static_cast<uint32_t>(a) << 16) | b : (static_cast<uint32_t>(b) << 16) | a;
+        };
+        // true while the triangles form one convex surface patch
+        const auto isConvex = [&](const std::vector<Tri>& group)
+        {
+            std::vector<uint16_t> verts;
+            std::map<uint32_t, int> edgeUse;
+            for (const auto& tri : group)
+                for (auto corner = 0; corner < 3; corner++)
+                {
+                    if (std::find(verts.begin(), verts.end(), tri[corner]) == verts.end())
+                        verts.emplace_back(tri[corner]);
+                    edgeUse[edgeKey(tri[corner], tri[(corner + 1) % 3])]++;
+                }
+            for (const auto& tri : group)
+            {
+                const auto& a = weldedVerts[tri[0]];
+                auto n = vcross(vsub(weldedVerts[tri[2]], a), vsub(weldedVerts[tri[1]], a)); // T6 front face
+                const auto length = std::sqrt(vdot(n, n));
+                if (length < 1e-9f)
+                    continue;
+                n = vec3_t{{.x = n.x / length, .y = n.y / length, .z = n.z / length}};
+                for (const auto v : verts)
+                    if (vdot(n, vsub(weldedVerts[v], a)) > CONVEX_EPSILON)
+                        return false;
+                for (auto corner = 0; corner < 3; corner++)
+                {
+                    const auto e0 = tri[corner];
+                    const auto e1 = tri[(corner + 1) % 3];
+                    if (edgeUse[edgeKey(e0, e1)] > 1)
+                        continue; // interior edge
+                    auto w = vcross(vsub(weldedVerts[e1], weldedVerts[e0]), n);
+                    const auto wl = std::sqrt(vdot(w, w));
+                    if (wl < 1e-9f)
+                        continue;
+                    w = vec3_t{{.x = w.x / wl, .y = w.y / wl, .z = w.z / wl}};
+                    if (vdot(w, vsub(weldedVerts[tri[(corner + 2) % 3]], weldedVerts[e0])) > 0.0f)
+                        w = vec3_t{{.x = -w.x, .y = -w.y, .z = -w.z}}; // away from the triangle
+                    for (const auto v : verts)
+                        if (vdot(w, vsub(weldedVerts[v], weldedVerts[e0])) > CONVEX_EPSILON)
+                            return false;
+                }
+            }
+            return true;
+        };
+
+        float dropBox[6];
+        const auto dropTris = DebugDropBox("tris", dropBox);
         std::vector<uint16_t> triIndexVec;
+        std::vector<CollisionPartition> partitionVec;
+        std::vector<uint16_t> uniqueIndicesVec;
         for (const BSPSurface& surface : bsp.colWorld.surfaces)
         {
+            const auto found = materialByFbx.find(surface.material.materialName);
+            const uint16_t surfaceMaterial = found != materialByFbx.end() ? found->second : uint16_t{0};
             const auto indexOfFirstIndex = surface.indexOfFirstIndex;
             const auto indexOfFirstVertex = surface.indexOfFirstVertex;
-            std::vector<std::pair<uint64_t, std::array<uint16_t, 3>>> tris;
+            std::vector<std::pair<uint64_t, Tri>> ordered;
             for (auto triIdx = 0u; triIdx < surface.triCount; triIdx++)
             {
-                std::array<uint16_t, 3> tri{};
+                Tri tri{};
                 float centre[3] = {};
+                float tmins[3] = {}, tmaxs[3] = {};
                 for (auto corner = 0u; corner < 3u; corner++)
                 {
                     const auto source = bsp.colWorld.indices[indexOfFirstIndex + triIdx * 3 + corner] + indexOfFirstVertex;
                     tri[corner] = static_cast<uint16_t>(remap[source]);
                     for (auto axis = 0; axis < 3; axis++)
-                        centre[axis] += weldedVerts[tri[corner]].v[axis] / 3.0f;
+                    {
+                        const auto value = weldedVerts[tri[corner]].v[axis];
+                        centre[axis] += value / 3.0f;
+                        tmins[axis] = corner ? std::min(tmins[axis], value) : value;
+                        tmaxs[axis] = corner ? std::max(tmaxs[axis], value) : value;
+                    }
                 }
+                if (dropTris && BoundsMeetBox(tmins, tmaxs, dropBox))
+                    continue;
                 uint64_t code = 0;
                 for (auto bit = 0; bit < 21; bit++)
                     for (auto axis = 0; axis < 3; axis++)
@@ -681,73 +797,78 @@ namespace BSP
                         const auto cell = static_cast<uint64_t>(std::clamp((centre[axis] + 65536.0f) / 32.0f, 0.0f, 2097151.0f));
                         code |= ((cell >> bit) & 1ull) << (bit * 3 + axis);
                     }
-                tris.emplace_back(code, tri);
+                ordered.emplace_back(code, tri);
             }
-            std::ranges::stable_sort(tris, {}, &decltype(tris)::value_type::first);
-            for (const auto& [code, tri] : tris)
-                triIndexVec.insert(triIndexVec.end(), tri.begin(), tri.end());
+            std::ranges::stable_sort(ordered, {}, &decltype(ordered)::value_type::first);
+
+            std::map<uint32_t, std::vector<size_t>> trisOfEdge;
+            for (size_t i = 0; i < ordered.size(); i++)
+                for (auto corner = 0; corner < 3; corner++)
+                    trisOfEdge[edgeKey(ordered[i].second[corner], ordered[i].second[(corner + 1) % 3])].emplace_back(i);
+
+            std::vector<bool> assigned(ordered.size(), false);
+            for (size_t seed = 0; seed < ordered.size(); seed++)
+            {
+                if (assigned[seed])
+                    continue;
+                assigned[seed] = true;
+                std::vector<Tri> group{ordered[seed].second};
+                vec3_t mins = weldedVerts[group[0][0]];
+                vec3_t maxs = mins;
+                for (const auto v : group[0])
+                    UpdateAABBWithPoint(weldedVerts[v], mins, maxs);
+                std::vector<size_t> frontier{seed};
+                for (size_t f = 0; f < frontier.size() && group.size() < MAX_PARTITION_TRIS; f++)
+                {
+                    const auto cur = ordered[frontier[f]].second;
+                    for (auto corner = 0; corner < 3 && group.size() < MAX_PARTITION_TRIS; corner++)
+                        for (const auto nb : trisOfEdge[edgeKey(cur[corner], cur[(corner + 1) % 3])])
+                        {
+                            if (assigned[nb] || group.size() >= MAX_PARTITION_TRIS)
+                                continue;
+                            auto newMins = mins;
+                            auto newMaxs = maxs;
+                            for (const auto v : ordered[nb].second)
+                                UpdateAABBWithPoint(weldedVerts[v], newMins, newMaxs);
+                            if (newMaxs.x - newMins.x > MAX_PARTITION_EXTENT || newMaxs.y - newMins.y > MAX_PARTITION_EXTENT
+                                || newMaxs.z - newMins.z > MAX_PARTITION_EXTENT)
+                                continue;
+                            group.emplace_back(ordered[nb].second);
+                            if (!isConvex(group))
+                            {
+                                group.pop_back();
+                                continue;
+                            }
+                            assigned[nb] = true;
+                            frontier.emplace_back(nb);
+                            mins = newMins;
+                            maxs = newMaxs;
+                        }
+                }
+
+                CollisionPartition partition{};
+                partition.firstTri = static_cast<int>(triIndexVec.size() / 3);
+                partition.triCount = static_cast<char>(group.size());
+                partition.fuind = static_cast<int>(uniqueIndicesVec.size());
+                std::vector<uint16_t> unique;
+                for (const auto& tri : group)
+                {
+                    triIndexVec.insert(triIndexVec.end(), tri.begin(), tri.end());
+                    for (const auto v : tri)
+                        if (std::find(unique.begin(), unique.end(), v) == unique.end())
+                            unique.emplace_back(v);
+                }
+                partition.nuinds = static_cast<int>(unique.size());
+                uniqueIndicesVec.insert(uniqueIndicesVec.end(), unique.begin(), unique.end());
+                partitionVec.emplace_back(partition);
+                partitionMaterials.emplace_back(surfaceMaterial);
+            }
         }
         // the reinterpret_cast is used as triIndices is just a pointer to an array of indicies, and static_cast can't safely do the conversion
         clipMap.triCount = static_cast<int>(triIndexVec.size() / 3);
         clipMap.triIndices = reinterpret_cast<uint16_t (*)[3]>(m_memory.Alloc<uint16_t>(triIndexVec.size()));
         memcpy(clipMap.triIndices, triIndexVec.data(), sizeof(uint16_t) * triIndexVec.size());
 
-        // partitions are "containers" for vertices. BSP tree leafs contain a list of these partitions to determine the collision within a leaf.
-        // Partitions group runs of consecutive, spatially compact triangles (as
-        // compiled maps do). One partition per triangle produces one AABB-tree
-        // entry per triangle, which overflows the uint16 leaf aabb indices on
-        // large maps. Each partition lists its unique vertices exactly once.
-        // Up to 16 triangles per partition, as stock zones (measured: zm_nuked /
-        // zm_transit partitions hold 1..16 triangles, mean ~3.6). Traces test
-        // every triangle of a partition individually (sub_4F6DB0 -> per-triangle
-        // sub_5D1230 / sub_881940); no partition-level box is solid. Movement and
-        // missile traces gather at most 512 partitions per query (sub_5C7760),
-        // so one triangle per partition dropped collision next to dense meshes
-        // (houses, the bus, furniture). The uint16 leaf aabb index limit is met
-        // by LoadBSPTree placing all parent aabbs first.
-        constexpr int MAX_PARTITION_TRIS = 16;
-        constexpr float MAX_PARTITION_EXTENT = 256.0f;
-        std::vector<CollisionPartition> partitionVec;
-        std::vector<uint16_t> uniqueIndicesVec;
-        for (const BSPSurface& surface : bsp.colWorld.surfaces)
-        {
-            const auto found = materialByFbx.find(surface.material.materialName);
-            const uint16_t surfaceMaterial = found != materialByFbx.end() ? found->second : uint16_t{0};
-            const auto indexOfFirstTri = static_cast<int>(surface.indexOfFirstIndex / 3);
-            auto triIdx = 0;
-            while (triIdx < static_cast<int>(surface.triCount))
-            {
-                CollisionPartition partition;
-                partition.firstTri = indexOfFirstTri + triIdx;
-                partition.fuind = static_cast<int>(uniqueIndicesVec.size());
-                std::vector<uint16_t> unique;
-                vec3_t mins{}, maxs{};
-                auto count = 0;
-                while (count < MAX_PARTITION_TRIS && triIdx + count < static_cast<int>(surface.triCount))
-                {
-                    const auto* tri = clipMap.triIndices[partition.firstTri + count];
-                    auto newMins = count ? mins : clipMap.verts[tri[0]];
-                    auto newMaxs = count ? maxs : clipMap.verts[tri[0]];
-                    for (auto corner = 0; corner < 3; corner++)
-                        UpdateAABBWithPoint(clipMap.verts[tri[corner]], newMins, newMaxs);
-                    if (count && (newMaxs.x - newMins.x > MAX_PARTITION_EXTENT || newMaxs.y - newMins.y > MAX_PARTITION_EXTENT
-                                  || newMaxs.z - newMins.z > MAX_PARTITION_EXTENT))
-                        break;
-                    mins = newMins;
-                    maxs = newMaxs;
-                    for (auto corner = 0; corner < 3; corner++)
-                        if (std::find(unique.begin(), unique.end(), tri[corner]) == unique.end())
-                            unique.emplace_back(tri[corner]);
-                    count++;
-                }
-                partition.triCount = static_cast<char>(count);
-                partition.nuinds = static_cast<int>(unique.size());
-                uniqueIndicesVec.insert(uniqueIndicesVec.end(), unique.begin(), unique.end());
-                partitionVec.emplace_back(partition);
-                partitionMaterials.emplace_back(surfaceMaterial);
-                triIdx += count;
-            }
-        }
         clipMap.partitionCount = static_cast<int>(partitionVec.size());
         clipMap.partitions = m_memory.Alloc<CollisionPartition>(clipMap.partitionCount);
         memcpy(clipMap.partitions, partitionVec.data(), sizeof(CollisionPartition) * partitionVec.size());
@@ -861,8 +982,21 @@ namespace BSP
         try
         {
             const auto js = json::parse(*brushFile.m_stream);
+            float dropBox[6];
+            const auto dropBrushes = DebugDropBox("brushes", dropBox);
+            size_t dropped = 0;
             for (const auto& brushJs : js.at("brushes"))
-                brushSources.emplace_back(ParseBrush(brushJs));
+            {
+                auto brush = ParseBrush(brushJs);
+                if (dropBrushes && BoundsMeetBox(brush.mins.v, brush.maxs.v, dropBox))
+                {
+                    dropped++;
+                    continue;
+                }
+                brushSources.emplace_back(std::move(brush));
+            }
+            if (dropBrushes)
+                con::warn("DEBUG: dropped {} world brushes in the WAW2BO2_DEBUG_DROP box", dropped);
             worldBrushCount = brushSources.size();
 
             // BSP/submodels.json: brush models *1..*N in entity order
@@ -1151,6 +1285,97 @@ namespace BSP
         return true;
     }
 
+    bool ClipMapLinker::LoadWalkableEdges(clipMap_t& clipMap)
+    {
+        // One bit per triangle edge (bit 3t+e). A capsule contact on a set edge
+        // is ground whatever its slope (sub_881940 copies the bit into the trace;
+        // sub_6D8770 only derives walkability from normal.z >= 0.7 when it is
+        // clear). All-ones made every edge of steep rubble and wall tops
+        // standable. Stock zones set about half (zm_nuked 36,587 of 73,506).
+        // BSP/collisionedges.bin carries the source compiler's bits per triangle,
+        // keyed by its corners because LoadPartitions reorders the triangles:
+        // uint32 count, then { float corners[9]; uint8 bits (edges 0..2) }.
+        const auto bytes = static_cast<size_t>((3 * clipMap.triCount + 31) / 32 * 4);
+        clipMap.triEdgeIsWalkable = m_memory.Alloc<char>(bytes);
+        const auto file = m_search_path.Open(GetFileNameForBSPAsset("collisionedges.bin"));
+        if (!file.IsOpen())
+        {
+            con::warn("No collisionedges.bin: every collision triangle edge is marked walkable");
+            memset(clipMap.triEdgeIsWalkable, 0xFF, bytes);
+            return true;
+        }
+        memset(clipMap.triEdgeIsWalkable, 0, bytes);
+
+        using Corner = std::array<int64_t, 3>;
+        using Key = std::array<Corner, 3>;
+        const auto quantise = [](const vec3_t& v)
+        {
+            return Corner{std::llround(v.x * 256.0), std::llround(v.y * 256.0), std::llround(v.z * 256.0)};
+        };
+        // canonical rotation: the smallest corner first; returns that rotation
+        const auto canonical = [](Key key, int& rotation)
+        {
+            rotation = 0;
+            for (auto r = 1; r < 3; r++)
+                if (key[r] < key[rotation])
+                    rotation = r;
+            return Key{key[rotation], key[(rotation + 1) % 3], key[(rotation + 2) % 3]};
+        };
+
+        uint32_t count = 0;
+        file.m_stream->read(reinterpret_cast<char*>(&count), sizeof(count));
+        std::map<Key, uint8_t> sourceBits; // bits rotated to the canonical corner order
+        for (uint32_t i = 0; i < count && *file.m_stream; i++)
+        {
+            float corners[9];
+            uint8_t bits = 0;
+            file.m_stream->read(reinterpret_cast<char*>(corners), sizeof(corners));
+            file.m_stream->read(reinterpret_cast<char*>(&bits), 1);
+            Key key{};
+            for (auto c = 0; c < 3; c++)
+                key[c] = quantise(vec3_t{{.x = corners[c * 3], .y = corners[c * 3 + 1], .z = corners[c * 3 + 2]}});
+            int rotation = 0;
+            const auto canon = canonical(key, rotation);
+            uint8_t rotated = 0;
+            for (auto e = 0; e < 3; e++)
+                rotated |= ((bits >> ((e + rotation) % 3)) & 1) << e;
+            sourceBits.try_emplace(canon, rotated);
+        }
+        if (!*file.m_stream)
+        {
+            con::error("collisionedges.bin is truncated");
+            return false;
+        }
+
+        size_t matched = 0, walkable = 0;
+        for (int t = 0; t < clipMap.triCount; t++)
+        {
+            Key key{};
+            for (auto c = 0; c < 3; c++)
+                key[c] = quantise(clipMap.verts[clipMap.triIndices[t][c]]);
+            int rotation = 0;
+            const auto found = sourceBits.find(canonical(key, rotation));
+            // unmatched triangles keep the engine's slope rule (bits clear)
+            if (found == sourceBits.end())
+                continue;
+            matched++;
+            for (auto e = 0; e < 3; e++)
+            {
+                // edge e of this triangle is canonical edge (e - rotation) mod 3
+                if (!((found->second >> ((e + 3 - rotation) % 3)) & 1))
+                    continue;
+                const auto bit = 3 * t + e;
+                clipMap.triEdgeIsWalkable[bit >> 3] = static_cast<char>(clipMap.triEdgeIsWalkable[bit >> 3] | (1 << (bit & 7)));
+                walkable++;
+            }
+        }
+        con::info("Walkable edges: {} of {} from the source compiler, {} of {} triangles matched", walkable, 3 * clipMap.triCount, matched,
+                  clipMap.triCount);
+        if (matched != static_cast<size_t>(clipMap.triCount))
+            con::warn("{} collision triangles have no source edge bits", clipMap.triCount - static_cast<int>(matched));
+        return true;
+    }
+
     clipMap_t* ClipMapLinker::LinkClipMap(const BSPData& bsp)
     {
         clipMap_t* clipMap = m_memory.Alloc<clipMap_t>();
@@ -1187,13 +1412,11 @@ namespace BSP
         if (!LoadWorldCollision(*clipMap, bsp))
             return nullptr;
 
-        // set all edges to walkable (one bit per triangle edge)
         // Must follow LoadWorldCollision: triCount is only known after the
         // partitions are loaded. Sizing it before gave a 0-byte buffer that the
         // zone writer and the game then read as 3 bits per triangle.
-        int walkableEdgeSize = (3 * clipMap->triCount + 31) / 32 * 4;
-        clipMap->triEdgeIsWalkable = m_memory.Alloc<char>(walkableEdgeSize);
-        memset(clipMap->triEdgeIsWalkable, 0xFF, walkableEdgeSize * sizeof(char));
+        if (!LoadWalkableEdges(*clipMap))
+            return nullptr;
 
         return clipMap;
     }

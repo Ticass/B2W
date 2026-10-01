@@ -11,6 +11,21 @@ def box(lo, hi, contents=1):
 
 
 class UnlistedWorldBrushTests(unittest.TestCase):
+    def test_complete_ownership_keeps_entity_and_unreferenced_brushes_out_of_world(self):
+        # A brush shared by the world's BSP leaves and a door stays entity-owned.
+        # An unused brush outside every entity bound must not become a wall.
+        clip = SimpleNamespace(brushes=[box((0, 0, 0), (10, 10, 10)),
+                                        box((-4, -4, -4), (4, 4, 4)),
+                                        box((500, 500, 0), (600, 600, 50))], materials=[],
+                               brush_ownership_complete=True,
+                               submodels=[world.SubModel((0, 0, 0), (0, 0, 0), [0, 1]),
+                                          world.SubModel((-5, -5, -5), (5, 5, 5), [1])])
+        out, summary = hulls.collision_brushes(clip)
+        self.assertEqual([b["mins"] for b in out], [[0, 0, 0]])
+        self.assertEqual(summary["world_brushes_recovered_unlisted"], 0)
+        self.assertEqual(summary["unreferenced_brushes"], 1)
+        self.assertEqual(len(hulls.submodel_records(clip)[0]["brushes"]), 1)
+
     def test_unlisted_brushes_outside_entity_local_bounds_are_world(self):
         brushes = [box((0, 0, 0), (10, 10, 10)),              # listed world brush
                    box((-4, -4, -4), (4, 4, 4)),               # door brush (entity local space)

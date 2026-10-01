@@ -12,7 +12,9 @@
 #include <cstring>
 #include <format>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <sstream>
+#include <unordered_map>
 #include <zlib.h>
 
 using namespace T6;
@@ -26,6 +28,28 @@ namespace
             : m_memory(memory),
               m_search_path(searchPath)
         {
+        }
+
+        // images/streaming.json {"streamingMode": {"<image>": 2}} from the
+        // bridge stage. Stock effect images (all 125 in zm_nuked/common_zm) are
+        // streaming 2 with a header-only loadDef; under the world streaming mode
+        // (1) effect images are never made resident and sprites sample a
+        // fallback.
+        int StreamingMode(const std::string& assetName)
+        {
+            if (!m_streaming_loaded)
+            {
+                m_streaming_loaded = true;
+                const auto file = m_search_path.Open("images/streaming.json");
+                if (file.IsOpen())
+                {
+                    const auto json = nlohmann::json::parse(*file.m_stream);
+                    for (const auto& [name, mode] : json.at("streamingMode").items())
+                        m_streaming[name] = mode.get<int>();
+                }
+            }
+            const auto entry = m_streaming.find(assetName);
+            return entry != m_streaming.end() ? entry->second : 1;
         }
 
         AssetCreationResult CreateAsset(const std::string& assetName, AssetCreationContext& context) override
@@ -124,6 +148,24 @@ namespace
             }
 
             image->streaming = 1;
+            if (StreamingMode(assetName) == 2)
+            {
+                // stock streaming-2 header: no pixels inline (resourceSize 0),
+                // levelCount 0, or 1 with NOMIPMAPS for unmipped images
+                auto* loadDef = m_memory.Alloc<GfxImageLoadDef>();
+                loadDef->levelCount = texture->HasMipMaps() ? 0 : 1;
+                loadDef->flags = 0;
+                if (!texture->HasMipMaps())
+                    loadDef->flags |= iwi27::IMG_FLAG_NOMIPMAPS;
+                if (texture->GetTextureType() == TextureType::T_CUBE)
+                    loadDef->flags |= iwi27::IMG_FLAG_CUBEMAP;
+                else if (texture->GetTextureType() == TextureType::T_3D)
+                    loadDef->flags |= iwi27::IMG_FLAG_VOLMAP;
+                loadDef->format = static_cast<int>(texture->GetFormat()->GetDxgiFormat());
+                loadDef->resourceSize = 0;
+                image->texture.loadDef = loadDef;
+                image->streaming = 2;
+            }
             image->streamedParts[0].levelCount = static_cast<uint32_t>(std::min(texture->GetMipMapCount(), 15));
             image->streamedParts[0].levelSize = static_cast<uint32_t>(fileSize);
             image->streamedParts[0].hash = dataHash & 0x1FFFFFFF;
@@ -135,6 +177,8 @@ namespace
     private:
         MemoryManager& m_memory;
         ISearchPath& m_search_path;
+        bool m_streaming_loaded = false;
+        std::unordered_map<std::string, int> m_streaming;
     };
 } // namespace
 

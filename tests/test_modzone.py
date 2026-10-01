@@ -1,3 +1,4 @@
+import csv
 import subprocess
 import json
 import tempfile
@@ -9,6 +10,24 @@ from waw2bo2 import modzone
 
 
 class ModZoneTests(unittest.TestCase):
+    def test_custom_map_has_persistent_numeric_globe_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stock = root / "stock.csv"
+            header = [f"column{i}" for i in range(20)]
+            original = ["zm_stock", "cdc", "cia"] + [""] * 13 + ["110", "40", "0", "top"]
+            with stock.open("w", newline="") as stream:
+                csv.writer(stream).writerows([header, ["maxnum_map", "1"], original,
+                    ["default", "cdc", "cia"] + [""] * 17])
+            output = modzone.stage_lobby_map_table(stock, root / "project", "zm_custom")
+            rows = list(csv.reader(output.open()))
+            self.assertIn(original, rows)
+            self.assertEqual(rows[1][1], "2")
+            custom = next(row for row in rows if row[0] == "zm_custom")
+            self.assertEqual([float(custom[i]) for i in (16, 17, 18)], [0, 0, 0])
+            again = modzone.stage_lobby_map_table(output, root / "project", "zm_custom")
+            self.assertEqual(rows, list(csv.reader(again.open())))
+
     def test_shader_baseline_restores_staging_after_link_failure(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

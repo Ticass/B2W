@@ -35,6 +35,7 @@ apply_vision( localclientnum )
     setdvar( "vc_LUT", index + 1 );
 }
 
+// Both sun tweak dvars are SAVED (0x1200): plain setdvar is refused for them.
 sun_state( localclientnum, state )
 {
     if ( !isdefined( level.waw_saved_sun ) )
@@ -47,8 +48,8 @@ sun_state( localclientnum, state )
         return;
     if ( state == "reset" )
     {
-        setdvar( "r_lightTweakSunColor", level.waw_saved_sun.color );
-        setdvar( "r_lightTweakSunLight", level.waw_saved_sun.light );
+        setsaveddvar( "r_lightTweakSunColor", level.waw_saved_sun.color );
+        setsaveddvar( "r_lightTweakSunLight", level.waw_saved_sun.light );
         return;
     }
     values = strtok( state, " " );
@@ -61,6 +62,6 @@ sun_state( localclientnum, state )
     color = "0 0 0";
     if ( strength > 0 )
         color = ( r / strength ) + " " + ( g / strength ) + " " + ( b / strength );
-    setdvar( "r_lightTweakSunColor", color );
-    setdvar( "r_lightTweakSunLight", strength );
+    setsaveddvar( "r_lightTweakSunColor", color );
+    setsaveddvar( "r_lightTweakSunLight", strength );
 }

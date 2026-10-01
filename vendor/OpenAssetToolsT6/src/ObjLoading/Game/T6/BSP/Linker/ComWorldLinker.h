@@ -7,6 +7,7 @@
 
 namespace BSP
 {
+    std::unique_ptr<AssetCreator<T6::AssetLightDef>> CreateLightDefLoader(MemoryManager& memory, ISearchPath& searchPath);
     class ComWorldLinker
     {
     public:

@@ -68,6 +68,9 @@ namespace
                 // waw2bo2 world meshes carry their source lightmap page as "_lm<N>"
                 const std::string nodeName = node->name.data;
                 const auto tag = nodeName.rfind("_lm");
+                const auto lightTag = nodeName.rfind("_pl");
+                if (lightTag != std::string::npos && tag != std::string::npos && lightTag + 3 < tag)
+                    surface.primaryLightIndex = std::stoi(nodeName.substr(lightTag + 3, tag - lightTag - 3));
                 if (tag != std::string::npos && tag + 3 < nodeName.size()
                     && nodeName.find_first_not_of("0123456789", tag + 3) == std::string::npos)
                     surface.lightmapPage = std::stoi(nodeName.substr(tag + 3));

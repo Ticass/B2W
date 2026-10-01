@@ -94,7 +94,7 @@ index 124fd59..fbdba09 100644
      );
  } // namespace GAME
 diff --git a/src/ObjWriting/Game/T4/ObjWriterT4.cpp b/src/ObjWriting/Game/T4/ObjWriterT4.cpp
-index de5cd74..9c7b674 100644
+index de5cd74..98f85e0 100644
 --- a/src/ObjWriting/Game/T4/ObjWriterT4.cpp
 +++ b/src/ObjWriting/Game/T4/ObjWriterT4.cpp
 @@ -1,8 +1,10 @@
@@ -116,7 +116,7 @@ index de5cd74..9c7b674 100644
  #include "StringTable/StringTableDumperT4.h"
  #include "Weapon/WeaponDumperT4.h"
  
-@@ -25,10 +28,17 @@ void ObjWriter::RegisterAssetDumpers(AssetDumpingContext& context)
+@@ -25,10 +28,18 @@ void ObjWriter::RegisterAssetDumpers(AssetDumpingContext& context)
      RegisterAssetDumper(std::make_unique<material::JsonDumperT4>());
      RegisterAssetDumper(std::make_unique<image::DumperT4>());
      RegisterAssetDumper(std::make_unique<sound::LoadedSoundDumperT4>());
@@ -125,6 +125,7 @@ index de5cd74..9c7b674 100644
      RegisterAssetDumper(std::make_unique<map_ents::DumperT4>());
 +    RegisterAssetDumper(std::make_unique<world_converter::GfxWorldDumperT4>());
 +    RegisterAssetDumper(std::make_unique<world_converter::ComWorldDumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::LightDefDumperT4>());
 +    RegisterAssetDumper(std::make_unique<world_converter::ClipMapDumperT4>());
 +    RegisterAssetDumper(std::make_unique<world_converter::PathDataDumperT4>());
      RegisterAssetDumper(std::make_unique<font::JsonDumperT4>());
@@ -260,7 +261,6 @@ index 9398f99..c336987 100644
  
 diff --git a/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp
 new file mode 100644
-index 0000000..1d86b29
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp
 @@ -0,0 +1,221 @@
@@ -487,7 +487,6 @@ index 0000000..1d86b29
 +} // namespace fx
 diff --git a/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h
 new file mode 100644
-index 0000000..c04a708
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h
 @@ -0,0 +1,16 @@
@@ -509,10 +508,9 @@ index 0000000..c04a708
 +} // namespace fx
 diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
 new file mode 100644
-index 0000000..cbf3d85
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,433 @@
 +#include "WorldConverterDumperT4.h"
 +
 +#include <array>
@@ -578,6 +576,16 @@ index 0000000..cbf3d85
 +
 +namespace world_converter
 +{
++    void LightDefDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<GfxLightDef>& asset)
++    {
++        const auto* def = asset.Asset();
++        const auto file = context.OpenAssetFile(std::format("lightdef/{}.json", asset.m_name));
++        if (file)
++            *file << nlohmann::json({{"_game", "T4"}, {"_version", 1},
++                {"name", def->name}, {"attenuation", def->attenuation.image ? def->attenuation.image->name : ""},
++                {"samplerState", static_cast<unsigned char>(def->attenuation.samplerState)},
++                {"lmapLookupStart", def->lmapLookupStart}}).dump(2) << '\n';
++    }
 +    void ComWorldDumperT4::DumpAsset(AssetDumpingContext& context, const XAssetInfo<ComWorld>& asset)
 +    {
 +        using nlohmann::json;
@@ -609,7 +617,7 @@ index 0000000..cbf3d85
 +
 +        auto& stream = *file;
 +        WriteArray(stream, MAGIC.data(), MAGIC.size());
-+        Write(stream, uint32_t{2});
++        Write(stream, uint32_t{3});
 +        Write(stream, world->vertexCount);
 +        Write(stream, static_cast<uint32_t>(world->indexCount));
 +        Write(stream, static_cast<uint32_t>(world->surfaceCount));
@@ -656,6 +664,7 @@ index 0000000..cbf3d85
 +            Write(stream, model.placement.scale);
 +            Write(stream, model.flags);
 +            Write(stream, model.cullDist); // v2
++            Write(stream, static_cast<uint32_t>(model.primaryLightIndex)); // v3
 +        }
 +
 +        // Keep compiled lighting independently of the geometry interchange.
@@ -725,7 +734,10 @@ index 0000000..cbf3d85
 +
 +        auto& stream = *file;
 +        WriteArray(stream, MAGIC.data(), MAGIC.size());
-+        Write(stream, uint32_t{4});
++        // v5 has the v4 payload, but guarantees shared leaf-brush branches
++        // were visited. Readers must not guess ownership from local bounds.
++        // v6 appends the compiled walkable bit of every triangle edge.
++        Write(stream, uint32_t{6});
 +        WriteString(stream, clip->name);
 +        Write(stream, clip->numMaterials);
 +        for (uint32_t i = 0; i < clip->numMaterials; ++i)
@@ -803,6 +815,10 @@ index 0000000..cbf3d85
 +                            owned.push_back(node.data.leaf.brushes[b]);
 +                    continue;
 +                }
++                // Negative count: brushes crossing this split are held in
++                // the immediately following shared subtree, before children.
++                if (node.leafBrushCount < 0)
++                    pending.push_back(index + 1);
 +                for (const auto offset : node.data.children.childOffset)
 +                    if (offset)
 +                        pending.push_back(index + offset);
@@ -863,6 +879,17 @@ index 0000000..cbf3d85
 +        }
 +        Write(stream, static_cast<uint32_t>(triMaterial.size()));
 +        WriteArray(stream, triMaterial.data(), triMaterial.size());
++
++        // v6: triEdgeIsWalkable, one bit per edge (3 * triCount bits, edge e of
++        // triangle t is bit 3t+e). Contacts on a set edge count as ground
++        // regardless of slope, so the compiler's bits must survive conversion.
++        const auto edgeBytes = static_cast<uint32_t>((3 * clip->triCount + 31) / 32 * 4);
++        Write(stream, edgeBytes);
++        if (edgeBytes && clip->triEdgeIsWalkable)
++            WriteArray(stream, clip->triEdgeIsWalkable, edgeBytes);
++        else
++            for (uint32_t i = 0; i < edgeBytes; ++i)
++                Write(stream, uint8_t{0xFF});
 +    }
 +    namespace
 +    {
@@ -919,10 +946,9 @@ index 0000000..cbf3d85
 +} // namespace world_converter
 diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h
 new file mode 100644
-index 0000000..0c1e2c4
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,37 @@
 +#pragma once
 +
 +#include "Dumping/AbstractAssetDumper.h"
@@ -930,6 +956,11 @@ index 0000000..0c1e2c4
 +
 +namespace world_converter
 +{
++    class LightDefDumperT4 final : public AbstractAssetDumper<T4::AssetLightDef>
++    {
++    protected:
++        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::GfxLightDef>& asset) override;
++    };
 +    class ComWorldDumperT4 final : public AbstractAssetDumper<T4::AssetComWorld>
 +    {
 +    protected:
@@ -957,7 +988,6 @@ index 0000000..0c1e2c4
 +} // namespace world_converter
 diff --git a/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp
 new file mode 100644
-index 0000000..59edb7d
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp
 @@ -0,0 +1,114 @@
@@ -1077,7 +1107,6 @@ index 0000000..59edb7d
 +}
 diff --git a/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h
 new file mode 100644
-index 0000000..64ce35b
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h
 @@ -0,0 +1,17 @@

@@ -68,6 +68,7 @@ class StaticModel:
     scale: float
     flags: int
     cull_dist: float = 0.0  # WaW per-instance draw distance (0 = unknown)
+    primary_light_index: int = 1
 
 
 @dataclass(slots=True)
@@ -98,7 +99,7 @@ def _unit_vec_scale(packed: int) -> tuple[float, float, float]:
 def read_gfx_world(path: Path) -> GfxWorld:
     with path.open("rb") as stream:
         r = Reader(stream)
-        if r.exact(8) != MAGIC or (gfx_version := r.unpack("I")) not in (1, 2):
+        if r.exact(8) != MAGIC or (gfx_version := r.unpack("I")) not in (1, 2, 3):
             raise FormatError(f"{path} is not a W2BSP001 render-world file")
         vertex_count, index_count, surface_count, model_count = r.unpack("IIII")
         if vertex_count > 20_000_000 or index_count > 60_000_000 or surface_count > 2_000_000:
@@ -138,7 +139,10 @@ def read_gfx_world(path: Path) -> GfxWorld:
             axis = r.unpack("9f")
             scale, flags = r.unpack("fI")
             cull_dist = r.unpack("f") if gfx_version >= 2 else 0.0
-            models.append(StaticModel(model_name, origin, axis, scale, flags, cull_dist))
+            primary_light = r.unpack("I") if gfx_version >= 3 else 1
+            if primary_light > 255:
+                raise FormatError("static model primary-light index exceeds byte range")
+            models.append(StaticModel(model_name, origin, axis, scale, flags, cull_dist, primary_light))
         if stream.read(1):
             raise FormatError("render-world file has trailing data (schema mismatch)")
     return GfxWorld(name, base_name, skybox_model, vertices, indices, surfaces, models)
@@ -213,12 +217,22 @@ class CollisionWorld:
     static_models: list[ClipStaticModel] = field(default_factory=list)
     # v4: clip material index per collision triangle (0xFFFF = none recorded)
     triangle_materials: list[int] = field(default_factory=list)
+    # v5: shared leaf-brush branches are included in the ownership lists.
+    brush_ownership_complete: bool = False
+    # v6: compiled triEdgeIsWalkable, bit 3t+e for edge e of triangle t
+    edge_walkable: bytes = b""
+    # v7: terrain aabb tree (material, childCount, first child / partition),
+    # collision leafs (first root, root count, terrainContents) and partitions
+    # (first triangle, triangle count)
+    aabb_trees: list[tuple[int, int, int]] = field(default_factory=list)
+    leaf_roots: list[tuple[int, int, int]] = field(default_factory=list)
+    partitions: list[tuple[int, int]] = field(default_factory=list)
 
 
 def read_collision(path: Path) -> CollisionWorld:
     with path.open("rb") as stream:
         r = Reader(stream)
-        if r.exact(8) != MAGIC or (version := r.unpack("I")) not in (2, 3, 4):
+        if r.exact(8) != MAGIC or (version := r.unpack("I")) not in (2, 3, 4, 5, 6, 7):
             raise FormatError(f"{path} is not a W2BSP001 clip-world file")
         name = r.string()
         material_count = r.unpack("I")
@@ -279,10 +293,22 @@ def read_collision(path: Path) -> CollisionWorld:
             triangle_materials = [values] if isinstance(values, int) else list(values)
             if any(m != 0xFFFF and m >= material_count for m in triangle_materials):
                 raise FormatError("collision triangle references a material outside the material table")
+        edge_walkable = b""
+        if version >= 6:
+            size = r.unpack("I")
+            if size != (3 * triangle_count + 31) // 32 * 4:
+                raise FormatError("walkable edge table does not match the triangle count")
+            edge_walkable = r.exact(size)
+        aabb_trees, leaf_roots, partitions = [], [], []
+        if version >= 7:
+            aabb_trees = [r.unpack("2Hi") for _ in range(r.unpack("I"))]
+            leaf_roots = [r.unpack("2Ii") for _ in range(r.unpack("I"))]
+            partitions = [r.unpack("2I") for _ in range(r.unpack("I"))]
         if stream.read(1):
             raise FormatError("clip-world file has trailing data (schema mismatch)")
     summary = CollisionSummary(name, material_count, vertex_count, triangle_count, brush_count)
-    return CollisionWorld(summary, vertices, indices, materials, brushes, submodels, static_models, triangle_materials)
+    return CollisionWorld(summary, vertices, indices, materials, brushes, submodels, static_models, triangle_materials,
+                          version >= 5, edge_walkable, aabb_trees, leaf_roots, partitions)
 
 
 def inspect_collision(path: Path) -> CollisionSummary:

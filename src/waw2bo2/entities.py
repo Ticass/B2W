@@ -215,23 +215,42 @@ def point_in_volume(point, ent: dict, clip) -> bool:
     return False
 
 
-def restrict_start_points(out: list[dict], clip, start_zones: list[str], summary: dict) -> None:
-    """BO2 picks a random initial_spawn_points struct and kills a player
-    outside every enabled zone unless they touch a life brush. Keep only start
-    points inside a start zone or a life brush (a player standing, i.e.
-    slightly above the struct, must be inside)."""
+# WaW _zombiemode::coop_player_spawn_placement puts player i at
+# getstructarray("initial_spawn_points")[i] (entity order), so with WaW's four
+# co-op players only the first four structs are ever spawn points. Maps keep
+# more for their own scripts (nuketown's teleporter sends players to [4..7]).
+WAW_COOP_PLAYERS = 4
+# BO2 _zm_gametype::onspawnplayer first takes script_noteworthy "initial_spawn"
+# structs whose script_string has "<gametype>_<start location>" and only falls
+# back to a random pick over every initial_spawn_points struct when none match.
+# The zm_test template every map is built from sets zclassic + classic_spawn.
+BO2_SPAWN_MATCH = "zclassic_classic_spawn"
+
+
+def add_bo2_initial_spawns(out: list[dict], clip, start_zones: list[str], summary: dict) -> list[dict]:
+    """Give BO2 exactly WaW's start points as matching ``initial_spawn`` structs.
+
+    The WaW ``initial_spawn_points`` structs are left untouched: map scripts
+    index them, and renaming any of them shifts those indices. A chosen point
+    outside every start zone / life brush is reported (BO2 kills players
+    outside enabled zones unless they touch a life brush), not moved."""
+    starts = [e for e in out if e.get("targetname") == "initial_spawn_points"]
+    if not starts:
+        raise ValueError("map has no initial_spawn_points")
+    chosen = starts[:WAW_COOP_PLAYERS]
     volumes = [e for e in out if (e.get("classname") == "info_volume" and e.get("targetname") in start_zones)
                or e.get("script_noteworthy") == "life_brush"]
-    starts = [e for e in out if e.get("targetname") == "initial_spawn_points"]
-    inside = [s for s in starts
-              if any(point_in_volume((lambda o: (o[0], o[1], o[2] + 32))(_origin(s)), v, clip) for v in volumes)]
-    if not inside:
-        raise ValueError(f"no initial_spawn_points inside the start zones {start_zones}")
-    for s in starts:
-        if s not in inside:
-            s["targetname"] = "waw2bo2_initial_spawn_outside_start_zone"
-    summary["spawn_points"] = len(inside)
-    summary["spawn_points_outside_start_zones"] = len(starts) - len(inside)
+    outside = [s for s in chosen
+               if clip is not None and volumes
+               and not any(point_in_volume((lambda o: (o[0], o[1], o[2] + 32))(_origin(s)), v, clip) for v in volumes)]
+    for s in chosen:
+        out.append({"classname": "script_struct", "targetname": "waw2bo2_initial_spawn",
+                    "script_noteworthy": "initial_spawn", "script_string": BO2_SPAWN_MATCH,
+                    "origin": s.get("origin", "0 0 0"), "angles": s.get("angles", "0 0 0")})
+    summary["spawn_points"] = len(chosen)
+    summary["spawn_points_unused_by_waw_coop_placement"] = len(starts) - len(chosen)
+    summary["spawn_points_outside_start_zones"] = len(outside)
+    return chosen
 
 
 def write_entities(ents_file: Path, project: str, bsp_dir: Path, clip=None,
@@ -239,11 +258,10 @@ def write_entities(ents_file: Path, project: str, bsp_dir: Path, clip=None,
                    animscripts: dict[str, str] | None = None) -> tuple[dict, set[str]]:
     ents = parse_entities(ents_file.read_text(encoding="utf-8", errors="replace"))
     out, spawns, summary = convert_entities(ents, project, animscripts)
-    if clip is not None and start_zones:
-        restrict_start_points(out, clip, start_zones, summary)
-        kept = [{"origin": e.get("origin", "0 0 0"), "angles": e.get("angles", "0 0 0")}
-                for e in out if e.get("targetname") == "initial_spawn_points"]
-        spawns = zombies_spawns(kept)
+    if any(e.get("targetname") == "initial_spawn_points" for e in out):
+        chosen = add_bo2_initial_spawns(out, clip, start_zones or [], summary)
+        spawns = zombies_spawns([{"origin": e.get("origin", "0 0 0"), "angles": e.get("angles", "0 0 0")}
+                                 for e in chosen])
     bsp_dir.mkdir(parents=True, exist_ok=True)
     (bsp_dir / "entities.json").write_text(json.dumps({"entities": out}, indent=1) + "\n", encoding="utf-8")
     (bsp_dir / "spawns.json").write_text(json.dumps(spawns, indent=1) + "\n", encoding="utf-8")

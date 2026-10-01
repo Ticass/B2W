@@ -130,7 +130,11 @@ def collision_brushes(clip) -> tuple[list[dict], dict]:
     # brush outside every brush model's local bounds is a world brush.
     listed = set(world_ids) | owned
     recovered, ambiguous = [], 0
-    for i in range(len(clip.brushes)):
+    # New dumps enumerate the actual engine tree, including crossing brushes.
+    # Unreferenced brushes are not active geometry. Only legacy incomplete
+    # dumps need the old recovery path; local bounds cannot prove ownership.
+    candidates = () if getattr(clip, "brush_ownership_complete", False) else range(len(clip.brushes))
+    for i in candidates:
         if i in listed:
             continue
         b = clip.brushes[i]
@@ -151,6 +155,8 @@ def collision_brushes(clip) -> tuple[list[dict], dict]:
                "entity_brushes_excluded": sum(len(s.brushes) for s in clip.submodels[1:]),
                "world_brushes_recovered_unlisted": len(recovered),
                "unlisted_brushes_ambiguous_skipped": ambiguous}
+    summary["brush_ownership_complete"] = getattr(clip, "brush_ownership_complete", False)
+    summary["unreferenced_brushes"] = len(set(range(len(clip.brushes))) - listed)
     return out, summary
 
 
@@ -185,3 +191,44 @@ def static_model_records(clip) -> tuple[list[dict], dict]:
                "static_models_without_collision": no_collision,
                "static_model_triangles_outside_waw_bounds": outside}
     return out, summary
+
+
+# WaW SP_script_model (sub_531C40) gives every script_model contents 0x2080
+# (missile + shot clip) OR its collSurfs' contents, and the model's bounds; an
+# entity without collSurfs is traced as that box, so doors, debris rocks and
+# wall-buy models stop grenades and bullets. T6's script_model spawn
+# (sub_5485E0) sets the same 0x2080 contents but traces the xmodel's collSurfs,
+# so a model without them is hit by nothing.
+SCRIPT_MODEL_CONTENTS = 0x2080
+
+
+def collision_tri_record(a: Vec, b: Vec, c: Vec) -> dict:
+    """XModelCollTri_s for corners at (s, t) = (0,0), (1,0), (0,1).
+
+    WaW's own triangles have plane normal (c - a) x (b - a) (measured on every
+    triangle of a WaW collSurf), pointing out of the solid; s = svec.p - svec.w.
+    """
+    e1, e2 = _sub(b, a), _sub(c, a)
+    n = _unit(_cross(e2, e1))
+    svec = solve3((e1, e2, n), (1.0, 0.0, 0.0))
+    tvec = solve3((e1, e2, n), (0.0, 1.0, 0.0))
+    if svec is None or tvec is None:
+        raise ValueError("degenerate collision triangle")
+    return {"plane": [*n, _dot(n, a)], "svec": [*svec, _dot(svec, a)], "tvec": [*tvec, _dot(tvec, a)]}
+
+
+def bounds_box_collsurf(mins: Vec, maxs: Vec, bone: str, contents: int = SCRIPT_MODEL_CONTENTS) -> dict:
+    """One collSurf: the 12 outward-facing triangles of an axis-aligned box."""
+    corner = lambda i: (maxs[0] if i & 1 else mins[0], maxs[1] if i & 2 else mins[1], maxs[2] if i & 4 else mins[2])
+    centre = tuple((mins[k] + maxs[k]) * 0.5 for k in range(3))
+    # faces as corner-index quads; orientation is fixed below from the centre
+    faces = ((0, 2, 6, 4), (1, 3, 7, 5), (0, 1, 5, 4), (2, 3, 7, 6), (0, 1, 3, 2), (4, 5, 7, 6))
+    tris = []
+    for quad in faces:
+        pts = [corner(i) for i in quad]
+        for a, b, c in ((pts[0], pts[1], pts[2]), (pts[0], pts[2], pts[3])):
+            if _dot(_cross(_sub(c, a), _sub(b, a)), _sub(a, centre)) < 0:
+                b, c = c, b
+            tris.append(collision_tri_record(a, b, c))
+    return {"tris": tris, "mins": list(mins), "maxs": list(maxs), "bone": bone,
+            "contents": contents, "surfFlags": 0}

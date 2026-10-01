@@ -146,13 +146,14 @@ waw_triggerfx( ent, delay )
 // ---- world lighting / fog ----
 
 // WaW: setVolFog(start, halfway, halfheight, baseheight, r, g, b, transition)
-// T6 : setvolfog(start, halfway, halfheight, baseheight, r, g, b, fog_scale,
-//               sun r, g, b, sun dir x, y, z, sun start ang, stop ang, time, max opacity)
+// T6 sub_851590 accepts the same eight parameters, normalizing RGB and
+// retaining its magnitude as fogColorScale. Its extended form needs 18;
+// a 17-argument call errors and leaves the previous map fog in place.
 waw_setvolfog( start, halfway, halfheight, baseheight, r, g, b, transition )
 {
     if ( !isdefined( transition ) )
         transition = 0;
-    setvolfog( start, halfway, halfheight, baseheight, r, g, b, 1, r, g, b, 0, 0, 1, 0, 0, transition, 1 );
+    setvolfog( start, halfway, halfheight, baseheight, r, g, b, transition );
 }
 
 // BO2 renderer controls live on clients. The state is retained for late joins.
