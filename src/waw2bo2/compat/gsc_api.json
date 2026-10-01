@@ -13,7 +13,11 @@
     "maps\\_loadout is deliberately NOT core: it is WaW's player appearance/loadout contract (viewmodel arms,",
     "  character bodies, start weapons). gscport ports it whole and _waw2bo2_characters drives it from BO2's",
     "  precache/give-character hooks.",
-    "anim_builtins: animation builtins -> compat waw_anim_<value>, used in scripts whose WaW animtree is not available in BO2 (their %anim references become strings)."
+    "anim_builtins: animation builtins -> compat waw_anim_<value>, used in scripts whose WaW animtree is not available in BO2 (their %anim references become strings).",
+    "extract_exceptions: function-name suffixes still extracted from no_extract scripts: gameplay callbacks such as",
+    "  the DLC3 template's mystery box weighting functions (ray gun odds), not framework setup.",
+    "library_functions: functions of third-party WaW map libraries -> compat waw_<value>, where BO2 has the native",
+    "  feature the library worked around (e.g. treminaor's trem_hintstrings drew hints through a WaW menu)."
   ],
   "core_scripts": {
     "common_scripts\\utility": "common_scripts\\utility",
@@ -145,5 +149,13 @@
     "setflaggedanimlimitedrestart": "setanim",
     "clearanim": "clearanim",
     "clearanimlimited": "clearanim"
+  },
+  "extract_exceptions": {
+    "maps\\dlc3_code": ["_weighting_func"]
+  },
+  "library_functions": {
+    "maps\\trem_hintstrings": {
+      "_sethintstring": "native_hintstring"
+    }
   }
 }

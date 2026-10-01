@@ -167,6 +167,33 @@ waw_resetsunlight()
     maps\mp\_utility::setclientsysstate( "waw_sun", "reset" );
 }
 
+// ---- animation ----
+
+// T6 has no StopUseAnimTree; WaW callers clear their animations before it,
+// which leaves a T6 script model at its bind pose as well.
+waw_stopuseanimtree()
+{
+}
+
+// WaW ClearAnim's blend time is optional; T6 requires it.
+waw_clearanim( animname, time )
+{
+    if ( !isdefined( time ) )
+        time = 0;
+    self clearanim( animname, time );
+}
+
+// ---- hint strings ----
+
+// trem_hintstrings (UGX) re-sent hints every frame through WaW menu client
+// dvars because WaW's setHintString did not update; BO2's does, and draws
+// &&1 as the use key itself.
+waw_native_hintstring( string )
+{
+    if ( isdefined( string ) )
+        self sethintstring( string );
+}
+
 // ---- client dvars ----
 
 // WaW sets per-client dvars from the server; BO2 has no such builtin. WaW

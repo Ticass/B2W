@@ -202,7 +202,9 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
 # level fields both frameworks own under the same name with different values.
 # WaW scripts keep seeing the WaW value (set by _waw2bo2_assets::init); the
 # BO2 framework keeps its own. level.script: WaW map name vs the BO2 project.
-WAW_LEVEL_FIELDS = {"script": "waw_script"}
+# level.chests / chest_index: WaW's box triggers vs BO2 _zm_magicbox structs
+# (BO2 powerups such as fire sale iterate level.chests as BO2 structs).
+WAW_LEVEL_FIELDS = {"script": "waw_script", "chests": "waw_chests", "chest_index": "waw_chest_index"}
 
 
 def rename_level_fields(tokens: list[gsc.Token]) -> int:
@@ -281,6 +283,11 @@ class Translator:
         self.core_funcs: dict[tuple[str, str], str] = {}  # (core script, function) -> extracted name
         self.core_queue: list[tuple[str, str]] = []
         self.animtrees: set[str] = set()      # animtrees available in BO2 (lower-case)
+        # WaW framework-override animtrees staged for BO2: tree (lower) -> its
+        # animations that have WaW xanims (lower). Extracted functions using
+        # one keep their animations.
+        self.core_animtrees: dict[str, set[str]] = {}
+        self.level_state_parts: list[str] = []
         self.anim_neutralized = False
 
     # ---- classification -------------------------------------------------
@@ -301,6 +308,14 @@ class Translator:
             self.queue.append(p)
 
     # ---- resolution -----------------------------------------------------
+    def library_function(self, script: str, name: str) -> str | None:
+        """Compat replacement for a third-party WaW library function (gsc_api library_functions)."""
+        repl = API["library_functions"].get(norm(script), {}).get(name)
+        if repl is None:
+            return None
+        self.report.rewrites[f"{norm(script)}::{name} -> compat waw_{repl}"] += 1
+        return f"{COMPAT}::waw_{repl}"
+
     def compat_name(self, name: str) -> str | None:
         return f"{COMPAT}::waw_{name}" if f"waw_{name}" in self.compat.functions else None
 
@@ -315,8 +330,12 @@ class Translator:
         self.report.unsupported.setdefault(f"GSC {desc}", []).append(where)
         return f"{STUBS}::{stub}"
 
-    def resolve_core(self, core: str, name: str, argc, where, included: set[str]) -> str | None:
-        """Returns replacement text for the reference (None = keep as is)."""
+    def resolve_core(self, core: str, name: str, argc, where, included: set[str], sibling: bool = False) -> str | None:
+        """Returns replacement text for the reference (None = keep as is).
+        ``sibling``: called from code extracted from ``core`` itself; such a
+        call resolves to BO2's counterpart of ``core`` or to the WaW function,
+        never to an unrelated BO2 script that happens to share the name (the
+        WaW box's treasure_chest_think is not BO2 _zm_magicbox's)."""
         renamed = API["function_renames"].get(name)
         if renamed:
             return renamed
@@ -331,6 +350,10 @@ class Translator:
         if compat:
             self.report.rewrites[f"{core}::{name} -> compat"] += 1
             return compat
+        if sibling:
+            extracted = self.extract(core, name)
+            if extracted:
+                return extracted
         unique = self.bo2_unique(name)
         if unique:
             self.report.rewrites[f"{core}::{name} -> {unique.split('::')[0]}"] += 1
@@ -401,7 +424,7 @@ class Translator:
         if main_split:
             self._split_main(script)
         self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
-        self.report.rewrites["level.script -> level.waw_script (WaW map name)"] += rename_level_fields(tokens)
+        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
         defs = {fn.start for fn in script.functions.values()}
         self.resolve_refs(tokens, script, where_file, included_bo2, defs)
         header = (f"// Translated from World at War by waw2bo2 (gscport). Source: {where_file}\n")
@@ -422,8 +445,13 @@ class Translator:
             if ref.qualifier is not None:
                 target = norm(ref.qualifier)
                 qual_tok = tokens[ref.qual_index]
-                if is_core(target, self.sources):
-                    repl = self.resolve_core(target, name, argc, where, set())
+                library = self.library_function(target, name)
+                if library:
+                    qual_tok.text = ""
+                    tokens[ref.qual_index + 1].text = ""
+                    tok.text = library
+                elif is_core(target, self.sources):
+                    repl = self.resolve_core(target, name, argc, where, set(), sibling=target == extracting)
                     if repl is None:
                         repl = f"{API['core_scripts'][target]}::{ref.name}"
                     qual_tok.text = ""
@@ -440,6 +468,12 @@ class Translator:
                         qual_tok.text = ported_path(target)
                 continue
             owner = self.owner(script, name)
+            library = self.library_function(owner, name) if owner else None
+            if library and owner != script.path:
+                if ref.pointer:
+                    tokens[ref.index - 1].text = ""
+                tok.text = library
+                continue
             if owner == script.path and extracting is None:
                 continue
             if owner is not None and not is_core(owner, self.sources):
@@ -450,7 +484,7 @@ class Translator:
                 else:
                     continue    # included ported script; the include was rewritten
             elif owner is not None:
-                repl = self.resolve_core(owner, name, argc, where, included_bo2)
+                repl = self.resolve_core(owner, name, argc, where, included_bo2, sibling=owner == extracting)
             else:
                 method = None if ref.pointer else ref.method
                 rng = self.api.builtin_range(name, method)
@@ -471,14 +505,16 @@ class Translator:
 
     def extract(self, core: str, name: str) -> str | None:
         """Port one WaW framework function BO2 has no counterpart for."""
-        if core in API["no_extract"]:
+        if core in API["no_extract"] and \
+                not any(name.endswith(s) for s in API["extract_exceptions"].get(core, ())):
             return None
         script = self.sources.get(core)
         if script is None or name not in script.functions:
             return None
         key = (core, name)
         fn = script.functions[name]
-        if key not in self.core_funcs and uses_animations(script.tokens, fn.body_open, fn.body_close):
+        if key not in self.core_funcs and uses_animations(script.tokens, fn.body_open, fn.body_close) and \
+                (script.animtree or "").lower() not in self.core_animtrees:
             # needs its WaW animtree and xanims, which are not converted yet
             self.report.animtrees.setdefault(script.animtree or "?", []).append(f"{core}::{name}")
             return None
@@ -502,6 +538,73 @@ class Translator:
             self.report.extracted.append(f"{core}::{name}")
         return self.core_funcs[key]
 
+    def extract_level_state(self, core: str, init: str) -> str | None:
+        """The statements of ``core::init`` that assign level fields the code
+        already extracted from ``core`` reads, as one extracted function. A WaW
+        framework init (BO2 owns the rest of it) also sets up state for the
+        entry points extracted from its script, e.g. the box animation table.
+        Returns the extracted function's name in CORE (None = nothing to keep)."""
+        script = self.sources.get(core)
+        if script is None or init not in script.functions:
+            return None
+        read: set[str] = set()
+        for (c, n) in self.core_funcs:
+            fn = script.functions.get(n) if c == core else None
+            if fn is None:
+                continue
+            toks = script.tokens
+            read |= {toks[i].low for i in range(fn.body_open + 2, fn.body_close)
+                     if toks[i].kind == gsc.IDENT and toks[i - 1].text == "." and toks[i - 2].low == "level"}
+        fn = script.functions[init]
+        toks = script.tokens
+        kept: list[gsc.Token] = []
+        start, depth = fn.body_open + 1, 0
+        for i in range(fn.body_open + 1, fn.body_close):
+            t = toks[i]
+            depth += t.text in ("(", "[", "{")
+            depth -= t.text in (")", "]", "}")
+            if t.text != ";" or depth:
+                continue
+            stmt = toks[start:i + 1]
+            start = i + 1
+            if len(stmt) > 3 and stmt[0].low == "level" and stmt[1].text == "." and stmt[2].low in read and \
+                    any(s.text == "=" for s in stmt):
+                kept += [gsc.Token(s.kind, s.text, s.pre, s.line) for s in stmt]
+        if not kept:
+            return None
+        name = f"{core.split(chr(92))[-1].lstrip('_')}__{init}_level_state"
+        tokens = [gsc.Token(gsc.IDENT, name, f"\n// {core}::{init}: level state its extracted functions read\n"),
+                  gsc.Token(gsc.PUNCT, "("), gsc.Token(gsc.PUNCT, ")"), gsc.Token(gsc.PUNCT, "{", "\n"),
+                  *kept, gsc.Token(gsc.PUNCT, "}", "\n"), gsc.Token(gsc.EOF, "")]
+        self.keep_core_animations(script, tokens, f"{core}::{init}")
+        where = self.sources.origin.get(core + ".gsc", core)
+        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
+        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
+        self.report.extracted.append(f"{core}::{init} (level state)")
+        self.level_state_parts.append(gsc.emit(tokens))
+        return name
+
+    def keep_core_animations(self, script: gsc.Script, tokens: list[gsc.Token], where: str) -> None:
+        """Extracted code with ``%anim`` references from a staged animtree: name
+        the tree before the function (the extracted functions share one file),
+        and drop references to animations with no WaW xanim (``undefined``)."""
+        tree = (script.animtree or "").lower()
+        uses_tree = any(t.text == "#" and tokens[i + 1].low == "animtree" for i, t in enumerate(tokens[:-1]))
+        if tree not in self.core_animtrees or not (uses_tree or uses_animations(tokens, 0, len(tokens) - 1)):
+            return
+        available = self.core_animtrees[tree]
+        tokens[0].pre += f'#using_animtree( "{script.animtree}" );\n'
+        for i in range(1, len(tokens) - 1):
+            t = tokens[i]
+            if t.text == "%" and tokens[i + 1].kind == gsc.IDENT and \
+                    tokens[i - 1].text in ("(", ",", "=", "[", "return", "[[") and \
+                    tokens[i + 1].low not in available:
+                self.report.unsupported.setdefault(f"XANIM {tokens[i + 1].text} (animtree {script.animtree}: "
+                                                   f"no WaW xanim)", []).append(where)
+                t.text = ""
+                tokens[i + 1].text = "undefined"
+
     def translate_extracted(self, core: str, name: str) -> str:
         script = self.sources.get(core)
         fn = script.functions[name]
@@ -510,9 +613,10 @@ class Translator:
         tokens[0].text = self.core_funcs[(core, name)]
         self.anim_neutralized = False
         tokens[0].pre = f"\n// {core}::{name} ({'map override' if core + '.gsc' in self.sources.text else 'stock'})\n"
+        self.keep_core_animations(script, tokens, f"{core}::{name}")
         where = self.sources.origin.get(core + ".gsc", core)
         self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
-        self.report.rewrites["level.script -> level.waw_script (WaW map name)"] += rename_level_fields(tokens)
+        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
         return gsc.emit(tokens)
 
@@ -537,7 +641,11 @@ class Translator:
         end = i
         while tokens[end].text != ";":
             end += 1
-        tokens[i].text = "}\n\nwaw_main_post()\n{"
+        # WaW's _zombiemode::main() returns only after flag_wait( "all_players_connected" ),
+        # so the rest of a WaW map main runs with every player present (maps loop
+        # over getPlayers() there). BO2's counterpart flag is set by _zm.
+        tokens[i].text = ("}\n\nwaw_main_post()\n{\n\tcommon_scripts\\utility::flag_wait( \"initial_players_connected\" );"
+                          "\t// WaW _zombiemode::main waits for all players")
         for k in range(i + 1, end + 1):
             tokens[k].text = ""
             tokens[k].kind = gsc.PUNCT
@@ -554,12 +662,16 @@ class Translator:
 
 
 def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
-             fx_table: dict[str, str] | None = None, animtrees: set[str] | None = None) -> PortReport:
+             fx_table: dict[str, str] | None = None, animtrees: set[str] | None = None,
+             core_animtrees: dict[str, set[str]] | None = None) -> PortReport:
     """Translate the map main and everything it reaches into out_root/maps/mp/waw.
-    ``animtrees``: animtree names BO2 can load (stock + converted)."""
+    ``animtrees``: animtree names BO2 can load (stock + converted).
+    ``core_animtrees``: WaW framework-override animtrees staged for BO2 -> their
+    animations with WaW xanims (t6bridge.stage_core_animtrees)."""
     report = PortReport(map_main=f"maps\\{map_name}")
     tr = Translator(sources, api, report)
     tr.animtrees = {a.lower() for a in animtrees or ()}
+    tr.core_animtrees = {t.lower(): {a.lower() for a in names} for t, names in (core_animtrees or {}).items()}
     main = f"maps\\{map_name}"
     if sources.get(main) is None:
         report.errors.append(f"map main {main}.gsc not found in the map scripts")
@@ -584,21 +696,32 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         report.errors.append(f"{LOADOUT}.gsc with init_loadout/give_model not found (map or stock): players keep "
                              f"the BO2 template's characters")
     core_parts: list[str] = []
-    while tr.queue or tr.core_queue:
-        if tr.core_queue:
-            core_parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
-            continue
-        path = tr.queue.pop(0)
-        if path in tr.done:
-            continue
-        text = tr.translate(path, main_split=(path == main))
-        tr.done[path] = text
-        dst = out_root / (ported_path(path).replace("\\", "/") + ".gsc")
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(text, encoding="utf-8")
-        report.ported.append(path)
-        report.fx += sorted(set(re.findall(r'loadfx\s*\(\s*"([^"]+)"', sources.text.get(path + ".gsc", ""),
-                                           re.IGNORECASE)))
+
+    def drain() -> None:
+        while tr.queue or tr.core_queue:
+            if tr.core_queue:
+                core_parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
+                continue
+            path = tr.queue.pop(0)
+            if path in tr.done:
+                continue
+            text = tr.translate(path, main_split=(path == main))
+            tr.done[path] = text
+            dst = out_root / (ported_path(path).replace("\\", "/") + ".gsc")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(text, encoding="utf-8")
+            report.ported.append(path)
+            report.fx += sorted(set(re.findall(r'loadfx\s*\(\s*"([^"]+)"', sources.text.get(path + ".gsc", ""),
+                                               re.IGNORECASE)))
+
+    drain()
+    # level state the extracted box code reads (set in the framework's init)
+    if registration.get("box"):
+        state = tr.extract_level_state(*BOX_STATE_INIT)
+        if state:
+            registration["box_state"] = [state]
+            drain()
+    core_parts += tr.level_state_parts
     (out_dir / "_waw2bo2_compat.gsc").write_text((COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8"),
                                                  encoding="utf-8")
     core_head = ["// waw2bo2: WaW framework functions BO2 has no counterpart for, extracted from the map's",
@@ -811,7 +934,12 @@ WEAPONS = "maps\\mp\\waw\\_waw2bo2_weapons"
 WEAPON_REGISTRATION = {
     "include": [("maps\\dlc3_code", "include_weapons")],    # WaW DLC3 mod-tools template
     "add": [("maps\\_zombiemode_weapons", "init_weapons")],  # WaW zombiemode framework (map override or stock)
+    # WaW's mystery box (map override or stock): BO2 _zm_magicbox only knows
+    # its own zbarrier boxes, so the WaW box runs as WaW code
+    "box": [("maps\\_zombiemode_weapons", "treasure_chest_init")],
 }
+# the framework init whose level assignments the box code reads (animations, flags)
+BOX_STATE_INIT = ("maps\\_zombiemode_weapons", "init")
 # Weapons BO2's own _zm framework hands out regardless of the map (melee
 # knife, default lethal grenade, default last-stand pistol and its solo
 # upgrade). They are included but never put in the box.
@@ -830,8 +958,25 @@ def weapons_source(registration: dict[str, list[str | None]]) -> str:
               '    maps\\mp\\zombies\\_zm_weapons::add_zombie_weapon( "m1911_zm", "m1911_upgraded_zm", '
               '&"ZOMBIE_WEAPON_M1911", 50, "", "", undefined );']
     lines += [f"    {CORE}::{fn}();" for fn in registration.get("add", []) if fn]
+    lines += ["}", "", "// the WaW mystery box, after BO2 _zm_magicbox::init (it re-inits the shared chest flags)",
+              "start_box()", "{"]
+    lines += [f"    {CORE}::{fn}();" for fn in registration.get("box_state", []) if fn]
+    lines += [f"    {CORE}::{fn}();" for fn in registration.get("box", []) if fn]
     lines += ["}", ""]
     return "\n".join(lines)
+
+
+def hook_bo2_box(main_gsc: Path) -> bool:
+    """Start the WaW box right after the ported WaW main's post part (idempotent)."""
+    source = main_gsc.read_text(encoding="utf-8", errors="replace")
+    call = f"    level thread {WEAPONS}::start_box();\n"
+    if call in source:
+        return False
+    post = re.search(r"^    level thread maps\\mp\\waw\\\w+::waw_main_post\(\);\n", source, re.MULTILINE)
+    if post is None:
+        raise ValueError(f"{main_gsc}: no waw_main_post() call to start the WaW box after")
+    main_gsc.write_text(source[:post.end()] + call + source[post.end():], encoding="utf-8")
+    return True
 
 
 def hook_bo2_weapons(main_gsc: Path) -> bool:

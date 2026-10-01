@@ -961,6 +961,15 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         script_models |= effects.models
         api = t6api.build(bo2_root, stage / "t6api_cache.json", t6_unlinker)
         stage_fx(report, fx_names, effects.table, waw_map_script.stem, bo2_root, api, project_root, fx_fallback)
+        # script animations (stage_core_animtrees) load from mod.ff, before the map's
+        # scripts; the game resolves #using_animtree through the animtree rawfile
+        # (without it: ERR_DROP "unknown anim tree" while the map loads)
+        xanims = report.scripts.get("staged_xanims", []) if report.scripts else []
+        trees = report.scripts.get("staged_animtrees", []) if report.scripts else []
+        if xanims:
+            with (project_root / MOD_EXTRA_ZONE).open("a", encoding="utf-8") as zone:
+                zone.write("".join(f"rawfile,animtrees/{t}.atr\n" for t in trees))
+                zone.write("".join(f"xanim,{n}\n" for n in xanims))
     # clipmap static models reference their xmodel (collSurfs) in the map zone
     clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
     model_materials = stage_models(report, world, project, stage, project_root, script_models | clip_models, roots,
@@ -1025,6 +1034,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             if report.scripts.get("characters"):
                 gscport.hook_bo2_characters(main_gsc)
             gscport.hook_bo2_weapons(main_gsc)
+            gscport.hook_bo2_box(main_gsc)
         except ValueError as exc:
             report.errors.append(f"scripts: {exc}")
     stage_rawfiles(report, project_root, bo2_root)
@@ -1502,6 +1512,51 @@ def stage_fx(report: StageReport, names: list[str], converted: dict[str, str], m
     (project_root / MOD_EXTRA_ZONE).write_text("".join(f"fx,{n}\n" for n in mod_fx), encoding="utf-8")
 
 
+CORE_ANIMTREE_HEADER = "// waw2bo2: WaW animtree"
+ANIM_REF_RE = re.compile(r'(?:[(,=\[]|\breturn|\[\[)\s*%\s*([A-Za-z_]\w*)')
+
+
+def stage_core_animtrees(report: StageReport, sources, roots: list[Path], project_root: Path,
+                         bo2_trees: set[str]) -> tuple[dict[str, set[str]], list[str]]:
+    """The WaW animtrees of framework overrides whose entry points the
+    converter extracts (gscport.WEAPON_REGISTRATION, e.g. the mystery box), as
+    BO2 animtrees: animtrees/<tree>.atr lists the tree's animations that have a
+    WaW raw xanim, which is staged as xanim/<name> for mod.ff (BO2's linker
+    reads WaW's raw xanims). Returns ({tree: animations}, staged xanim names)."""
+    trees: dict[str, set[str]] = {}
+    staged: list[str] = []
+    # only the box's script: other registration scripts (dlc3_code) name the
+    # stock AI tree, whose animations BO2's own zombies replace
+    cores = {core for core, _ in gscport.WEAPON_REGISTRATION["box"]}
+    for core in sorted(cores):
+        script = sources.get(core)
+        if script is None or not script.animtree or script.animtree.lower() in {t.lower() for t in bo2_trees}:
+            continue
+        wanted = sorted(set(ANIM_REF_RE.findall(sources.text.get(core + ".gsc", ""))))
+        found, missing = [], []
+        for name in wanted:
+            src = next((r / "xanim" / name for r in roots if (r / "xanim" / name).is_file()), None)
+            if src is None:
+                missing.append(name)
+                continue
+            dst = project_root / "xanim" / name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            found.append(name)
+        for name in missing:
+            report.warnings.append(f"UNSUPPORTED_XANIM {name} (animtree {script.animtree}, {core}): no WaW xanim "
+                                   f"in any zone dump; references become undefined")
+        if not found:
+            continue
+        atr = project_root / "animtrees" / f"{script.animtree}.atr"
+        atr.parent.mkdir(parents=True, exist_ok=True)
+        atr.write_text(f"{CORE_ANIMTREE_HEADER} {script.animtree} ({core}), animations with WaW xanims\n" +
+                       "".join(f"{n}\n" for n in found), encoding="utf-8")
+        trees[script.animtree] = set(found)
+        staged += found
+    return trees, staged
+
+
 SCRIPT_MODEL_RE = re.compile(r'\b(?:precachemodel|setmodel|setviewmodel|attach)\s*\(\s*"([^"]+)"', re.IGNORECASE)
 
 
@@ -1520,10 +1575,16 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
         return set()
     api = t6api.build(bo2_root, stage / "t6api_cache.json", t6_unlinker)
     sources = gscport.Sources(script_roots, iwds, stock)
+    for old in (project_root / "animtrees").glob("*.atr") if (project_root / "animtrees").exists() else ():
+        if old.read_text(encoding="utf-8", errors="replace").startswith(CORE_ANIMTREE_HEADER):
+            old.unlink()    # staged by an earlier run (stage_core_animtrees)
     animtrees = {p.stem for d in (bo2_root / "raw" / "animtrees", project_root / "animtrees") if d.exists()
                  for p in d.glob("*.atr")}
-    port = gscport.port_map(sources, api, map_name, project_root, animtrees=animtrees)
+    core_trees, xanims = stage_core_animtrees(report, sources, model_roots, project_root, animtrees)
+    port = gscport.port_map(sources, api, map_name, project_root, animtrees=animtrees, core_animtrees=core_trees)
     report.scripts = port.to_json()
+    report.scripts["staged_xanims"] = xanims
+    report.scripts["staged_animtrees"] = sorted(core_trees)
     report.errors += [f"scripts: {e}" for e in port.errors]
     # empty converted-asset table for the link check; stage_fx writes the real
     # one once the effects are converted (stage_bridge)

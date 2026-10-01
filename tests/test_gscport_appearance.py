@@ -84,3 +84,64 @@ class WeaponRegistrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WawBoxExtractionTests(unittest.TestCase):
+    WEAPONS = (
+        '#using_animtree( "nuketown" );\n'
+        "init() { init_weapons(); level.boxAnim = []; level.boxAnim[\"open\"] = %box_open;\n"
+        "         level.boxAnim[\"fake\"] = %box_fake; level.unused = 1; }\n"
+        "init_weapons() {}\n"
+        "treasure_chest_init() { level.chests = getentarray( \"c\", \"targetname\" );\n"
+        "                        array_thread( level.chests, ::treasure_chest_think ); }\n"
+        "treasure_chest_think() { self useanimtree( #animtree ); self setanim( level.boxAnim[\"open\"] ); }\n")
+
+    def test_box_extracts_its_siblings_animations_and_level_state(self):
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            (base / "zone/maps").mkdir(parents=True)
+            (base / "zone/maps/_zombiemode_weapons.gsc").write_text(self.WEAPONS)
+            sources = gscport.Sources([base / "zone"], [], None)
+            # BO2's own box defines a function of the same name
+            api = T6Api({"getentarray": (2, 2)}, {"maps\\mp\\zombies\\_zm_magicbox": {"treasure_chest_think": 0}},
+                        methods={"useanimtree": (1, 1), "setanim": (1, 4)})
+            tr = gscport.Translator(sources, api, gscport.PortReport())
+            tr.core_animtrees = {"nuketown": {"box_open"}}
+            entry = tr.extract_entry("maps\\_zombiemode_weapons", "treasure_chest_init")
+            parts = []
+            while tr.core_queue:
+                parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
+            state = tr.extract_level_state("maps\\_zombiemode_weapons", "init")
+        code = "\n".join(parts)
+        self.assertEqual(entry, "zombiemode_weapons__treasure_chest_init")
+        self.assertIn("::zombiemode_weapons__treasure_chest_think", code)
+        self.assertNotIn("_zm_magicbox", code)
+        self.assertIn("level.waw_chests", code)
+        self.assertIn('#using_animtree( "nuketown" );\nzombiemode_weapons__treasure_chest_think', code)
+        self.assertEqual(state, "zombiemode_weapons__init_level_state")
+        state_code = tr.level_state_parts[0]
+        self.assertIn("level.boxAnim[\"open\"] = %box_open;", state_code)
+        self.assertIn("level.boxAnim[\"fake\"] = undefined;", state_code)    # no WaW xanim
+        self.assertNotIn("level.unused", state_code)    # not read by the box
+        self.assertNotIn("init_weapons", state_code)    # BO2 owns the rest of init
+
+
+class LibraryFunctionTests(unittest.TestCase):
+    def test_trem_hintstrings_calls_become_native_hint_strings(self):
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            (base / "zone/maps").mkdir(parents=True)
+            (base / "zone/maps/trem_hintstrings.gsc").write_text("_setHintString( string ) {}\n")
+            (base / "zone/maps/door.gsc").write_text(
+                "#include maps\\trem_hintstrings;\n"
+                "a() { self maps\\trem_hintstrings::_setHintString( \"Press &&1\" ); }\n"
+                "b() { self _setHintString( \"Press &&1\" ); }\n")
+            sources = gscport.Sources([base / "zone"], [], None)
+            report = gscport.PortReport(map_main="maps\\door")
+            tr = gscport.Translator(sources, T6Api({"sethintstring": (1, 2)}, {}), report)
+            text = tr.translate("maps\\door")
+        compat = r"maps\mp\waw\_waw2bo2_compat::waw_native_hintstring"
+        self.assertEqual(text.count(compat), 2, text)
+        self.assertNotIn("trem_hintstrings::_sethintstring", text.lower())

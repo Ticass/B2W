@@ -299,6 +299,18 @@ def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path
         existing[19] = "top"
         rows.insert(next(i for i, row in enumerate(rows) if row and row[0] == "default"), existing)
     existing += [""] * max(0, 20 - len(existing))
+    # The frontend Lua reads every column of the current map's row; an empty
+    # one comes back nil (returning to the main menu failed in MainMenuOG.lua:8
+    # "attempt to index a nil value" on the converted map, not on stock maps).
+    # Empty columns take the base-game map's values: content index 0 (column
+    # 11), so the custom map needs no DLC, with valid image/size/faction fields.
+    base = next((row for row in rows[1:] if row and row[0] not in ("maxnum_map", "default", project)
+                 and len(row) > 11 and row[11].strip() == "0"), None)
+    if base is None:
+        raise ValueError("zombies map table lacks a base-game map row")
+    for column in range(1, 20):
+        if column not in (3, 5, 16, 17, 18) and not existing[column].strip():
+            existing[column] = base[column]
     for column in (16, 17, 18):
         if not existing[column].strip():
             existing[column] = "0"
