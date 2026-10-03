@@ -25,6 +25,10 @@ init()
     maps\mp\_utility::registerclientsys( "waw_sun" );
     maps\mp\_utility::registerclientsys( "waw_vision_global" );
     maps\mp\_utility::registerclientsys( "waw_vision_player" );
+    level.waw2bo2_overlay_global = "_identity";
+    level thread vision_overlay_players();
+    level thread all_players_connected_bridge();
+    level thread first_player_ready_bridge();
     level thread stuck_zombie_monitor();
     level thread power_bridge();
 }
@@ -149,11 +153,15 @@ waw_triggerfx( ent, delay )
 // T6 sub_851590 accepts the same eight parameters, normalizing RGB and
 // retaining its magnitude as fogColorScale. Its extended form needs 18;
 // a 17-argument call errors and leaves the previous map fog in place.
+// WaW lerps gamma colour to its fog colour; T6 lerps linear colour and
+// writes sqrt(hdr * result) with the converted world's hdr scale of 1.
 waw_setvolfog( start, halfway, halfheight, baseheight, r, g, b, transition )
 {
     if ( !isdefined( transition ) )
         transition = 0;
-    setvolfog( start, halfway, halfheight, baseheight, r, g, b, transition );
+    if ( isdefined( level.waw2bo2_fog_off ) && level.waw2bo2_fog_off )
+        return;
+    setvolfog( start, halfway, halfheight, baseheight, r * r, g * g, b * b, transition );
 }
 
 // BO2 renderer controls live on clients. The state is retained for late joins.
@@ -203,6 +211,24 @@ waw_native_hintstring( string )
 waw_setclientdvar( name, value )
 {
     lname = tolower( name );
+    // r_filmUseTweaks: WaW films with the r_filmTweak* values (CoDWaW
+    // sub_6DC1A0), baked at conversion into the "_filmtweak" overlay.
+    if ( lname == "r_filmusetweaks" )
+    {
+        self.waw2bo2_filmtweaks = ( value != "0" && value != "" );
+        if ( isdefined( self ) && isplayer( self ) )
+            self vision_overlay_update();
+        return;
+    }
+    // r_fog 0 removes WaW's fog; BO2's r_fog is a cheat dvar, so the fog is
+    // moved past the view instead and later setVolFog calls stay there.
+    if ( lname == "r_fog" )
+    {
+        level.waw2bo2_fog_off = ( value == "0" );
+        if ( level.waw2bo2_fog_off )
+            setvolfog( 1000000, 1000001, 1000, 0, 1, 1, 1, 0 );
+        return;
+    }
     prefix = getsubstr( lname, 0, 3 );
     if ( getsubstr( lname, 0, 2 ) == "r_" || prefix == "sm_" || prefix == "cg_" || prefix == "ui_" || prefix == "bg_" )
     {
@@ -525,12 +551,84 @@ waw_getweaponslistprimaries()
 }
 
 
+// WaW _zombiemode sets "all_players_connected" once the starting players are
+// in; BO2's framework (which replaces it) sets "initial_players_connected".
+// Stock WaW utilities (set_all_players_visionset, ...) wait on the WaW flag.
+all_players_connected_bridge()
+{
+    if ( !isdefined( level.flag ) || !isdefined( level.flag["all_players_connected"] ) )
+        flag_init( "all_players_connected" );
+    flag_wait( "initial_players_connected" );
+    flag_set( "all_players_connected" );
+}
+
+// WaW _callbackglobal notifies "first_player_ready" when the first player
+// connects (maps\_utility::wait_for_first_player waits on it); BO2 does not.
+first_player_ready_bridge()
+{
+    waittillframeend;
+    players = getplayers();
+    if ( players.size )
+        player = players[0];
+    else
+        level waittill( "connected", player );
+    level notify( "first_player_ready", player );
+}
+
+// WaW film and glow run in a full-screen HUD pass over BO2's resolved frame
+// (glow.py): one material per vision, below every other HUD element.
+vision_overlay_players()
+{
+    // players can connect before this runs (the host normally does)
+    players = getplayers();
+    for ( i = 0; i < players.size; i++ )
+        players[i] thread vision_overlay_player();
+    for ( ;; )
+    {
+        level waittill( "connected", player );
+        player thread vision_overlay_player();
+    }
+}
+
+vision_overlay_player()
+{
+    self endon( "disconnect" );
+    if ( !isdefined( level.waw2bo2_vision_overlays ) || isdefined( self.waw2bo2_overlay ) )
+        return;
+    hud = newclienthudelem( self );
+    hud.horzalign = "fullscreen";
+    hud.vertalign = "fullscreen";
+    hud.x = 0;
+    hud.y = 0;
+    hud.sort = -10000;
+    hud.foreground = 0;
+    hud.hidewheninmenu = 0;
+    hud.alpha = 1;
+    self.waw2bo2_overlay = hud;
+    self vision_overlay_update();
+}
+
+vision_overlay_update()
+{
+    if ( !isdefined( self.waw2bo2_overlay ) )
+        return;
+    vision = level.waw2bo2_overlay_global;
+    if ( isdefined( self.waw2bo2_overlay_vision ) )
+        vision = self.waw2bo2_overlay_vision;
+    if ( isdefined( self.waw2bo2_filmtweaks ) && self.waw2bo2_filmtweaks )
+        vision = "_filmtweak";
+    if ( !isdefined( level.waw2bo2_vision_overlays[vision] ) )
+        vision = "_identity";
+    self.waw2bo2_overlay setshader( level.waw2bo2_vision_overlays[vision], 640, 480 );
+}
+
 // WaW names resolve to translated rawfiles. T6's player API has a different name.
 waw_visionsetnaked( vision, time )
 {
     if ( !isdefined( time ) )
         time = 0;
     vision = tolower( vision );
+    key = vision;
     index = 0;
     if ( vision != "" )
     {
@@ -548,9 +646,19 @@ waw_visionsetnaked( vision, time )
             index = -1;
         maps\mp\_utility::setclientsysstate( "waw_vision_player", "" + index, self );
         self setvisionsetforplayer( vision, time );
+        self.waw2bo2_overlay_vision = undefined;
+        if ( key != "" )
+            self.waw2bo2_overlay_vision = key;
+        self vision_overlay_update();
     }
     else
     {
+        level.waw2bo2_overlay_global = "_identity";
+        if ( key != "" )
+            level.waw2bo2_overlay_global = key;
+        players = getplayers();
+        for ( i = 0; i < players.size; i++ )
+            players[i] vision_overlay_update();
         maps\mp\_utility::setclientsysstate( "waw_vision_global", "" + index );
         if ( vision == "" )
             vision = "waw/_identity";

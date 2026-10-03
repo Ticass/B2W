@@ -81,6 +81,11 @@ class Placement:
         return tuple(self.origin[i] + _dot(self.inv[i], p) for i in range(3))  # type: ignore[return-value]
 
 
+# CONTENTS_DETAIL | CONTENTS_STRUCTURAL | CONTENTS_TRANSPARENT: compile-time
+# brush flags with no collision meaning on their own.
+NON_COLLIDING_CONTENTS = 0x8000000 | 0x10000000 | 0x20000000
+
+
 def world_brush(brush, materials) -> dict:
     """WaW world brush -> bridge brush record (first six planes are axial)."""
 
@@ -144,6 +149,13 @@ def collision_brushes(clip) -> tuple[list[dict], dict]:
             continue
         recovered.append(i)
     world_ids += recovered
+    # Brushes whose contents are only compile-time flags (detail, structural,
+    # transparent) collide with nothing in WaW: every WaW trace mask needs a
+    # real contents bit. They are dropped so no BO2 mask can hit them (the
+    # nuketown bunker hatch is such a detail-only "portal" brush).
+    flag_only = [i for i in world_ids if clip.brushes[i].contents & 0xFFFFFFFF
+                 and not clip.brushes[i].contents & 0xFFFFFFFF & ~NON_COLLIDING_CONTENTS]
+    world_ids = [i for i in world_ids if i not in set(flag_only)]
     for i in world_ids:
         out.append(world_brush(clip.brushes[i], clip.materials))
     world_count = len(out)
@@ -155,6 +167,7 @@ def collision_brushes(clip) -> tuple[list[dict], dict]:
                "entity_brushes_excluded": sum(len(s.brushes) for s in clip.submodels[1:]),
                "world_brushes_recovered_unlisted": len(recovered),
                "unlisted_brushes_ambiguous_skipped": ambiguous}
+    summary["flag_only_brushes_dropped"] = len(flag_only)
     summary["brush_ownership_complete"] = getattr(clip, "brush_ownership_complete", False)
     summary["unreferenced_brushes"] = len(set(range(len(clip.brushes))) - listed)
     return out, summary

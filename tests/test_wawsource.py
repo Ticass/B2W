@@ -38,6 +38,14 @@ class WawSourceTest(unittest.TestCase):
         self.assertIsNone(src.compile("fx", "env/fire/missing"))
         self.assertIn(f"WaW linker {src.linker} missing", src.check())
 
+    def test_material_source_is_checked_before_declaring_absence(self):
+        material = self.waw / 'raw/materials/community/surface'
+        material.parent.mkdir(parents=True)
+        material.write_bytes(b'compiled raw material')
+        src = wawsource.WawSourceAssets(self.tools, self.waw, self.tmp / 'unlinker.exe', self.tmp / 'work')
+        self.assertEqual(src.source('material', 'community/surface'), material)
+        self.assertIsNone(src.source('material', 'community/missing'))
+
     def test_linker_failure_is_an_error_not_an_asset(self):
         # a "linker" that writes no fastfile
         linker = self.tools / "bin" / "linker_pc.exe"

@@ -5,6 +5,10 @@
     "map-specific names. Exact-name BO2 assets are found automatically and need no entry. Every use is reported.",
     "lukkie_bottle_*: the community BO2-perk bottle pack (chugabud = Who's Who in BO2)."
   ],
+  "material": {
+    "mc/bo2_wood_burned_blend": "mc/wood_burned_blend",
+    "mc/bo2_mtl_dest_jun_tvset_d": "mc/mtl_dest_jun_tvset_d"
+  },
   "xmodel": {
     "lukkie_bottle_chugabud_view": "t6_wpn_zmb_perk_bottle_whoswho_view",
     "lukkie_bottle_chugabud_world": "t6_wpn_zmb_perk_bottle_whoswho_world",

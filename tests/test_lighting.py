@@ -59,13 +59,50 @@ class LightingTests(unittest.TestCase):
     def test_primary_light_types_and_definitions_are_translated(self):
         with tempfile.TemporaryDirectory() as temp:
             source, target = Path(temp) / "source.json", Path(temp) / "target.json"
+            local = {"radius": 400.0, "cosHalfFovOuter": 0.5, "cosHalfFovInner": 0.75, "canUseShadowMap": 1}
             source.write_text(json.dumps({"lights": [
-                {"type": 1, "defName": ""}, {"type": 2, "defName": "point"},
-                {"type": 3, "defName": "point"}]}))
-            self.assertEqual(lighting.stage_primary_lights(source, target), {"point"})
+                {"type": 1, "defName": "", "color": [0.5, 0.5, 0.5], "canUseShadowMap": 0},
+                {"type": 2, "defName": "point", "color": [2.0, 0.5, 0.0], "exponent": 2, "index": 1, **local},
+                {"type": 3, "defName": "point", "exponent": 0, "index": 2, **local}]}))
+            unshadowed = []
+            self.assertEqual(lighting.stage_primary_lights(source, target, unshadowed), {"point"})
             lights = json.loads(target.read_text())["lights"]
             self.assertEqual([light["type"] for light in lights], [1, 2, 5])
             self.assertEqual(lights[2]["defName"], "waw_light/point")
+            # WaW gamma light colour -> T6 linear (hdr scale 1); the sun is set from SunParse
+            self.assertEqual(lights[1]["color"], [4.0, 0.25, 0.0])
+            self.assertEqual(lights[0]["color"], [0.5, 0.5, 0.5])
+            # no primary-light shadow data is converted: local lights draw unshadowed
+            self.assertEqual([light["canUseShadowMap"] for light in lights], [0, 0, 0])
+            self.assertEqual(unshadowed, [1, 2])
+            self.assertNotIn("falloff", lights[0])
+            self.assertEqual(lights[1]["falloff"], [1.0, 400.0, 1.0, 0.0])
+            self.assertEqual(lights[1]["aAbB"], [0.75, 0.5, 0.5, 0.0])
+            self.assertEqual(lights[2]["aAbB"][2], 1e30)
+            # neither 0 (SPOT_SQUARE) nor 1 (SPOT_ROUND): T6 draws them as plain spots
+            self.assertEqual(lights[1]["roundness"], 0.5)
+
+    def test_t6_light_fields_reproduce_waw_light_uniforms(self):
+        # Replays T6 sub_782FA0 on the staged fields; WaW sub_742400 values result.
+        light = {"radius": 700.0, "cosHalfFovOuter": 0.5, "cosHalfFovInner": 0.766, "exponent": 1}
+        fields = lighting.t6_light_fields(light)
+        f, ab = fields["falloff"], fields["aAbB"]
+        x0, x1 = f[0], max(f[2], f[0])
+        if abs(x1 - x0) <= 0.00024414062:
+            x1 = x0 + 0.00024414062
+        y0, y1 = f[1], min(f[3], f[1])
+        fall_a = (1 / (ab[0] - ab[1]), 1 / (ab[2] - ab[3]), 1 / (x1 - x0), 1 / (y1 - y0))
+        fall_b = (-ab[1] * fall_a[0], -ab[3] * fall_a[1], -x0 * fall_a[2], -y0 * fall_a[3])
+        self.assertAlmostEqual(-fall_a[3], 1 / 700.0)  # WaW lightPosition.w
+        spread = 1 / (0.766 - 0.5)
+        self.assertAlmostEqual(fall_a[0], spread)  # WaW lightSpotFactors
+        self.assertAlmostEqual(fall_b[0], -0.5 * spread)
+        self.assertAlmostEqual(fall_a[1], 1.0)
+        # T6's own window: 1 - d/radius inside the radius, after the near ramp
+        window = lambda d: min(max(d * fall_a[2] + fall_b[2], 0), 1) * min(max(d * fall_a[3] + fall_b[3], 0), 1)
+        self.assertAlmostEqual(window(350.0), 0.5)
+        self.assertEqual(window(700.0), 0.0)
+        self.assertGreater(fields["dAttenuation"] / 700.0 ** 2, 1.0)
 
     def test_surface_merge_preserves_distinct_primary_lights(self):
         from waw2bo2.fbx import merge_surfaces

@@ -3,10 +3,11 @@
 T6 sub_77C210 resolves MTL_ARG_MATERIAL_CONST (type 0) by scanning the
 material's constant table (32-byte entries) for the argument hash, and
 sub_77C150 resolves MTL_ARG_MATERIAL_PIXEL_SAMPLER (type 2) by scanning the
-texture table (16-byte entries). Neither scan has an end bound, and each
+texture table (16-byte entries). sub_777790 resolves the stable pixel material
+constants (type 6) through the same constant table. No scan has an end bound, and each
 continues from the previous match within one argument group. A hash that is
 absent, or present only before the previous match, reads past the table and
-crashes (observed at 0x77C253).
+crashes (observed at 0x77C253 and 0x7777F9).
 
 usage: audit_material_args.py <extracted zone folder> [<extra techset folder> ...]
 """
@@ -67,15 +68,15 @@ def audit(zone, extra):
                 for count in ('perPrimArgCount', 'perObjArgCount', 'stableArgCount'):
                     group = args[cursor:cursor + pass_.get(count, 0)]
                     cursor += pass_.get(count, 0)
-                    positions = {0: 0, 2: 0}
+                    positions = {0: 0, 2: 0, 6: 0}
                     for arg in group:
-                        if arg['type'] not in (0, 2):
+                        if arg['type'] not in (0, 2, 6):
                             continue
                         checked += 1
-                        table = constants if arg['type'] == 0 else textures
+                        table = textures if arg['type'] == 2 else constants
                         found = scan(table, arg['u']['value'], positions[arg['type']])
                         if found is None:
-                            kind = 'constant' if arg['type'] == 0 else 'texture'
+                            kind = 'texture' if arg['type'] == 2 else 'constant'
                             state = 'out of order' if arg['u']['value'] in table else 'absent'
                             problems.append(f'{name} [{ts_name} slot {slot} pass {pass_index} {count}] '
                                             f'{kind} hash 0x{arg["u"]["value"]:08x} {state}')

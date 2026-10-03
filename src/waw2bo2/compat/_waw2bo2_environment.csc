@@ -55,9 +55,10 @@ sun_state( localclientnum, state )
     values = strtok( state, " " );
     if ( values.size != 3 )
         return;
-    r = float( values[0] );
-    g = float( values[1] );
-    b = float( values[2] );
+    // WaW sun values are gamma; T6 sun light is linear (as the world sun)
+    r = float( values[0] ) * float( values[0] );
+    g = float( values[1] ) * float( values[1] );
+    b = float( values[2] ) * float( values[2] );
     strength = max( r, max( g, b ) );
     color = "0 0 0";
     if ( strength > 0 )

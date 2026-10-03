@@ -134,3 +134,67 @@ class LightmapPageTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class LocalLightTests(unittest.TestCase):
+    # T6 PerSceneConsts rows of the light uniforms (stock world lit programs)
+    FIELDS = {'hdrControl0': (0, 320, 16), 'lightPosition': (0, 1232, 16), 'lightDiffuse': (0, 1248, 16),
+              'lightSpotDir': (0, 1264, 16), 'lightSpotFactors': (0, 1280, 16), 'lightFallOffA': (0, 1312, 16),
+              'lightFallOffB': (0, 1328, 16)}
+
+    def test_waw_light_uniforms_come_from_t6_light_rows(self):
+        position = runtime.light_constant('lightPosition', self.FIELDS, 20, None)
+        self.assertEqual(position['expr'], 'float4(t6_cb0[77].xyz, -t6_cb0[82].w)')
+        factors = runtime.light_constant('lightSpotFactors', self.FIELDS, 20, None)
+        self.assertEqual(factors['expr'], 'float4(t6_cb0[82].x, t6_cb0[83].x, t6_cb0[82].y, t6_cb0[80].w)')
+        specular = runtime.light_constant('lightSpecular', self.FIELDS, 20, None)
+        self.assertIn('t6_cb0[78].xyz * (4.0 * t6_cb0[20].x)', specular['expr'])
+        self.assertEqual(runtime.light_constant('lightSpotDir', self.FIELDS, 20, None)['expr'],
+                         'float4(t6_cb0[79].xyz, 0.0)')
+        placement = runtime.light_constant('lightFalloffPlacement', self.FIELDS, 20, (0.5, 0.0, 0.25, 0.125))
+        self.assertEqual(placement, {'expr': 'float4(0.5, 0.0, 0.25, 0.125)', 'uses': []})
+        with self.assertRaises(shaders.ShaderError):
+            runtime.light_constant('lightFalloffPlacement', self.FIELDS, 20, None)
+        with self.assertRaises(shaders.ShaderError):
+            runtime.light_constant('lightDiffuse', self.FIELDS, None, None)
+
+    def test_light_rows_read_by_a_program_become_pass_arguments(self):
+        # T6 copies per-light code constants into a pass only through type-5 arguments
+        native = {'perPrimArgCount': 1, 'perObjArgCount': 1, 'stableArgCount': 1, 'args': [
+            {'type': 3, 'location': 0, 'buffer': 3, 'size': 64, 'u': {'value': 1}},
+            {'type': 3, 'location': 576, 'buffer': 0, 'size': 64, 'u': {'value': 2}},
+            {'type': 5, 'location': 1232, 'buffer': 0, 'size': 16, 'u': {'value': 0x01000000}}]}
+        runtime.light_constant('lightPosition', self.FIELDS, 20, None, native)
+        runtime.light_constant('lightSpotFactors', self.FIELDS, 20, None, native)
+        rows = [(a['location'], a['u']['value']) for a in native['args'] if a['type'] == 5]
+        self.assertEqual(rows, [(1232, 0x01000000), (1280, 0x01000003), (1312, 0x01000005), (1328, 0x01000006)])
+        self.assertEqual(native['stableArgCount'], 4)
+
+    def test_falloff_placement_uses_the_shared_light_def(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'lightdef').mkdir()
+            (root / 'images').mkdir()
+            (root / 'lightdef/point.json').write_text(json.dumps({'attenuation': ',falloff', 'lmapLookupStart': 1}))
+            (root / 'images/falloff.dds').write_bytes(_dds(16, 1, lum=bytes(16)))
+            (root / 'images/_lightmap0_secondary.dds').write_bytes(_dds(4, 8, rgba=bytes(4 * 8 * 4)))
+            lights = root / 'lights.json'
+            table = [{'type': 1, 'defName': ''}, {'type': 2, 'defName': 'point'}, {'type': 3, 'defName': 'point'}]
+            lights.write_text(json.dumps({'lights': table}))
+            # WaW sub_7425D0: (width / 512, 0, lmapLookupStart / 512, 0); v = row 0 centre
+            self.assertEqual(runtime.light_falloff_placement(lights, [root]), (16 / 512, 0.0, 1 / 512, 0.5 / 8))
+            table.append({'type': 2, 'defName': 'other'})
+            lights.write_text(json.dumps({'lights': table}))
+            self.assertIsNone(runtime.light_falloff_placement(lights, [root]))
+
+
+class LitSlotTests(unittest.TestCase):
+    def test_dynamic_light_slots_extend_reachable_lit_slots(self):
+        for slot, base in runtime.DLIGHT_BASE_SLOTS.items():
+            self.assertIn(slot, runtime.REACHABLE_LIT_SLOTS)
+            self.assertIn(base, runtime.REACHABLE_LIT_SLOTS)
+            self.assertEqual(slot in runtime.SHADOWED_LIT_SLOTS, base in runtime.SHADOWED_LIT_SLOTS)
+        # square/round spot techniques are unreachable for staged plain spots
+        self.assertFalse(set(range(9, 13)) & set(runtime.REACHABLE_LIT_SLOTS))
+        self.assertFalse(set(range(20, 24)) & set(runtime.REACHABLE_LIT_SLOTS))

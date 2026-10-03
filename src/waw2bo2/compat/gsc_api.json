@@ -15,7 +15,8 @@
     "  precache/give-character hooks.",
     "anim_builtins: animation builtins -> compat waw_anim_<value>, used in scripts whose WaW animtree is not available in BO2 (their %anim references become strings).",
     "extract_exceptions: function-name suffixes still extracted from no_extract scripts: gameplay callbacks such as",
-    "  the DLC3 template's mystery box weighting functions (ray gun odds), not framework setup.",
+    "  the DLC3 template's mystery box weighting functions (ray gun odds), and its environment bootstrap",
+    "  (dlc3_fx/spawnfx: the map's effect table, footsteps, createart vision+fog, createfx ambient effects).",
     "library_functions: functions of third-party WaW map libraries -> compat waw_<value>, where BO2 has the native",
     "  feature the library worked around (e.g. treminaor's trem_hintstrings drew hints through a WaW menu)."
   ],
@@ -151,7 +152,11 @@
     "clearanimlimited": "clearanim"
   },
   "extract_exceptions": {
-    "maps\\dlc3_code": ["_weighting_func"]
+    "maps\\dlc3_code": [
+      "_weighting_func",
+      "dlc3_fx",
+      "spawnfx"
+    ]
   },
   "library_functions": {
     "maps\\trem_hintstrings": {

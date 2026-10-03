@@ -40,6 +40,13 @@ installed `bin\cod9map64.exe -platform pc` when a `.map` source is present,
 then the installed `bin\Linker.exe`; a non-zero tool result is returned and no
 successful zone is claimed.
 
+Render interchange v4 also preserves the surface ranges belonging to moving
+brush models. FBX merging separates owners, and the T6 linker keeps each brush
+range outside static-world visibility and camera-region ranges. Legacy render
+dumps must be refreshed when collision submodels exist. Verify a linked zone
+with `tools/audit_brush_render.py <map_gfx.fbx> <map.gfxworld.txt>` after dumping
+its mapents with the T6 Unlinker.
+
 Material translation is explicit and fail-closed:
 
 ```powershell

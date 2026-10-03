@@ -52,3 +52,12 @@ class EnvironmentTests(unittest.TestCase):
             destination.write_text('main() { custom_source_art(); }')
             t6bridge.stage_template_scripts(report, 'converted', project, root / 'template', 'zm_test')
             self.assertIn('custom_source_art', destination.read_text())
+
+
+class HudMaterialTests(unittest.TestCase):
+    def test_script_hud_shaders_are_collected_and_zoned(self):
+        text = 'precacheShader( "hud_screwdriver" );\nself.hud SetShader("hud_icon_rake", 32, 32);\nx = "hud_no";'
+        self.assertEqual(sorted(t6bridge.SCRIPT_SHADER_RE.findall(text)), ["hud_icon_rake", "hud_screwdriver"])
+        with tempfile.TemporaryDirectory() as tmp:
+            zone = t6bridge.write_zone(Path(tmp), "p", [], False, materials=["hud_screwdriver"])
+            self.assertIn("material,hud_screwdriver\n", zone.read_text())

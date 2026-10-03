@@ -100,6 +100,18 @@ namespace BSP
                     READ_LIGHT_FLOAT(radius); READ_LIGHT_FLOAT(cosHalfFovOuter); READ_LIGHT_FLOAT(cosHalfFovInner);
                     READ_LIGHT_FLOAT(cosHalfFovExpanded); READ_LIGHT_FLOAT(rotationLimit); READ_LIGHT_FLOAT(translationLimit);
 #undef READ_LIGHT_FLOAT
+                    // T6 sub_782FA0 builds lightFallOffA/B and lightSpotDir.w
+                    // from these precomputed fields (waw2bo2 lighting.t6_light_fields)
+                    const auto readVec4 = [](const json& v) { return vec4_t{{v.at(0).get<float>(), v.at(1).get<float>(), v.at(2).get<float>(), v.at(3).get<float>()}}; };
+                    if (row.contains("falloff"))
+                        light.falloff = readVec4(row.at("falloff"));
+                    if (row.contains("aAbB"))
+                        light.aAbB = readVec4(row.at("aAbB"));
+                    if (row.contains("dAttenuation"))
+                        light.dAttenuation = row.at("dAttenuation").get<float>();
+                    // sub_73AC60 makes roundness 0 spots SPOT_SQUARE, 1 SPOT_ROUND
+                    if (row.contains("roundness"))
+                        light.roundness = row.at("roundness").get<float>();
                     const auto name = row.at("defName").get<std::string>();
                     if (!name.empty())
                     {

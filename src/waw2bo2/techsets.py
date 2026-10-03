@@ -138,11 +138,20 @@ def _layer_cost(src, dst, notes: list[str]) -> int | None:
     return cost
 
 
-# Layered world techniques need T6 vd1 layer data (not generated yet)
+# Layered world techniques need T6 vd1 layer data; stage_geometry enables
+# them when the render dump carries the WaW vertex layer buffer (dump v5).
 LAYERED_VERTEX_DATA = False
 
-# Model techsets with no light-grid T6 equivalent in the donor zone. The
-# replacement keeps the colour map and is lit by the light grid instead.
+# Self-illuminated model techsets with a native T6 model counterpart. Lighting
+# them by the grid darkens bulbs, signs and glows that WaW draws unlit.
+MODEL_UNLIT_MAP = {
+    "unlit": "unlit_replace",
+    "unlit_blend": "unlit_blend",
+    "unlit_add": "unlit_add",
+    "objective": "objective",
+}
+# Model techsets with no T6 equivalent in the donor zone. The replacement
+# keeps the colour map and is lit by the light grid instead.
 MODEL_FALLBACK = {
     "unlit": ("l_sm_r0c0", "unlit model technique lit by the light grid"),
     "sky_noncubemap": ("l_sm_r0c0", "non-cubemap sky model lit by the light grid"),
@@ -186,6 +195,10 @@ def match(source: str, candidates: list[str]) -> Match:
             raise TechsetError(f"no stock T6 HUD trivial technique set available for '{source}'")
         return Match(source, sorted(pool)[0], 0, ["T4 2d -> T6 trivial HUD pass (same-asset reticle measurement)"])
     if not src.lit and src.family == "model":
+        kind = MODEL_UNLIT_MAP.get(src.unlit_kind)
+        pool = [c for c in candidates if kind and (p := parse(c)).family == "model" and not p.lit and p.unlit_kind == kind]
+        if pool:
+            return Match(source, sorted(pool)[0], 0, [])
         if src.unlit_kind not in MODEL_FALLBACK:
             raise TechsetError(f"no T6 mapping rule for model technique set '{source}'")
         replacement, note = MODEL_FALLBACK[src.unlit_kind]
@@ -227,6 +240,19 @@ def match(source: str, candidates: list[str]) -> Match:
     if best is None:
         raise TechsetError(f"no compatible stock T6 technique set for '{source}'")
     return best
+
+
+def world_vert_format(techset_name: str) -> int:
+    """MaterialWorldVertexFormat of a WaW world technique set: TEX_<t>_NRM_<n>
+    with t = layer count and n = layers with a normal map (at least 1, at most
+    3). Verified against the dumped worldVertFormat of 638 materials."""
+    parsed = parse(techset_name)
+    if not parsed.layers:
+        return 0
+    texcoords = len(parsed.layers)
+    normals = min(3, max(1, sum("n" in feats for _, _, feats in parsed.layers)))
+    pairs = [(t, n) for t in range(1, 6) for n in range(1, min(t, 3) + 1)]
+    return pairs.index((min(texcoords, 5), min(normals, texcoords)))
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +314,7 @@ def build_material(t4: dict, donor: dict, notes: list[str]) -> dict:
             src = src_tex[name]
             new["image"] = as_reference(src["image"])
             ss = src.get("samplerState") or {}
-            for key in ("clampU", "clampV", "clampW"):
+            for key in ("clampU", "clampV", "clampW", "filter", "mipMap"):
                 if key in ss:
                     new.setdefault("samplerState", {})[key] = ss[key]
             used.add(name)
@@ -315,9 +341,43 @@ def build_material(t4: dict, donor: dict, notes: list[str]) -> dict:
             c["literal"] = [1.0, 1.0, 1.0, 1.0]
         consts.append(c)
     out["constants"] = consts
+    source = parse(t4.get('techniqueSet', ''))
+    if source.family == 'world' and source.unlit_kind in ('unlit', 'unlit_blend', 'unlit_distfalloff'):
+        entries = t4.get('stateBitsEntry', [])
+        index = entries[4] if len(entries) > 4 else -1
+        states = t4.get('stateBits', [])
+        if 0 <= index < len(states):
+            main = states[index]
+            # Preserve the source decal's blend/depth behavior while retaining
+            # T6-only stencil and pass routing from the matching native donor.
+            fields = ('srcBlendRgb', 'dstBlendRgb', 'blendOpRgb', 'srcBlendAlpha',
+                      'dstBlendAlpha', 'blendOpAlpha', 'alphaTest', 'depthWrite',
+                      'depthTest', 'cullFace', 'polygonOffset', 'colorWriteAlpha', 'colorWriteRgb')
+            for state in out.get('stateBits', []):
+                if state.get('colorWriteRgb') and not state.get('polymodeLine'):
+                    state.update({k: main[k] for k in fields if k in main})
+            if 'sortKey' in t4:
+                out['sortKey'] = t4['sortKey']
     out["_game"] = "t6"
     out["_type"] = "material"
     return out
+
+
+def material_techset(t4: dict) -> str:
+    """Unlit shader names alone do not encode a material's custom blending."""
+    name = t4.get('techniqueSet', '')
+    parsed = parse(name)
+    entries, states = t4.get('stateBitsEntry', []), t4.get('stateBits', [])
+    index = entries[4] if len(entries) > 4 else -1
+    if parsed.family in ('world', 'model') and parsed.unlit_kind == 'unlit' and 0 <= index < len(states):
+        state = states[index]
+        if state.get('blendOpRgb', 'disabled') != 'disabled':
+            # T6 has a separate additive model technique; world keeps blend
+            # and receives the source state in build_material.
+            if parsed.family == 'model' and state.get('dstBlendRgb') == 'one':
+                return name + '_add'
+            return name + '_blend'
+    return name
 
 
 def oat_material_path(name: str) -> Path:

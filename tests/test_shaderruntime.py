@@ -33,6 +33,61 @@ add oC0, r0, c7
 
 
 class RuntimeShaderTests(unittest.TestCase):
+    def test_distance_falloff_recovers_object_space_camera_and_xy_stream(self):
+        native = '''// cbuffer PerScene
+// {
+// float4x4 inverseViewMatrix; // Offset: 640 Size: 64
+// }
+// cbuffer PerObject
+// {
+// float4x4 worldMatrix; // Offset: 0 Size: 64
+// }
+// PerScene cbuffer NA NA cb0 1
+// PerObject cbuffer NA NA cb3 1
+// Input signature:
+// POSITION 0 xyzw 0 NONE float xyzw
+// TEXCOORD 0 xy 1 NONE float xy
+vs_5_0
+'''
+        source = '''// inverseWorldViewMatrix c28 2
+vs_3_0
+dcl_position v0
+dcl_texcoord v1
+dcl_position o0
+dcl_texcoord o1.xy
+mov r0.x, c28.w
+mov r0.y, c29.w
+add r0.xy, r0, -v1
+mov o0, v0
+mov o1.xy, v1
+'''
+        args = {'args': [{'type': 3, 'dest': 28, 'rowCount': 2, 'firstRow': 0}]}
+        with patch.object(runtime, '_native_program', return_value=native):
+            contract = runtime.vertex_contract(source, args, {'args': []}, Path('.'), paired=True)
+            self.assertEqual(contract['inputs']['v1']['adapter'], 'waw_uv')
+            self.assertIn('cross(', contract['constants']['c28']['expr'])
+            self.assertIn('t6_cb0[40].w - t6_cb3[0].w', contract['constants']['c28']['expr'])
+            self.assertIn([3, 2], contract['constants']['c29']['uses'])
+            hlsl, _ = shaders.translate(source, contract)
+            if os.name == 'nt':
+                self.assertEqual(shaders.compile_hlsl(hlsl, 'vs_5_0')[:4], b'DXBC')
+            with self.assertRaisesRegex(shaders.ShaderError, 'full matrix adapter'):
+                runtime.vertex_contract(source.replace('c28.w', 'c28.x'), args, {'args': []}, Path('.'), paired=True)
+
+    def test_direct_uv_copy_does_not_require_a_lightmap_or_half_decoder(self):
+        source = 'vs_3_0\ndcl_position v1\ndcl_texcoord v0\ndcl_position o1\ndcl_texcoord o0.xy\nmov o1, v1\nmov o0.xy, v0\n'
+        native = '// Input signature:\n// POSITION 0 xyzw 1 NONE float xyzw\n// TEXCOORD 0 xy 0 NONE float xy\nvs_5_0\n'
+        with patch.object(runtime, '_native_program', return_value=native):
+            contract = runtime.vertex_contract(source, {'args': []}, {'args': []}, Path('.'), paired=True)
+            self.assertEqual(contract['inputs']['v0']['adapter'], 'waw_uv')
+            hlsl, _ = shaders.translate(source, contract)
+            self.assertIn('float4(input.v0, 0, 0)', hlsl)
+            if os.name == 'nt':
+                self.assertEqual(shaders.compile_hlsl(hlsl, 'vs_5_0')[:4], b'DXBC')
+            with self.assertRaises(shaders.ShaderError):
+                runtime.vertex_contract(source.replace('o0.xy, v0', 'o0.xy, v0.zw'),
+                                        {'args': []}, {'args': []}, Path('.'), paired=True)
+
     def test_missing_donor_constant_is_removed_without_changing_frequency_groups(self):
         args = [{'type': 3, 'buffer': 3, 'location': 0, 'size': 64, 'u': {'value': 123}},
                 {'type': 0, 'buffer': 2, 'location': 16, 'size': 16, 'u': {'value': 456}},
@@ -46,6 +101,16 @@ class RuntimeShaderTests(unittest.TestCase):
         with self.assertRaisesRegex(shaders.ShaderError, 'absent donor'):
             runtime.prune_missing_material_constants(native, {'constants': []},
                 ({'constants': {'c0': {'buffer': 2, 'index': 2}}},))
+
+    def test_unread_donor_constants_are_removed_from_paired_passes(self):
+        args = [{'type': 6, 'buffer': 2, 'location': 16, 'size': 16, 'u': {'value': 0xe27483cf}},
+                {'type': 6, 'buffer': 2, 'location': 32, 'size': 16, 'u': {'value': 789}}]
+        native = {'args': list(args), 'perPrimArgCount': 0, 'perObjArgCount': 0, 'stableArgCount': 2}
+        material = {'constants': [{'nameHash': 0xe27483cf}, {'nameHash': 789}]}
+        runtime.prune_missing_material_constants(native, material,
+                                                ({'constants': {'c0': {'buffer': 2, 'index': 2}}},), unread=True)
+        self.assertEqual(native['args'], [args[1]])
+        self.assertEqual(native['stableArgCount'], 1)
 
     def test_named_constant_with_underscore_matches_t6_argument_hash(self):
         # Stock zm_nuked: Flicker_Min binds as 0x2ddf50e9 (T6 ORs 0x20 per byte).
@@ -176,3 +241,70 @@ div r0.x, cb0[58].x, r0.x
             self.assertAlmostEqual(near / reciprocal, distance)
         if os.name == 'nt':
             self.assertEqual(shaders.compile_hlsl(hlsl, 'ps_5_0')[:4], b'DXBC')
+
+
+    def test_per_surface_textures_set_the_pass_sampler_flags(self):
+        # T6 binds the surface lightmap (t13) and probe (t15) only for passes
+        # whose customSamplerFlags ask for them (bit 1 lightmap, bit 0 probe).
+        source = """// lightmapSamplerSecondary s0 1
+// reflectionProbeSampler s1 1
+ps_3_0
+dcl_texcoord v0.xy
+dcl_texcoord1 v1.xyz
+dcl_2d s0
+dcl_cube s1
+texld r0, v0, s0
+texld r1, v1, s1
+add oC0, r0, r1
+"""
+        native = """// cbuffer PerScene
+// {
+// float4 hdrControl0; // Offset: 320 Size: 16
+// }
+// PerScene cbuffer NA NA cb0 1
+// Output signature:
+// SV_Target 0 xyzw 0 TARGET float xyzw
+ps_5_0
+sqrt o0.xyz, r0.xyzx
+"""
+        native_pass = {'args': [], 'customSamplerFlags': 0}
+        with patch.object(runtime, '_native_program', side_effect=lambda _, stage, __: NATIVE if stage == 'vs' else native):
+            contract = runtime.paired_pixel_contract(source, {'args': [{'type': 4, 'dest': 0}, {'type': 4, 'dest': 1}]},
+                native_pass, Path('.'), [{'semantic': 'TEXCOORD0', 'width': 2}, {'semantic': 'TEXCOORD1', 'width': 3}])
+        self.assertEqual(contract['samplers']['s0']['texture'], 13)
+        self.assertEqual(contract['samplers']['s1']['texture'], 15)
+        self.assertEqual(native_pass['customSamplerFlags'], 3)
+
+    def test_spot_shadow_coordinate_uses_projected_depth(self):
+        # WaW compares the raw z of TEXCOORD4; T6's lookup matrix needs z / w
+        source = """ps_3_0
+dcl_texcoord4 v0
+mov oC0, v0
+"""
+        contract = {'inputs': {'v0': {'semantic': 'TEXCOORD4', 'width': 4, 'projective_depth': True}},
+                    'outputs': {'oC0': {'semantic': 'SV_Target0', 'width': 4}},
+                    'input_signature': [{'semantic': 'SV_Position', 'width': 4}, {'semantic': 'TEXCOORD4', 'width': 4}]}
+        hlsl, _ = shaders.translate(source, contract)
+        self.assertIn('v0.z = v0.z / v0.w;', hlsl)
+
+class DisplayScaleTests(unittest.TestCase):
+    def test_waw_scene_passes_write_half_their_display_colour(self):
+        opaque = {'blendOpRgb': 'disabled'}
+        blend = {'blendOpRgb': 'add', 'srcBlendRgb': 'srcalpha', 'dstBlendRgb': 'invsrcalpha'}
+        multiply = {'blendOpRgb': 'add', 'srcBlendRgb': 'destcolor', 'dstBlendRgb': 'zero'}
+        double_multiply = {'blendOpRgb': 'add', 'srcBlendRgb': 'destcolor', 'dstBlendRgb': 'srccolor'}
+        self.assertTrue(runtime.scales_output(opaque))
+        self.assertTrue(runtime.scales_output(blend))
+        self.assertFalse(runtime.scales_output(multiply))
+        self.assertFalse(runtime.scales_output(double_multiply))
+        material = {'stateBitsEntry': [-1] * 4 + [0], 'stateBits': [blend]}
+        self.assertEqual(runtime._output_scale(material, 'wc_unlit', 2), {'output_rgb_scale': 0.5})
+        self.assertEqual(runtime._output_scale(material, '2d', 2), {})
+        self.assertEqual(runtime._output_scale(material, 'wc_unlit', 0), {})
+
+    def test_output_scale_keeps_alpha(self):
+        hlsl, _ = shaders.translate('ps_3_0\ndcl_texcoord v0\nmov oC0, v0\n',
+                                    {'inputs': {'v0': {'semantic': 'TEXCOORD0', 'width': 4}},
+                                     'outputs': {'oC0': {'semantic': 'SV_Target0', 'width': 4}},
+                                     'output_rgb_scale': 0.5})
+        self.assertIn('output.oC0 = float4(oC0.xyz * 0.5, oC0.w);', hlsl)

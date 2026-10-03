@@ -388,6 +388,18 @@ namespace
              world.primaryLightCount, grid.sunPrimaryLightIndex, grid.mins[0], grid.mins[1], grid.mins[2], grid.maxs[0], grid.maxs[1], grid.maxs[2],
              grid.rowAxis, grid.colAxis, grid.entryCount, grid.colorCount, grid.coeffCount, grid.offset);
         OUTF("lutMaterial {}\n", world.lutMaterial ? world.lutMaterial->info.name : "<default>");
+        {
+            const auto& sun = world.sunParse.initWorldSun[0];
+            const auto& fog = world.sunParse.initWorldFog[0];
+            OUTF("sun '{}' control {} exposure {} angles {} {} {}\n", world.sunParse.name, sun.control, sun.exposure, sun.angles.x, sun.angles.y,
+                 sun.angles.z);
+            OUTF("sun ambientColor {} {} {} {} sunCd {} {} {} {} sunCs {} {} {} {} skyColor {} {} {} {}\n", sun.ambientColor.x, sun.ambientColor.y,
+                 sun.ambientColor.z, sun.ambientColor.w, sun.sunCd.x, sun.sunCd.y, sun.sunCd.z, sun.sunCd.w, sun.sunCs.x, sun.sunCs.y, sun.sunCs.z,
+                 sun.sunCs.w, sun.skyColor.x, sun.skyColor.y, sun.skyColor.z, sun.skyColor.w);
+            OUTF("fog base {} half {} height {} {} color {} {} {} opacity {} sunColor {} {} {} sunOpacity {}\n", fog.baseDist, fog.halfDist,
+                 fog.baseHeight, fog.halfHeight, fog.fogColor.x, fog.fogColor.y, fog.fogColor.z, fog.fogOpacity, fog.sunFogColor.x,
+                 fog.sunFogColor.y, fog.sunFogColor.z, fog.sunFogOpacity);
+        }
         const auto& draw = world.draw;
         OUTF("vertexCount {} vertexDataSize0 {} (stride {:.2f}) vertexDataSize1 {} indexCount {} surfaces {} lightmaps {} probes {}\n", draw.vertexCount,
              draw.vertexDataSize0, draw.vertexCount ? static_cast<double>(draw.vertexDataSize0) / draw.vertexCount : 0.0, draw.vertexDataSize1,
@@ -403,6 +415,15 @@ namespace
                 maxVerts = std::max(maxVerts, static_cast<int>(world.dpvs.surfaces[i].tris.vertexCount));
             }
             OUTF("surface maxima: tris {} verts {} smodels {}\n", maxTris, maxVerts, world.dpvs.smodelCount);
+        }
+        for (int i = 0; i < world.modelCount; ++i)
+        {
+            const auto& model = world.models[i];
+            unsigned triangles = 0;
+            if (model.surfaceCount && model.startSurfIndex + model.surfaceCount <= static_cast<unsigned>(world.surfaceCount))
+                for (unsigned s = model.startSurfIndex; s < model.startSurfIndex + model.surfaceCount; ++s)
+                    triangles += world.dpvs.surfaces[s].tris.triCount;
+            OUTF("brushModel {} startSurfIndex {} surfaceCount {} triangles {}\n", i, model.startSurfIndex, model.surfaceCount, triangles);
         }
         std::map<std::string, int> shown;
         auto withOffset1 = 0;
@@ -572,6 +593,27 @@ namespace map_ents
                 const auto gridFile = context.OpenAssetFile(std::format("{}.t6lightgrid.bin", mapEnts->name));
                 if (gridFile)
                     DumpLightGrid(*gridFile, gfxWorld->Asset()->lightGrid);
+                // waw2bo2 diagnostic: every surface's lighting inputs and its vertices'
+                // packed lightmap/texture coordinates, to compare with the WaW source
+                const auto vertFile = context.OpenAssetFile(std::format("{}.surfverts.txt", mapEnts->name));
+                if (vertFile)
+                {
+                    auto& out = *vertFile;
+                    const auto& world = *gfxWorld->Asset();
+                    const auto* vertices = reinterpret_cast<const GfxPackedWorldVertex*>(world.draw.vd0.data);
+                    for (auto i = 0; i < world.surfaceCount && vertices; i++)
+                    {
+                        const auto& surf = world.dpvs.surfaces[i];
+                        out << std::format("s {} {} {} {} {} {}\n", i, surf.material ? surf.material->info.name : "?",
+                                           static_cast<int>(surf.lightmapIndex), static_cast<int>(surf.primaryLightIndex),
+                                           surf.tris.firstVertex, surf.tris.vertexCount);
+                        const auto* v = reinterpret_cast<const GfxPackedWorldVertex*>(
+                            reinterpret_cast<const char*>(world.draw.vd0.data) + surf.tris.vertexDataOffset0);
+                        for (auto k = 0; k < surf.tris.vertexCount; k++)
+                            out << std::format("v {:.2f} {:.2f} {:.2f} {:08X} {:08X} {:08X}\n", v[k].xyz.x, v[k].xyz.y, v[k].xyz.z,
+                                               v[k].lmapCoord.packed, v[k].texCoord.packed, v[k].color.packed);
+                    }
+                }
             }
         }
         if (pools && pools->m_game_world_mp)

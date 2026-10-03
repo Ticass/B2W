@@ -2,7 +2,9 @@
 
 #include "BSPUtil.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -69,8 +71,13 @@ namespace
                 const std::string nodeName = node->name.data;
                 const auto tag = nodeName.rfind("_lm");
                 const auto lightTag = nodeName.rfind("_pl");
+                const auto brushTag = nodeName.rfind("_bm");
+                if (brushTag != std::string::npos && lightTag != std::string::npos && brushTag + 3 < lightTag)
+                    surface.brushModel = std::stoul(nodeName.substr(brushTag + 3, lightTag - brushTag - 3));
                 if (lightTag != std::string::npos && tag != std::string::npos && lightTag + 3 < tag)
                     surface.primaryLightIndex = std::stoi(nodeName.substr(lightTag + 3, tag - lightTag - 3));
+                if (nodeName.starts_with("waw_mesh_") && nodeName.size() > 14)
+                    surface.meshIndex = std::stoi(nodeName.substr(9, 5));
                 if (tag != std::string::npos && tag + 3 < nodeName.size()
                     && nodeName.find_first_not_of("0123456789", tag + 3) == std::string::npos)
                     surface.lightmapPage = std::stoi(nodeName.substr(tag + 3));
@@ -191,6 +198,35 @@ namespace
                         vertex.tangent.x = 0.0f;
                         vertex.tangent.y = 0.0f;
                         vertex.tangent.z = 0.0f;
+                    }
+
+                    // waw2bo2 extra material layers: "LayerUV<k>" texcoords (V flipped
+                    // like the base UV) and "LayerNormal<k>" byte pairs (b0 + 256 b1, b2 + 256 b3)
+                    for (size_t set = 2; set < mesh->uv_sets.count; ++set)
+                    {
+                        const std::string setName = mesh->uv_sets.data[set].name.data;
+                        const ufbx_vec2 value = ufbx_get_vertex_vec2(&mesh->uv_sets.data[set].vertex_uv, index);
+                        // the 1-based layer number follows the prefix; sets need not be ordered
+                        if (setName.starts_with("LayerUV"))
+                        {
+                            const auto layer = std::stoul(setName.substr(7));
+                            if (layer < 1 || layer > 4)
+                                continue;
+                            auto& coord = vertex.layerTexCoords[layer - 1];
+                            coord.x = static_cast<float>(value.x);
+                            coord.y = static_cast<float>(1.0f - value.y);
+                            vertex.layerTexCoordCount = std::max<unsigned char>(vertex.layerTexCoordCount, static_cast<unsigned char>(layer));
+                        }
+                        else if (setName.starts_with("LayerNormal"))
+                        {
+                            const auto layer = std::stoul(setName.substr(11));
+                            if (layer < 1 || layer > 2)
+                                continue;
+                            const auto low = static_cast<uint32_t>(std::lround(value.x));
+                            const auto high = static_cast<uint32_t>(std::lround(value.y));
+                            vertex.layerNormals[layer - 1] = (low & 0xFFFF) | ((high & 0xFFFF) << 16);
+                            vertex.layerNormalCount = std::max<unsigned char>(vertex.layerNormalCount, static_cast<unsigned char>(layer));
+                        }
                     }
 
                     if (positionsOnly)

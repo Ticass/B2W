@@ -435,7 +435,7 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
     names.update(stage_report["dependencies"].get("material", []))
     report = t6bridge.StageReport("weapon_visuals")
     used = t6bridge.stage_materials(report, names, roots, stock_materials, project, techset_dump,
-                                    {n: output_name("material", n) for n in names})
+                                    {n: output_name("material", n) for n in names}, image_prefix='')
     translated = {e.get("source", e["name"]) for e in report.materials}
     failed: dict[str, list[str]] = {n: [e for e in report.errors if e.startswith(f"material {n}:")
                                         or e.startswith(f"material {n} (")] or ["not translated"]
@@ -450,6 +450,10 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
         for texture in material.get("textures", []):
             name = texture.get("image", "")
             if not name:
+                continue
+            if name.startswith((',', '$')):
+                texture['image'] = name.removeprefix(',')
+                images.append(',' + texture['image'])
                 continue
             output = output_name("image", name.removeprefix(","))
             if output not in image_status:

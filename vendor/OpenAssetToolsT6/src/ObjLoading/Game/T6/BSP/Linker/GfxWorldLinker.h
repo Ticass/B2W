@@ -4,6 +4,8 @@
 #include "Game/T6/BSP/BSP.h"
 #include "SearchPath/ISearchPath.h"
 #include "Utils/MemoryManager.h"
+#include <utility>
+#include <vector>
 
 namespace BSP
 {
@@ -17,6 +19,9 @@ namespace BSP
     private:
         void LoadDrawData(const BSPData& projInfo, T6::GfxWorld& gfxWorld) const;
         bool LoadMapSurfaces(const BSPData& projInfo, T6::GfxWorld& gfxWorld) const;
+        void LoadShadowGeometry(const BSPData& bsp, T6::GfxWorld& gfxWorld) const;
+        void AppendLayerVertices(const BSPData& bsp, const BSPSurface& bspSurface, T6::GfxSurface& gfxSurface, T6::GfxWorld& gfxWorld,
+                                 std::vector<char>& layerData) const;
         [[nodiscard]] bool LoadXModels(const BSPData& bsp, T6::GfxWorld& gfxWorld) const;
         void CleanGfxWorld(T6::GfxWorld& gfxWorld) const;
         void LoadGfxLights(T6::GfxWorld& gfxWorld) const;
@@ -34,5 +39,7 @@ namespace BSP
         MemoryManager& m_memory;
         ISearchPath& m_search_path;
         AssetCreationContext& m_context;
+        mutable std::vector<std::pair<unsigned, unsigned>> m_brush_surface_ranges;
+        mutable std::vector<size_t> m_surface_order; // final surface index -> BSP surface
     };
 } // namespace BSP

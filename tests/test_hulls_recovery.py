@@ -40,6 +40,18 @@ class UnlistedWorldBrushTests(unittest.TestCase):
         self.assertEqual(sorted(tuple(b["mins"]) for b in out), [(0, 0, 0), (500, 500, 0)])
 
 
+    def test_detail_only_world_brushes_collide_with_nothing(self):
+        # WaW bunker hatch: a "portal" brush with only CONTENTS_DETAIL (players
+        # drop through it in WaW); a detail player clip keeps its clip bits.
+        clip = SimpleNamespace(brushes=[box((0, 0, 0), (10, 10, 1), 0x8000000),
+                                        box((0, 0, 0), (10, 10, 50), 0x8030200),
+                                        box((20, 0, 0), (30, 10, 1))], materials=[],
+                               brush_ownership_complete=True,
+                               submodels=[world.SubModel((0, 0, 0), (0, 0, 0), [0, 1, 2])])
+        out, summary = hulls.collision_brushes(clip)
+        self.assertEqual([b["contents"] for b in out], [0x8030200, 1])
+        self.assertEqual(summary["flag_only_brushes_dropped"], 1)
+
 class StaticModelCollisionTests(unittest.TestCase):
     @staticmethod
     def tri():

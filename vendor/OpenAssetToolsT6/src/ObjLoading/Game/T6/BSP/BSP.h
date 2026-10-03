@@ -26,6 +26,13 @@ namespace BSP
         T6::vec3_t tangent;
         float binormalSign;
         T6::vec2_t lmapCoord; // second FBX UV set (source lightmap UV), 0 when absent
+        // Extra material layers (waw2bo2 "LayerUV<k>"/"LayerNormal<k>" UV sets):
+        // layer texcoords and their packed normal transforms in WaW byte order
+        // (UBYTE4N RGBA, 2v-1 = 2x2 layer tangent rotation).
+        unsigned char layerTexCoordCount = 0;
+        unsigned char layerNormalCount = 0;
+        T6::vec2_t layerTexCoords[4]{};
+        uint32_t layerNormals[2]{};
     };
 
     struct BSPMaterial
@@ -42,6 +49,8 @@ namespace BSP
         unsigned indexOfFirstIndex;
         int lightmapPage = -1; // source lightmap page from a "_lm<N>" mesh name suffix, -1 when absent
         int primaryLightIndex = -1;
+        unsigned brushModel = 0;
+        int meshIndex = -1; // waw2bo2 "waw_mesh_<i>" FBX mesh (shadow geometry refers to it), -1 when absent
     };
 
     struct BSPWorld

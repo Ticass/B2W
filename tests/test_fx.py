@@ -146,6 +146,17 @@ class EffectImageStreaming(unittest.TestCase):
         self.assertEqual(path.name, "streaming.json")
         self.assertEqual(data, {"streamingMode": {"fxt_fx_raygun_ring": 2, "fxt_smk_gen": 2}})
 
+    def test_hud_images_merge_into_this_runs_effect_images(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from waw2bo2 import t6bridge
+        with tempfile.TemporaryDirectory() as tmp:
+            t6bridge.write_image_streaming(Path(tmp), {"fxt_smk_gen"})
+            path = t6bridge.write_image_streaming(Path(tmp), {"hud_icon_driver"}, merge=True)
+            data = json.loads(path.read_text())
+        self.assertEqual(data["streamingMode"], {"fxt_smk_gen": 2, "hud_icon_driver": 2})
+
     def test_prefixed_effect_image_is_staged_from_the_waw_image(self):
         # BO2 ships images with the same names (e.g. fxt_smk_def_3 in common_zm),
         # so effect materials reference a prefixed copy of the WaW pixels.

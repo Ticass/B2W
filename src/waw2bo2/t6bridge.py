@@ -22,6 +22,7 @@ gameworldmp/mapents straight into ``zone_out/<project>/<project>.ff``.
 from __future__ import annotations
 
 import copy
+import os
 import json
 import re
 import shutil
@@ -31,7 +32,7 @@ from pathlib import Path
 
 from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, paths, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
 from .fbx import collision_material_slots, write_collision_fbx, write_world_fbx
-from .world import read_collision, read_gfx_world
+from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
 REQUIRED_WORLD_IMAGES = {
     # T6 bridge asset name -> WaW unlinker file stem (T4 asset names are "*..." )
@@ -138,8 +139,13 @@ def dangling_substitute(name: str, roots: list[Path]) -> tuple[str, str] | None:
 
 def stage_materials(report: StageReport, names: set[str], roots: list[Path], stock_materials: Path,
                     project_root: Path, techset_root: Path | None = None,
-                    rename: dict[str, str] | None = None) -> set[str]:
-    """``rename`` maps a WaW material name to the name it is written under."""
+                    rename: dict[str, str] | None = None, *, image_prefix: str = 'waw_world/',
+                    native_fallbacks: dict[str, Path] | None = None,
+                    falloff_placement: tuple[float, float, float, float] | None = None,
+                    light_shadows: bool = True) -> set[str]:
+    """``rename`` maps a WaW material name to the name it is written under;
+    ``falloff_placement`` is the map's WaW lightFalloffPlacement and
+    ``light_shadows`` False when its primary lights are staged unshadowed."""
     rename = rename or {}
     donors = techsets.index_donors(stock_materials)
     if techset_root is not None:
@@ -157,6 +163,39 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
         if name in rename:
             entry["source"] = name
         notes: list[str] = []
+        if src is None and name in (native_fallbacks or {}):
+            native_path = native_fallbacks[name]
+            out = _load_json(native_path)
+            native_root = stock_materials.parent
+            for texture in out.get('textures', []):
+                image = texture.get('image', '').removeprefix(',')
+                if not image or image.startswith('$'):
+                    texture['image'] = techsets.as_reference(image)
+                    continue
+                output = image_prefix + 'bo2_fallback/' + image
+                image_path = native_root / techsets.oat_image_path(image)
+                dst = project_root / techsets.oat_image_path(output)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if image_path.is_file():
+                    if image_path.read_bytes()[:4] != b'IWi\x1b':
+                        raise StageError(f'BO2 equivalent image {image}: not an IWI27 source')
+                    shutil.copy2(image_path, dst)
+                else:
+                    image_path = native_root / techsets.oat_image_path(image, '.dds')
+                    if not image_path.is_file():
+                        raise StageError(f'BO2 equivalent material {name}: image {image} missing from {native_root}')
+                    iwi.convert_file(image_path, dst)
+                texture['image'] = output
+                report.images.append({'name': output, 'source': str(image_path), 'source_kind': 't6_equivalent'})
+            dst = project_root / out_rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(json.dumps(out, indent=2) + '\n', encoding='utf-8')
+            entry.update(t4_techset=None, t6_techset=out['techniqueSet'],
+                         native_equivalent=str(native_path), notes=['original material absent from WaW lookup'])
+            report.materials.append(entry)
+            report.warnings.append(f'BO2_FALLBACK material {name} -> {native_path}: absent from WaW lookup')
+            used_techsets.add(out['techniqueSet'])
+            continue
         if src is None:
             sub = dangling_substitute(name, roots)
             if sub is None:
@@ -175,7 +214,7 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
         rejected: list[str] = []
         while True:
             try:
-                m = techsets.match(t4_ts, remaining)
+                m = techsets.match(techsets.material_techset(t4), remaining)
             except techsets.TechsetError as exc:
                 report.errors.append(f"material {name} ({t4_ts}): {exc}" + (f"; rejected: {'; '.join(rejected)}" if rejected else ""))
                 m = None
@@ -191,8 +230,20 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
             break
         if m is None:
             continue
-        runtime = shaderruntime.bind_material(t4, out, roots, project_root, techset_root) if techset_root else {'active': [], 'unsupported': ['native technique dump absent']}
+        runtime = shaderruntime.bind_material(t4, out, roots, project_root, techset_root, falloff_placement,
+                                               light_shadows) if techset_root else {'active': [], 'unsupported': ['native technique dump absent']}
+        if t4_ts == 'wc_unlit_distfalloff' and all(
+                any(p.get('slot') == slot and p.get('paired') for p in runtime.get('active', []))
+                for slot in (2, 3)):
+            notes = [n for n in notes if n != 'distance falloff dropped']
         entry['shader_runtime'] = runtime
+        state_slots = shaderruntime.apply_source_pass_states(t4, out, runtime)
+        if state_slots:
+            notes.append(f"WaW blend/alpha-test state on T6 slots {state_slots}")
+        for texture in out.get('textures', []):
+            image_name = texture.get('image', '')
+            if image_prefix and image_name and not image_name.startswith((',', '$', image_prefix)):
+                texture['image'] = image_prefix + image_name
         entry.update(t6_techset=out['techniqueSet'], donor=donors[m.target].relative_to(stock_materials).as_posix(),
                      cost=m.cost, notes=notes)
         dst = project_root / out_rel
@@ -225,6 +276,7 @@ def _synthesize(report: StageReport, asset: str, dst: Path, size, rgba, why: str
 
 
 _IWD_CACHE: dict[tuple, set[str]] = {}
+WORLD_IMAGE_PREFIX = 'waw_world/'
 
 
 IWI6_WAVELET_FORMATS = {6: "wavelet RGBA", 7: "wavelet RGB", 8: "wavelet luminance alpha", 9: "wavelet luminance",
@@ -269,19 +321,28 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
         for tex in data.get("textures", []):
             img = tex.get("image", "")
             if img and not img.startswith(","):
-                wanted.setdefault(img, img.removeprefix(FX_IMAGE_PREFIX).replace("*", "_"))
+                wanted.setdefault(img, img.removeprefix(FX_IMAGE_PREFIX).removeprefix(WORLD_IMAGE_PREFIX).replace("*", "_"))
     for asset, stem in REQUIRED_WORLD_IMAGES.items():
         wanted[asset] = stem
     written = []
+    native_images = {e['name'] for e in report.images if e.get('source_kind') == 't6_equivalent'}
     for asset, stem in sorted(wanted.items()):
         dst = project_root / techsets.oat_image_path(asset)
+        if asset in native_images:
+            if not dst.is_file():
+                raise StageError(f'staged BO2 equivalent image {asset} disappeared')
+            written.append(asset)
+            continue
         if asset == "lightmap0_secondary":
             # T6 lightmaps are three stacked, encoded pages (page 2 holds the
             # light direction); a flat grey decodes as a strong red cast.
             # Neutral values: the mean of each page of stock zm_nuked's
             # lightmap0 (measured with the gfxworld diagnostic dump).
             dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(iwi.paged_rgba_iwi(4, 4, NEUTRAL_LIGHTMAP_PAGES))
+            pages = NEUTRAL_LIGHTMAP_PAGES
+            if os.environ.get('WAW2BO2_DIAG_FALLBACK_MAGENTA'):
+                pages = [(255, 0, 255, 255)] * 3  # diagnostic: is the fallback page bound?
+            dst.write_bytes(iwi.paged_rgba_iwi(4, 4, pages))
             why = ("fallback flat lightmap, linked only when the map has no WaW lightmap pages "
                    "(BSP/lightmaps.json); pages = stock zm_nuked lightmap means")
             report.warnings.append(f"image {asset}: synthesized, {why}")
@@ -311,7 +372,7 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
             except (iwi.IwiError, OSError) as exc:
                 report.errors.append(f"image {asset}: {exc}")
                 continue
-        if src is None and asset.startswith(_PACKED_SPEC_PREFIX):
+        if src is None and stem.startswith(_PACKED_SPEC_PREFIX):
             _synthesize(report, asset, dst, (4, 4), (255, 255, 255, 128),
                         "packed spec map with no pixel data in any zone or IWD; white RGB, mid gloss")
             written.append(asset)
@@ -731,7 +792,7 @@ def map_scripts(project_root: Path, project: str) -> list[str]:
 
 def write_zone(stage: Path, project: str, images: list[str], ipak: bool,
                xmodels: list[str] = (), scripts: list[str] = (), zbarriers: list[str] = (),
-               effects: list[str] = ()) -> Path:
+               effects: list[str] = (), materials: list[str] = ()) -> Path:
     zone_dir = stage / "zone_source"
     zone_dir.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -748,6 +809,8 @@ def write_zone(stage: Path, project: str, images: list[str], ipak: bool,
     # converted WaW effects the scripts load; the bridge's FX loader pulls in
     # the effects, materials and models they reference
     lines += [f"fx,{name}" for name in effects]
+    # HUD materials the scripts draw (setShader); nothing else references them
+    lines += [f"material,{name}" for name in materials]
     lines += [f"script,{name}" for name in scripts]
     path = zone_dir / f"{project}.zone"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -788,10 +851,74 @@ def write_collision_edges(clip, path: Path) -> dict:
             "collision_edges_total": 3 * count}
 
 
-def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_root: Path) -> str | None:
+def _layer_gap_stride(world, surface) -> int | None:
+    """Bytes per vertex of ``surface``'s records in the WaW layer buffer."""
+    later = [s.layer_data_offset for s in world.surfaces
+             if s.world_vert_format != 0 and s.layer_data_offset > surface.layer_data_offset]
+    gap = (min(later) if later else len(world.layer_data)) - surface.layer_data_offset
+    return gap // surface.vertex_count if surface.vertex_count and gap % surface.vertex_count == 0 else None
+
+
+def write_shadow_geometry(report: StageReport, world, mesh_of_surface: dict[int, int], path: Path) -> None:
+    """BSP/shadowgeom.json: per WaW primary light, the static geometry its
+    shadow map draws (GfxShadowGeometry: world meshes by FBX mesh index, static
+    models by index - placements keep WaW order) and its light region hulls.
+    The bridge linker fills T6 shadowGeom/lightRegion (same structures)."""
+    if path.exists():
+        path.unlink()
+    if not world.shadow_lights:
+        return
+    lights = []
+    dropped = 0
+    for light in world.shadow_lights:
+        meshes = sorted({mesh_of_surface[i] for i in light.surfaces if i in mesh_of_surface})
+        dropped += sum(1 for i in light.surfaces if i not in mesh_of_surface)
+        lights.append({"meshes": meshes, "smodels": sorted(set(light.smodels)),
+                       "hulls": [{"kdopMidPoint": list(h.kdop_mid_point), "kdopHalfSize": list(h.kdop_half_size),
+                                  "axes": [{"dir": list(d), "midPoint": m, "halfSize": s} for d, m, s in h.axes]}
+                                 for h in light.hulls]})
+    path.write_text(json.dumps({"lights": lights}, separators=(",", ":")) + "\n", encoding="utf-8")
+    report.content["shadow_geometry"] = {"lights": len(lights), "casting_meshes": sum(len(l["meshes"]) for l in lights),
+                                         "casting_smodels": sum(len(l["smodels"]) for l in lights),
+                                         "removed_source_surfaces": dropped}
+
+
+def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_root: Path,
+                   stock_waw=None) -> str | None:
     """World FBX (sky surfaces removed), terrain collision FBX, brushes.json."""
     bsp = project_root / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
+    # A surface whose technique set was not loaded with the map zone (its
+    # material lives in a companion or stock zone) has no recorded world vertex
+    # format; its layer offset is valid, the format comes from the technique name.
+    unknown = {s.material for s in world.surfaces if s.world_vert_format == 0xFF}
+    if unknown and world.layer_data:
+        resolver = assetresolve.Resolver(roots, stock_waw)
+        resolver.expand({("material", name) for name in unknown})
+        resolved = {}
+        for name in unknown:
+            src = _find(resolver.roots, techsets.oat_material_path(name))
+            if src is not None:
+                resolved[name] = techsets.world_vert_format(_load_json(src).get("techniqueSet") or "")
+        # generated blends substituted later have no source technique here: the
+        # layer buffer's record spacing gives their stride (world.layer_formats_from_strides)
+        by_stride = layer_formats_from_strides(world)
+        for surface in world.surfaces:
+            if surface.material in resolved:
+                surface.world_vert_format = resolved[surface.material]
+            elif surface.index in by_stride:
+                surface.world_vert_format = by_stride[surface.index]
+        # A 24-byte stride is TEX_3_NRM_3 or TEX_4_NRM_1; a generated blend's
+        # name lists its layer materials ("*59_60_61_7": four layers).
+        for surface in world.surfaces:
+            if surface.world_vert_format == 0xFF and surface.material.startswith("*"):
+                layers = len(surface.material[1:].split("_"))
+                stride_formats = {3: 5, 4: 6}
+                if layers in stride_formats and _layer_gap_stride(world, surface) == 24:
+                    surface.world_vert_format = stride_formats[layers]
+        still = {s.material for s in world.surfaces if s.world_vert_format == 0xFF}
+        if still:
+            report.warnings.append(f"world vertex format unknown for {sorted(still)}; layers dropped")
     sky = set()
     tool_surfaces = set()
     blend_data = set()
@@ -808,12 +935,26 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
         elif name.startswith("*"):
             # dangling generated blend (substituted later): also a layered blend
             blend_data.add(name)
+    # A v5 render dump carries the WaW vertex layer buffer: layered materials
+    # then keep every layer (T6 layered techniques read it from vd1).
+    techsets.LAYERED_VERTEX_DATA = bool(world.layer_data)
     if not techsets.LAYERED_VERTEX_DATA and blend_data:
         report.warnings.append(f"{len(blend_data)} layered materials drawn as their base layer; their vertex colour "
-                               f"(blend weights) is written as white")
+                               f"(blend weights) is written as white (re-extract gfxworld with the v5 T4 dumper)")
     else:
         blend_data = set()
     kept = [s for s in world.surfaces if s.material not in sky | tool_surfaces]
+    if world.brush_model_count is None and len(clip.submodels) > 1:
+        raise StageError('render dump lacks brush ownership; re-extract gfxworld with the v4 T4 dumper')
+    if world.brush_model_count is not None and world.brush_model_count != len(clip.submodels):
+        raise StageError('render and collision brush model counts differ')
+    if any(s.brush_model >= len(clip.submodels) for s in kept if s.brush_model):
+        raise StageError('render brush ownership exceeds collision submodel count')
+    report.content['brush_render'] = {
+        'source_surfaces': sum(bool(s.brush_model) for s in world.surfaces),
+        'rendered_surfaces': sum(bool(s.brush_model) for s in kept),
+        'models': len({s.brush_model for s in kept if s.brush_model}),
+    }
     if sky:
         report.warnings.append(
             f"{sum(s.material in sky for s in world.surfaces)} sky surfaces ({', '.join(sorted(sky))}) removed from the render "
@@ -823,7 +964,8 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
             f"{sum(s.material in tool_surfaces for s in world.surfaces)} WaW editor-only surfaces "
             f"({', '.join(sorted(tool_surfaces))}) removed from the render world")
     world.surfaces = kept
-    write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data))
+    mesh_of_surface = write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data))
+    write_shadow_geometry(report, world, mesh_of_surface, bsp / "shadowgeom.json")
     slot_materials = write_collision_fbx(clip, bsp / "map_col.fbx")
     # BSP/clipmaterials.json: FBX collision material -> WaW clip flags. The
     # bridge linker gives every terrain partition its own clip material.
@@ -897,7 +1039,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
 
     world = read_gfx_world(gfx_bin)
     clip = read_collision(clip_bin)
-    sky_image = stage_geometry(report, world, clip, roots, project_root)
+    sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw)
     ents_file = gfx_bin.parent / f"{gfx_bin.name.removesuffix('.gfx.bin')}.ents"
     if not ents_file.exists():
         ents_file = stage / "maps" / ents_file.name
@@ -930,6 +1072,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     else:
         report.errors.append(f"map entities {ents_file.name} missing")
     effects = EffectsResult()
+    source_waw = None
     weapon_report = None
     if waw_map_script is not None and bo2_root is not None:
         script_models |= port_scripts(report, stage, project_root, waw_map_script, bo2_root, waw_script_roots or [],
@@ -974,9 +1117,39 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
     model_materials = stage_models(report, world, project, stage, project_root, script_models | clip_models, roots,
                                    entity_box_models)
-    names = {s.material for s in world.surfaces} | model_materials
-    used = stage_materials(report, names, roots, stock_materials, project_root, techset_dump)
+    hud_materials = sorted(report.scripts.get("hud_materials", [])) if report.scripts else []
+    names = {s.material for s in world.surfaces} | model_materials | set(hud_materials)
+    material_resolver = assetresolve.Resolver(roots, stock_waw)
+    closure = material_resolver.expand({('material', n) for n in names})
+    roots = material_resolver.roots
+    native_fallbacks = {}
+    equivalents = _load_json(Path(__file__).parent / 'compat/bo2_equivalents.json').get('material', {})
+    for name in sorted(names):
+        if _find(roots, techsets.oat_material_path(name)) is not None:
+            continue
+        if source_waw is not None:
+            recovered = source_waw.compile('material', name)
+            if recovered is not None:
+                roots.append(recovered)
+                report.warnings.append(f'WAW_SOURCE_ASSET material {name}: compiled from WaW Mod Tools')
+                continue
+        candidate = stock_materials / techsets.oat_material_path(equivalents.get(name, name)).relative_to('materials')
+        if candidate.is_file():
+            native_fallbacks[name] = candidate
+    report.content['material_dependencies'] = closure
+    # Primary lights keep their shadow maps only with the WaW shadow geometry
+    # (lighting.stage_primary_lights); otherwise the shadowed techniques are unreachable.
+    primary_lights = Path(str(gfx_bin).removesuffix(".gfx.bin") + ".primarylights.json")
+    falloff_placement = shaderruntime.light_falloff_placement(primary_lights, roots)
+    report.content['light_falloff_placement'] = falloff_placement
+    used = stage_materials(report, names, roots, stock_materials, project_root, techset_dump,
+                           native_fallbacks=native_fallbacks, falloff_placement=falloff_placement,
+                           light_shadows=not primary_lights.exists() or bool(world.shadow_lights))
     used |= effects.techsets
+    hud_images = {t["image"] for m in report.materials if m["name"] in set(hud_materials)
+                  for t in _load_json(project_root / m["file"]).get("textures", []) if t.get("image")}
+    if hud_images:
+        write_image_streaming(project_root, hud_images, merge=True)
     # Lightmap pages in both encodings; world surfaces whose material runs
     # translated WaW lit programs get the WaW-encoded copy (by FBX material name).
     waw_lightmap_materials = {m.get('source', m['name']) for m in report.materials
@@ -1063,13 +1236,23 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         report.warnings.append(f"CONTENT_INCOMPLETE shaders: {shader_report['translated']} translated to SM5; "
                                f"{shader_report['unsupported']} translation failures; {len(active)} runtime pixel passes bound; "
                                "remaining programs require supported T6 pass adapters")
+    # No loose raw/ visions: WaW (fastfile mode) reads visions only from loaded
+    # zones and replaces a missing one with vision/default (CoDWaW sub_4629F0).
     vision_report = visions.stage(project_root,
         [*([waw_map_script.parent.parent] if waw_map_script else []),
          *(waw_script_roots or []), *roots, *([waw_stock_scripts] if waw_stock_scripts else [])],
         sorted({f for d in (iwd_dirs or []) for f in d.glob('*.iwd')}), stock_waw,
-        visions.lut_donor(techset_dump), waw_mod_tools/'raw' if waw_mod_tools else None)
+        visions.lut_donor(techset_dump), None, techset_dump)
     report.errors += vision_report['errors']
+    overlay = vision_report.get('overlay') or {}
+    for name in overlay.get('materials', []):
+        report.materials.append({'name': name, 'file': techsets.oat_material_path(name).as_posix(),
+                                 't6_techset': 'waw film/glow overlay', 'notes': ['WaW film + glow pass (glow.py)']})
+    report.warnings += [f'GLOW {vision}: {note}' for vision, notes in overlay.get('notes', {}).items() for note in notes]
+    hud_materials = [*hud_materials, *overlay.get('materials', [])]
     report.warnings += [f'VISION_ABSENT {name}: absent from WaW lookup' for name in vision_report['missing']]
+    report.warnings += [f'VISION_DEFAULT {name}: in no WaW zone; WaW loads vision/default instead, so does the port'
+                        for name in vision_report.get('default_fallback', [])]
     if vision_report['visions']:
         images.append('waw_vision_lut')
     client_dir = project_root / 'clientscripts/mp/waw'
@@ -1144,11 +1327,28 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         sun_file = Path(lighting_base + ".lighting.json")
         if sun_file.exists():
             shutil.copy2(sun_file, project_root / "BSP/lighting.json")
+            # WaW loads the sun into r_lightTweak* dvars (sub_6FCDE0) and rebuilds
+            # it whenever a script changes one (sub_6F6680): the values a map
+            # script sets are the sun WaW draws.
+            sun_dvars = {"r_lighttweaksunlight": "sunLight", "r_lighttweakambient": "ambientScale",
+                         "r_lighttweakdiffusefraction": "diffuseFraction"}
+            script_values = {sun_dvars[k]: float(v) for k, v in vision_report.get("script_render_dvars", {}).items()
+                             if k in sun_dvars}
+            if script_values:
+                staged = json.loads((project_root / "BSP/lighting.json").read_text(encoding="utf-8"))
+                staged["sun"].update(script_values)
+                (project_root / "BSP/lighting.json").write_text(json.dumps(staged, indent=2) + "\n", encoding="utf-8")
+                report.content["lighting_script_sun"] = script_values
         primary_file = Path(lighting_base + ".primarylights.json")
         if not primary_file.exists():
             report.errors.append("source LightGrid requires its matching primary-light table")
         else:
-            definitions = lighting.stage_primary_lights(primary_file, project_root / "BSP/primarylights.json")
+            unshadowed = []
+            definitions = lighting.stage_primary_lights(primary_file, project_root / "BSP/primarylights.json",
+                                                        unshadowed, keep_shadows=bool(world.shadow_lights))
+            if unshadowed:
+                report.warnings.append(f"{len(unshadowed)} primary spot/omni lights drawn without shadow maps "
+                                       "(render dump has no shadow geometry: re-extract gfxworld with the v6 T4 dumper)")
             for name in sorted(definitions):
                 source_def = _find(roots, Path(f"lightdef/{name}.json"))
                 if source_def is None:
@@ -1197,7 +1397,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     else:
         report.errors.append(f"stock T6 zbarrier {entities.ZBARRIER_ASSET} missing from techset dump")
     scripts = map_scripts(project_root, project)
-    write_zone(stage, project, images, ipak, sorted(script_models), scripts, zbarriers, effects.zone_fx)
+    staged = {m["name"] for m in report.materials}
+    write_zone(stage, project, images, ipak, sorted(script_models), scripts, zbarriers, effects.zone_fx,
+               [m for m in hud_materials if m in staged])
 
     (project_root / "bridge_stage.report.json").write_text(report.to_json(), encoding="utf-8")
     return report
@@ -1209,18 +1411,22 @@ FX_MATERIAL_PREFIX = "waw_fx/"
 # with a stock BO2 image in common_zm, which loads first, so the game drew BO2's
 # texture (another size and atlas layout) under the WaW UVs.
 FX_IMAGE_PREFIX = "waw_fx/"
-# Measured on every stock effect image of zm_nuked/common_zm (125/125): effect
-# images use streaming mode 2. Mode 1 (world/model images) is only made
-# resident by the world streamer, which never requests effect images.
+# Measured on every stock effect image of zm_nuked/common_zm (125/125) and on
+# the HUD (trivial 2D) images (174/181, the rest tiny inline): they use
+# streaming mode 2. Mode 1 (world/model images) is only made resident by the
+# world streamer, which never requests effect or HUD images (effects drew a
+# fallback, HUD icons nothing).
 EFFECT_IMAGE_STREAMING = 2
 
 
-def write_image_streaming(project_root: Path, effect_images: set[str]) -> Path:
-    """images/streaming.json for the bridge linker's image loader."""
+def write_image_streaming(project_root: Path, images: set[str], merge: bool = False) -> Path:
+    """images/streaming.json for the bridge linker's image loader. ``merge``
+    adds to the file this run already wrote (effects first, HUD materials later)."""
     path = project_root / "images" / "streaming.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    modes = {name: EFFECT_IMAGE_STREAMING for name in sorted(effect_images)}
-    path.write_text(json.dumps({"streamingMode": modes}, indent=2) + "\n", encoding="utf-8")
+    modes = json.loads(path.read_text(encoding="utf-8"))["streamingMode"] if merge and path.exists() else {}
+    modes.update({name: EFFECT_IMAGE_STREAMING for name in images})
+    path.write_text(json.dumps({"streamingMode": dict(sorted(modes.items()))}, indent=2) + "\n", encoding="utf-8")
     return path
 
 
@@ -1512,6 +1718,7 @@ def stage_fx(report: StageReport, names: list[str], converted: dict[str, str], m
     (project_root / MOD_EXTRA_ZONE).write_text("".join(f"fx,{n}\n" for n in mod_fx), encoding="utf-8")
 
 
+SCRIPT_SHADER_RE = re.compile(r'\b(?:precacheshader|setshader)\s*\(\s*"([^"]+)"', re.IGNORECASE)
 CORE_ANIMTREE_HEADER = "// waw2bo2: WaW animtree"
 ANIM_REF_RE = re.compile(r'(?:[(,=\[]|\breturn|\[\[)\s*%\s*([A-Za-z_]\w*)')
 
@@ -1615,6 +1822,22 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
         elif name.lower() not in stock_models:
             report.warnings.append(f"UNSUPPORTED_ASSET xmodel {name}: used by the map scripts, not in any WaW "
                                    f"zone dump nor a stock BO2 zone")
+    # HUD materials the scripts precache / draw (setShader): nothing else
+    # references them, so they would be missing (checkerboard icons)
+    shaders = set()
+    for path in port.ported:
+        shaders |= set(SCRIPT_SHADER_RE.findall(sources.text.get(path + ".gsc", "")))
+    stock_materials = api.stock_assets.get("material", set())
+    hud = []
+    for name in sorted(shaders):
+        if name.lower() in stock_materials:
+            continue
+        if any((r / techsets.oat_material_path(name)).exists() for r in model_roots):
+            hud.append(name)
+        else:
+            report.warnings.append(f"UNSUPPORTED_ASSET material {name}: drawn by the map scripts, not in any WaW "
+                                   f"zone dump nor a stock BO2 zone")
+    report.scripts["hud_materials"] = hud
     return models
 
 

@@ -6,8 +6,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <format>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -110,7 +112,7 @@ namespace
     void BuildCellAabbTree(MemoryManager& memory, GfxWorld& gfxWorld, GfxCell& cell)
     {
         std::vector<AabbItem> items;
-        for (auto i = 0; i < gfxWorld.surfaceCount; i++)
+        for (auto i = 0u; i < gfxWorld.dpvs.staticSurfaceCount; i++)
             items.push_back({gfxWorld.dpvs.surfaces[i].bounds[0], gfxWorld.dpvs.surfaces[i].bounds[1], false, static_cast<uint16_t>(i)});
         for (auto i = 0u; i < gfxWorld.dpvs.smodelCount; i++)
             items.push_back({gfxWorld.dpvs.smodelInsts[i].mins, gfxWorld.dpvs.smodelInsts[i].maxs, true, static_cast<uint16_t>(i)});
@@ -270,12 +272,68 @@ namespace BSP
         }
     }
 
+    void GfxWorldLinker::AppendLayerVertices(
+        const BSPData& bsp, const BSPSurface& bspSurface, GfxSurface& gfxSurface, GfxWorld& gfxWorld, std::vector<char>& layerData) const
+    {
+        // MTL_WORLDVERT_TEX_<t>_NRM_<n> (same enum in WaW and T6): per vertex,
+        // t-1 half2 texcoords then n-1 packed normal transforms, read through
+        // the techniques' TEXCOORD_2.. / NORMAL_TRANSFORM_.. streams (layout
+        // measured on stock zm_nuked vd1 data).
+        static constexpr unsigned char FORMAT_LAYERS[][2] = {
+            {1, 1}, {2, 1}, {2, 2}, {3, 1}, {3, 2}, {3, 3}, {4, 1}, {4, 2}, {4, 3}, {5, 1}, {5, 2}, {5, 3}};
+        const auto* techset = gfxSurface.material ? gfxSurface.material->techniqueSet : nullptr;
+        const auto format = techset ? static_cast<unsigned char>(techset->worldVertFormat) : 0u;
+        const auto* vertices = &bsp.gfxWorld.vertices[bspSurface.indexOfFirstVertex];
+        const auto count = static_cast<size_t>(gfxSurface.tris.vertexCount);
+        const bool sourceLayers = count && vertices[0].layerTexCoordCount > 0;
+        if (format == 0 || format >= std::size(FORMAT_LAYERS))
+        {
+            if (sourceLayers)
+            {
+                // a layered source drawn by a single-layer technique: its vertex
+                // colour holds layer blend weights, which must not tint the base
+                auto* packed = reinterpret_cast<GfxPackedWorldVertex*>(&gfxWorld.draw.vd0.data[gfxSurface.tris.vertexDataOffset0]);
+                const float white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+                for (size_t i = 0; i < count; ++i)
+                    packed[i].color.packed = pack32::Vec4PackGfxColor(white);
+            }
+            return;
+        }
+        const auto texcoords = FORMAT_LAYERS[format][0] - 1u;
+        const auto normals = FORMAT_LAYERS[format][1] - 1u;
+        if (!sourceLayers || vertices[0].layerTexCoordCount < texcoords)
+            con::warn("surface material {} needs {} layer texcoords, the source has {}; missing layers read (0, 0)",
+                      gfxSurface.material->info.name, texcoords, count ? vertices[0].layerTexCoordCount : 0);
+        gfxSurface.tris.vertexDataOffset1 = static_cast<int>(layerData.size());
+        for (size_t i = 0; i < count; ++i)
+        {
+            const auto& vertex = vertices[i];
+            for (unsigned k = 0; k < texcoords; ++k)
+            {
+                const float uv[2] = {vertex.layerTexCoords[k].x, vertex.layerTexCoords[k].y};
+                const auto packed = pack32::Vec2PackTexCoordsUV(uv);
+                layerData.insert(layerData.end(), reinterpret_cast<const char*>(&packed), reinterpret_cast<const char*>(&packed) + 4);
+            }
+            for (unsigned k = 0; k < normals; ++k)
+            {
+                // WaW stores the transform RGBA, T6 reads it as B8G8R8A8: swap
+                // bytes 0 and 2 so the program sees the same values. A layer
+                // normal map the source lacks gets the identity rotation.
+                const uint32_t waw = k < vertex.layerNormalCount ? vertex.layerNormals[k] : 0xFF8080FFu;
+                const char bytes[4] = {static_cast<char>((waw >> 16) & 0xFF), static_cast<char>((waw >> 8) & 0xFF),
+                                       static_cast<char>(waw & 0xFF), static_cast<char>((waw >> 24) & 0xFF)};
+                layerData.insert(layerData.end(), bytes, bytes + 4);
+            }
+        }
+    }
+
     bool GfxWorldLinker::LoadMapSurfaces(const BSPData& bsp, GfxWorld& gfxWorld) const
     {
         LoadDrawData(bsp, gfxWorld);
         const auto plan = ReadLightmapPlan(m_search_path);
 
         size_t surfaceCount = bsp.gfxWorld.surfaces.size();
+        std::vector<char> layerData;
         gfxWorld.surfaceCount = static_cast<int>(surfaceCount);
         gfxWorld.dpvs.staticSurfaceCount = static_cast<unsigned int>(surfaceCount);
         gfxWorld.dpvs.surfaces = m_memory.Alloc<GfxSurface>(surfaceCount);
@@ -337,6 +395,13 @@ namespace BSP
             gfxSurface->tris.himipRadiusInvSq = 0.0f;
             gfxSurface->tris.vertexCount = static_cast<uint16_t>(maxVertIndex + 1);
             gfxSurface->tris.firstVertex = static_cast<int>(bspSurface.indexOfFirstVertex);
+            AppendLayerVertices(bsp, bspSurface, *gfxSurface, gfxWorld, layerData);
+        }
+        if (!layerData.empty())
+        {
+            gfxWorld.draw.vertexDataSize1 = static_cast<unsigned int>(layerData.size());
+            gfxWorld.draw.vd1.data = m_memory.Alloc<char>(layerData.size());
+            std::memcpy(gfxWorld.draw.vd1.data, layerData.data(), layerData.size());
         }
 
         // doesn't seem to matter what order the sorted surfs go in
@@ -374,6 +439,10 @@ namespace BSP
         std::ranges::stable_sort(order,
                                  [&](const size_t ia, const size_t ib)
                                  {
+                                     const auto ownerA = bsp.gfxWorld.surfaces[ia].brushModel;
+                                     const auto ownerB = bsp.gfxWorld.surfaces[ib].brushModel;
+                                     if (ownerA != ownerB)
+                                         return ownerA < ownerB;
                                      const auto& a = unsorted[ia];
                                      const auto& b = unsorted[ib];
                                      const auto ga = regionGroup(a), gb = regionGroup(b);
@@ -385,8 +454,22 @@ namespace BSP
         for (size_t i = 0; i < surfaceCount; i++)
             sorted[i] = unsorted[order[i]];
         gfxWorld.dpvs.surfaces = sorted;
-        unsigned int groupEnd[4] = {};
+        m_surface_order = order;
+        m_brush_surface_ranges.clear();
+        m_brush_surface_ranges.resize(1);
         for (size_t i = 0; i < surfaceCount; i++)
+        {
+            const auto owner = bsp.gfxWorld.surfaces[order[i]].brushModel;
+            if (owner >= m_brush_surface_ranges.size())
+                m_brush_surface_ranges.resize(owner + 1);
+            auto& range = m_brush_surface_ranges[owner];
+            if (!range.second)
+                range.first = static_cast<unsigned>(i);
+            range.second++;
+        }
+        gfxWorld.dpvs.staticSurfaceCount = m_brush_surface_ranges[0].second;
+        unsigned int groupEnd[4] = {};
+        for (size_t i = 0; i < gfxWorld.dpvs.staticSurfaceCount; i++)
             groupEnd[regionGroup(sorted[i])]++;
         for (auto g = 1; g < 4; g++)
             groupEnd[g] += groupEnd[g - 1];
@@ -657,6 +740,99 @@ namespace BSP
             gfxWorld.primaryLightEntityShadowVis = nullptr;
     }
 
+    void GfxWorldLinker::LoadShadowGeometry(const BSPData& bsp, GfxWorld& gfxWorld) const
+    {
+        // BSP/shadowgeom.json (waw2bo2): per primary light, the static world
+        // meshes and static models drawn into its shadow map and its light
+        // region hulls: the WaW GfxShadowGeometry / GfxLightRegion (same layout in T6).
+        const auto file = m_search_path.Open(GetFileNameForBSPAsset("shadowgeom.json"));
+        if (!file.IsOpen())
+            return;
+        json js;
+        try
+        {
+            js = json::parse(*file.m_stream);
+        }
+        catch (const json::exception& e)
+        {
+            con::error("JSON error when parsing shadowgeom.json: {}", e.what());
+            return;
+        }
+        const auto& lights = js.at("lights");
+        if (lights.size() != gfxWorld.primaryLightCount)
+        {
+            con::error("shadowgeom.json has {} lights, the world {}; shadow geometry not loaded", lights.size(),
+                       gfxWorld.primaryLightCount);
+            return;
+        }
+        // static world surfaces only (brush model surfaces move)
+        std::map<int, std::vector<uint16_t>> surfacesOfMesh;
+        for (size_t i = 0; i < m_surface_order.size() && i < gfxWorld.dpvs.staticSurfaceCount; ++i)
+            surfacesOfMesh[bsp.gfxWorld.surfaces[m_surface_order[i]].meshIndex].push_back(static_cast<uint16_t>(i));
+        for (unsigned light = 0; light < gfxWorld.primaryLightCount; ++light)
+        {
+            const auto& entry = lights[light];
+            std::vector<uint16_t> surfaces;
+            for (const auto& mesh : entry.at("meshes"))
+            {
+                const auto found = surfacesOfMesh.find(mesh.get<int>());
+                if (found != surfacesOfMesh.end())
+                    surfaces.insert(surfaces.end(), found->second.begin(), found->second.end());
+            }
+            std::ranges::sort(surfaces);
+            surfaces.erase(std::ranges::unique(surfaces).begin(), surfaces.end());
+            std::vector<uint16_t> smodels;
+            for (const auto& smodel : entry.at("smodels"))
+                if (smodel.get<unsigned>() < gfxWorld.dpvs.smodelCount)
+                    smodels.push_back(smodel.get<uint16_t>());
+            auto& geom = gfxWorld.shadowGeom[light];
+            geom.surfaceCount = static_cast<uint16_t>(surfaces.size());
+            geom.smodelCount = static_cast<uint16_t>(smodels.size());
+            geom.sortedSurfIndex = surfaces.empty() ? nullptr : m_memory.Alloc<uint16_t>(surfaces.size());
+            geom.smodelIndex = smodels.empty() ? nullptr : m_memory.Alloc<uint16_t>(smodels.size());
+            std::ranges::copy(surfaces, geom.sortedSurfIndex);
+            std::ranges::copy(smodels, geom.smodelIndex);
+
+            const auto& hulls = entry.at("hulls");
+            auto& region = gfxWorld.lightRegion[light];
+            region.hullCount = static_cast<unsigned>(hulls.size());
+            region.hulls = hulls.empty() ? nullptr : m_memory.Alloc<GfxLightRegionHull>(hulls.size());
+            for (size_t h = 0; h < hulls.size(); ++h)
+            {
+                auto& hull = region.hulls[h];
+                for (unsigned k = 0; k < 9; ++k)
+                {
+                    hull.kdopMidPoint[k] = hulls[h].at("kdopMidPoint").at(k).get<float>();
+                    hull.kdopHalfSize[k] = hulls[h].at("kdopHalfSize").at(k).get<float>();
+                }
+                const auto& axes = hulls[h].at("axes");
+                hull.axisCount = static_cast<unsigned>(axes.size());
+                hull.axis = axes.empty() ? nullptr : m_memory.Alloc<GfxLightRegionAxis>(axes.size());
+                for (size_t a = 0; a < axes.size(); ++a)
+                {
+                    for (unsigned k = 0; k < 3; ++k)
+                        hull.axis[a].dir.v[k] = axes[a].at("dir").at(k).get<float>();
+                    hull.axis[a].midPoint = axes[a].at("midPoint").get<float>();
+                    hull.axis[a].halfSize = axes[a].at("halfSize").get<float>();
+                }
+            }
+        }
+        // WaW draws the static models listed in the sun's shadow geometry into
+        // the sun shadow map; the others cast no sun shadow.
+        const auto& sun = gfxWorld.shadowGeom[gfxWorld.sunPrimaryLightIndex];
+        std::vector<char> sunCaster(gfxWorld.dpvs.smodelCount, 0);
+        for (unsigned i = 0; i < sun.smodelCount; ++i)
+            sunCaster[sun.smodelIndex[i]] = 1;
+        for (unsigned i = 0; i < gfxWorld.dpvs.smodelCount; ++i)
+        {
+            auto& flags = gfxWorld.dpvs.smodelDrawInsts[i].flags;
+            flags = sunCaster[i] ? (flags & ~STATIC_MODEL_FLAG_NO_SHADOW) : (flags | STATIC_MODEL_FLAG_NO_SHADOW);
+            gfxWorld.dpvs.smodelCastsShadow[i] = sunCaster[i];
+        }
+        con::info("Loaded shadow geometry for {} primary lights ({} sun-shadowing static models)", lights.size(),
+                  sun.smodelCount);
+    }
+
     bool GfxWorldLinker::LoadLightGrid(GfxWorld& gfxWorld) const
     {
         const auto file = m_search_path.Open(GetFileNameForBSPAsset("lightgrid.bin"));
@@ -829,9 +1005,8 @@ namespace BSP
 
     void GfxWorldLinker::LoadModels(GfxWorld& gfxWorld) const
     {
-        // Models (Submodels in the clipmap code) are used for the world and map ent collision (triggers, bomb zones, etc)
-        // Right now there is only one submodel, the world sub model
-        // brush models *1..*N from BSP/submodels.json (bounds only: they draw no map surfaces)
+        // Brush models keep collision bounds and their own contiguous render
+        // ranges. Their surfaces follow the static-world camera region ranges.
         std::vector<std::pair<vec3_t, vec3_t>> subBounds;
         const auto subFile = m_search_path.Open(GetFileNameForBSPAsset("submodels.json"));
         if (subFile.IsOpen())
@@ -858,8 +1033,9 @@ namespace BSP
         for (size_t subIdx = 0; subIdx < subBounds.size(); subIdx++)
         {
             auto& model = gfxWorld.models[subIdx + 1];
-            model.startSurfIndex = 0;
-            model.surfaceCount = 0;
+            const auto owner = subIdx + 1;
+            model.startSurfIndex = owner < m_brush_surface_ranges.size() ? m_brush_surface_ranges[owner].first : 0;
+            model.surfaceCount = owner < m_brush_surface_ranges.size() ? m_brush_surface_ranges[owner].second : 0;
             model.bounds[0] = subBounds[subIdx].first;
             model.bounds[1] = subBounds[subIdx].second;
             memset(&model.writable, 0, sizeof(GfxBrushModelWritable));
@@ -867,7 +1043,7 @@ namespace BSP
 
         // first model is always the world model
         gfxWorld.models[0].startSurfIndex = 0;
-        gfxWorld.models[0].surfaceCount = static_cast<unsigned int>(gfxWorld.surfaceCount);
+        gfxWorld.models[0].surfaceCount = gfxWorld.dpvs.staticSurfaceCount;
         gfxWorld.models[0].bounds[0].x = gfxWorld.mins.x;
         gfxWorld.models[0].bounds[0].y = gfxWorld.mins.y;
         gfxWorld.models[0].bounds[0].z = gfxWorld.mins.z;
@@ -962,9 +1138,25 @@ namespace BSP
                 * (1.0f - source.at("diffuseFraction").get<float>()));
             sun.sunCd.v[3] = strength * strength;
             sun.ambientColor.v[3] = ambientScale * ambientScale;
+            // T6 sub_728180: hdrControl0.x = 1 / 2^(exposure + 2); lit programs
+            // write sqrt(hdrControl0.x * linear) and every hdr_bloom_apply
+            // composite displays sqrt(4 * buffer^2) (in game, every 2 stops
+            // lower doubles the final pixel). WaW draws gamma colour directly;
+            // the converted lightmaps, light grid, sun and fog hold WaW's
+            // display values squared, shown 1:1 at hdrControl0.x = 1/4.
+            constexpr auto unitScaleExposure = 0.0f;
+            const auto fogScale = std::exp2(-(sun.exposure + 2.0f)) / std::exp2(-(unitScaleExposure + 2.0f));
+            auto& fog = *gfxWorld.sunParse.initWorldFog;
+            for (unsigned i = 0; i < 3; ++i)
+            {
+                // template fog keeps its on-screen colour until map script fog arrives
+                fog.fogColor.v[i] *= fogScale;
+                fog.sunFogColor.v[i] *= fogScale;
+            }
+            sun.exposure = data.value("exposure", unitScaleExposure);
             const auto name = source.value("name", std::string());
             std::strncpy(gfxWorld.sunParse.name, name.c_str(), sizeof(gfxWorld.sunParse.name) - 1);
-            con::info("Loaded source sun angles and colors (WaW direct strength {})", strength);
+            con::info("Loaded source sun angles and colors (WaW direct strength {}, exposure {})", strength, sun.exposure);
         }
     }
 
@@ -1199,6 +1391,7 @@ namespace BSP
         LoadGfxCells(*gfxWorld);
 
         LoadGfxLights(*gfxWorld);
+        LoadShadowGeometry(bsp, *gfxWorld);
         if (!LoadLightGrid(*gfxWorld)) return nullptr;
 
         LoadModels(*gfxWorld);

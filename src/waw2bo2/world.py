@@ -58,6 +58,12 @@ class Surface:
     flags: int
     mins: tuple[float, float, float]
     maxs: tuple[float, float, float]
+    brush_model: int = 0
+    # v5: byte offset of this surface's extra-layer vertices in GfxWorld.layer_data
+    # and its technique set's MaterialWorldVertexFormat (0: single layer)
+    layer_data_offset: int = 0
+    world_vert_format: int = 0
+    index: int = -1  # position in the source surface array (shadow geometry refers to it)
 
 
 @dataclass(slots=True)
@@ -80,10 +86,77 @@ class GfxWorld:
     indices: list[int]
     surfaces: list[Surface]
     static_models: list[StaticModel]
+    brush_model_count: int | None = None
+    layer_data: bytes = b""
+    # v6: per primary light, the static geometry of its shadow map and its region
+    shadow_lights: list = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class LightRegionHull:
+    kdop_mid_point: tuple[float, ...]
+    kdop_half_size: tuple[float, ...]
+    axes: list  # (dir xyz, mid point, half size)
+
+
+@dataclass(slots=True)
+class ShadowLight:
+    surfaces: list[int]  # WaW surface indices drawn into the light's shadow map
+    smodels: list[int]  # WaW static model indices
+    hulls: list[LightRegionHull]
+
+
+def layer_format(world_vert_format: int) -> tuple[int, int]:
+    """(texcoord count, normal count) of MTL_WORLDVERT_TEX_<t>_NRM_<n>
+    (t 1..5, n 1..min(t, 3)); the same enum in WaW and T6."""
+    pairs = [(t, n) for t in range(1, 6) for n in range(1, min(t, 3) + 1)]
+    if not 0 <= world_vert_format < len(pairs):
+        raise FormatError(f"unknown world vertex format {world_vert_format}")
+    return pairs[world_vert_format]
+
+
+def layer_stride(world_vert_format: int) -> int:
+    """Bytes per vertex in the WaW layer buffer: t-1 float2 texcoords then n-1
+    packed (UBYTE4N, RGBA) normal transforms (verified: the per-surface ranges
+    of the measured world end exactly at the buffer size)."""
+    texcoords, normals = layer_format(world_vert_format)
+    return 8 * (texcoords - 1) + 4 * (normals - 1)
+
+
+def layer_formats_from_strides(world: "GfxWorld") -> dict[int, int]:
+    """World vertex formats of surfaces dumped without one (0xFF), by surface
+    index, from the WaW layer buffer: the surfaces' records are packed back to
+    back, so the gap to the next surface's records over the vertex range is the
+    stride (matches the recorded format on every surface of the measured map).
+    A stride that two formats share (24: TEX_3_NRM_3, TEX_4_NRM_1) is left out."""
+    layered = [s for s in world.surfaces if s.world_vert_format != 0]
+    offsets = sorted({s.layer_data_offset for s in layered})
+    following = {o: (offsets[i + 1] if i + 1 < len(offsets) else len(world.layer_data)) for i, o in enumerate(offsets)}
+    by_offset: dict[int, list] = {}
+    for surface in layered:
+        by_offset.setdefault(surface.layer_data_offset, []).append(surface)
+    formats_of_stride: dict[int, list[int]] = {}
+    for fmt in range(1, 12):
+        formats_of_stride.setdefault(layer_stride(fmt), []).append(fmt)
+    result = {}
+    for offset, group in by_offset.items():
+        span = max(s.first_vertex + s.vertex_count for s in group) - min(s.first_vertex for s in group)
+        gap = following[offset] - offset
+        if not span or gap % span:
+            continue
+        candidates = formats_of_stride.get(gap // span, [])
+        if len(candidates) == 1:
+            for surface in group:
+                if surface.world_vert_format == 0xFF:
+                    result[surface.index] = candidates[0]
+    return result
 
 
 def _color(packed: int) -> tuple[float, float, float, float]:
-    return tuple(((packed >> shift) & 0xFF) / 255.0 for shift in (0, 8, 16, 24))  # type: ignore[return-value]
+    """RGBA of a WaW vertex colour. WaW binds it as D3DCOLOR (0xAARRGGBB,
+    bytes B G R A); T6 reads its own vertex colour as R8G8B8A8_UNORM (input
+    layout table byte_D1F7E0, built in sub_7314B0), so the order is fixed here."""
+    return tuple(((packed >> shift) & 0xFF) / 255.0 for shift in (16, 8, 0, 24))  # type: ignore[return-value]
 
 
 def _unit_vec_scale(packed: int) -> tuple[float, float, float]:
@@ -99,7 +172,7 @@ def _unit_vec_scale(packed: int) -> tuple[float, float, float]:
 def read_gfx_world(path: Path) -> GfxWorld:
     with path.open("rb") as stream:
         r = Reader(stream)
-        if r.exact(8) != MAGIC or (gfx_version := r.unpack("I")) not in (1, 2, 3):
+        if r.exact(8) != MAGIC or (gfx_version := r.unpack("I")) not in (1, 2, 3, 4, 5, 6):
             raise FormatError(f"{path} is not a W2BSP001 render-world file")
         vertex_count, index_count, surface_count, model_count = r.unpack("IIII")
         if vertex_count > 20_000_000 or index_count > 60_000_000 or surface_count > 2_000_000:
@@ -131,7 +204,8 @@ def read_gfx_world(path: Path) -> GfxWorld:
             local = indices[base_index : base_index + tri_count * 3]
             if local and max(local) >= count:
                 raise FormatError(f"surface {len(surfaces)} has an out-of-range local vertex index")
-            surfaces.append(Surface(first_vertex, count, tri_count, base_index, material, lightmap, probe, primary, flags, mins, maxs))
+            surfaces.append(Surface(first_vertex, count, tri_count, base_index, material, lightmap, probe, primary, flags, mins, maxs,
+                                    index=len(surfaces)))
         models: list[StaticModel] = []
         for _ in range(model_count):
             model_name = r.string()
@@ -143,9 +217,49 @@ def read_gfx_world(path: Path) -> GfxWorld:
             if primary_light > 255:
                 raise FormatError("static model primary-light index exceeds byte range")
             models.append(StaticModel(model_name, origin, axis, scale, flags, cull_dist, primary_light))
+        brush_count = None
+        if gfx_version >= 4:
+            brush_count = r.unpack("I")
+            if not 1 <= brush_count <= 65536:
+                raise FormatError("unreasonable render brush model count")
+            for owner in range(brush_count):
+                start, count = r.unpack("II")
+                if count and start + count > len(surfaces):
+                    raise FormatError("brush model surface range exceeds world surfaces")
+                if owner:
+                    for surface in surfaces[start:start + count]:
+                        if surface.brush_model:
+                            raise FormatError("overlapping brush model surface ranges")
+                        surface.brush_model = owner
+        layer_data = b""
+        if gfx_version >= 5:
+            size = r.unpack("I")
+            if size > 256 * 1024 * 1024:
+                raise FormatError("unreasonable vertex layer buffer size")
+            layer_data = r.exact(size)
+            for surface in surfaces:
+                surface.layer_data_offset, surface.world_vert_format = r.unpack("iB")
+                stride = layer_stride(surface.world_vert_format) if surface.world_vert_format != 0xFF else 0
+                if stride and not 0 <= surface.layer_data_offset <= size - stride * surface.vertex_count:
+                    raise FormatError(f"surface layer data exceeds the layer buffer ({surface.material})")
+        shadow_lights = []
+        if gfx_version >= 6:
+            for _ in range(r.unpack("I")):
+                surface_count, smodel_count = r.unpack("HH")
+                light_surfaces = list(struct.unpack(f"<{surface_count}H", r.exact(2 * surface_count)))
+                light_smodels = list(struct.unpack(f"<{smodel_count}H", r.exact(2 * smodel_count)))
+                if any(i >= len(surfaces) for i in light_surfaces) or any(i >= len(models) for i in light_smodels):
+                    raise FormatError("shadow geometry references data outside the world")
+                hulls = []
+                for _ in range(r.unpack("I")):
+                    mid, half = r.unpack("9f"), r.unpack("9f")
+                    axes = [(r.unpack("3f"), *r.unpack("2f")) for _ in range(r.unpack("I"))]
+                    hulls.append(LightRegionHull(mid, half, axes))
+                shadow_lights.append(ShadowLight(light_surfaces, light_smodels, hulls))
         if stream.read(1):
             raise FormatError("render-world file has trailing data (schema mismatch)")
-    return GfxWorld(name, base_name, skybox_model, vertices, indices, surfaces, models)
+    return GfxWorld(name, base_name, skybox_model, vertices, indices, surfaces, models, brush_count, layer_data,
+                    shadow_lights)
 
 
 @dataclass(slots=True)

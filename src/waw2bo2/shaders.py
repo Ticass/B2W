@@ -193,6 +193,8 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
         if type(tex) is not int or type(samp) is not int or not 0 <= tex < 128 or not 0 <= samp < 16:
             raise ShaderError(f'invalid resource binding {reg}')
         typ = {'2d': 'Texture2D', 'cube': 'TextureCube', 'volume': 'Texture3D'}[dim]
+        if entry and entry.get('constant') is not None:
+            continue  # neutral texel (shaderruntime: source system absent in T6)
         if entry and entry.get('point_load'):
             # Point sampling without the target's sampler state (the target
             # binds a comparison sampler here): read the texel directly, with
@@ -227,9 +229,12 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
             if not SEM.fullmatch(semantic.upper()) or type(width) is not int or not 1 <= width <= 4:
                 raise ShaderError(f'invalid interface for {reg}')
             adapter = entry.get('adapter') if entry else None
+            if adapter == 'waw_neutral' and kind == 'inputs' and len(entry.get('constant', ())) == 4:
+                result[reg] = (semantic, width)
+                continue
             if adapter is not None and not (kind == 'inputs' and declarations[reg][1] == 4 and
                 ((adapter == 'waw_half_uv' and width == 2) or (adapter == 'waw_position' and width == 3) or
-                 (adapter == 'waw_ubyte4_vector' and width == 3) or (adapter == 'waw_uv_lightmap' and width == 2))):
+                 (adapter == 'waw_ubyte4_vector' and width == 3) or (adapter in ('waw_uv_lightmap', 'waw_uv') and width == 2))):
                 raise ShaderError(f'unsupported vertex input adapter for {reg}')
             if width < declarations[reg][1] and adapter is None:
                 raise ShaderError(f'target interface truncates source channels for {reg}')
@@ -305,7 +310,7 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
                    'dp4': 2, 'dp2add': 3, 'min': 2, 'max': 2, 'rcp': 1, 'rsq': 1,
                    'abs': 1, 'frc': 1, 'exp': 1, 'log': 1, 'pow': 2,
                    'lrp': 3, 'cmp': 3, 'slt': 2, 'sge': 2, 'nrm': 1,
-                   'dsx': 1, 'dsy': 1, 'texld': 2, 'texldp': 2,
+                   'dsx': 1, 'dsy': 1, 'sincos': 1, 'texld': 2, 'texldp': 2,
                    'texldb': 2, 'texldl': 2, 'texldd': 4}
         if op not in arities or len(args) != arities[op] + 1:
             raise ShaderError(f'unsupported instruction: {original}')
@@ -316,6 +321,9 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
         mask = (mask or 'xyzw').translate(SWIZZLE)
         if len(set(mask)) != len(mask):
             raise ShaderError(f'invalid write mask: {original}')
+        if op == 'sincos' and not set(mask) <= set('xy'):
+            # SM3 defines only .x (cosine) and .y (sine)
+            raise ShaderError(f'sincos writes outside .xy: {original}')
         if op.startswith('texld'):
             coord, sampler = source(args[1]), args[2]
             if sampler not in samplers:
@@ -329,10 +337,11 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
                     raise ShaderError(f'v remap needs a 2D texld/texldl: {original}')
                 uv = f'float2(({uv}).x, ({uv}).y * {float(v_remap[0])!r} + {float(v_remap[1])!r})'
             point_load = bindings.get('samplers', {}).get(sampler, {}).get('point_load')
-            if point_load and op not in ('texld', 'texldl'):
+            if point_load and op not in ('texld', 'texldl', 'texldp'):
                 raise ShaderError(f'point load adapter cannot express {op}: {original}')
             if op == 'texldp':
                 uv = f'({uv} / ({coord}).w)'
+            constant = bindings.get('samplers', {}).get(sampler, {}).get('constant')
             if op == 'texldl':
                 expr = f'tex_{sampler}.SampleLevel(samp_{sampler}, {uv}, ({coord}).w)'
             elif op == 'texldb':
@@ -346,6 +355,13 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
             if point_load:
                 # reads mip 0 (WaW shadow lookups pass LOD 0; reported by the contract)
                 expr = f'load_{sampler}({uv})'
+                if op == 'texldp':
+                    # T6 shadow texels hold projected depth z/w (its PS compares
+                    # them with coord.z/coord.w); WaW compares the texel with the
+                    # undivided coord.z. Scaling by w (> 0) gives the same test.
+                    expr = f'({expr} * ({coord}).w)'
+            if constant is not None:
+                expr = 'float4(' + ', '.join(repr(float(c)) for c in constant) + ')'
             if sampler in sample_scale:
                 # target texel encoding differs; convert to the source's units
                 expr = f'({expr} * float4(({sample_scale[sampler]}).xxx, 1.0))'
@@ -375,6 +391,7 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
                 'slt': f'(({a}<{b})?1.0:0.0)', 'sge': f'(({a}>={b})?1.0:0.0)',
                 'nrm': f'float4(normalize(({a}).xyz), ({a}).w)',
                 'dsx': f'ddx({a})', 'dsy': f'ddy({a})',
+                'sincos': f'float4(cos(({a}).x), sin(({a}).x), 0.0, 0.0)',
             }[op]
         # Snapshot the full result before masked write, preserving register aliasing.
         if 'sat' in flags:
@@ -400,7 +417,8 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
         input_fields = ' '.join(f'{interp.get(f"link{i}", "")}float{s["width"] if s["width"] > 1 else ""} link{i} : {s["semantic"]};'
                                 for i, s in enumerate(signature))
     else:
-        input_fields = fields(inputs)
+        input_fields = fields({reg: decl for reg, decl in inputs.items()
+                               if bindings.get('inputs', {}).get(reg, {}).get('adapter') != 'waw_neutral'})
         for reg in inputs:
             if bindings.get('inputs', {}).get(reg, {}).get('adapter') == 'waw_uv_lightmap':
                 input_fields += f' float2 {reg}_lmap : TEXCOORD1;'
@@ -408,12 +426,21 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
     for reg, (_, width) in inputs.items():
         adapter = bindings.get('inputs', {}).get(reg, {}).get('adapter')
         name = f'input.{field_of[reg]}'
-        if signature is not None:
+        if adapter == 'waw_neutral':
+            # the source system that fills this stream does not exist in T6
+            init.append(f'{reg} = float4(' + ', '.join(repr(float(c)) for c in bindings['inputs'][reg]['constant']) + ');')
+        elif signature is not None:
             full = next(s['width'] for i, s in enumerate(signature) if f'link{i}' == field_of[reg])
             init.append(f'{reg} = float4({name}{", 0" * (4-full)});')
+            if bindings.get('inputs', {}).get(reg, {}).get('projective_depth'):
+                # WaW compares the raw z of its spot shadow coordinate; T6's
+                # lookup matrix needs z / w (stock spot-shadow PS: div xyz by w)
+                init.append(f'{reg}.z = {reg}.z / {reg}.w;')
         elif adapter == 'waw_half_uv':
             init += [f'uint2 half_{reg} = f32tof16({name});',
                      f'{reg} = float4(half_{reg}.y & 255, half_{reg}.y >> 8, half_{reg}.x & 255, half_{reg}.x >> 8);']
+        elif adapter == 'waw_uv':
+            init.append(f'{reg} = float4({name}, 0, 0);')
         elif adapter == 'waw_uv_lightmap':
             # WaW world vertices carry texture and lightmap UVs in one float4;
             # T6 streams them as TEXCOORD0 and TEXCOORD1
@@ -429,6 +456,14 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
         else:
             init.append(f'{reg} = float4({name}{", 0" * (4-width)});')
     finish = [f'output.{reg} = {reg}.{"xyzw"[:width]};' for reg, (_, width) in outputs.items()]
+    rgb_scale = bindings.get('output_rgb_scale')
+    if rgb_scale is not None:
+        # the target displays this render target at another scale (see shaderruntime)
+        if stage != 'ps':
+            raise ShaderError('output colour scale applies to pixel programs only')
+        finish = [f'output.{reg} = float4({reg}.xyz * {float(rgb_scale)!r}, {reg}.w);'
+                  if sem.upper().startswith('SV_TARGET') and width == 4 else line
+                  for line, (reg, (sem, width)) in zip(finish, outputs.items())]
     tail = list(epilogue.get('lines', [])) if epilogue else []
     text = '\n'.join(resources + [f'struct Input {{ {input_fields} }};',
         f'struct Output {{ {fields(outputs)} }};', 'Output main(Input input) {',

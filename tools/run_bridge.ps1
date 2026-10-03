@@ -151,6 +151,15 @@ if ($Redump -or -not (Test-Path (Join-Path $Dump 'zbarrier\.barrier_complete')))
     New-Item -ItemType File -Force (Join-Path $Dump 'zbarrier\.barrier_complete') | Out-Null
 }
 
+# Material equivalents need real pixels, not just the donor's technique metadata.
+if ($Redump -or -not (Test-Path (Join-Path $Dump '.material_images_v1'))) {
+    & (Join-Path $OatT6 'Unlinker.exe') --no-color --search-path (Join-Path $Bo2 'zone\all') `
+        --include-assets 'image' --image-format IWI --output-folder $Dump $stockFf `
+        *> (Join-Path $Dump '..\stock_t6_material_images.log')
+    if ($LASTEXITCODE) { throw "stock material image dump failed ($LASTEXITCODE)" }
+    New-Item -ItemType File -Force (Join-Path $Dump '.material_images_v1') | Out-Null
+}
+
 if ($Redump -or -not (Test-Path (Join-Path $Dump 'sounddriverglobals\singleton.w2bsdg'))) {
     # A map cannot replace the driver (BO2 drops on a second snddriverglobals),
     # so converted aliases are bound to the stock driver's curves by shape.
@@ -209,4 +218,19 @@ if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
 Write-Host "== 5. packaging the Plutonium mod"
 python -m waw2bo2.cli package $Stage $Project --bo2 $Bo2 --work $ModBuild
-exit $LASTEXITCODE
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+# T6 resolves material constant/texture arguments with unbounded table scans
+# (crashes 0x77C253, 0x7777F9, 0x77C173): replay them on what was installed.
+Write-Host "== 6. auditing installed material arguments"
+$installed = Join-Path $env:LOCALAPPDATA "Plutonium\storage\t6\mods\$Project"
+foreach ($zone in @((Join-Path $Stage "zone_out\$Project\$Project.ff"), (Join-Path $installed 'mod.ff'))) {
+    $audit = Join-Path $Stage ("audit_" + [IO.Path]::GetFileNameWithoutExtension($zone))
+    if (Test-Path $audit) { Remove-Item -Recurse -Force $audit }
+    & (Join-Path $OatT6 'Unlinker.exe') --no-color --search-path (Join-Path $Bo2 'zone\all') `
+        --include-assets 'material,techniqueset' --output-folder $audit $zone *> "$audit.log"
+    if ($LASTEXITCODE) { throw "audit unlink of $zone failed ($LASTEXITCODE)" }
+    python (Join-Path $PSScriptRoot 'audit_material_args.py') $audit $Dump
+    if ($LASTEXITCODE) { throw "material argument audit failed for $zone (would crash the game)" }
+}
+exit 0

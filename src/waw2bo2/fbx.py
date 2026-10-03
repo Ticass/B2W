@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .world import CollisionWorld, GfxWorld
+import struct
+
+from .world import CollisionWorld, GfxWorld, layer_format, layer_stride
 
 
 def _quoted(value: str) -> str:
@@ -38,7 +40,7 @@ def merge_surfaces(world: GfxWorld) -> list[tuple[str, list, int]]:
     buckets: dict[tuple, list] = {}
     for surface in world.surfaces:
         centre = tuple((surface.mins[k] + surface.maxs[k]) * 0.5 for k in range(3))
-        key = (surface.material, surface.lightmap_index, surface.primary_light_index,
+        key = (surface.material, surface.lightmap_index, surface.primary_light_index, getattr(surface, 'brush_model', 0),
                *(int(c // MERGE_BUCKET) for c in centre))
         buckets.setdefault(key, []).append(surface)
     meshes: list[tuple[str, list]] = []
@@ -57,7 +59,35 @@ def merge_surfaces(world: GfxWorld) -> list[tuple[str, list, int]]:
     return meshes
 
 
-def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset[str] = frozenset()) -> None:
+def _layer_uv_sets(world: GfxWorld, used: dict[int, int], owner: dict, world_vert_format: int) -> list:
+    """Extra-layer vertex data of a layered mesh as named FBX UV sets.
+
+    ``LayerUV<k>``: the WaW float2 texcoord of layer k (V flipped like the base
+    UV). ``LayerNormal<k>``: the 4 WaW bytes of normal transform k (UBYTE4N,
+    RGBA; 2v-1 is the 2x2 layer tangent rotation) as exact integers
+    (b0 + 256 b1, b2 + 256 b3). The bridge BSPCreator reads them by name and the
+    GfxWorldLinker writes T6 vd1 in the final material's world vertex format."""
+    if world_vert_format in (0, 0xFF) or not world.layer_data:
+        return []
+    texcoords, normal_count = layer_format(world_vert_format)
+    stride = layer_stride(world_vert_format)
+    sets = [(f"LayerUV{k}", []) for k in range(1, texcoords)] + [(f"LayerNormal{k}", []) for k in range(1, normal_count)]
+    for absolute in used:
+        surface = owner[absolute]
+        if surface.world_vert_format != world_vert_format:
+            raise ValueError(f"mesh mixes world vertex formats ({surface.material})")
+        record = surface.layer_data_offset + (absolute - surface.first_vertex) * stride
+        for k in range(texcoords - 1):
+            u, v = struct.unpack_from("<2f", world.layer_data, record + 8 * k)
+            sets[k][1].extend((u, 1.0 - v))
+        base = record + 8 * (texcoords - 1)
+        for k in range(normal_count - 1):
+            b = world.layer_data[base + 4 * k: base + 4 * k + 4]
+            sets[texcoords - 1 + k][1].extend((b[0] + 256 * b[1], b[2] + 256 * b[3]))
+    return sets
+
+
+def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset[str] = frozenset()) -> dict[int, int]:
     """Write the WaW world as merged meshes (see merge_surfaces), preserving UV seams and materials.
 
     The T6 BSP loader expects Blender-style right-handed Y-up coordinates and
@@ -78,12 +108,15 @@ def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset
             # worlds contain very large sparse spans. Compact only referenced
             # vertices or an otherwise lossless export can grow by gigabytes.
             used: dict[int, int] = {}
+            owner: dict[int, object] = {}
             compact_indices: list[int] = []
             for surface in group:
                 for source_index in world.indices[surface.base_index : surface.base_index + surface.triangle_count * 3]:
                     compact_indices.append(used.setdefault(surface.first_vertex + source_index, len(used)))
+                    owner.setdefault(surface.first_vertex + source_index, surface)
             verts = [world.vertices[absolute] for absolute in used]
             surface = group[0]
+            layer_sets = _layer_uv_sets(world, used, owner, surface.world_vert_format)
             positions = []
             normals = []
             tangents = []
@@ -116,7 +149,7 @@ def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset
                 a, b, c = compact_indices[j : j + 3]
                 polygons.extend((a, c, -b - 1))
             # the lightmap page travels in the name (read back by the bridge's BSPCreator)
-            name = f"waw_mesh_{i:05d}_pl{surface.primary_light_index}_lm{lightmap}"
+            name = f"waw_mesh_{i:05d}_bm{surface.brush_model}_pl{surface.primary_light_index}_lm{lightmap}"
             out.write(f" Geometry: {geom_id}, {_quoted('Geometry::' + name)}, \"Mesh\" {{\n")
             out.write(f"  Vertices: *{len(positions)} {{ a: {_numbers(positions)} }}\n")
             out.write(f"  PolygonVertexIndex: *{len(polygons)} {{ a: {_numbers(polygons)} }}\n")
@@ -133,8 +166,14 @@ def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset
             out.write(f"   UV: *{len(uvs)} {{ a: {_numbers(uvs)} }}\n  }}\n")
             out.write("  LayerElementUV: 1 {\n   Version: 101\n   Name: \"LightmapUV\"\n   MappingInformationType: \"ByVertice\"\n   ReferenceInformationType: \"Direct\"\n")
             out.write(f"   UV: *{len(lightmap_uvs)} {{ a: {_numbers(lightmap_uvs)} }}\n  }}\n")
+            for k, (set_name, values) in enumerate(layer_sets, start=2):
+                out.write(f"  LayerElementUV: {k} {{\n   Version: 101\n   Name: \"{set_name}\"\n   MappingInformationType: \"ByVertice\"\n   ReferenceInformationType: \"Direct\"\n")
+                out.write(f"   UV: *{len(values)} {{ a: {_numbers(values)} }}\n  }}\n")
             out.write("  LayerElementMaterial: 0 {\n   Version: 101\n   Name: \"\"\n   MappingInformationType: \"AllSame\"\n   ReferenceInformationType: \"IndexToDirect\"\n   Materials: *1 { a: 0 }\n  }\n")
-            out.write("  Layer: 0 {\n   Version: 100\n   LayerElement: { Type: \"LayerElementNormal\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementTangent\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementBinormal\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementColor\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementMaterial\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementUV\"\n    TypedIndex: 0\n   }\n  }\n  Layer: 1 {\n   Version: 100\n   LayerElement: { Type: \"LayerElementUV\"\n    TypedIndex: 1\n   }\n  }\n }")
+            out.write("  Layer: 0 {\n   Version: 100\n   LayerElement: { Type: \"LayerElementNormal\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementTangent\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementBinormal\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementColor\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementMaterial\"\n    TypedIndex: 0\n   }\n   LayerElement: { Type: \"LayerElementUV\"\n    TypedIndex: 0\n   }\n  }\n  Layer: 1 {\n   Version: 100\n   LayerElement: { Type: \"LayerElementUV\"\n    TypedIndex: 1\n   }\n  }\n")
+            for k in range(2, 2 + len(layer_sets)):
+                out.write(f"  Layer: {k} {{\n   Version: 100\n   LayerElement: {{ Type: \"LayerElementUV\"\n    TypedIndex: {k}\n   }}\n  }}\n")
+            out.write(" }")
             out.write(f"\n Model: {model_id}, {_quoted('Model::' + name)}, \"Mesh\" {{\n  Version: 232\n  Properties70: {{\n   P: \"Lcl Scaling\", \"Lcl Scaling\", \"\", \"A\",100,100,100\n  }}\n  Shading: T\n  Culling: \"CullingOff\"\n }}\n")
         for name, material_id in material_ids.items():
             out.write(f" Material: {material_id}, {_quoted('Material::' + name)}, \"\" {{\n  Version: 102\n  ShadingModel: \"phong\"\n  MultiLayer: 0\n }}\n")
@@ -143,6 +182,8 @@ def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset
             geom_id, model_id = 10_000 + i * 2, 10_001 + i * 2
             out.write(f" C: \"OO\",{geom_id},{model_id}\n C: \"OO\",{model_id},0\n C: \"OO\",{material_ids[material]},{model_id}\n")
         out.write("}\n")
+    # source surface index -> FBX mesh index (the waw_mesh_<i> name)
+    return {surface.index: i for i, (_material, group, _lightmap) in enumerate(meshes) for surface in group}
 
 
 def collision_material_slots(collision: CollisionWorld) -> tuple[list[int | None], list[int]]:

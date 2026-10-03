@@ -67,6 +67,13 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
     assets retain their baseline data. The original ipak stays beside the result.
     """
     work = work.resolve()
+    # Extraction only writes assets present in this zone. Old files must not
+    # become dependencies or verification evidence for a subsequent build.
+    for relative in ('shader_baseline/dump', 'shader_overlay', 'shader_check', 'shader_out'):
+        directory = work / relative
+        directory.resolve().relative_to(work)
+        if directory.exists():
+            shutil.rmtree(directory)
     baseline = work/'shader_baseline/mod.ff'
     baseline.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ff, baseline)

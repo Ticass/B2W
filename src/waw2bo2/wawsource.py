@@ -86,6 +86,9 @@ class WawSourceAssets:
         if kind == "fx":
             p = self.raw / "fx" / f"{name}.efx"
             return p if p.is_file() else None
+        if kind == 'material':
+            p = self.raw / 'materials' / name
+            return p if p.is_file() else None
         return None
 
     def _workspace(self) -> Path:

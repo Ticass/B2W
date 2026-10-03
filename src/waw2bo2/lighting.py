@@ -141,14 +141,61 @@ def stage_grid(source: Path, destination: Path) -> dict:
             "corner_obstruction_checks": "T4_runtime_traces_not_representable_in_T6_visibility"}
 
 
-def stage_primary_lights(source: Path, destination: Path) -> set[str]:
+def t6_light_fields(light: dict) -> dict:
+    """T6 ComPrimaryLight precomputed fields for a WaW spot/omni light.
+
+    T6 sub_782FA0 builds the light uniforms from them (falloff f, aAbB):
+      lightFallOffA = (1/(aAbB.x-aAbB.y), 1/(aAbB.z-aAbB.w), 1/(f.z-f.x), 1/(min(f.w,f.y)-f.y))
+      lightFallOffB = (-aAbB.y*A.x, -aAbB.w*A.y, -f.x*A.z, -f.y*A.w)
+    and the T6 world lit programs light d units away by
+    smoothstep(sat(d*A.z+B.z) * sat(d*A.w+B.w)) * sat(dAttenuation / d^2).
+    falloff = (near, radius, near, 0): the window is 1 - d/radius out to the
+    radius and A.w = -1/radius, which is WaW's lightPosition.w. aAbB carries
+    WaW's spot factors (1/(cosIn-cosOut), -cosOut/(cosIn-cosOut), exponent)
+    through A.x, B.x and A.y. ``near`` stays positive: the T6 spot projection
+    (sub_658F90) uses falloff.x as its near plane. dAttenuation removes the
+    inverse-square term WaW does not have. T6 sub_73AC60 turns a spot with
+    roundness 0 into SPOT_SQUARE (technique 9) and roundness 1 into
+    SPOT_ROUND (11); 0.5 keeps it a plain spot (technique 7, WaW's lit_spot)."""
+    radius = float(light["radius"])
+    near = min(1.0, radius * 0.01)
+    exponent = float(light.get("exponent", 0))
+    return {
+        "falloff": [near, radius, near, 0.0],
+        "aAbB": [float(light["cosHalfFovInner"]), float(light["cosHalfFovOuter"]),
+                 1.0 / exponent if exponent > 0 else 1e30, 0.0],
+        "dAttenuation": radius * radius * 1e4,
+        "roundness": 0.5,
+    }
+
+
+def stage_primary_lights(source: Path, destination: Path, shadows_disabled: list | None = None,
+                         keep_shadows: bool = False) -> set[str]:
+    """Write the T6 primary-light table; returns the light defs it uses.
+    ``shadows_disabled`` collects the indices of lights staged unshadowed;
+    ``keep_shadows`` keeps WaW's canUseShadowMap (the world carries the WaW
+    per-light shadow geometry, BSP/shadowgeom.json)."""
     data = json.loads(source.read_text(encoding="utf-8"))
     definitions = set()
+    shadows_disabled = [] if shadows_disabled is None else shadows_disabled
     for light in data["lights"]:
         if light["type"] not in (0, 1, 2, 3):
             raise LightingError(f"unsupported WaW primary light type {light['type']}")
         if light["type"] == 3:  # WaW omni -> T6 omni, which moved from 3 to 5
             light["type"] = 5
+        if light["type"] != 1 and "color" in light:
+            # WaW lit_spot/lit_omni add colour * attenuation in gamma; T6 adds
+            # it in linear before sqrt(hdr * sum) (hdr 1 on converted worlds),
+            # as the converted sun. The sun light (type 1) is set from SunParse.
+            light["color"] = [c * c for c in light["color"]]
+        if light["type"] > 1:
+            light.update(t6_light_fields(light))
+            # Without the WaW shadow geometry (render dump before v6) a T6
+            # spot/omni shadow map would hold no static geometry: such lights
+            # draw unshadowed (reported).
+            if light.get("canUseShadowMap") and not keep_shadows:
+                light["canUseShadowMap"] = 0
+                shadows_disabled.append(light.get("index"))
         if light["defName"]:
             definitions.add(light["defName"])
             light["defName"] = "waw_light/" + light["defName"]
