@@ -253,7 +253,11 @@ namespace BSP
 
             gfxVertex->binormalSign = bspVertex.binormalSign;
             // source lightmap UV, streamed to lit world passes as TEXCOORD1
-            gfxVertex->lmapCoord.packed = pack32::Vec2PackTexCoordsUV(bspVertex.lmapCoord.v);
+            // T6 reads the world lightmap coordinate as R16G16_UNORM (vertex input
+            // table byte_D1F7E0, source 5 at offset 32, DXGI 35; the stock lmap VS
+            // passes it through as the UV), not as half floats like texCoord.
+            const auto unorm16 = [](const float v) { return static_cast<uint32_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f)); };
+            gfxVertex->lmapCoord.packed = unorm16(bspVertex.lmapCoord.v[0]) | unorm16(bspVertex.lmapCoord.v[1]) << 16;
         }
         gfxWorld.draw.vd0.data = reinterpret_cast<char*>(vertexBuffer);
 

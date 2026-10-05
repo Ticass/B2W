@@ -35,7 +35,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import gsc
+from . import gsc, oneway
 from .t6api import T6Api
 
 COMPAT_DIR = Path(__file__).parent / "compat"
@@ -44,6 +44,9 @@ COMPAT = "maps\\mp\\waw\\_waw2bo2_compat"
 STUBS = "maps\\mp\\waw\\_waw2bo2_stubs"
 ASSETS = "maps\\mp\\waw\\_waw2bo2_assets"
 CORE = "maps\\mp\\waw\\_waw2bo2_core"
+PRECACHE = "maps\\mp\\waw\\_waw2bo2_precache"
+ONEWAY = "maps\\mp\\waw\\_waw2bo2_oneway"
+ZOMBIEMODE = "maps\\_zombiemode"
 CORE_INCLUDES = ("common_scripts\\utility", "maps\\mp\\_utility", "maps\\mp\\zombies\\_zm_utility")
 # BO2 scripts a unique-name lookup may resolve into (never map/other-mode scripts)
 BO2_SHARED = re.compile(r"^(common_scripts\\utility|maps\\mp\\_utility|maps\\mp\\zombies\\_zm[a-z_]*|"
@@ -132,6 +135,8 @@ class Sources:
 
 def is_core(path: str, sources: Sources) -> bool:
     p = norm(path)
+    if p in API.get("preserved_scripts", []):
+        return False
     if p in API["core_scripts"] or p in API["template_scripts"]:
         return True
     return sources.is_stock(p) and any(re.search(r, p) for r in API["core_patterns"])
@@ -156,6 +161,39 @@ def neutralize_animations(tokens: list[gsc.Token], tree: str) -> None:
             t.text = ""
             tokens[i + 1].text = f'"{tokens[i + 1].text}"'
             tokens[i + 1].kind = gsc.STRING
+
+
+def bridge_contact_kill_attacks(tokens: list[gsc.Token], script: gsc.Script) -> int:
+    """Let source proximity/ragdoll kills own combat during their monitor.
+
+    T6's ASD melee can deliver a swipe before a WaW polling kick runs.
+    Match the source behavior, not weapon, model, or map names. Keep its
+    radius, damage, attribution, ragdoll and timer unchanged.
+    """
+    fixes = 0
+    for fn in script.functions.values():
+        body = tokens[fn.body_open + 1:fn.body_close]
+        code = "".join(t.low for t in body)
+        if not ("getplayers()" in code and "isalive(self)" in code
+                and re.search(r"distance\(self\.origin,[a-z_]\w*\[[^]]+\]\.origin\)<=\d", code)
+                and "selfstartragdoll()" in code and "selflaunchragdoll(" in code
+                and re.search(r"selfdodamage\(self\.health\+\d", code)
+                and "wait" in code):
+            continue
+        # A source function returning a value is not this monitor pattern.
+        if any(t.low == "return" and body[i + 1].text != ";"
+               for i, t in enumerate(body[:-1])):
+            continue
+        begin = f"\n    self {COMPAT}::waw_contact_kill_begin();"
+        end = f"self {COMPAT}::waw_contact_kill_end();"
+        tokens[fn.body_open].text += begin
+        for i, token in enumerate(body):
+            if token.low == "return":
+                token.text = "{ " + end + " return"
+                body[i + 1].text = "; }"
+        tokens[fn.body_close].text = end + "\n}"
+        fixes += 1
+    return fixes
 
 
 def fix_syntax(tokens: list[gsc.Token]) -> int:
@@ -218,6 +256,90 @@ def rename_level_fields(tokens: list[gsc.Token]) -> int:
     return renamed
 
 
+def level_fields_read(tokens: list[gsc.Token], start: int = 2, end: int | None = None) -> set[str]:
+    """``level.<field>`` names (lower-case) used in tokens[start:end]."""
+    end = len(tokens) if end is None else end
+    return {tokens[i].low for i in range(max(start, 2), end)
+            if tokens[i].kind == gsc.IDENT and tokens[i - 1].text == "." and tokens[i - 2].low == "level"}
+
+
+def bridge_revive_reads(tokens: list[gsc.Token]) -> int:
+    """WaW's player being_revived field is absent from T6's player schema.
+
+    Resolve reads against the native revive trigger while keeping source
+    writes (custom solo-revive handlers) and explicit isdefined probes intact.
+    """
+    count = 0
+    for i, token in enumerate(tokens):
+        if token.low != "being_revived" or tokens[i - 1].text != ".":
+            continue
+        if tokens[i + 1].text in ("=", "+=", "-=", "++", "--"):
+            continue
+        j, depth = i - 1, 0
+        while j > 0:
+            prev = tokens[j - 1]
+            if depth == 0 and prev.text != "." and not (
+                (prev.kind == gsc.IDENT or prev.text in ("]", ")"))
+                and tokens[j].text in (".", "[")
+            ):
+                break
+            if prev.text in ("]", ")"):
+                depth += 1
+            elif prev.text in ("[", "("):
+                depth -= 1
+            j -= 1
+        if j >= 2 and tokens[j - 1].text == "(" and tokens[j - 2].low == "isdefined":
+            continue
+        receiver = gsc.emit(tokens[j:i - 1]).lstrip()
+        tokens[j].text = f"{COMPAT}::waw_being_revived( {receiver} )"
+        tokens[j].kind = gsc.PUNCT
+        for t in tokens[j + 1:i + 1]:
+            t.text = t.pre = ""
+        count += 1
+    return count
+
+
+def keep_bo2_deathanims(tokens: list[gsc.Token]) -> int:
+    """``x.deathanim = <WaW xanim>;`` -> ``x.deathanim = x.deathanim;``. BO2's
+    deathanim is an ASD state name (animscripts/zm_death plays it with
+    setanimstatefromasd, defaulting to zm_death + legs suffix); a WaW animation
+    there is no state. The statement stays (it may be an unbraced if/else
+    branch) and the WaW right-hand side, e.g. a read of WaW framework anim
+    tables, is not evaluated. Returns the number of rewrites."""
+    count = 0
+    for i, t in enumerate(tokens):
+        if t.low != "deathanim" or t.kind != gsc.IDENT or tokens[i - 1].text != "." or tokens[i + 1].text != "=":
+            continue
+        # the assigned path: back over a.b[c].d
+        j, depth = i - 1, 0
+        while j > 0:
+            p = tokens[j - 1]
+            if depth == 0 and p.text != "." and not \
+                    ((p.kind == gsc.IDENT or p.text in ("]", ")")) and tokens[j].text in (".", "[")):
+                break   # not part of the postfix path (e.g. an if condition's ')', 'else')
+            if p.text in ("]", ")"):
+                depth += 1
+            elif p.text in ("[", "("):
+                depth -= 1
+            j -= 1
+        target = "".join(x.text for x in tokens[j:i + 1])
+        k, depth = i + 2, 0
+        while tokens[k].kind != gsc.EOF and (tokens[k].text != ";" or depth):
+            depth += tokens[k].text in ("(", "[", "{")
+            depth -= tokens[k].text in (")", "]", "}")
+            k += 1
+        tokens[i + 2].text = target
+        tokens[i + 2].pre = " "
+        tokens[i + 2].kind = gsc.PUNCT
+        for m in range(i + 3, k + 1):
+            tokens[m].pre = ""
+            if m < k:
+                tokens[m].text = ""
+                tokens[m].kind = gsc.PUNCT
+        count += 1
+    return count
+
+
 def uses_animations(tokens: list[gsc.Token], start: int, end: int) -> bool:
     """``%anim`` references (as opposed to the modulo operator)."""
     for i in range(start + 1, end):
@@ -269,6 +391,40 @@ def _argc(tokens: list[gsc.Token], name_index: int) -> int | None:
         elif depth >= 1:
             empty = False
     return None
+
+
+def bridge_launch_triggers(tokens: list[gsc.Token]) -> int:
+    """Include the activation pad in chained trigger velocity launchers.
+
+    Some WaW launchers target a taller push volume above their activation
+    pad. T6 players must receive the first impulse while still on that pad.
+    Match the trigger relationship and velocity behavior, never map names.
+    """
+    script = gsc.parse(gsc.emit(tokens), "launch-translation")
+    fixes = 0
+    for fn in script.functions.values():
+        start, end = fn.body_open, fn.body_close
+        roots = {}
+        for i in range(start, end - 9):
+            words = [t.low for t in tokens[i:i + 10]]
+            if (words[1:4] == ["=", "getent", "("] and words[5:8] == [".", "target", ","]
+                    and tokens[i + 8].text.lower() == '"targetname"' and words[9] == ")"
+                    and words[4] in fn.params):
+                roots[words[0]] = tokens[i + 4].text
+        for i in range(start, end - 8):
+            words = [t.low for t in tokens[i:i + 9]]
+            if (words[:5] != ["if", "(", "self", "istouching", "("]
+                    or words[6:] != [")", ")", "{"] or words[5] not in roots):
+                continue
+            depth, j = 1, i + 9
+            while j < end and depth:
+                depth += (tokens[j].text == "{") - (tokens[j].text == "}")
+                j += 1
+            if not any(t.low == "setvelocity" for t in tokens[i + 9:j]):
+                continue
+            tokens[i + 2].text = f"self isTouching({roots[words[5]]}) || self"
+            fixes += 1
+    return fixes
 
 
 class Translator:
@@ -392,6 +548,7 @@ class Translator:
     def translate(self, path: str, main_split: bool = False) -> str:
         script = self.sources.get(path)
         tokens = script.tokens
+        self.report.rewrites["launch volume includes its activation trigger"] += bridge_launch_triggers(tokens)
         where_file = self.sources.origin.get(norm(path) + ".gsc", path)
         included_bo2: set[str] = set()
         new_includes: list[str] = []
@@ -425,8 +582,11 @@ class Translator:
             self._split_main(script)
         self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
         self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
         defs = {fn.start for fn in script.functions.values()}
         self.resolve_refs(tokens, script, where_file, included_bo2, defs)
+        self.report.rewrites["WaW contact-kill monitors own AI attacks"] += bridge_contact_kill_attacks(tokens, script)
+        self.report.rewrites["WaW being_revived reads bridged to T6 revive state"] += bridge_revive_reads(tokens)
         header = (f"// Translated from World at War by waw2bo2 (gscport). Source: {where_file}\n")
         return header + gsc.emit(tokens)
 
@@ -538,23 +698,24 @@ class Translator:
             self.report.extracted.append(f"{core}::{name}")
         return self.core_funcs[key]
 
-    def extract_level_state(self, core: str, init: str) -> str | None:
+    def extract_level_state(self, core: str, init: str, read: set[str] | None = None) -> str | None:
         """The statements of ``core::init`` that assign level fields the code
-        already extracted from ``core`` reads, as one extracted function. A WaW
-        framework init (BO2 owns the rest of it) also sets up state for the
-        entry points extracted from its script, e.g. the box animation table.
+        already extracted from ``core`` reads (or the given ``read`` fields), as
+        one extracted function. A WaW framework init (BO2 owns the rest of it)
+        also sets up state for the entry points extracted from its script, e.g.
+        the box animation table.
         Returns the extracted function's name in CORE (None = nothing to keep)."""
         script = self.sources.get(core)
         if script is None or init not in script.functions:
             return None
-        read: set[str] = set()
-        for (c, n) in self.core_funcs:
-            fn = script.functions.get(n) if c == core else None
-            if fn is None:
-                continue
-            toks = script.tokens
-            read |= {toks[i].low for i in range(fn.body_open + 2, fn.body_close)
-                     if toks[i].kind == gsc.IDENT and toks[i - 1].text == "." and toks[i - 2].low == "level"}
+        if read is None:
+            read = set()
+            for (c, n) in self.core_funcs:
+                fn = script.functions.get(n) if c == core else None
+                if fn is None:
+                    continue
+                toks = script.tokens
+                read |= level_fields_read(toks, fn.body_open + 2, fn.body_close)
         fn = script.functions[init]
         toks = script.tokens
         kept: list[gsc.Token] = []
@@ -577,9 +738,13 @@ class Translator:
                   gsc.Token(gsc.PUNCT, "("), gsc.Token(gsc.PUNCT, ")"), gsc.Token(gsc.PUNCT, "{", "\n"),
                   *kept, gsc.Token(gsc.PUNCT, "}", "\n"), gsc.Token(gsc.EOF, "")]
         self.keep_core_animations(script, tokens, f"{core}::{init}")
+        tree = (script.animtree or "").lower()
+        if tree and tree not in self.core_animtrees and tree not in self.animtrees:
+            neutralize_animations(tokens, script.animtree)
         where = self.sources.origin.get(core + ".gsc", core)
         self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
         self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
         self.report.extracted.append(f"{core}::{init} (level state)")
         self.level_state_parts.append(gsc.emit(tokens))
@@ -617,8 +782,39 @@ class Translator:
         where = self.sources.origin.get(core + ".gsc", core)
         self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
         self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
         return gsc.emit(tokens)
+
+    def framework_hooks(self) -> list[str]:
+        """Calls WaW's _zombiemode::main (usually the map's override) makes
+        into scripts that are not framework, e.g. a custom perk pack's init().
+        BO2's _zm::init replaces that main, so the port makes them itself."""
+        zm = self.sources.get(ZOMBIEMODE)
+        fn = zm.functions.get("main") if zm is not None else None
+        if fn is None:
+            return []
+        where_file = self.sources.origin.get(ZOMBIEMODE + ".gsc", ZOMBIEMODE)
+        calls = []
+        for ref in gsc.references(zm.tokens, fn.body_open, fn.body_close):
+            if ref.qualifier is None or ref.pointer or ref.method:
+                continue
+            target = norm(ref.qualifier)
+            if is_core(target, self.sources):
+                continue
+            dep = self.sources.get(target)
+            hook = dep.functions.get(ref.name.lower()) if dep is not None else None
+            call = f"{ported_path(target)}::{ref.name}();"
+            if hook is None or call in calls:
+                continue
+            if hook.params or _argc(zm.tokens, ref.index):
+                self.report.errors.append(f"{where_file}:{zm.tokens[ref.index].line}: framework hook "
+                                          f"{target}::{ref.name} takes arguments; not called")
+                continue
+            self.want(target)
+            calls.append(call)
+            self.report.rewrites[f"framework hook {target}::{ref.name} -> waw_main_post"] += 1
+        return calls
 
     def _split_main(self, script: gsc.Script) -> None:
         fn = script.functions.get("main")
@@ -626,15 +822,20 @@ class Translator:
             self.report.errors.append(f"{script.path}: map main has no main()")
             return
         tokens = script.tokens
+        # before the player wait: hooks register connect/spawn handlers and precache
+        hooks = "".join(f"\n\t{call}" for call in self.framework_hooks())
+        if hooks:
+            hooks = "\n\t// WaW _zombiemode::main inits of the map's own scripts" + hooks
         tokens[fn.start].text = "waw_main_pre"
-        tokens[fn.body_open].text = "{\n\t" + f"{COMPAT}::init();"
+        tokens[fn.body_open].text = ("{\n\t" + f"{COMPAT}::init();\n\t{CORE}::framework_level_state();"
+                                     f"\n\t{PRECACHE}::init();\n\t{ONEWAY}::init();")
         split = None
         for ref in gsc.references(tokens, fn.body_open, fn.body_close):
             if ref.qualifier is not None and norm(ref.qualifier) == "maps\\_zombiemode" and ref.name.lower() == "main":
                 split = ref
                 break
         if split is None:
-            tokens[fn.body_close].text = "}\n\nwaw_main_post()\n{\n}"
+            tokens[fn.body_close].text = "}\n\nwaw_main_post()\n{" + hooks + "\n}"
             self.report.errors.append(f"{script.path}: no maps\\_zombiemode::main() call; whole main runs before _zm::init")
             return
         i = split.qual_index
@@ -644,7 +845,8 @@ class Translator:
         # WaW's _zombiemode::main() returns only after flag_wait( "all_players_connected" ),
         # so the rest of a WaW map main runs with every player present (maps loop
         # over getPlayers() there). BO2's counterpart flag is set by _zm.
-        tokens[i].text = ("}\n\nwaw_main_post()\n{\n\tcommon_scripts\\utility::flag_wait( \"initial_players_connected\" );"
+        tokens[i].text = ("}\n\nwaw_main_post()\n{" + hooks +
+                          "\n\tcommon_scripts\\utility::flag_wait( \"initial_players_connected\" );"
                           "\t// WaW _zombiemode::main waits for all players")
         for k in range(i + 1, end + 1):
             tokens[k].text = ""
@@ -721,7 +923,15 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         if state:
             registration["box_state"] = [state]
             drain()
+    # WaW framework tables BO2 never builds that the ported scripts read
+    # (e.g. level._zombie_tesla_death for a custom Electric Cherry)
+    read = set().union(*(level_fields_read(gsc.tokenize(text)) for text in tr.done.values()))
+    framework_state = [state for core, init in FRAMEWORK_STATE_INITS
+                       if (state := tr.extract_level_state(core, init, read))]
+    drain()
     core_parts += tr.level_state_parts
+    core_parts.append("\n// level state of WaW framework inits BO2 does not run (called by waw_main_pre)\n"
+                      "framework_level_state()\n{\n" + "".join(f"\t{fn}();\n" for fn in framework_state) + "}\n")
     (out_dir / "_waw2bo2_compat.gsc").write_text((COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8"),
                                                  encoding="utf-8")
     core_head = ["// waw2bo2: WaW framework functions BO2 has no counterpart for, extracted from the map's",
@@ -732,6 +942,9 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     (out_dir / "_waw2bo2_stubs.gsc").write_text(tr.stub_source(), encoding="utf-8")
     (out_dir / "_waw2bo2_assets.gsc").write_text(assets_source(fx_table or {}, map_name), encoding="utf-8")
     (out_dir / "_waw2bo2_visions.gsc").write_text('init()\n{\n    level.waw2bo2_visions = [];\n}\n', encoding="utf-8")
+    (out_dir / "_waw2bo2_precache.gsc").write_text(precache_source([]), encoding="utf-8")
+    # one-way clip sheets come from the collision (t6bridge.port_scripts)
+    (out_dir / "_waw2bo2_oneway.gsc").write_text(oneway.oneway_source([]), encoding="utf-8")
     if appearance:
         (out_dir / "_waw2bo2_characters.gsc").write_text(characters_source(), encoding="utf-8")
     (out_dir / "_waw2bo2_weapons.gsc").write_text(weapons_source(registration), encoding="utf-8")
@@ -940,6 +1153,9 @@ WEAPON_REGISTRATION = {
 }
 # the framework init whose level assignments the box code reads (animations, flags)
 BOX_STATE_INIT = ("maps\\_zombiemode_weapons", "init")
+# WaW framework inits whose level tables map scripts read (the anim tables of
+# _zombiemode::init_anims); only the fields the ported scripts read are kept
+FRAMEWORK_STATE_INITS = (("maps\\_zombiemode", "init_standard_zombie_anims"),)
 # Weapons BO2's own _zm framework hands out regardless of the map (melee
 # knife, default lethal grenade, default last-stand pistol and its solo
 # upgrade). They are included but never put in the box.
@@ -1016,6 +1232,52 @@ def hook_bo2_characters(main_gsc: Path) -> bool:
 PRE_ANCHOR = "    maps\\mp\\zombies\\_zm::init();"
 
 
+# The server and the client must register script-mover animtrees in the same
+# order ("script mover animtrees registered in different order server <a>
+# client <b>"). Both register BO2's zm_ally inside _zm::init (_zm_clone), so
+# the WaW trees follow _zm::init on both sides.
+ANIMTREE_HOOKS = (("maps", "    maps\\mp\\zombies\\_zm::init();", "gsc"),
+                  ("clientscripts", "    clientscripts\\mp\\zombies\\_zm::init();", "csc"))
+
+
+def animtrees_source(trees: list[str]) -> str:
+    """BO2 refuses an animtree on a script_model until the level registers it
+    with ScriptModelsUseAnimTree ("Unrecognized animtree '%s'. You may need to
+    call ScriptModelsUseAnimTree()"); WaW has no such step. Stock maps register
+    theirs from their main (zm_buried_jail, zm_alcatraz_traps); the clients
+    register the same trees from their client scripts (_zm_clone.csc)."""
+    lines = ["// waw2bo2: register the WaW animtrees the ported scripts play on script models (generated).", ""]
+    for i, tree in enumerate(trees):
+        lines += [f'#using_animtree( "{tree}" );', "", f"use_tree_{i}()", "{",
+                  "    scriptmodelsuseanimtree( #animtree );", "}", ""]
+    lines += ["init()", "{"] + [f"    use_tree_{i}();" for i in range(len(trees))] + ["}", ""]
+    return "\n".join(lines)
+
+
+def hook_bo2_animtrees(main_gsc: Path, main_csc: Path, out_root: Path, trees: list[str]) -> bool:
+    """Write the animtree registration (server and client script) and call it
+    right after _zm::init in the BO2 map's server and client main (idempotent)."""
+    if not trees:
+        return False
+    changed = False
+    for (side, anchor, ext), main in zip(ANIMTREE_HOOKS, (main_gsc, main_csc)):
+        base = "maps" if side == "maps" else "clientscripts"
+        path = out_root / base / "mp" / "waw" / f"_waw2bo2_animtrees.{ext}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(animtrees_source(trees), encoding="utf-8")
+        source = main.read_text(encoding="utf-8", errors="replace")
+        call = f"    {base}\\mp\\waw\\_waw2bo2_animtrees::init();\n"
+        if anchor + "\n" + call in source:
+            continue
+        if anchor + "\n" not in source:
+            raise ValueError(f"{main}: no '{anchor.strip()}' line to register the WaW animtrees after")
+        # a call placed elsewhere by an earlier run moves after the anchor
+        source = source.replace(call, "")
+        main.write_text(source.replace(anchor + "\n", anchor + "\n" + call, 1), encoding="utf-8")
+        changed = True
+    return changed
+
+
 def hook_bo2_main(main_gsc: Path, map_name: str) -> bool:
     """Call the ported WaW main around _zm::init in the BO2 map main (idempotent)."""
     source = main_gsc.read_text(encoding="utf-8", errors="replace")
@@ -1042,7 +1304,117 @@ def hook_bo2_main(main_gsc: Path, map_name: str) -> bool:
     return True
 
 
+def precache_source(models: list[str]) -> str:
+    """First-frame precache of the models the map scripts precache by name.
+    T6 errors on precacheModel after the level script's first wait ("must be
+    called before any wait statements"); WaW scripts call it late (e.g. when
+    the power turns a perk machine on). compat waw_precachemodel skips the
+    late repeat. ``models``: the ones the zone carries (staged or stock)."""
+    lines = ["// waw2bo2: models the map scripts precache, precached in the first frame (generated).", "",
+             "init()", "{"]
+    lines += [f'    {COMPAT}::waw_precachemodel( "{m}" );' for m in sorted(set(models))]
+    return "\n".join(lines + ["}", ""])
+
+
 def bo2_scripts(out_root: Path) -> list[str]:
     """Asset names of the ported scripts (for the zone and the script compile)."""
     base = out_root / "maps" / "mp" / "waw"
-    return sorted(p.relative_to(out_root).as_posix() for p in base.rglob("*.gsc")) if base.exists() else []
+    found = [p.relative_to(out_root).as_posix() for p in base.rglob("*.gsc")] if base.exists() else []
+    for name in BO2_PERK_OVERRIDES:
+        path = out_root / name
+        if path.exists() and path.read_text(encoding="utf-8").startswith(PERK_OVERRIDE_HEADER):
+            found.append(name)
+    return sorted(found)
+
+
+PERK_OVERRIDE_HEADER = "// waw2bo2: WaW owns perk gameplay; BO2 runtime support only.\n"
+BO2_PERK_OVERRIDES = (
+    "maps/mp/zombies/_zm_perks.gsc",
+    "clientscripts/mp/zombies/_zm_perks.csc",
+)
+
+
+def stage_bo2_perk_support(out_root: Path, bo2_root: Path) -> None:
+    """Suppress BO2 machine/purchase controllers and HUD in converted WaW maps.
+
+    Preserve the stock exports for BO2 framework callers and register its
+    client fields in the same order as the stock client. Gameplay entry points
+    in WaW scripts resolve to the ported WaW perk framework instead. Client
+    registration remains intact, but its LUI code callbacks are never bound:
+    native setperk must apply effects without drawing a second perk HUD.
+    """
+    for name in BO2_PERK_OVERRIDES:
+        source = (bo2_root / "raw" / name).read_text(encoding="utf-8")
+        script = gsc.parse(source, name)
+        bodies = {
+            "init": '''{
+    level.additionalprimaryweapon_limit = 3;
+    level.perk_purchase_limit = 4;
+    level.machine_assets = [];
+    initialize_custom_perk_arrays();
+    if ( !level.createfx_enabled )
+        perks_register_clientfield();
+    if ( !isdefined( level.flag["pack_machine_in_use"] ) )
+        flag_init( "pack_machine_in_use" );
+    // WaW initializes its machines from waw_main_post, before player startup.
+}''',
+            "perk_pause_all_perks": "{\n    // The WaW framework owns machine availability.\n}",
+            "perk_unpause_all_perks": "{\n    // The WaW framework owns machine availability.\n}",
+        }
+        if name.endswith(".csc"):
+            bodies = {
+                "init": '''{
+    if ( !level.createfx_enabled )
+    {
+        init_custom_perks();
+        perks_register_clientfield();
+    }
+}''',
+                "perk_init_code_callbacks": '''{
+    // setupclientfieldcodecallbacks binds native LUI perk-icon events.
+    // WaW creates and removes its own HUD; retain fields without these bindings.
+}''',
+                "init_perk_custom_threads": "{\n    // Source WaW scripts own perk behavior.\n}",
+            }
+        for name_fn, body in bodies.items():
+            fn = script.functions.get(name_fn)
+            if fn is None:
+                raise ValueError(f"{name}: expected BO2 perk entry point {name_fn} is missing")
+            script.tokens[fn.body_open].text = body
+            for t in script.tokens[fn.body_open + 1:fn.body_close + 1]:
+                t.pre = ""
+                t.text = ""
+        dest = out_root / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(PERK_OVERRIDE_HEADER + gsc.emit(script.tokens), encoding="utf-8")
+
+    # Stock CSCs can already be linked by the base zone before a same-name
+    # map asset arrives. Use unique script names and an explicit map entry
+    # point so the client never enters the cached stock perk initializer.
+    client = out_root / "clientscripts/mp/waw/_waw2bo2_perks.csc"
+    client.parent.mkdir(parents=True, exist_ok=True)
+    client.write_text((out_root / "clientscripts/mp/zombies/_zm_perks.csc").read_text(encoding="utf-8"),
+                      encoding="utf-8")
+    bootstrap = (bo2_root / "raw/clientscripts/mp/zombies/_zm.csc").read_text(encoding="utf-8")
+    native = "clientscripts\\mp\\zombies\\_zm_perks"
+    owned = "clientscripts\\mp\\waw\\_waw2bo2_perks"
+    if native + "::init" not in bootstrap:
+        raise ValueError("BO2 client bootstrap has no perk initializer")
+    bootstrap = bootstrap.replace(native, owned)
+    (client.parent / "_waw2bo2_zm.csc").write_text(PERK_OVERRIDE_HEADER + bootstrap, encoding="utf-8")
+
+
+def hook_bo2_perk_client(main_csc: Path) -> None:
+    """Enter the uniquely named client bootstrap for every converted map."""
+    source = main_csc.read_text(encoding="utf-8")
+    script = gsc.parse(source, main_csc.as_posix())
+    native = "clientscripts\\mp\\zombies\\_zm"
+    owned = "clientscripts\\mp\\waw\\_waw2bo2_zm"
+    count = 0
+    for ref in gsc.references(script.tokens):
+        if ref.name.lower() == "init" and ref.qualifier in (native, owned):
+            script.tokens[ref.qual_index].text = owned
+            count += 1
+    if not count:
+        raise ValueError(f"{main_csc}: no BO2 client bootstrap call")
+    main_csc.write_text(gsc.emit(script.tokens), encoding="utf-8")

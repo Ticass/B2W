@@ -697,6 +697,7 @@ namespace BSP
         constexpr size_t MAX_PARTITION_TRIS = 16;
         constexpr float MAX_PARTITION_EXTENT = 256.0f;
         constexpr float CONVEX_EPSILON = 0.1f;
+        constexpr float OPEN_MAX_SPREAD_DOT = 0.5f; // 60 degrees
         using Tri = std::array<uint16_t, 3>;
         const auto vsub = [](const vec3_t& a, const vec3_t& b)
         {
@@ -726,6 +727,14 @@ namespace BSP
                         verts.emplace_back(tri[corner]);
                     edgeUse[edgeKey(tri[corner], tri[(corner + 1) % 3])]++;
                 }
+            // The hull of an open patch caps it across its boundary. When the patch
+            // wraps around (a collar band, a pipe) that cap is a solid plate the
+            // player stands on while rays pass (zm_nuketown_waw bunker hatch: two
+            // half-rings of trim became a disc over the shaft). Open patches keep
+            // their normals within OPEN_MAX_SPREAD_DOT of each other; closed ones
+            // are solids whose hull is exact.
+            const auto open = std::ranges::any_of(edgeUse, [](const auto& use) { return use.second == 1; });
+            std::vector<vec3_t> normals;
             for (const auto& tri : group)
             {
                 const auto& a = weldedVerts[tri[0]];
@@ -734,6 +743,13 @@ namespace BSP
                 if (length < 1e-9f)
                     continue;
                 n = vec3_t{{.x = n.x / length, .y = n.y / length, .z = n.z / length}};
+                if (open)
+                {
+                    for (const auto& other : normals)
+                        if (vdot(n, other) < OPEN_MAX_SPREAD_DOT)
+                            return false;
+                    normals.emplace_back(n);
+                }
                 for (const auto v : verts)
                     if (vdot(n, vsub(weldedVerts[v], a)) > CONVEX_EPSILON)
                         return false;

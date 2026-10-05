@@ -105,6 +105,15 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
         for folder in ('techniquesets', 'shader_bin'):
             if (root/folder).is_dir():
                 shutil.copytree(root/folder, overlay/folder, dirs_exist_ok=True)
+    # Stringtables must also override loaded/stock assets. The linker's
+    # independent search paths are sorted, so adding a project path beside
+    # BO2's raw path is insufficient to guarantee source priority.
+    for name in ('mapstable.csv', 'gametypestable.csv'):
+        source = project / 'zm' / name
+        if source.is_file():
+            target = overlay / 'zm' / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
     zone = (work/'zone_source/mod.zone').read_text()
     # Raw weapon files live under mp/sp; loaded assets use engine-internal names.
     zone = re.sub(r'(?m)^weapon,(?:mp|sp)/', 'weapon,', zone)
@@ -341,6 +350,107 @@ def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path
     return result
 
 
+def stage_lobby_gametype_table(stock: Path, project_root: Path, project: str) -> Path:
+    """Register one complete WaW play area with the stock four-player co-op mode."""
+    rows = list(csv.reader(io.StringIO(stock.read_text(encoding="utf-8-sig"))))
+    if not rows or len(rows[0]) < 23:
+        raise ValueError("unsupported zombies gametype table schema")
+    # Category 5 describes selectable locations; category 6 connects those
+    # locations to modes. The YES entry also supplies the lobby defaults.
+    for category, count_key in (("5", "maxnum_startloc"), ("6", "startloc_gamemode_map")):
+        entries = [r for r in rows if r and r[0] == category]
+        count = next((r for r in rows if r and r[0] == count_key), None)
+        if count is None:
+            raise ValueError(f"zombies gametype table lacks {count_key}")
+        if not any(len(r) > 2 and r[2] == project for r in entries):
+            index = str(max((int(r[1]) for r in entries), default=-1) + 1)
+            if category == "5":
+                entry = ["5", index, project, "default", project, project,
+                         "menu_zm_map_zombie_dot", "1", "0", "0", "180", "-50",
+                         "", "", "", "", project, "100", "-90", "", "", "", ""]
+            else:
+                entry = ["6", index, project, "default", "zclassic", "0", "left", "YES"] + [""] * 15
+            rows.insert(rows.index(entries[-1]) + 1 if entries else rows.index(count) + 1, entry)
+        entries = [r for r in rows if r and r[0] == category]
+        # Engine iteration uses these bounds, not the physical CSV row count.
+        count[1] = str(max((int(r[1]) for r in entries), default=-1) + 1)
+    result = project_root / "zm/gametypestable.csv"
+    result.parent.mkdir(parents=True, exist_ok=True)
+    with result.open("w", encoding="utf-8", newline="") as stream:
+        csv.writer(stream, lineterminator="\n").writerows(rows)
+    return result
+
+
+def link_lobby(bo2: Path, project_root: Path, project: str, work: Path,
+               linker: Path, stock: Path | None = None) -> Path:
+    """Build frontend-only mod_load.ff so selection works before loading a map.
+
+    WaW has no BO2 globe artwork. Use the stock empty map frame for the menu
+    backdrop, keeping the converted map's own name and a selectable location.
+    Gameplay assets stay in mod.ff and the map zone.
+    """
+    stage_lobby_map_table(bo2 / "raw/zm/mapstable.csv", project_root, project)
+    stage_lobby_gametype_table(bo2 / "raw/zm/gametypestable.csv", project_root, project)
+    root = work.resolve() / "lobby"
+    materials = root / "assets/materials"
+    materials.mkdir(parents=True, exist_ok=True)
+    frame = bo2 / "raw/materials/menu_zm_map_frame.json"
+    names = [f"menu_{project}_map", f"menu_{project}_map_blur",
+             f"menu_{project}_zclassic_default", f"loadscreen_{project}_zclassic_default",
+             f"loadscreen_{project}_zclassic_"]
+    for name in names:
+        shutil.copy2(frame, materials / f"{name}.json")
+    source = root / "zone_source"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "mod_load.zone").write_text(
+        ">game,T6\nstringtable,zm/mapstable.csv\nstringtable,zm/gametypestable.csv\n"
+        "techniqueset,,trivial_9z33feqw\nimage,,menu_zm_map_frame\n" +
+        "".join(f"material,{name}\n" for name in names), encoding="utf-8")
+    out = work.resolve() / "out"
+    command = [str(linker.resolve()), "--no-color", "--base-folder", str(project_root.resolve()),
+               "--source-search-path", str(source), "--asset-search-path", "?base?",
+               "--add-asset-search-path", str(root / "assets"),
+               "--add-asset-search-path", str(bo2.resolve() / "raw")]
+    if stock:
+        command += ["--add-asset-search-path", str(stock.resolve())]
+    command += ["--output-folder", str(out), "mod_load"]
+    proc = subprocess.run(command, capture_output=True, text=True, errors="replace")
+    (root / "linker.log").write_text(proc.stdout + proc.stderr, encoding="utf-8")
+    result = out / "mod_load.ff"
+    if proc.returncode or not result.is_file() or re.search(r"(?m)^(?:ERROR:|Missing asset|Failed to load|Could not load)", proc.stdout):
+        raise RuntimeError(f"lobby zone link failed; see {root / 'linker.log'}")
+    return result
+
+
+def verify_lobby_tables(ff: Path, unlinker: Path, work: Path, project: str) -> None:
+    """Reject builds where stock search-path precedence lost our registrations."""
+    dump = work.resolve() / f"verify_{ff.stem}_lobby"
+    if dump.exists():
+        dump.relative_to(work.resolve())
+        shutil.rmtree(dump)
+    proc = subprocess.run([str(unlinker.resolve()), '--no-color', '--include-assets', 'stringtable',
+                           '--output-folder', str(dump), str(ff.resolve())],
+                          capture_output=True, text=True, errors='replace')
+    (work.resolve() / f"verify_{ff.stem}_lobby.log").write_text(proc.stdout + proc.stderr)
+    if proc.returncode:
+        raise RuntimeError(f"cannot verify lobby tables in {ff}")
+    for name in ('mapstable.csv', 'gametypestable.csv'):
+        path = dump / 'zm' / name
+        if not path.is_file():
+            raise RuntimeError(f"missing lobby table {name} in {ff}")
+        with path.open(encoding='utf-8-sig', newline='') as stream:
+            rows = list(csv.reader(stream))
+        if name == 'mapstable.csv':
+            valid = any(row and row[0] == project for row in rows)
+        else:
+            valid = all(any(len(row) > 7 and row[0] == category and row[2] == project
+                            and row[3] == 'default' and
+                            (category == '5' or (row[4] == 'zclassic' and row[7] == 'YES'))
+                            for row in rows) for category in ('5', '6'))
+        if not valid:
+            raise RuntimeError(f"custom lobby registration missing from {name} in {ff}")
+
+
 def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
              asset_root: Path | None = None, extra_asset_roots: list[Path] = (),
              linker: Path | None = None) -> tuple[Path, list[str]]:
@@ -368,12 +478,26 @@ def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
     linker = linker.resolve() if linker is not None else bo2 / "bin" / "Linker.exe"
     unavailable: list[str] = []
     protected = {line.strip() for line in extra_lines if line.strip() and not line.lstrip().startswith("//")}
+    table_override = work / 'lobby_input'
+    if asset_root is not None:
+        for name in ('mapstable.csv', 'gametypestable.csv'):
+            source = asset_root / 'zm' / name
+            if source.is_file():
+                target = table_override / 'zm' / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
     for _ in range(MAX_DROPS):
         zone_file.write_text(zone_text, encoding="utf-8")
         command = [str(linker), "--no-color", "--base-folder", str(bo2.resolve()), "--source-search-path", str(zone_file.parent),
                    "--add-asset-search-path", str(bo2 / "mods" / TEMPLATE_MAP)]
         if asset_root is not None:
             command += ["--add-asset-search-path", str(asset_root.resolve())]
+            if table_override.is_dir():
+                # ?base? sorts before absolute stock paths. Limit this override
+                # layer to frontend tables so gameplay search order is retained.
+                command[command.index("--base-folder") + 1] = str(table_override)
+                command += ["--asset-search-path", "?base?;?bin?/../raw",
+                            "--add-asset-search-path", str(bo2.resolve() / "raw")]
         for root in extra_asset_roots:
             command += ["--add-asset-search-path", str(Path(root).resolve())]
         command += ["--output-folder", str(work / "out"), "mod"]

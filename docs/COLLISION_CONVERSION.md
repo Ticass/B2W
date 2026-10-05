@@ -90,12 +90,33 @@ WaW and T6 use the same front face, `(v2 - v0) x (v1 - v0)`. The FBX writer
 and BSPCreator each reverse, which cancels; never "fix" one side alone.
 `tools/audit_collision_roundtrip.py` compares oriented triangles.
 
-## 7. Known open difference: one-sided collision
+## 7. One-sided traversal collision is removed
 
 WaW triangles collide only from their front, which maps use for one-way
 passages (Nuketown: crossing back into the spawn area). T6's GJK partition
-shapes are closed solids, so those passages block both ways. Needs a detected,
-generic emulation; not solved yet.
+shapes are closed solids, so those passages block both ways.
+
+User-directed policy (2026-10-04): omit these traversal sheets entirely from
+collision so players can cross between map areas in either direction.
+`oneway.py` identifies triangles blocking the WaW player mask 0x281C011,
+without solid contents, steep (|n.z| < 0.7), and without an opposing face.
+Same-facing duplicates are still one-sided. Ordinary solid geometry, floors,
+and opposing-face sheets retain collision.
+
+`fbx.collision_material_slots` applies this global filter to both collision
+FBX generation and compiled walkable-edge export. The stage report records
+`collision_triangles_one_sided_removed` and `ONE_WAY_COLLISION_REMOVED`.
+The old `_waw2bo2_oneway.gsc` entry point is a no-op for compatibility with
+existing generated map hooks; no movement watcher or teleport is generated.
+Nuketown is the validation case: 484 triangles removed (190 clip, 38
+clip_nosight_rock, 256 one-sided glass). This intentionally permits passage
+from both sides, relaxing the source restriction as requested.
+
+Ruled out on the way (clip dump v8 + `.cmtree.txt` diagnostic): WaW's leaf
+`brushContents` and leaf-brush-node `contents` masks reach every brush with its
+full contents; leaf-brush kd culling (child[0] = above dist - range) reaches
+every brush at its own points; triangle contents equal the leaf aabb material
+(no ancestor mask differs). The blocking brushes at other spots are WaW walls.
 
 ## How to verify (do this after any collision change)
 

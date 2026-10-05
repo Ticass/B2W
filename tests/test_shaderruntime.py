@@ -275,17 +275,16 @@ sqrt o0.xyz, r0.xyzx
         self.assertEqual(contract['samplers']['s1']['texture'], 15)
         self.assertEqual(native_pass['customSamplerFlags'], 3)
 
-    def test_spot_shadow_coordinate_uses_projected_depth(self):
-        # WaW compares the raw z of TEXCOORD4; T6's lookup matrix needs z / w
-        source = """ps_3_0
-dcl_texcoord4 v0
-mov oC0, v0
-"""
-        contract = {'inputs': {'v0': {'semantic': 'TEXCOORD4', 'width': 4, 'projective_depth': True}},
-                    'outputs': {'oC0': {'semantic': 'SV_Target0', 'width': 4}},
-                    'input_signature': [{'semantic': 'SV_Position', 'width': 4}, {'semantic': 'TEXCOORD4', 'width': 4}]}
-        hlsl, _ = shaders.translate(source, contract)
-        self.assertIn('v0.z = v0.z / v0.w;', hlsl)
+    def test_waw_alpha_test_becomes_a_discard(self):
+        material = {'techniqueSet': 'wc_l_sm_r0c0', 'stateBitsEntry': [-1] * 8 + [0],
+                    'stateBits': [{'alphaTest': 'ge128'}]}
+        self.assertEqual(runtime.alpha_test_lines(material, 'wc_l_sm_r0c0', 4, 'oC0'), ['if (oC0.w < 0.5) discard;'])
+        material['stateBits'][0]['alphaTest'] = 'gt0'
+        self.assertEqual(runtime.alpha_test_lines(material, 'wc_l_sm_r0c0', 4, 'oC0'), ['if (oC0.w <= 0.0) discard;'])
+        self.assertTrue(runtime.alpha_tested(material))
+        material['stateBits'][0]['alphaTest'] = 'disabled'
+        self.assertEqual(runtime.alpha_test_lines(material, 'wc_l_sm_r0c0', 4, 'oC0'), [])
+        self.assertFalse(runtime.alpha_tested(material))
 
 class DisplayScaleTests(unittest.TestCase):
     def test_waw_scene_passes_write_half_their_display_colour(self):

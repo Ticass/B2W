@@ -219,6 +219,25 @@ class CurveTests(unittest.TestCase):
             sounds.translate_curves([{"index": 0, "name": "bad", "pointCount": 2,
                                       "points": [[0, 1], [.5, 0]] + [[0, 0]] * 6}], t6)
 
+    def test_approximation_preserves_audible_tail_and_smooth_cutoff(self):
+        source = [{"index": 0, "name": "fade", "pointCount": 3,
+                   "points": [[0, 1], [.5, .1], [1, 0]]}]
+        targets = [{"index": 0, "name": "quiet", "points": [[0, 1], [.5, .001], [1, 0]]},
+                   {"index": 1, "name": "audible", "points": [[0, 1], [.5, .3], [1, 0]]},
+                   {"index": 2, "name": "cutoff", "points": [[0, 1], [1, 1], [1, 0]]}]
+        self.assertLess(sounds.compare_curves(source[0], targets[0])["maxError"],
+                        sounds.compare_curves(source[0], targets[1])["maxError"])
+        entry = sounds.translate_curves(source, targets, approximate=True)["fade"]
+        self.assertEqual(entry["t6"], "audible")
+        self.assertLess(entry["rmsDbError"], sounds._curve_db_error(source[0], targets[0]))
+        with self.assertRaises(sounds.SoundError):
+            sounds.translate_curves(source, [])
+
+    def test_curve_comparison_measures_both_sides_of_internal_steps(self):
+        source = {"name": "step", "points": [[0, 1], [.5, 1], [.5, 0], [1, 0]]}
+        target = {"name": "fade", "points": [[0, 1], [.5, 0], [1, 0]]}
+        self.assertEqual(sounds.compare_curves(source, target)["maxError"], 1)
+
     def test_bind_curves_marks_variants_incomplete_without_every_curve(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -264,10 +283,41 @@ class PlaybackBankTests(unittest.TestCase):
         row = rows[0]
         self.assertEqual(sorted(row), sorted(sounds.T6_ALIAS_COLUMNS))
         self.assertEqual((row["Name"], row["Secondary"]), ("waw/custom_fire", "waw/echo"))
-        self.assertEqual((row["VolMin"], row["VolMax"], row["ReverbSend"]), ("90", "100", "50"))
+        self.assertAlmostEqual(float(row["VolMin"]), 100 + 20 * math.log10(.9 * .68), places=4)
+        self.assertAlmostEqual(float(row["VolMax"]), 100 + 20 * math.log10(.68), places=4)
+        self.assertEqual(row["DuckGroup"], "snp_wpn_1p")
+        self.assertAlmostEqual(float(row["ReverbSend"]), 100 + 20 * math.log10(.5), places=4)
         self.assertEqual((row["DistMaxDry"], row["DistMaxWet"], row["PitchMin"]), ("600", "800", "-100"))
-        self.assertEqual((row["Storage"], row["LimitCount"], row["EntityLimitCount"]), ("loaded", "8", "2"))
+        self.assertEqual((row["Storage"], row["LimitCount"], row["EntityLimitCount"]), ("loaded", "0", "2"))
         self.assertEqual(row["PanType"], "2d")
+
+    def test_linear_gains_survive_native_t6_volume_encoding(self):
+        document = self.bound()
+        document["aliases"][0]["bus"]["volumeMod"] = 1.0
+        for gain in (0, .01, .1, .25, .5, .9, 1):
+            for field in ("volMin", "volMax", "reverbSend", "centerPercentage", "envelopPercentage"):
+                document["aliases"][0]["source"][field] = gain
+            rows, errors = sounds.t6_alias_rows(document)
+            self.assertEqual(errors, [])
+            sounds.clamp_t6_ranges(rows)
+            for column in ("VolMin", "VolMax", "ReverbSend", "CenterSend", "EnvelopPercent"):
+                # Same conversion and quantization as the native T6 loader.
+                native = int(10 ** ((float(rows[0][column]) - 100) / 20) * 65535) / 65535
+                self.assertAlmostEqual(native, gain, delta=2 / 65535)
+
+    def test_voice_limits_preserve_unlimited_reject_and_priority(self):
+        document = self.bound()
+        source = document["aliases"][0]["source"]
+        for value, name in ((0, "none"), (1, "oldest"), (2, "reject"), (3, "priority"), (4, "priority")):
+            source.update(limitType=value, entityLimitType=value, limitCount=0, entityLimitCount=0)
+            rows, errors = sounds.t6_alias_rows(document)
+            self.assertEqual(errors, [])
+            self.assertEqual((rows[0]["LimitType"], rows[0]["EntityLimitType"]), (name, name))
+            self.assertEqual((rows[0]["LimitCount"], rows[0]["EntityLimitCount"]), ("0", "0"))
+        source["limitType"] = 99
+        rows, errors = sounds.t6_alias_rows(document)
+        self.assertEqual(rows, [])
+        self.assertIn("voice limit", errors[0]["reason"])
 
     def test_unbound_variants_are_errors_not_rows(self):
         document = self.bound()
@@ -275,6 +325,13 @@ class PlaybackBankTests(unittest.TestCase):
         rows, errors = sounds.t6_alias_rows(document)
         self.assertEqual(rows, [])
         self.assertIn("curves", errors[0]["reason"])
+
+    def test_weapon_dependencies_share_a_category_even_with_custom_full_volume_bus(self):
+        document = self.bound()
+        document["aliases"][0]["bus"].update(name="full_vol", volumeMod=1)
+        rows, errors = sounds.t6_alias_rows(document, {"custom_fire"})
+        self.assertEqual(errors, [])
+        self.assertEqual((rows[0]["VolumeGroup"], rows[0]["DuckGroup"]), ("grp_weapon", "snp_wpn_1p"))
 
     def test_loaded_audio_is_resampled_to_48k(self):
         from waw2bo2 import audio
@@ -302,6 +359,18 @@ class T6ColumnFormatTests(unittest.TestCase):
 
 
 class LoadedBudgetTests(unittest.TestCase):
+    def test_weapon_audio_is_kept_loaded_before_shorter_non_weapon_sounds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            pcm = Path(temp)
+            for name, size in (("tiny.wav", 2), ("shot.wav", 10), ("reload.wav", 8), ("large.wav", 30)):
+                (pcm / name).write_bytes(b"x" * size)
+            rows = [{"Name": "waw/" + n, "FileSource": f, "Storage": "loaded"} for n, f in
+                    (("ambient", "tiny.wav"), ("fire", "shot.wav"), ("reload", "reload.wav"), ("too_big", "large.wav"))]
+            budget = {"entries": 2, "bytes": 18}
+            sounds.fit_loaded_budget(rows, pcm, budget, {"fire", "reload", "too_big"})
+            self.assertEqual([r["Storage"] for r in rows], ["streamed", "loaded", "loaded", "streamed"])
+            self.assertEqual((budget["weapon_files_loaded"], budget["weapon_files_streamed"]), (2, 1))
+
     def test_shortest_loaded_sounds_stay_loaded_within_budget(self):
         import tempfile
         from pathlib import Path

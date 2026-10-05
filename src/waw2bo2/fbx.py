@@ -6,6 +6,7 @@ from pathlib import Path
 import struct
 
 from .world import CollisionWorld, GfxWorld, layer_format, layer_stride
+from . import oneway
 
 
 def _quoted(value: str) -> str:
@@ -193,13 +194,16 @@ def collision_material_slots(collision: CollisionWorld) -> tuple[list[int | None
     measured map only 51% of the triangles are solid; the rest are missile/shot
     clip (0x2080), player/monster clip or glass. Triangles without a recorded
     material or without contents never collide in WaW and are left out (slot
-    None). Dumps without the table keep one solid slot (material -1)."""
+    None). One-sided traversal sheets are also omitted: the user requested
+    open passages because T6 cannot reproduce their WaW collision behavior.
+    Dumps without the table keep one solid slot (material -1)."""
     if not collision.triangle_materials:
         return [0] * (len(collision.indices) // 3), [-1]
     slots: dict[int, int] = {}
     per_triangle: list[int | None] = []
-    for material in collision.triangle_materials:
-        if material == 0xFFFF or not collision.materials[material].content_flags:
+    removed = {s["triangle"] for s in oneway.one_way_sheets(collision)} if getattr(collision, "vertices", None) else set()
+    for triangle, material in enumerate(collision.triangle_materials):
+        if triangle in removed or material == 0xFFFF or not collision.materials[material].content_flags:
             per_triangle.append(None)
             continue
         per_triangle.append(slots.setdefault(material, len(slots)))

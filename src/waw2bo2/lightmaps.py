@@ -28,6 +28,7 @@ Two encodings of each page are produced:
 from __future__ import annotations
 
 import json
+import os
 import math
 import struct
 from pathlib import Path
@@ -171,6 +172,17 @@ def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set
         width, waw, t6 = build_page(secondary, primary)
         names = {'waw': f'lightmap{index}_waw_secondary', 't6': f'lightmap{index}_t6_secondary'}
         for key, data in (('waw', waw), ('t6', t6)):
+            if os.environ.get('WAW2BO2_DIAG_PAGEID'):
+                # Diagnostic build: a 4x4 code in the page's last texels
+                # (red = page index, blue = WaW-encoded, green = T6-encoded).
+                palette = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 255, 255)]
+                code = bytes([*(palette[index % 5] if key == 'waw' else (255, 0, 255)), 255])
+                data = bytearray(data)
+                for y in range(width * 3 - 4, width * 3):
+                    for x in range(width - 4, width):
+                        o = (y * width + x) * 4
+                        data[o:o + 4] = code
+                data = bytes(data)
             dst = project_root / 'images' / f'{names[key]}.iwi'
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(_iwi_rgba(width, width * 3, data))

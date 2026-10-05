@@ -13,6 +13,12 @@ init()
     if ( isdefined( level.waw2bo2_compat_ready ) )
         return;
     level.waw2bo2_compat_ready = 1;
+    precacheshader( "waypoint_revive" );
+    // WaW zones control spawning; they are not lethal player boundaries.
+    // BO2 otherwise queues a kill during scripted teleports above a zone.
+    if ( isdefined( level.player_out_of_playable_area_monitor_callback ) )
+        level.waw2bo2_out_of_playable_area_callback = level.player_out_of_playable_area_monitor_callback;
+    level.player_out_of_playable_area_monitor_callback = ::waw_out_of_playable_area;
     level.waw2bo2_reported = [];
     if ( !isdefined( level.waw2bo2_fx ) )
         level.waw2bo2_fx = [];
@@ -27,6 +33,8 @@ init()
     maps\mp\_utility::registerclientsys( "waw_vision_player" );
     level.waw2bo2_overlay_global = "_identity";
     level thread vision_overlay_players();
+    level thread waw_player_fields();
+    level thread waw_revive_waypoints();
     level thread all_players_connected_bridge();
     level thread first_player_ready_bridge();
     level thread stuck_zombie_monitor();
@@ -46,6 +54,56 @@ report( api, detail )
     println( "WAW2BO2 UNSUPPORTED " + key );
 }
 
+// T6 applies the attacker's custom damage function at the point of a swipe.
+// Source contact-kill monitors retain their own proximity checks and kills;
+// suppress the competing ASD attack until the monitor returns.
+waw_contact_kill_begin()
+{
+    if ( !isdefined( self.waw_contact_kill_count ) || self.waw_contact_kill_count <= 0 )
+    {
+        self.waw_contact_kill_count = 0;
+        self.waw_contact_previous_damage = undefined;
+        if ( isdefined( self.custom_damage_func ) )
+            self.waw_contact_previous_damage = self.custom_damage_func;
+        self.custom_damage_func = ::waw_contact_kill_damage;
+    }
+    self.waw_contact_kill_count++;
+}
+
+waw_contact_kill_end()
+{
+    self.waw_contact_kill_count--;
+    if ( self.waw_contact_kill_count > 0 )
+        return;
+    if ( isdefined( self.custom_damage_func ) && self.custom_damage_func == ::waw_contact_kill_damage )
+        self.custom_damage_func = self.waw_contact_previous_damage;
+    self.waw_contact_previous_damage = undefined;
+}
+
+waw_contact_kill_damage( victim )
+{
+    return 0;
+}
+
+waw_out_of_playable_area()
+{
+    // Called by BO2's native monitor with the player as self. Preserve
+    // intentional kill brushes, but do not turn absent/disabled WaW spawn
+    // volumes into new death barriers. Source trigger damage stays native.
+    if ( !self maps\mp\zombies\_zm::in_kill_brush() )
+        return false;
+    if ( isdefined( level.waw2bo2_out_of_playable_area_callback ) )
+        return self [[ level.waw2bo2_out_of_playable_area_callback ]]();
+    return true;
+}
+
+// WaW utility helper used by the power bridge; BO2 has no function by
+// this name. Wait one standard 20 Hz server frame between its notifies.
+wait_network_frame()
+{
+    wait 0.05;
+}
+
 // WaW's zombiemode framework turns the power on with flag "electricity_on";
 // BO2's with flag "power_on" (+ "electric_door" / client "power_on" notifies
 // and unpausing the perk machines). Keep both frameworks in step.
@@ -55,6 +113,18 @@ power_bridge()
         flag_init( "electricity_on" );
     level thread power_bridge_bo2_to_waw();
     flag_wait( "electricity_on" );
+    // WaW perk scripts wait for these framework events before swapping models.
+    // BO2 power_on does not emit them; preserve WaW's network-frame ordering.
+    wait_network_frame();
+    level notify( "sleight_on" );
+    wait_network_frame();
+    level notify( "revive_on" );
+    wait_network_frame();
+    level notify( "doubletap_on" );
+    wait_network_frame();
+    level notify( "juggernog_on" );
+    wait_network_frame();
+    level notify( "Pack_A_Punch_on" );
     if ( isdefined( level.flag["power_on"] ) && flag( "power_on" ) )
         return;
     level notify( "electric_door" );
@@ -70,6 +140,16 @@ power_bridge_bo2_to_waw()
     flag_wait( "power_on" );
     if ( !flag( "electricity_on" ) )
         flag_set( "electricity_on" );
+}
+
+// T6 ground movement can consume an upward impulse before leaving the floor.
+// Lift only grounded players receiving an upward launch, then apply the
+// source velocity in the same frame. Airborne and non-player calls stay native.
+waw_setvelocity( velocity )
+{
+    if ( isplayer( self ) && velocity[2] > 0 && self isonground() )
+        self setorigin( self.origin + ( 0, 0, 1 ) );
+    self setvelocity( velocity );
 }
 
 // ---- FX: WaW effect names resolve through the converted asset table ----
@@ -211,6 +291,13 @@ waw_native_hintstring( string )
 waw_setclientdvar( name, value )
 {
     lname = tolower( name );
+    // T6 caps the global dvar at 12.8 s, but its per-player duration accepts
+    // WaW's longer perk durations. Keep these local to the purchasing player.
+    if ( lname == "player_sprinttime" && isplayer( self ) )
+    {
+        self setsprintduration( float( value ) );
+        return;
+    }
     // r_filmUseTweaks: WaW films with the r_filmTweak* values (CoDWaW
     // sub_6DC1A0), baked at conversion into the "_filmtweak" overlay.
     if ( lname == "r_filmusetweaks" )
@@ -426,6 +513,42 @@ waw_precacheitem( name )
         precacheitem( weapon );
 }
 
+// weapon queries take the WaW name; T6 only knows the converted weapon
+// (the mystery box cycles GetWeaponModel of WaW names)
+waw_getweaponmodel( name, model_index )
+{
+    weapon = waw_weapon( name );
+    if ( !isdefined( weapon ) )
+        return "tag_origin";
+    if ( isdefined( model_index ) )
+        return getweaponmodel( weapon, model_index );
+    return getweaponmodel( weapon );
+}
+
+waw_weaponclass( name )
+{
+    weapon = waw_weapon( name );
+    if ( !isdefined( weapon ) )
+        return "none";
+    return weaponclass( weapon );
+}
+
+waw_weapontype( name )
+{
+    weapon = waw_weapon( name );
+    if ( !isdefined( weapon ) )
+        return "none";
+    return weapontype( weapon );
+}
+
+waw_weaponclipsize( name )
+{
+    weapon = waw_weapon( name );
+    if ( !isdefined( weapon ) )
+        return 0;
+    return weaponclipsize( weapon );
+}
+
 waw_giveweapon( name, model_index, a, b )
 {
     weapon = waw_weapon( name );
@@ -575,6 +698,110 @@ first_player_ready_bridge()
     level notify( "first_player_ready", player );
 }
 
+// WaW _zombiemode's connect handler gives every player a stats array
+// (kills/score/downs/revives/perks) that map scripts increment; BO2 has none.
+waw_player_fields()
+{
+    players = getplayers();
+    for ( i = 0; i < players.size; i++ )
+        players[i] waw_player_stats();
+    for ( ;; )
+    {
+        level waittill( "connected", player );
+        player waw_player_stats();
+    }
+}
+
+waw_player_stats()
+{
+    if ( isdefined( self.stats ) )
+        return;
+    self.stats = [];
+    self.stats["kills"] = 0;
+    self.stats["score"] = 0;
+    self.stats["downs"] = 0;
+    self.stats["revives"] = 0;
+    self.stats["perks"] = 0;
+}
+
+// WaW's co-op revive marker must also work when BO2's native teammate
+// indicator is unavailable. Only actual revive targets get a waypoint;
+// custom solo revives and Who's Who fake bodies keep their source HUD.
+waw_revive_marker_visible( viewer, target )
+{
+    if ( !isdefined( viewer ) || !isdefined( target ) || viewer == target )
+        return false;
+    if ( !isalive( viewer ) || !isalive( target ) )
+        return false;
+    if ( !isdefined( viewer.sessionstate ) || viewer.sessionstate != "playing" )
+        return false;
+    if ( !isdefined( viewer.team ) || !isdefined( target.team ) || viewer.team != target.team )
+        return false;
+    return isdefined( target.laststand ) && target.laststand &&
+        isdefined( target.revivetrigger );
+}
+
+waw_revive_waypoints()
+{
+    // Keep ownership on the level, so disconnected players do not abort
+    // cleanup threads and leave HUD elements behind for their teammates.
+    markers = [];
+    for ( ;; )
+    {
+        active = [];
+        for ( i = 0; i < markers.size; i++ )
+        {
+            marker = markers[i];
+            if ( waw_revive_marker_visible( marker.viewer, marker.target ) )
+                active[active.size] = marker;
+            else if ( isdefined( marker.hud ) )
+                marker.hud destroy();
+        }
+        markers = active;
+        players = getplayers();
+        for ( v = 0; v < players.size; v++ )
+        {
+            for ( t = 0; t < players.size; t++ )
+            {
+                viewer = players[v];
+                target = players[t];
+                if ( !waw_revive_marker_visible( viewer, target ) )
+                    continue;
+                found = false;
+                for ( i = 0; i < markers.size; i++ )
+                {
+                    if ( markers[i].viewer == viewer && markers[i].target == target )
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if ( found )
+                    continue;
+                marker = spawnstruct();
+                marker.viewer = viewer;
+                marker.target = target;
+                marker.hud = newclienthudelem( viewer );
+                marker.hud.alpha = 1;
+                marker.hud.archived = 1;
+                marker.hud.hidewheninmenu = 1;
+                marker.hud.immunetodemogamehudsettings = 1;
+                marker.hud setshader( "waypoint_revive", 32, 32 );
+                marker.hud setwaypoint( 1 );
+                markers[markers.size] = marker;
+            }
+        }
+        for ( i = 0; i < markers.size; i++ )
+        {
+            marker = markers[i];
+            marker.hud.x = marker.target.origin[0];
+            marker.hud.y = marker.target.origin[1];
+            marker.hud.z = marker.target.origin[2] + 40;
+        }
+        wait 0.1;
+    }
+}
+
 // WaW film and glow run in a full-screen HUD pass over BO2's resolved frame
 // (glow.py): one material per vision, below every other HUD element.
 vision_overlay_players()
@@ -666,7 +893,87 @@ waw_visionsetnaked( vision, time )
     }
 }
 
+// _waw2bo2_precache precaches the scripts' named models in the first frame;
+// a WaW script repeating it later (T6: "precacheModel must be called before
+// any wait statements") is then skipped.
+waw_precachemodel( name )
+{
+    if ( !isdefined( level.waw2bo2_precached ) )
+        level.waw2bo2_precached = [];
+    if ( isdefined( level.waw2bo2_precached[name] ) )
+        return;
+    level.waw2bo2_precached[name] = 1;
+    precachemodel( name );
+}
+
+// ---- perks ----
+// WaW's perk table has names T6's lacks (measured from both executables;
+// T6 SetPerk/HasPerk/UnsetPerk raise "Unknown perk"). Custom perk scripts use
+// them as markers (specialty_boost = Electric Cherry, specialty_shades = Who's
+// Who, specialty_altmelee = bowie): they carry no engine effect the scripts
+// rely on, so the player keeps them in a script-side table instead.
+waw_perk_emulated( perk )
+{
+    switch ( perk )
+    {
+        case "specialty_altmelee":
+        case "specialty_boost":
+        case "specialty_exposeenemy":
+        case "specialty_fraggrenade":
+        case "specialty_gas_mask":
+        case "specialty_greased_barrings":
+        case "specialty_leadfoot":
+        case "specialty_null":
+        case "specialty_ordinance":
+        case "specialty_shades":
+        case "specialty_specialgrenade":
+        case "specialty_water_cooled":
+        case "specialty_weapon_bazooka":
+        case "specialty_weapon_bouncing_betty":
+        case "specialty_weapon_flamethrower":
+            return 1;
+    }
+    return 0;
+}
+
+waw_setperk( perk )
+{
+    if ( !waw_perk_emulated( perk ) )
+    {
+        self setperk( perk );
+        return;
+    }
+    if ( !isdefined( self.waw2bo2_perks ) )
+        self.waw2bo2_perks = [];
+    self.waw2bo2_perks[perk] = 1;
+}
+
+waw_unsetperk( perk )
+{
+    if ( !waw_perk_emulated( perk ) )
+        self unsetperk( perk );
+    else if ( isdefined( self.waw2bo2_perks ) )
+        self.waw2bo2_perks[perk] = undefined;
+}
+
+waw_hasperk( perk )
+{
+    if ( !waw_perk_emulated( perk ) )
+        return self hasperk( perk );
+    return isdefined( self.waw2bo2_perks ) && isdefined( self.waw2bo2_perks[perk] );
+}
+
 // ---- miscellaneous WaW builtins ----
+
+waw_being_revived( player )
+{
+    // Source custom revive handlers can own this state too.
+    if ( isdefined( player.being_revived ) && player.being_revived )
+        return true;
+    return isdefined( player.revivetrigger ) &&
+        isdefined( player.revivetrigger.beingrevived ) &&
+        player.revivetrigger.beingrevived;
+}
 
 waw_getcurrentweaponclipammo()
 {

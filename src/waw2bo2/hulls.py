@@ -86,6 +86,26 @@ class Placement:
 NON_COLLIDING_CONTENTS = 0x8000000 | 0x10000000 | 0x20000000
 
 
+def brush_vertices(planes) -> list[list[float]]:
+    """Reconstruct a convex brush from its half-spaces when WaW has no verts.
+
+    WaW can trace plane-only brushes; T6's physics support function always
+    reads vertex zero. Keep the original planes, never substitute an AABB.
+    """
+    from itertools import combinations
+
+    out = []
+    for triple in combinations(planes, 3):
+        point = solve3([p[0] for p in triple], [p[1] for p in triple])
+        if point is None or any(_dot(n, point) > d + 0.01 for n, d in planes):
+            continue
+        if not any(sum((point[k] - v[k]) ** 2 for k in range(3)) < 1e-8 for v in out):
+            out.append(list(point))
+    if len(out) < 4:
+        raise ValueError("collision brush has no valid convex vertex hull")
+    return out
+
+
 def world_brush(brush, materials) -> dict:
     """WaW world brush -> bridge brush record (first six planes are axial)."""
 
@@ -97,7 +117,8 @@ def world_brush(brush, materials) -> dict:
     axial = [flags(mat) for _, _, mat in brush.planes[:6]]
     sides = [[*n, d, *flags(mat)] for n, d, mat in brush.planes[6:]]
     return {"mins": list(brush.mins), "maxs": list(brush.maxs), "contents": brush.contents,
-            "axial": axial, "sides": sides, "verts": [list(v) for v in brush.verts]}
+            "axial": axial, "sides": sides,
+            "verts": [list(v) for v in brush.verts] or brush_vertices([(n, d) for n, d, _ in brush.planes])}
 
 
 def submodel_records(clip) -> list[dict]:

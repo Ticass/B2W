@@ -4,6 +4,8 @@
     "core_scripts: WaW framework scripts that BO2's own _zm framework replaces. They are never ported;",
     "  a reference into one resolves to the BO2 script given (same function name), to a compat shim,",
     "  or to a reported stub. A value of null means BO2 has no counterpart script.",
+    "preserved_scripts: WaW gameplay frameworks ported intact even when their name matches core_patterns;",
+    "  the source map's override wins, otherwise stock WaW is used. WaW owns all perk machines and purchases.",
     "core_patterns: regexes; stock WaW scripts matching one are core too (value null).",
     "template_scripts: files of the WaW mod tools' zombie map template. Maps carry them, stock zones do not.",
     "function_renames: WaW function (any script or builtin) -> BO2 qualified function or builtin.",
@@ -30,7 +32,6 @@
     "maps\\_zombiemode_zone_manager": "maps\\mp\\zombies\\_zm_zonemgr",
     "maps\\_zombiemode_weapons": "maps\\mp\\zombies\\_zm_weapons",
     "maps\\_zombiemode_powerups": "maps\\mp\\zombies\\_zm_powerups",
-    "maps\\_zombiemode_perks": "maps\\mp\\zombies\\_zm_perks",
     "maps\\_zombiemode_score": "maps\\mp\\zombies\\_zm_score",
     "maps\\_zombiemode_blockers": "maps\\mp\\zombies\\_zm_blockers",
     "maps\\_zombiemode_blockers_new": "maps\\mp\\zombies\\_zm_blockers",
@@ -62,6 +63,9 @@
     "maps\\_collectibles": null,
     "maps\\_collectibles_game": null
   },
+  "preserved_scripts": [
+    "maps\\_zombiemode_perks"
+  ],
   "core_patterns": [
     "^maps\\\\_zombiemode",
     "^maps\\\\_callback",
@@ -77,6 +81,7 @@
     "add_zombie_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_add_zombie_weapon"
   },
   "compat_wrappers": [
+    "setvelocity",
     "loadfx",
     "playfx",
     "playfxontag",
@@ -102,7 +107,15 @@
     "getweaponammoclip",
     "getweaponammostock",
     "getcurrentweapon",
-    "getweaponslistprimaries"
+    "getweaponslistprimaries",
+    "getweaponmodel",
+    "weaponclass",
+    "weapontype",
+    "weaponclipsize",
+    "setperk",
+    "unsetperk",
+    "hasperk",
+    "precachemodel"
   ],
   "no_extract": [
     "maps\\dlc3_code",

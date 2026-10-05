@@ -361,26 +361,62 @@ def compare_curves(source: dict, target: dict) -> dict:
     a, b = _curve_points(source), _curve_points(target)
     xs = sorted({p[0] for p in a + b})
     samples = [x for x in xs if x < 1] + [(p + q) / 2 for p, q in zip(xs, xs[1:])]
-    error = max(abs(_curve_value(a, x, False) - _curve_value(b, x, False)) for x in samples)
+    # Both sides of internal vertical steps matter: sampling just the right
+    # side and interval midpoints can miss the largest gain error.
+    error = max(abs(_curve_value(a, x, closed) - _curve_value(b, x, closed))
+                for x in samples for closed in (False, True))
     ends = {abs(_curve_value(a, 1, c) - _curve_value(b, 1, c)) <= CURVE_TOLERANCE for c in (False, True)}
     return {"maxError": error, "endpoint": "equal" if ends == {True} else
             "differs" if ends == {False} else "evaluator_dependent"}
 
 
+def _curve_db_error(source: dict, target: dict) -> float:
+    """RMS loudness error over distance, with a -60 dB audibility floor.
+
+    Linear gain error undervalues the quiet tail: .1 versus .01 is a 20 dB
+    difference. Midpoint integration avoids the ambiguous x=1 convention.
+    """
+    a, b = _curve_points(source), _curve_points(target)
+    total = 0.0
+    for i in range(256):
+        x = (i + .5) / 256
+        gain_a = max(_curve_value(a, x, False), .001)
+        gain_b = max(_curve_value(b, x, False), .001)
+        total += (20 * math.log10(gain_a / gain_b)) ** 2
+    return math.sqrt(total / 256)
+
+
+def _continuous_silent_end(curve: dict) -> bool:
+    points = _curve_points(curve)
+    return (points[-1][1] == 0 and
+            _curve_value(points, 1, True) == 0)
+
+
 def translate_curves(source_curves: list[dict], t6_curves: list[dict], approximate: bool = False) -> dict:
     """Bind each original curve to the stock T6 curve with the same evaluated
     shape. A curve without one is unsupported; the nearest shape is used only
-    in the explicit approximation mode and is reported as such."""
+    in the explicit approximation mode and is reported as such. Approximate
+    shapes minimize loudness error, retaining a smooth silent tail when the
+    source has one instead of substituting a hard cutoff."""
+    if not t6_curves:
+        raise SoundError("T6 sound driver contains no falloff curves")
     result = {}
     for curve in source_curves:
         scored = []
         for target in t6_curves:
-            scored.append((compare_curves(curve, target), target))
+            comparison = compare_curves(curve, target)
+            comparison["rmsDbError"] = _curve_db_error(curve, target)
+            scored.append((comparison, target))
         exact = [(c, t) for c, t in scored if c["maxError"] <= CURVE_TOLERANCE and c["endpoint"] != "differs"]
         # Same data under several names (T6 defaultmin/allon): prefer the
         # source name, then the lowest index, so the choice is deterministic.
         exact.sort(key=lambda ct: (ct[1]["name"] != curve["name"], ct[1]["index"]))
-        nearest = min(scored, key=lambda ct: (ct[0]["maxError"], ct[1]["index"]))
+        candidates = scored
+        if _continuous_silent_end(curve):
+            smooth = [ct for ct in scored if _continuous_silent_end(ct[1])]
+            if smooth:
+                candidates = smooth
+        nearest = min(candidates, key=lambda ct: (ct[0]["rmsDbError"], ct[0]["maxError"], ct[1]["index"]))
         entry = {"source": curve["name"], "sourceIndex": curve["index"],
                  "nearest": {"t6": nearest[1]["name"], "index": nearest[1]["index"], **nearest[0]}}
         if exact:
@@ -405,6 +441,7 @@ def bind_curves(project: Path, t6_driver: Path | None, approximate: bool = False
     """
     bindings = json.loads((project / "sounds.bindings.json").read_text())
     report = {"status": "curves_bound_semantic_ir_not_T6_bank", "approximation": approximate,
+              "approximation_metric": "RMS dB over normalized distance; -60 dB floor; preserve smooth silent tails",
               "driver_replacement": "impossible: BO2 rejects a second snddriverglobals asset (ERR_DROP)",
               "curves": {}, "complete_variants": 0, "incomplete_variants": 0, "errors": []}
     if t6_driver is None or not t6_driver.is_file():
@@ -441,7 +478,8 @@ def bind_curves(project: Path, t6_driver: Path | None, approximate: bool = False
                 entry["uses"] += 1
                 if "index" in entry:
                     fields[T6_CURVE_FIELDS[key]] = {"t6": entry["t6"], "index": entry["index"],
-                                                    "status": entry["status"]}
+                                                    "status": entry["status"], "maxError": entry["maxError"],
+                                                    "rmsDbError": entry["rmsDbError"]}
                 else:
                     missing.append(key)
             row["t6_curves"] = fields
@@ -474,9 +512,11 @@ T6_ALIAS_COLUMNS = [
     "StopOnPlay", "DopplerScale", "FutzPatch", "VoiceLimit", "IgnoreMaxDist", "NeverPlayTwice"]
 T6_STORAGE = {1: "loaded", 2: "streamed", 3: "primed"}
 # Fields WaW has and this playback mapping does not carry (yet). Reported, not silent.
-PLAYBACK_NOT_TRANSLATED = ["bus/volume group/ducking (stock BO2 groups by category)", "speaker map (stock pan)",
-                           "limit/entity-limit type", "chain alias", "team/cylinder/move/slave/master fields",
-                           "falloff curve shape where no stock BO2 curve matches (nearest used)"]
+PLAYBACK_NOT_TRANSLATED = ["driver routing/ducking (stock BO2 groups; original bus gain baked into alias)", "speaker map (stock pan)",
+                           "softest voice limit (approximated with priority)", "chain alias",
+                           "team/cylinder/move/slave/master fields",
+                           "falloff curve shape where no stock BO2 curve matches (nearest loudness used)"]
+T6_LIMIT_TYPES = {0: "none", 1: "oldest", 2: "reject", 3: "priority", 4: "priority"}
 
 
 def _category(row: dict) -> tuple[str, str, str, str]:
@@ -492,7 +532,7 @@ def _category(row: dict) -> tuple[str, str, str, str]:
     if any(k in bus for k in ("amb", "element")):
         return "bus_fx", "grp_ambience", "snp_ambience", "no"
     if any(k in bus for k in ("wpn", "weap", "rfl", "pis", "smg", "mg_", "shot", "explo")):
-        return "bus_fx", "grp_weapon", "snp_wpn_3p", "no"
+        return "bus_fx", "grp_weapon", "snp_wpn_1p" if "1st" in bus else "snp_wpn_3p", "no"
     return "bus_fx", "grp_foley", "snp_foley", "no"
 
 
@@ -500,7 +540,18 @@ def _num(value: float) -> str:
     return f"{value:.6g}"
 
 
-def t6_alias_rows(document: dict) -> tuple[list[dict], list[dict]]:
+def _dbspl(gain: float) -> str:
+    """Inverse of T6 Common::DbsplToLinear, including its uint16 silence.
+
+    BO2's CSV volume columns are dB SPL (100 = unity), not percentages.
+    CSV 0 decodes below one uint16 step and therefore stores exact silence.
+    """
+    if not math.isfinite(gain) or not 0 <= gain <= 1:
+        raise SoundError(f"invalid linear sound gain {gain}")
+    return _num(max(0, 100 + 20 * math.log10(gain))) if gain else "0"
+
+
+def t6_alias_rows(document: dict, weapon_aliases: set[str] | None = None) -> tuple[list[dict], list[dict]]:
     """Rows of the official BO2 alias CSV for one bound alias list."""
     rows, errors = [], []
     for index, row in enumerate(document["aliases"]):
@@ -512,19 +563,32 @@ def t6_alias_rows(document: dict) -> tuple[list[dict], list[dict]]:
             errors.append({"alias": document["name"], "variant": index, "reason": "falloff curves not bound"})
             continue
         flags = row["flags"]
+        limits = [source.get(k, 0) for k in ("limitType", "entityLimitType")]
+        if any(limit not in T6_LIMIT_TYPES for limit in limits):
+            errors.append({"alias": document["name"], "variant": index, "reason": "unknown T4 voice limit type"})
+            continue
         bus, group, duck_group, music = _category(row)
+        if document["name"].removeprefix("waw/") in (weapon_aliases or set()) and bus == "bus_fx":
+            # Custom aliases often use full_vol, rather than a weapon bus.
+            # Give weapon dependencies the same BO2 category gain, including
+            # reload/notetrack audio, instead of mixing weapon and foley gains.
+            group = "grp_weapon"
+            duck_group = "snp_wpn_3p" if flags["spatialized"] else "snp_wpn_1p"
+        # T4 applies this gain in its driver. Choosing a BO2 category alone
+        # loses the mix between weapons, reloads, ambience and other effects.
+        gain = row["bus"].get("volumeMod", 1.0)
         secondary = row["references"].get("secondaryAliasName", "")
         rows.append({
             "Name": document["name"], "FileSource": binding["output"], "Secondary": secondary,
             "Storage": T6_STORAGE.get(flags["loadType"], "loaded"), "Bus": bus, "VolumeGroup": group,
-            "DuckGroup": duck_group, "Duck": "", "ReverbSend": _num(100 * source["reverbSend"]),
-            "CenterSend": _num(100 * source["centerPercentage"]),
-            "VolMin": _num(100 * source["volMin"]), "VolMax": _num(100 * source["volMax"]),
+            "DuckGroup": duck_group, "Duck": "", "ReverbSend": _dbspl(source["reverbSend"]),
+            "CenterSend": _dbspl(source["centerPercentage"]),
+            "VolMin": _dbspl(source["volMin"] * gain), "VolMax": _dbspl(source["volMax"] * gain),
             "DistMin": _num(source["distMin"]), "DistMaxDry": _num(source["distMax"]),
             "DistMaxWet": _num(source["distReverbMax"]),
             **{k: v["t6"] for k, v in curves.items()},
-            "LimitCount": str(source["limitCount"] or 8), "EntityLimitCount": str(source["entityLimitCount"] or 8),
-            "LimitType": "oldest", "EntityLimitType": "oldest",
+            "LimitCount": str(source["limitCount"]), "EntityLimitCount": str(source["entityLimitCount"]),
+            "LimitType": T6_LIMIT_TYPES[limits[0]], "EntityLimitType": T6_LIMIT_TYPES[limits[1]],
             "PitchMin": _num(binding["PitchMinCents"]), "PitchMax": _num(binding["PitchMaxCents"]),
             "PriorityMin": _num(source["minPriority"]), "PriorityMax": _num(source["maxPriority"]),
             "PriorityThresholdMin": _num(source["minPriorityThreshold"]),
@@ -533,7 +597,7 @@ def t6_alias_rows(document: dict) -> tuple[list[dict], list[dict]]:
             "Looping": "looping" if flags["looping"] else "nonlooping", "RandomizeType": "",
             "Probability": _num(source["probability"]), "StartDelay": str(source["startDelay"]),
             "EnvelopMin": _num(source["envelopMin"]), "EnvelopMax": _num(source["envelopMax"]),
-            "EnvelopPercent": _num(100 * source["envelopPercentage"]),
+            "EnvelopPercent": _dbspl(source["envelopPercentage"]),
             "OcclusionLevel": _num(source["occlusionLevel"]), "IsBig": "yes" if flags["isBig"] else "no",
             "DistanceLpf": "yes" if flags["distanceLpf"] else "no", "FluxType": "none", "FluxTime": "0",
             "Subtitle": source.get("subtitle", ""), "Doppler": "yes" if flags["doppler"] else "no",
@@ -548,11 +612,11 @@ def t6_alias_rows(document: dict) -> tuple[list[dict], list[dict]]:
 # alias distances as 16-bit. Beyond 65535 units nothing in a map is farther,
 # so a larger WaW distance behaves the same at the T6 maximum.
 T6_COLUMN_RANGES = {"DistMin": (0, 65535), "DistMaxDry": (0, 65535), "DistMaxWet": (0, 65535)}
-# Columns that are integers in every one of the 458,371 rows of the stock BO2
-# raw alias CSVs; the linker rejects a fraction there ("Must be a uint").
-T6_INT_COLUMNS = ("CenterSend", "VolMax", "DistMin", "DistMaxDry", "DistMaxWet", "LimitCount",
+# Integer columns in the native T6 loader. Volume columns accept fractional
+# dB SPL; rounding them as if they were percentages changes the source gain.
+T6_INT_COLUMNS = ("DistMin", "DistMaxDry", "DistMaxWet", "LimitCount",
                   "EntityLimitCount", "PitchMin", "PitchMax", "PriorityMin", "PriorityMax", "StartDelay",
-                  "EnvelopMin", "EnvelopMax", "EnvelopPercent", "FluxTime", "FadeIn", "FadeOut", "DopplerScale")
+                  "EnvelopMin", "EnvelopMax", "FluxTime", "FadeIn", "FadeOut", "DopplerScale")
 
 
 def clamp_t6_ranges(rows: list[dict]) -> list[dict]:
@@ -604,17 +668,24 @@ def loaded_budget(bo2_root: Path, template_csv: Path | None) -> dict:
             "bytes": max(size - int(template * size / entries), 0)}
 
 
-def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict) -> list[dict]:
-    """Keep the shortest loaded sounds loaded within ``budget``; stream the rest.
-    Loaded vs streamed changes when the data is read, not what plays."""
+def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
+                      weapon_aliases: set[str] | None = None) -> list[dict]:
+    """Keep weapon dependencies loaded before filling remaining headroom.
+
+    Moving rapid weapon sounds to streaming competes for the engine's scarce
+    streaming voices and can cause intermittent silence. Use the actual
+    weapon dependency graph, rather than the WaW author's bus/name choices.
+    """
     sizes = {}
     for row in rows:
         if row["Storage"] == "loaded" and row["FileSource"] not in sizes:
             sizes[row["FileSource"]] = (pcm_root / row["FileSource"]).stat().st_size
     keep, used = set(), 0
-    for source, size in sorted(sizes.items(), key=lambda kv: (kv[1], kv[0])):
+    weapon_files = {r["FileSource"] for r in rows
+                    if r["Name"].removeprefix("waw/") in (weapon_aliases or set())}
+    for source, size in sorted(sizes.items(), key=lambda kv: (kv[0] not in weapon_files, kv[1], kv[0])):
         if len(keep) >= budget["entries"] or used + size > budget["bytes"]:
-            break
+            continue
         keep.add(source)
         used += size
     streamed = []
@@ -622,7 +693,9 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict) -> list[di
         if row["Storage"] == "loaded" and row["FileSource"] not in keep:
             row["Storage"] = "streamed"
             streamed.append({"alias": row["Name"], "file": row["FileSource"], "bytes": sizes[row["FileSource"]]})
-    budget.update(loaded_files=len(keep), loaded_bytes=used, streamed_files=len(sizes) - len(keep))
+    budget.update(loaded_files=len(keep), loaded_bytes=used, streamed_files=len(sizes) - len(keep),
+                  weapon_files_loaded=len(weapon_files & keep),
+                  weapon_files_streamed=len((weapon_files & sizes.keys()) - keep))
     return streamed
 
 
@@ -636,19 +709,30 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
     import csv
 
     bindings = json.loads((project / "sounds.bindings.json").read_text())
+    weapon_report = project / "weapons.stage.json"
+    weapon_aliases = {name for weapon in json.loads(weapon_report.read_text())["weapons"]
+                      for name in weapon.get("dependencies", {}).get("sound", [])} if weapon_report.is_file() else set()
     report = {"status": "t6_playback_bank_not_full_semantics", "bank": bank, "aliases": 0, "variants": 0,
-              "not_translated": PLAYBACK_NOT_TRANSLATED, "errors": []}
+              "not_translated": PLAYBACK_NOT_TRANSLATED, "volume_encoding": "linear gain to T6 dB SPL",
+              "source_bus_gain_applied": True,
+              "voice_limit_approximations": [], "errors": []}
     rows = []
     for item in bindings["aliases"]:
         document = json.loads((project / item["output"]).read_text())
-        new, errors = t6_alias_rows(document)
+        new, errors = t6_alias_rows(document, weapon_aliases)
+        for index, row in enumerate(document["aliases"]):
+            for field in ("limitType", "entityLimitType"):
+                if row["source"].get(field) == 4:
+                    report["voice_limit_approximations"].append(
+                        {"alias": document["name"], "variant": index, "field": field,
+                         "source": "softest", "t6": "priority"})
         report["errors"] += errors
         if new:
             rows += new
             report["aliases"] += 1
     report["clamped"] = clamp_t6_ranges(rows)
     if budget is not None:
-        report["loaded_to_streamed"] = fit_loaded_budget(rows, project / "pcm", budget)
+        report["loaded_to_streamed"] = fit_loaded_budget(rows, project / "pcm", budget, weapon_aliases)
         report["loaded_budget"] = budget
     known = {r["Name"] for r in rows}
     for row in rows:

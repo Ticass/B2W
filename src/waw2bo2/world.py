@@ -341,12 +341,15 @@ class CollisionWorld:
     aabb_trees: list[tuple[int, int, int]] = field(default_factory=list)
     leaf_roots: list[tuple[int, int, int]] = field(default_factory=list)
     partitions: list[tuple[int, int]] = field(default_factory=list)
+    # v8: per brush, the contents WaW traces can reach through the leaf and
+    # leaf-brush-node masks (None = not recorded: assume brush.contents)
+    brush_reach: list[int] | None = None
 
 
 def read_collision(path: Path) -> CollisionWorld:
     with path.open("rb") as stream:
         r = Reader(stream)
-        if r.exact(8) != MAGIC or (version := r.unpack("I")) not in (2, 3, 4, 5, 6, 7):
+        if r.exact(8) != MAGIC or (version := r.unpack("I")) not in (2, 3, 4, 5, 6, 7, 8):
             raise FormatError(f"{path} is not a W2BSP001 clip-world file")
         name = r.string()
         material_count = r.unpack("I")
@@ -418,11 +421,17 @@ def read_collision(path: Path) -> CollisionWorld:
             aabb_trees = [r.unpack("2Hi") for _ in range(r.unpack("I"))]
             leaf_roots = [r.unpack("2Ii") for _ in range(r.unpack("I"))]
             partitions = [r.unpack("2I") for _ in range(r.unpack("I"))]
+        brush_reach = None
+        if version >= 8:
+            count = r.unpack("I")
+            if count != len(brushes):
+                raise FormatError("brush reach table does not match the brush count")
+            brush_reach = [v & 0xFFFFFFFF for v in struct.unpack(f"<{count}i", r.exact(4 * count))]
         if stream.read(1):
             raise FormatError("clip-world file has trailing data (schema mismatch)")
     summary = CollisionSummary(name, material_count, vertex_count, triangle_count, brush_count)
     return CollisionWorld(summary, vertices, indices, materials, brushes, submodels, static_models, triangle_materials,
-                          version >= 5, edge_walkable, aabb_trees, leaf_roots, partitions)
+                          version >= 5, edge_walkable, aabb_trees, leaf_roots, partitions, brush_reach)
 
 
 def inspect_collision(path: Path) -> CollisionSummary:

@@ -563,14 +563,6 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
                     raise shaders.ShaderError(f'native {source_name} sampler mode not recognized')
                 entry['point_load'] = True
                 contract.setdefault('unit_conversions', []).append(f'{source_name}: texel load at mip 0')
-                if source_name == 'shadowmapSamplerSpot':
-                    # every WaW spot-shadow PS (2818 measured) reads its lookup
-                    # coordinate from TEXCOORD4 and compares the undivided z;
-                    # T6's spot lookup matrix yields depth as z / w
-                    for input_reg, entry_in in contract['inputs'].items():
-                        if entry_in['semantic'].upper() == 'TEXCOORD4':
-                            entry_in['projective_depth'] = True
-                            contract['unit_conversions'].append('spot shadow depth: z / w (T6 lookup matrix)')
                 if os.environ.get('WAW2BO2_DIAG_SHADOW_LIT'):
                     entry['constant'] = [1.0, 1.0, 1.0, 1.0]  # diagnostic: shadow test always lit
             elif source_name == 'floatZSampler':
@@ -970,6 +962,71 @@ def _output_scale(source_material, source_name, slot):
     return {'output_rgb_scale': WAW_OUTPUT_SCALE} if scales_output(state) else {}
 
 
+def diag_terms(hlsl, contract, spot_like=False):
+    """Diagnostic build: output (colour-map luminance, secondary lightmap
+    luminance x2, final colour luminance x10). The first sample of each
+    texture is captured from the generated statements."""
+    lightmap = next((r for r, e in contract.get('samplers', {}).items()
+                     if e.get('v_scale_offset') == list(lightmaps.WAW_PAGE_UV['lightmapSamplerSecondary'])), None)
+    lines = hlsl.split(chr(10))
+    captured = set()
+    for i, line in enumerate(lines):
+        for name, tag in (('tex_s0.Sample(', 'diag_c'), (f'tex_{lightmap}.Sample(' if lightmap else None, 'diag_l')):
+            if name and name in line and line.rstrip().endswith('}'):
+                if tag == 'diag_l':
+                    # every lightmap-page read (spot programs read the falloff ramp first)
+                    lines[i] = line.rstrip()[:-1] + 'diag_l = max(diag_l, value); }'
+                elif tag not in captured:
+                    lines[i] = line.rstrip()[:-1] + f'{tag} = value; }}'
+                captured.add(tag)
+    start = next(i for i, l in enumerate(lines) if l.startswith('Output main(Input input) {'))
+    lines.insert(start + 1, 'float4 diag_c = 0; float4 diag_l = 0;')
+    end = next(i for i, l in enumerate(lines) if l.startswith('Output output;'))
+    target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
+    # on/off channels: analog values are crushed by the map's film grade
+    lines.insert(end, f'{target} = float4({"2.0" if spot_like else "0.0"}, '
+                      f'dot(diag_l.rgb, 0.333) > 0.01 ? 2.0 : 0.0, dot({target}.rgb, 0.333) > 0.002 ? 2.0 : 0.0, 1.0);')
+    return chr(10).join(lines)
+
+
+# WaW alpha test (D3D9 render state) as the D3D11 discard T6 programs do
+# themselves (stock alpha-tested PS: lt + discard_nz in every technique).
+ALPHA_TEST_DISCARD = {'gt0': '{a} <= 0.0', 'ge128': '{a} < 0.5', 'lt128': '{a} >= 0.5'}
+
+
+def _source_state(source_material, source_name, slot):
+    entries = source_material.get('stateBitsEntry', [])
+    states = source_material.get('stateBits', [])
+    present = lambda i: i < len(entries) and 0 <= entries[i] < len(states)
+    index = source_slot(present, source_name, slot)
+    return states[entries[index]] if index is not None else None
+
+
+def alpha_test_lines(source_material, source_name, slot, target):
+    """Discard lines reproducing the WaW pass's alpha test, or []."""
+    state = _source_state(source_material, source_name, slot) or {}
+    rule = ALPHA_TEST_DISCARD.get(state.get('alphaTest', 'disabled'))
+    return [f'if ({rule.format(a=target + ".w")}) discard;'] if rule else []
+
+
+def alpha_tested(source_material):
+    """An opaque cut-out: the WaW state of its main lit pass (T6 slot 4)
+    alpha-tests without blending."""
+    state = _source_state(source_material, source_material.get('techniqueSet', ''), 4) or {}
+    return (state.get('alphaTest', 'disabled') in ALPHA_TEST_DISCARD
+            and state.get('blendOpRgb', 'disabled') == 'disabled')
+
+
+def _blended_state(source_material, source_name, slot):
+    """True when the WaW state of this slot blends over the destination."""
+    entries = source_material.get('stateBitsEntry', [])
+    states = source_material.get('stateBits', [])
+    present = lambda i: i < len(entries) and 0 <= entries[i] < len(states)
+    index = source_slot(present, source_name, slot)
+    state = states[entries[index]] if index is not None else None
+    return bool(state) and state.get('blendOpRgb', 'disabled') != 'disabled' and state.get('dstBlendRgb') == 'invsrcalpha'
+
+
 def source_technique(original, source_name, slot):
     techniques = original['techniques']
     index = source_slot(lambda i: i < len(techniques) and bool(techniques[i]), source_name, slot)
@@ -1115,12 +1172,30 @@ def bind_material(source_material, output_material, roots, project_root, native_
                                                  vertex_binding.get('lighting_visibility'), source_material,
                                                  falloff_placement, output_material)
                 contract.update(output_scale)
+                target_reg = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
+                discard = alpha_test_lines(source_material, source_name, slot, target_reg)
+                if discard:
+                    contract['epilogue'] = {'lines': discard, 'uses': []}
+                    contract.setdefault('unit_conversions', []).append('alpha test: discard in the program (D3D11)')
                 diagnostic = DIAGNOSTIC_SLOT_COLORS.get(slot) if os.environ.get('WAW2BO2_DIAG_SLOT_COLORS') else None
                 if diagnostic is not None:
                     # Diagnostic build: every lit pass draws its technique's flat
                     # colour, showing in game which T6 technique a surface uses.
                     target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
                     contract['epilogue'] = {'lines': [f'{target} = float4({diagnostic}, 1.0);'], 'uses': []}
+                if os.environ.get('WAW2BO2_DIAG_NAN'):
+                    # Diagnostic build: NaN/Inf output in magenta, negative in cyan.
+                    target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
+                    contract['epilogue'] = {'lines': [
+                        f'if (any((asuint({target}) & 0x7fffffff) >= 0x7f800000)) {target} = float4(1.0, 0.0, 1.0, 1.0);',
+                        f'else if (any({target}.xyz < 0.0)) {target} = float4(0.0, 1.0, 1.0, 1.0);'], 'uses': []}
+                if os.environ.get('WAW2BO2_DIAG_DECAL') and _blended_state(source_material, source_name, slot):
+                    # Diagnostic build: blended (decal) passes show their output
+                    # alpha in red and their output brightness x4 in green, opaque.
+                    target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
+                    contract['epilogue'] = {'lines': [
+                        f'{target} = float4(saturate({target}.w), saturate(dot({target}.xyz, float3(0.333, 0.333, 0.333)) * 4.0), 0.0, 1.0);'],
+                        'uses': []}
                 secondary = contract.get('samplers', {}).get('s3', {})
                 if (os.environ.get('WAW2BO2_DIAG_LIGHTMAP') and secondary.get('v_scale_offset')
                         and 'v1' in contract.get('inputs', {})):
@@ -1132,6 +1207,23 @@ def bind_material(source_material, output_material, roots, project_root, native_
                     bottom = f'tex_s3.Sample(samp_s3, float2(v1.z, (v1.w * 0.5 + 0.5) * {scale!r} + {offset!r}))'
                     contract['epilogue'] = {'lines': [f'{target} = float4({top}.rgb + {bottom}.rgb * 0.6, 1.0);'], 'uses': []}
                 hlsl, info = shaders.translate(assembly, contract)
+                if os.environ.get('WAW2BO2_DIAG_TERMS'):
+                    hlsl = diag_terms(hlsl, contract, slot in (7, 8, 13, 14))
+                if os.environ.get('WAW2BO2_DIAG_LMUV'):
+                    # Diagnostic build: stripes of the lightmap UV the PS receives
+                    # (red: u, green: v, 16 bands each); solid blue: UV (0, 0).
+                    uvreg = next((r for r, e in contract['inputs'].items() if e['semantic'].upper() == 'TEXCOORD0'), None)
+                    if uvreg and contract.get('lightmap') == 'waw':
+                        target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
+                        hlsl = hlsl.replace('Output output;', f'{target} = float4(frac({uvreg}.z * 16.0) > 0.5 ? 2.0 : 0.0, '
+                                            f'frac({uvreg}.w * 16.0) > 0.5 ? 2.0 : 0.0, all({uvreg}.zw == 0.0) ? 2.0 : 0.0, 1.0);'
+                                            + chr(10) + 'Output output;', 1)
+                if os.environ.get('WAW2BO2_DIAG_PAGEID'):
+                    lm = next((r for r, e in contract.get('samplers', {}).items()
+                               if e.get('texture') == WORLD_SURFACE_TEXTURE_SLOTS['lightmapSamplerSecondary'][0]), None)
+                    if lm:
+                        target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
+                        hlsl = hlsl.replace('Output output;', f'{target} = float4(tex_{lm}.Load(int3(1022, 3070, 0)).rgb * 8.0, 1.0);' + chr(10) + 'Output output;', 1)
                 dxbc = shaders.compile_hlsl(hlsl, 'ps_5_0')
                 check_linkage(vertex_code, dxbc)
                 if source_name.startswith('mc_sky'):
@@ -1203,6 +1295,20 @@ def bind_material(source_material, output_material, roots, project_root, native_
                 result['unsupported'].append(f"slot {a['slot']}: WaW lightmap pass reverted; donor slots {readers} read the T6 lightmap")
         else:
             result['lightmap'] = 'waw'
+    if result['active'] and alpha_tested(source_material):
+        # The donor depth prepass / shadow caster draw the whole quad (null PS);
+        # with the cut-out discarded in the lit pass those holes would stay black.
+        entries = output_material.get('stateBitsEntry', [])
+        translated = {a['slot'] for a in result['active']}
+        for slot in (0, 1):
+            # translated WaW depth/shadow programs already discard (alpha_test_lines)
+            if slot in translated:
+                continue
+            if slot < len(native['techniques']) and native['techniques'][slot]:
+                native['techniques'][slot] = None
+                if slot < len(entries):
+                    entries[slot] = -1
+                result['unsupported'].append(f'slot {slot}: dropped for the WaW alpha test (cut-out casts no shadow-map shadow)')
     if result['active']:
         # Named by content: embedded material constants make programs per material.
         # The whole technique set is hashed, arguments included: two materials

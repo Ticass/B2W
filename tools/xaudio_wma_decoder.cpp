@@ -30,9 +30,12 @@ int wmain(int argc,wchar_t** argv) {
     std::ifstream input(argv[1],std::ios::binary);
     std::vector<unsigned char> source((std::istreambuf_iterator<char>(input)),{});
     if(source.size()<12||memcmp(source.data(),"RIFF",4)||memcmp(source.data()+8,"XWMA",4))return 3;
+    const size_t riffEnd=static_cast<size_t>(u32(source.data()+4))+8;
+    if(riffEnd<12||riffEnd>source.size())return 4;
     const unsigned char *fmt=nullptr,*data=nullptr,*dpds=nullptr;unsigned fmtSize=0,dataSize=0,dpdsSize=0;
-    for(size_t p=12;p+8<=source.size();) {
-        const unsigned size=u32(source.data()+p+4);if(size>source.size()-p-8)return 4;
+    for(size_t p=12;p<riffEnd;) {
+        if(riffEnd-p<8)return 4;
+        const unsigned size=u32(source.data()+p+4);if(size>riffEnd-p-8)return 4;
         if(!memcmp(source.data()+p,"fmt ",4)){fmt=source.data()+p+8;fmtSize=size;}
         if(!memcmp(source.data()+p,"data",4)){data=source.data()+p+8;dataSize=size;}
         if(!memcmp(source.data()+p,"dpds",4)){dpds=source.data()+p+8;dpdsSize=size;}

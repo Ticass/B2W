@@ -201,7 +201,7 @@ namespace
         for (auto n = 0u; n < cm.numNodes && n < 6; n++)
             OUTF("node {} plane n {} d {:.2f} type {} children {} {}\n", n, v3(cm.nodes[n].plane->normal), cm.nodes[n].plane->dist,
                                static_cast<int>(cm.nodes[n].plane->type), cm.nodes[n].children[0], cm.nodes[n].children[1]);
-        for (auto m = 0u; m < static_cast<unsigned>(cm.numSubModels) && m < 4; m++)
+        for (auto m = 0u; m < static_cast<unsigned>(cm.numSubModels); m++)
         {
             const auto& model = cm.cmodels[m];
             OUTF("cmodel {} mins {} maxs {} radius {:.1f} leaf aabb {}+{} brushContents 0x{:X} terrainContents 0x{:X} leafmins {} leafmaxs {} brushNode {}\n",
@@ -610,8 +610,9 @@ namespace map_ents
                         const auto* v = reinterpret_cast<const GfxPackedWorldVertex*>(
                             reinterpret_cast<const char*>(world.draw.vd0.data) + surf.tris.vertexDataOffset0);
                         for (auto k = 0; k < surf.tris.vertexCount; k++)
-                            out << std::format("v {:.2f} {:.2f} {:.2f} {:08X} {:08X} {:08X}\n", v[k].xyz.x, v[k].xyz.y, v[k].xyz.z,
-                                               v[k].lmapCoord.packed, v[k].texCoord.packed, v[k].color.packed);
+                            out << std::format("v {:.2f} {:.2f} {:.2f} {:08X} {:08X} {:08X} {:08X} {:08X}\n", v[k].xyz.x, v[k].xyz.y,
+                                               v[k].xyz.z, v[k].lmapCoord.packed, v[k].texCoord.packed, v[k].color.packed,
+                                               v[k].normal.packed, v[k].tangent.packed);
                     }
                 }
             }

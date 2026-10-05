@@ -432,10 +432,6 @@ def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
         elif signature is not None:
             full = next(s['width'] for i, s in enumerate(signature) if f'link{i}' == field_of[reg])
             init.append(f'{reg} = float4({name}{", 0" * (4-full)});')
-            if bindings.get('inputs', {}).get(reg, {}).get('projective_depth'):
-                # WaW compares the raw z of its spot shadow coordinate; T6's
-                # lookup matrix needs z / w (stock spot-shadow PS: div xyz by w)
-                init.append(f'{reg}.z = {reg}.z / {reg}.w;')
         elif adapter == 'waw_half_uv':
             init += [f'uint2 half_{reg} = f32tof16({name});',
                      f'{reg} = float4(half_{reg}.y & 255, half_{reg}.y >> 8, half_{reg}.x & 255, half_{reg}.x >> 8);']

@@ -27,10 +27,11 @@ import json
 import re
 import shutil
 import struct
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, paths, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
+from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, oneway, paths, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
 from .fbx import collision_material_slots, write_collision_fbx, write_world_fbx
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
@@ -985,6 +986,13 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
     summary["collision_triangle_materials"] = len(clip_materials)
     summary["collision_triangles_noncolliding_dropped"] = sum(
         1 for m in clip.triangle_materials if m == 0xFFFF or not clip.materials[m].content_flags)
+    sheets = oneway.one_way_sheets(clip)
+    summary["collision_triangles_one_sided_removed"] = len(sheets)
+    if sheets:
+        kinds = Counter(s["material"] for s in sheets)
+        report.warnings.append(f"ONE_WAY_COLLISION_REMOVED {len(sheets)} one-sided traversal triangles: "
+                               f"collision omitted to allow passage in both directions "
+                               f"({', '.join(f'{k} {v}' for k, v in kinds.most_common())})")
     summary.update(edge_summary)
     summary["submodels"] = len(subs)
     summary["empty_submodels"] = sum(1 for s in subs if not s["brushes"])
@@ -1076,7 +1084,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     weapon_report = None
     if waw_map_script is not None and bo2_root is not None:
         script_models |= port_scripts(report, stage, project_root, waw_map_script, bo2_root, waw_script_roots or [],
-                                      iwd_dirs or [], waw_stock_scripts, t6_unlinker, roots)
+                                      iwd_dirs or [], waw_stock_scripts, t6_unlinker, roots, clip)
         fx_names = list(report.scripts.get("fx", [])) if report.scripts else []
         # Weapons first: their resolution widens the roots (stock WaW dumps for
         # script models too) and their effects join the map zone's conversion.
@@ -1208,6 +1216,12 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 gscport.hook_bo2_characters(main_gsc)
             gscport.hook_bo2_weapons(main_gsc)
             gscport.hook_bo2_box(main_gsc)
+            if bo2_root is None:
+                raise ValueError("BO2 runtime sources required to stage WaW perk ownership")
+            gscport.stage_bo2_perk_support(project_root, bo2_root)
+            gscport.hook_bo2_perk_client(project_root / "clientscripts" / "mp" / f"{project}.csc")
+            gscport.hook_bo2_animtrees(main_gsc, project_root / "clientscripts" / "mp" / f"{project}.csc", project_root,
+                                       report.scripts.get("staged_animtrees", []))
         except ValueError as exc:
             report.errors.append(f"scripts: {exc}")
     stage_rawfiles(report, project_root, bo2_root)
@@ -1288,7 +1302,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         report.warnings.append(
             f"SOUND_LOADED_TO_STREAMED {budget['streamed_files']} WaW loaded sounds streamed: loaded-bank budget "
             f"{budget['entries']} files / {budget['bytes'] // 2**20} MB (largest stock map bank "
-            f"{budget['reference_bank']} minus the template bank); kept {budget['loaded_files']} shortest loaded "
+            f"{budget['reference_bank']} minus the template bank); kept {budget['loaded_files']} loaded files, prioritizing weapon dependencies "
             f"({budget['loaded_bytes'] // 2**20} MB). List: content_source/sounds.bank.json")
     if bank_report["variants"]:
         with (project_root / MOD_EXTRA_ZONE).open("a", encoding="utf-8") as zone:
@@ -1718,6 +1732,7 @@ def stage_fx(report: StageReport, names: list[str], converted: dict[str, str], m
     (project_root / MOD_EXTRA_ZONE).write_text("".join(f"fx,{n}\n" for n in mod_fx), encoding="utf-8")
 
 
+SCRIPT_PRECACHE_MODEL_RE = re.compile(r'\bprecachemodel\s*\(\s*"([^"]+)"', re.IGNORECASE)
 SCRIPT_SHADER_RE = re.compile(r'\b(?:precacheshader|setshader)\s*\(\s*"([^"]+)"', re.IGNORECASE)
 CORE_ANIMTREE_HEADER = "// waw2bo2: WaW animtree"
 ANIM_REF_RE = re.compile(r'(?:[(,=\[]|\breturn|\[\[)\s*%\s*([A-Za-z_]\w*)')
@@ -1769,7 +1784,7 @@ SCRIPT_MODEL_RE = re.compile(r'\b(?:precachemodel|setmodel|setviewmodel|attach)\
 
 def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_script: Path, bo2_root: Path,
                  roots: list[Path], iwd_dirs: list[Path], stock: Path | None,
-                 t6_unlinker: Path | None, model_roots: list[Path]) -> set[str]:
+                 t6_unlinker: Path | None, model_roots: list[Path], clip=None) -> set[str]:
     """Translate the WaW map's gameplay scripts (gscport). Returns the WaW
     models the scripts use that the map zone must carry."""
     map_name = waw_map_script.stem
@@ -1797,6 +1812,10 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     # one once the effects are converted (stage_bridge)
     (project_root / "maps" / "mp" / "waw" / "_waw2bo2_assets.gsc").write_text(gscport.assets_source({}, map_name),
                                                                             encoding="utf-8")
+    # Collision export removes one-sided passage sheets; keep a no-op entry
+    # point so older generated map-main hooks cannot run movement emulation.
+    (project_root / "maps" / "mp" / "waw" / "_waw2bo2_oneway.gsc").write_text(oneway.oneway_source([]),
+                                                                             encoding="utf-8")
     report.errors += [f"scripts: link: {e}" for e in gscport.link_check(project_root, api)]
     for api_name, where in sorted(port.unsupported.items()):
         report.warnings.append(f"UNSUPPORTED_GSC_API {api_name.removeprefix('GSC ')} ({len(where)} uses, first "
@@ -1822,9 +1841,20 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
         elif name.lower() not in stock_models:
             report.warnings.append(f"UNSUPPORTED_ASSET xmodel {name}: used by the map scripts, not in any WaW "
                                    f"zone dump nor a stock BO2 zone")
+    # the named models the scripts precache, in the first frame (WaW scripts
+    # also precache late, which T6 rejects); only the ones the zones carry
+    precached = {m for path in port.ported
+                 for m in SCRIPT_PRECACHE_MODEL_RE.findall(sources.text.get(path + ".gsc", ""))}
+    precached = sorted(m for m in precached if m in models or m.lower() in stock_models)
+    (project_root / "maps" / "mp" / "waw" / "_waw2bo2_precache.gsc").write_text(
+        gscport.precache_source(precached), encoding="utf-8")
+    report.scripts["precached_models"] = precached
     # HUD materials the scripts precache / draw (setShader): nothing else
     # references them, so they would be missing (checkerboard icons)
-    shaders = set()
+    # Runtime compatibility HUDs also need dependencies even when no source
+    # map script names them (for example the teammate revive waypoint).
+    shaders = set(SCRIPT_SHADER_RE.findall(
+        (gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8")))
     for path in port.ported:
         shaders |= set(SCRIPT_SHADER_RE.findall(sources.text.get(path + ".gsc", "")))
     stock_materials = api.stock_assets.get("material", set())
