@@ -1,8 +1,11 @@
 """WaW -> BO2 effect translation rules (waw2bo2.fx, waw2bo2.fxmaterials)."""
 import copy
 import unittest
+import tempfile
+import json
+from pathlib import Path
 
-from waw2bo2 import fx, fxmaterials, techsets
+from waw2bo2 import fx, fxmaterials, techsets, t6bridge
 
 
 def _state(color):
@@ -44,6 +47,62 @@ def t4_effect(elems, looping=None, name="env/test"):
 
 
 class ElementTranslation(unittest.TestCase):
+    def overlay_effect(self):
+        model = t4_elem(6, visuals=[{'model': 'machine_on'}])
+        model['spawnOneShot'] = [1, 0]
+        model['spawnDelayMsec'] = [0, 0]
+        for sample in model['visSamples']:
+            sample['base']['scale'] = 1
+            sample['amplitude']['scale'] = 0
+        return fx.convert_effect(t4_effect([t4_elem(), model, t4_elem(7)], looping=1))[0]
+
+    def test_overlay_variant_preserves_original_and_other_effects(self):
+        effect = self.overlay_effect()
+        before = copy.deepcopy(effect)
+        [(model, variant)] = fx.model_overlay_variants(effect)
+        self.assertEqual(model, 'machine_on')
+        self.assertEqual(effect, before)
+        self.assertEqual(variant['elemDefs'], [effect['elemDefs'][0], effect['elemDefs'][2]])
+        self.assertEqual(variant['elemDefCountLooping'], 1)
+        self.assertEqual(variant['elemDefCountOneShot'], 1)
+        self.assertEqual(variant['msecNonLoopingLife'], effect['msecNonLoopingLife'])
+        self.assertFalse(variant['flags'] & fx.EF_MODEL)
+        self.assertTrue(variant['flags'] & fx.EF_OMNI)
+        self.assertEqual(variant['totalSize'], fx.t6_total_size(variant))
+
+    def test_overlay_never_reuses_moving_physical_random_or_child_models(self):
+        for field, value in (('flags', 0x08000000), ('flags', 0x200),
+                             ('spawnOneShot', [2, 0]), ('spawnDelayMsec', [1, 0]),
+                             ('effectOnDeath', 'another/fx'), ('spawnSound', 'sound')):
+            effect = self.overlay_effect()
+            effect['elemDefs'][1][field] = value
+            self.assertFalse(fx.model_overlay_variants(effect), (field, value))
+        effect = self.overlay_effect()
+        effect['elemDefs'][1]['velSamples'][0]['world']['velocity']['base'][0] = 1
+        self.assertFalse(fx.model_overlay_variants(effect))
+        effect = self.overlay_effect()
+        effect['elemDefs'][1]['visSamples'][0]['base']['scale'] = 2
+        self.assertFalse(fx.model_overlay_variants(effect))
+
+    def test_overlay_metadata_survives_asset_table_and_repeat_staging(self):
+        effect = self.overlay_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = fx.fx_file(root, effect['name']); path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(effect))
+            assets = root / 'maps/mp/waw/_waw2bo2_assets.gsc'
+            assets.parent.mkdir(parents=True)
+            assets.write_text('init()\n{\n    level.waw2bo2_fx["env/test"] = "waw/env/test";\n'
+                              '    level.waw2bo2_weapons["gun"] = "waw_gun";\n}\n')
+            report = t6bridge.StageReport(project='test', fx_table={'env/test': effect['name']})
+            names = t6bridge.stage_model_overlay_fx(report, root)
+            text = assets.read_text()
+            self.assertEqual(t6bridge.stage_model_overlay_fx(report, root), names)
+            self.assertEqual(assets.read_text(), text)
+            self.assertIn('level.waw2bo2_fx["env/test"] = "waw/env/test";', text)
+            self.assertIn('level.waw2bo2_weapons["gun"] = "waw_gun";', text)
+            self.assertEqual(report.content['model_overlay_fx'][0]['model'], 'machine_on')
+
     def test_flags_shift_after_run_mode(self):
         e = t4_elem(flags=0x2 | 0xC0 | 0x100 | 0x200 | 0x400 | 0x800 | 0x04000000 | 0x80000000)
         out, _ = fx.convert_effect(t4_effect([e]))
@@ -110,6 +169,34 @@ class ElementTranslation(unittest.TestCase):
         before = copy.deepcopy(src)
         fx.convert_effect(src)
         self.assertEqual(src, before)
+
+
+class EffectModelIsolation(unittest.TestCase):
+    def test_model_reference_is_owned_and_source_is_unchanged(self):
+        source = t4_effect([t4_elem(elem_type=6, visuals=[{"model": "shared_machine"}])], looping=0)
+        before = copy.deepcopy(source)
+        converted, _ = fx.convert_effect(source)
+        self.assertEqual(converted["elemDefs"][0]["visuals"], [{"model": "waw_fx_model/shared_machine"}])
+        self.assertEqual(converted["elemDefs"][0]["lifeSpanMsec"], source["elemDefs"][0]["lifeSpanMsec"])
+        self.assertEqual(source, before)
+
+    def test_owned_model_reuses_exact_source_geometry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); (root / "xmodel").mkdir()
+            source = root / "xmodel/shared_machine.json"
+            source.write_text(json.dumps({"_game": "t6", "lods": [{"file": "model_export/source.gltf"}], "contents": 1}))
+            report = t6bridge.StageReport(project="test")
+            staged = t6bridge.stage_fx_models(report, root, {"shared_machine"})
+            self.assertEqual(staged, {"waw_fx_model/shared_machine"})
+            self.assertEqual(source.read_bytes(), (root / "xmodel/waw_fx_model/shared_machine.json").read_bytes())
+            self.assertEqual(report.content["fx_model_assets"][0]["lods"], ["model_export/source.gltf"])
+            self.assertEqual(report.errors, [])
+
+    def test_missing_source_model_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = t6bridge.StageReport(project="test")
+            self.assertEqual(t6bridge.stage_fx_models(report, Path(tmp), {"shared_machine"}), set())
+            self.assertTrue(report.errors)
 
 
 class EffectMaterials(unittest.TestCase):

@@ -1,7 +1,8 @@
 """Compare an extracted native T6 collision geometry dump with its WaW source.
 
 Run T6 Unlinker with --include-assets mapents to obtain .collision.json.
-Coordinates, one-sided winding and collision masks must survive conversion.
+Coordinates, winding and source masks must survive conversion. Intentionally
+removed traversal sheets are excluded, as in the collision exporter.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import json
 from pathlib import Path
 
 from waw2bo2.world import read_collision
+from waw2bo2 import oneway
 
 
 def triangle_key(corners, contents, surface_flags):
@@ -24,8 +26,9 @@ def audit(source_path: Path, target_path: Path) -> dict:
     if not source.triangle_materials:
         raise ValueError("source dump needs per-triangle materials (v4 or newer)")
     expected = Counter()
+    removed = {s["triangle"] for s in oneway.one_way_sheets(source)}
     for t, material_index in enumerate(source.triangle_materials):
-        if material_index == 0xFFFF:
+        if t in removed or material_index == 0xFFFF:
             continue
         material = source.materials[material_index]
         if not material.content_flags:
@@ -55,6 +58,7 @@ def audit(source_path: Path, target_path: Path) -> dict:
     return {"source_triangles": sum(expected.values()), "target_triangles": sum(actual.values()),
             "missing_or_changed_triangles": sum(missing.values()), "extra_or_changed_triangles": sum(extra.values()),
             "triangle_positions_winding_and_flags_match": not missing and not extra,
+            "intentional_one_way_triangles_removed": len(removed),
             "source_brush_ownership_complete": source.brush_ownership_complete}
 
 

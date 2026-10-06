@@ -20,12 +20,16 @@ init()
         level.waw2bo2_out_of_playable_area_callback = level.player_out_of_playable_area_monitor_callback;
     level.player_out_of_playable_area_monitor_callback = ::waw_out_of_playable_area;
     level.waw2bo2_reported = [];
+    if ( !isdefined( level.waw_effect ) )
+        level.waw_effect = [];
     if ( !isdefined( level.waw2bo2_fx ) )
         level.waw2bo2_fx = [];
     if ( !isdefined( level.waw2bo2_weapons ) )
         level.waw2bo2_weapons = [];
     if ( !isdefined( level.waw2bo2_weapon_names ) )
         level.waw2bo2_weapon_names = [];
+    if ( !isdefined( level.waw2bo2_runtime_weapons ) )
+        level.waw2bo2_runtime_weapons = [];
     maps\mp\waw\_waw2bo2_assets::init();
     maps\mp\waw\_waw2bo2_visions::init();
     maps\mp\_utility::registerclientsys( "waw_sun" );
@@ -132,7 +136,7 @@ power_bridge()
     if ( isdefined( level.flag["power_on"] ) )
         flag_set( "power_on" );
     level notify( "power_on" );
-    level thread maps\mp\zombies\_zm_perks::perk_unpause_all_perks();
+    level thread maps\mp\waw\_waw2bo2_perks::perk_unpause_all_perks();
 }
 
 power_bridge_bo2_to_waw()
@@ -157,7 +161,19 @@ waw_setvelocity( velocity )
 waw_loadfx( name )
 {
     if ( isdefined( level.waw2bo2_fx ) && isdefined( level.waw2bo2_fx[name] ) )
-        return loadfx( level.waw2bo2_fx[name] );
+    {
+        loaded = loadfx( level.waw2bo2_fx[name] );
+        if ( isdefined( level.waw2bo2_model_overlay_fx ) && isdefined( level.waw2bo2_model_overlay_fx[name] ) )
+        {
+            if ( !isdefined( level.waw2bo2_model_overlay_ids ) )
+                level.waw2bo2_model_overlay_ids = [];
+            level.waw2bo2_model_overlay_ids[loaded] = [];
+            models = getarraykeys( level.waw2bo2_model_overlay_fx[name] );
+            for ( i = 0; i < models.size; i++ )
+                level.waw2bo2_model_overlay_ids[loaded][models[i]] = loadfx( level.waw2bo2_model_overlay_fx[name][models[i]] );
+        }
+        return loaded;
+    }
     report( "FX", name );
     return undefined;
 }
@@ -166,12 +182,40 @@ waw_playfx( fx, origin, forward, up )
 {
     if ( !isdefined( fx ) || !isdefined( origin ) )
         return;
+    fx = waw_model_overlay_fx( fx, origin );
     if ( isdefined( up ) )
         playfx( fx, origin, forward, up );
     else if ( isdefined( forward ) )
         playfx( fx, origin, forward );
     else
         playfx( fx, origin );
+}
+
+// Source effects keep their own IDs in level.waw_effect. Reuse an identical
+// model already rendered by a map entity; unmatched effects remain complete.
+waw_model_overlay_fx( fx, origin )
+{
+    if ( !isdefined( level.waw2bo2_model_overlay_ids ) || !isdefined( level.waw2bo2_model_overlay_ids[fx] ) )
+        return fx;
+    entities = getentarray( "script_model", "classname" );
+    for ( i = 0; i < entities.size; i++ )
+    {
+        ent = entities[i];
+        if ( isdefined( ent.model ) && distance( ent.origin, origin ) <= 4
+            && isdefined( level.waw2bo2_model_overlay_ids[fx][ent.model] ) )
+        {
+            if ( !isdefined( level.waw2bo2_model_overlay_logged ) )
+                level.waw2bo2_model_overlay_logged = [];
+            if ( !isdefined( level.waw2bo2_model_overlay_logged[fx] ) )
+            {
+                println( "WAW2BO2 FX MODEL REUSE " + ent.model );
+                level.waw2bo2_model_overlay_logged[fx] = 1;
+            }
+            return level.waw2bo2_model_overlay_ids[fx][ent.model];
+        }
+    }
+    println( "WAW2BO2 FX MODEL UNMATCHED id=" + fx + " origin=" + origin );
+    return fx;
 }
 
 waw_playfxontag( fx, ent, tag )
@@ -272,6 +316,31 @@ waw_clearanim( animname, time )
 }
 
 // ---- hint strings ----
+
+// WaW stores cost-bearing IDs (default_buy_door_750); BO2 normally stores
+// the base ID and substitutes a separate cost. Keep the source registry.
+waw_add_zombie_hint( ref, text )
+{
+    if ( !isdefined( level.waw2bo2_hints ) )
+        level.waw2bo2_hints = [];
+    precachestring( text );
+    level.waw2bo2_hints[ref] = text;
+}
+
+waw_get_zombie_hint( ref )
+{
+    if ( isdefined( level.waw2bo2_hints ) && isdefined( level.waw2bo2_hints[ref] ) )
+        return level.waw2bo2_hints[ref];
+    return maps\mp\zombies\_zm_utility::get_zombie_hint( ref );
+}
+
+waw_set_hint_string( ent, default_ref )
+{
+    ref = default_ref;
+    if ( isdefined( ent.script_hint ) )
+        ref = ent.script_hint;
+    self sethintstring( waw_get_zombie_hint( ref ) );
+}
 
 // trem_hintstrings (UGX) re-sent hints every frame through WaW menu client
 // dvars because WaW's setHintString did not update; BO2's does, and draws
@@ -637,6 +706,10 @@ waw_include_weapon( name, in_box, collector, weighting_func )
     if ( !isdefined( in_box ) )
         in_box = 1;
     maps\mp\zombies\_zm_weapons::include_zombie_weapon( weapon, in_box, collector, weighting_func );
+    // Native tactical helpers use a different inventory name. Precache and
+    // include it for their startup guards, without a second mystery-box entry.
+    if ( isdefined( level.waw2bo2_runtime_weapons[name] ) )
+        maps\mp\zombies\_zm_weapons::include_zombie_weapon( level.waw2bo2_runtime_weapons[name], 0 );
 }
 
 waw_add_zombie_weapon( name, hint, cost, weaponvo, variation_count, ammo_cost )
@@ -658,6 +731,10 @@ waw_add_zombie_weapon( name, hint, cost, weaponvo, variation_count, ammo_cost )
     if ( !isdefined( weaponvo ) )
         weaponvo = "";
     maps\mp\zombies\_zm_weapons::add_zombie_weapon( weapon, upgrade, hint, cost, weaponvo, "", ammo_cost );
+    // This must precede the native tactical initializer: it checks
+    // level.zombie_weapons before registering its script-model animtree.
+    if ( isdefined( level.waw2bo2_runtime_weapons[name] ) )
+        maps\mp\zombies\_zm_weapons::add_zombie_weapon( level.waw2bo2_runtime_weapons[name], undefined, hint, cost, weaponvo, "", ammo_cost );
 }
 
 waw_getcurrentweapon()
@@ -907,6 +984,13 @@ waw_precachemodel( name )
 }
 
 // ---- perks ----
+// A known absent source model must not terminate the rest of the source
+// thread. Keep the current model; the converter reports the missing asset.
+waw_missing_model( name )
+{
+    report( "XMODEL", name );
+}
+
 // WaW's perk table has names T6's lacks (measured from both executables;
 // T6 SetPerk/HasPerk/UnsetPerk raise "Unknown perk"). Custom perk scripts use
 // them as markers (specialty_boost = Electric Cherry, specialty_shades = Who's

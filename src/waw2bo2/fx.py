@@ -25,6 +25,7 @@ The layout differences below were measured, not assumed:
 from __future__ import annotations
 
 import json
+import copy
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,6 +85,7 @@ VEL_SAMPLE_SIZE, VIS_SAMPLE_SIZE = 96, 48
 # same name is an override error. Every converted effect therefore lives
 # under this prefix and the scripts' references are rewritten to it.
 OUTPUT_PREFIX = "waw/"
+MODEL_PREFIX = "waw_fx_model/"
 
 
 class FxConvertError(ValueError):
@@ -92,6 +94,11 @@ class FxConvertError(ValueError):
 
 def output_name(waw_name: str) -> str:
     return OUTPUT_PREFIX + waw_name
+
+
+def model_name(waw_name: str) -> str:
+    """FX models must not bind to same-named assets in BO2 gameplay zones."""
+    return MODEL_PREFIX + waw_name
 
 
 def _float_bits(x: float) -> int:
@@ -198,6 +205,8 @@ def convert_elem(e: dict, material_names: dict[str, str], notes: list[str], wher
             visuals.append({"sound": OUTPUT_PREFIX + v["sound"]})
             notes.append(f"UNSUPPORTED_SOUND {v['sound']} ({where} sound element): WaW sound aliases are not "
                          f"converted yet (silent)")
+        elif v.get("model"):
+            visuals.append({"model": model_name(v["model"])})
         else:
             visuals.append(dict(v))
     out["visuals"] = visuals
@@ -303,6 +312,55 @@ def convert_effect(t4: dict, material_names: dict[str, str] | None = None) -> tu
 
 def fx_file(root: Path, name: str) -> Path:
     return root / "fx" / f"{name}.w2bfx.json"
+
+
+def model_overlay_variants(effect: dict) -> list[tuple[str, dict]]:
+    """Conditional rendering variants for stationary copies of an entity model.
+
+    The original remains available at every unmatched position. Other elements,
+    including their timing and visual graphs, remain exactly unchanged.
+    """
+    def zero(value):
+        if isinstance(value, dict): return all(zero(v) for v in value.values())
+        if isinstance(value, list): return all(zero(v) for v in value)
+        return abs(value) < 1e-6
+    models = {}
+    first = effect['elemDefCountLooping']
+    last = first + effect['elemDefCountOneShot']
+    for i in range(first, last):
+        e = effect['elemDefs'][i]
+        if e['elemType'] != T6_MODEL or e['visualCount'] != 1:
+            continue
+        if e['spawnOneShot'] != [1, 0] or not zero(e['spawnDelayMsec']):
+            continue
+        if e['flags'] & (0x200 | 0x400 | 0x08000000):
+            continue
+        if any(abs(r[1]) >= 1e-6 for r in e['spawnAngles']) or not zero(e['initialRotation']):
+            continue
+        if any(not zero(e[k]) for k in ('spawnOrigin', 'spawnOffsetRadius', 'spawnOffsetHeight',
+                                        'angularVelocity', 'gravity', 'velSamples', 'windInfluence')):
+            continue
+        if any(e.get(k) for k in ('effectOnImpact', 'effectOnDeath', 'effectEmitted', 'effectAttached', 'spawnSound')):
+            continue
+        if any(s['base']['scale'] != 1 or s['amplitude']['scale'] != 0 for s in e['visSamples']):
+            continue
+        if any(not zero(s[role][key]) for s in e['visSamples'] for role in ('base', 'amplitude')
+               for key in ('rotationDelta', 'rotationTotal')):
+            continue
+        model = e['visuals'][0].get('model', '')
+        if model.startswith(MODEL_PREFIX):
+            models.setdefault(model.removeprefix(MODEL_PREFIX), []).append(i)
+    result = []
+    for index, (model, removed) in enumerate(sorted(models.items())):
+        variant = copy.deepcopy(effect)
+        variant['name'] += f'/reuse_model_{index}'
+        variant['elemDefs'] = [e for i, e in enumerate(variant['elemDefs']) if i not in removed]
+        variant['elemDefCountOneShot'] -= len(removed)
+        if not any(e['elemType'] == T6_MODEL for e in variant['elemDefs']):
+            variant['flags'] &= ~EF_MODEL
+        variant['totalSize'] = t6_total_size(variant)
+        result.append((model, variant))
+    return result
 
 
 def find_source(roots: list[Path], name: str) -> Path | None:

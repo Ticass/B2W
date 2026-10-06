@@ -186,6 +186,11 @@ def _match_lit(src: Techset, source: str, candidates: list[str], want_family: st
 
 def match(source: str, candidates: list[str]) -> Match:
     src = parse(source)
+    if source == 'default':
+        # WaW's raw $default3d uses a plain colorMap, rather than mtl_default's
+        # lit/specular debug texture. Preserve that image on a model draw pass.
+        m = match('mc_unlit', candidates)
+        return Match(source, m.target, m.cost, ['WaW default colorMap -> T6 model unlit pass'] + m.notes)
     # Measured on the same reticle_side_small asset in T4 and T6: T4's 2d
     # is the single-color-map, alpha-blended HUD pass called trivial in T6.
     # Keep this apart from world unlit shaders (different draw interfaces).

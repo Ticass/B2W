@@ -242,7 +242,7 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
 # BO2 framework keeps its own. level.script: WaW map name vs the BO2 project.
 # level.chests / chest_index: WaW's box triggers vs BO2 _zm_magicbox structs
 # (BO2 powerups such as fire sale iterate level.chests as BO2 structs).
-WAW_LEVEL_FIELDS = {"script": "waw_script", "chests": "waw_chests", "chest_index": "waw_chest_index"}
+WAW_LEVEL_FIELDS = {"script": "waw_script", "chests": "waw_chests", "chest_index": "waw_chest_index", "_effect": "waw_effect"}
 
 
 def rename_level_fields(tokens: list[gsc.Token]) -> int:
@@ -595,6 +595,11 @@ class Translator:
         """Rewrite every function reference in ``tokens`` (code of ``script``).
         ``extracting``: the core script whose functions are being extracted;
         its own functions are extracted too instead of kept."""
+        # WaW custom scripts may access the hint registry directly. Keep these
+        # accesses in the same source registry as the adapted helper calls.
+        for i in range(2, len(tokens)):
+            if tokens[i].text.lower() == "zombie_hints" and tokens[i - 1].text == "." and tokens[i - 2].text.lower() == "level":
+                tokens[i].text = "waw2bo2_hints"
         for ref in gsc.references(tokens):
             if ref.index in skip or not tokens[ref.index].text:
                 continue    # a definition, or inside arguments already dropped
@@ -888,6 +893,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         for old in out_dir.rglob("*.gsc"):
             old.unlink()
     tr.queue.append(main)
+    hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")
     registration = {role: [tr.extract_entry(core, fn) for core, fn in entries if sources.get(core) is not None
                            and fn in sources.get(core).functions]
                     for role, entries in WEAPON_REGISTRATION.items()}
@@ -928,6 +934,8 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     read = set().union(*(level_fields_read(gsc.tokenize(text)) for text in tr.done.values()))
     framework_state = [state for core, init in FRAMEWORK_STATE_INITS
                        if (state := tr.extract_level_state(core, init, read))]
+    if hint_registry:
+        framework_state.append(hint_registry)
     drain()
     core_parts += tr.level_state_parts
     core_parts.append("\n// level state of WaW framework inits BO2 does not run (called by waw_main_pre)\n"
@@ -1047,6 +1055,11 @@ def link_check(out_root: Path, api: T6Api) -> list[str]:
     return problems
 
 
+# Native tactical gameplay helpers give/check these runtime weapon names even
+# when the map's box and weapon definitions retain their original WaW names.
+BO2_TACTICAL_RUNTIME_WEAPONS = {"zombie_cymbal_monkey": "cymbal_monkey_zm"}
+
+
 def assets_source(fx_table: dict[str, str], waw_map: str | None = None,
                   weapons: dict[str, str] | None = None) -> str:
     lines = ["// waw2bo2: WaW asset name -> BO2 asset name for converted assets (generated).", "init()", "{"]
@@ -1059,6 +1072,10 @@ def assets_source(fx_table: dict[str, str], waw_map: str | None = None,
         lines.append(f'    level.waw2bo2_weapons["{waw}"] = "{bo2}";')
         if bo2 and bo2 != waw:
             lines.append(f'    level.waw2bo2_weapon_names["{bo2}"] = "{waw}";')
+        runtime = BO2_TACTICAL_RUNTIME_WEAPONS.get(waw)
+        if bo2 and runtime and runtime != bo2:
+            lines.append(f'    level.waw2bo2_runtime_weapons["{waw}"] = "{runtime}";')
+            lines.append(f'    level.waw2bo2_weapon_names["{runtime}"] = "{waw}";')
     lines += ["}", ""]
     return "\n".join(lines)
 
@@ -1266,6 +1283,11 @@ def hook_bo2_animtrees(main_gsc: Path, main_csc: Path, out_root: Path, trees: li
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(animtrees_source(trees), encoding="utf-8")
         source = main.read_text(encoding="utf-8", errors="replace")
+        if anchor + '\n' not in source:
+            # Perk ownership redirects _zm::init to the converter's owned
+            # bootstrap. It still performs the same base animtree registration.
+            anchor = anchor.replace(base + '\\mp\\zombies\\_zm',
+                                    base + '\\mp\\waw\\_waw2bo2_zm')
         call = f"    {base}\\mp\\waw\\_waw2bo2_animtrees::init();\n"
         if anchor + "\n" + call in source:
             continue
@@ -1314,6 +1336,38 @@ def precache_source(models: list[str]) -> str:
              "init()", "{"]
     lines += [f'    {COMPAT}::waw_precachemodel( "{m}" );' for m in sorted(set(models))]
     return "\n".join(lines + ["}", ""])
+
+
+def guard_missing_model_calls(source: str, missing: set[str]) -> tuple[str, list[str]]:
+    """Keep subsequent source behavior running when a model is unavailable.
+
+    T6 rejects a missing model at the model API call. Report that unsupported
+    operation, retaining the entity's existing model and all following script
+    statements (including the map's original power-on light effects).
+    """
+    script = gsc.parse(source, '<model dependencies>')
+    guarded = []
+    for ref in gsc.references(script.tokens):
+        if ref.pointer or ref.name.lower() not in ('setmodel', 'precachemodel', 'waw_precachemodel'):
+            continue
+        if ref.qualifier is None and ref.name.lower() in script.functions:
+            continue
+        if ref.qualifier and ref.qualifier.lower() != COMPAT.lower():
+            continue
+        if script.tokens[ref.index - 1].text == '::' and ref.qualifier is None:
+            continue
+        args = script.tokens[ref.index + 2:ref.index + 4]
+        if len(args) != 2 or args[0].kind != gsc.STRING or args[1].text != ')':
+            continue
+        name = args[0].text[1:-1]
+        if name not in missing:
+            continue
+        token = script.tokens[ref.index]
+        token.text = 'waw_missing_model'
+        if ref.qual_index is None:
+            token.text = COMPAT + '::' + token.text
+        guarded.append(name)
+    return gsc.emit(script.tokens), guarded
 
 
 def bo2_scripts(out_root: Path) -> list[str]:
@@ -1402,6 +1456,39 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path) -> None:
         raise ValueError("BO2 client bootstrap has no perk initializer")
     bootstrap = bootstrap.replace(native, owned)
     (client.parent / "_waw2bo2_zm.csc").write_text(PERK_OVERRIDE_HEADER + bootstrap, encoding="utf-8")
+
+    # The server has the same stock-script caching risk as the client. Route
+    # the framework initializer through owned names, rather than assuming a
+    # map-zone same-name override replaces an already linked stock script.
+    server_dir = out_root / "maps/mp/waw"
+    server_dir.mkdir(parents=True, exist_ok=True)
+    native = "maps\\mp\\zombies\\_zm_perks"
+    owned = "maps\\mp\\waw\\_waw2bo2_perks"
+    source = (out_root / "maps/mp/zombies/_zm_perks.gsc").read_text(encoding="utf-8")
+    (server_dir / "_waw2bo2_perks.gsc").write_text(source.replace(native, owned), encoding="utf-8")
+    bootstrap = (bo2_root / "raw/maps/mp/zombies/_zm.gsc").read_text(encoding="utf-8")
+    if native + "::init" not in bootstrap:
+        raise ValueError("BO2 server bootstrap has no perk initializer")
+    (server_dir / "_waw2bo2_zm.gsc").write_text(
+        PERK_OVERRIDE_HEADER + bootstrap.replace(native, owned), encoding="utf-8")
+
+
+def hook_bo2_perk_server(main_gsc: Path) -> None:
+    """Use owned server entry points for perk initialization and availability."""
+    source = main_gsc.read_text(encoding="utf-8")
+    script = gsc.parse(source, main_gsc.as_posix())
+    native = "maps\\mp\\zombies\\_zm"
+    owned = "maps\\mp\\waw\\_waw2bo2_zm"
+    count = 0
+    for ref in gsc.references(script.tokens):
+        if ref.name.lower() == "init" and ref.qualifier in (native, owned):
+            script.tokens[ref.qual_index].text = owned
+            count += 1
+        elif ref.qualifier == "maps\\mp\\zombies\\_zm_perks":
+            script.tokens[ref.qual_index].text = "maps\\mp\\waw\\_waw2bo2_perks"
+    if not count:
+        raise ValueError(f"{main_gsc}: no BO2 server bootstrap call")
+    main_gsc.write_text(gsc.emit(script.tokens), encoding="utf-8")
 
 
 def hook_bo2_perk_client(main_csc: Path) -> None:

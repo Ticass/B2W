@@ -102,7 +102,7 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
             target.write_text(json.dumps(material), encoding='utf-8')
             bound.add(relative.as_posix())
     for root in (stock, project, project/'content_source'):
-        for folder in ('techniquesets', 'shader_bin'):
+        for folder in ('techniquesets', 'shader_bin', 'english/localizedstrings'):
             if (root/folder).is_dir():
                 shutil.copytree(root/folder, overlay/folder, dirs_exist_ok=True)
     # Stringtables must also override loaded/stock assets. The linker's

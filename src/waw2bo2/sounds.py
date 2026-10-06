@@ -24,6 +24,30 @@ class SoundError(ValueError):
     pass
 
 
+def default_reverb_mix(project: Path) -> dict:
+    """Restore a silent WaW driver default without muting explicit rooms.
+
+    T4's DEFAULT I3DL2 patch uses -10000 millibels (the silence floor).
+    T6's identically named radverb has audible early and late reflections.
+    A declared ambient default lets the normal room controller select the
+    source baseline and still replace it when an explicit room is active.
+    Non-silent I3DL2 patches need DSP translation; never guess their mix.
+    """
+    path = project / "sound_ir/driver_globals.json"
+    if not path.is_file():
+        return {"status": "missing_source_default"}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    patches = [p for p in data.get("reverbPatches", [])
+               if p.get("name", "").casefold() == "default"]
+    if len(patches) != 1:
+        return {"status": "missing_source_default"}
+    patch = patches[0]
+    silent = patch["room"] <= -10000 or (
+        patch["reflections"] <= -10000 and patch["reverb"] <= -10000)
+    return {"status": "silent_source_default" if silent else "unsupported_source_default",
+            "source": patch, **({"dry": 1, "wet": 0} if silent else {})}
+
+
 def script_aliases(project_root: Path, defined: set[str]) -> set[str]:
     """Discover original aliases carried through script variables and arrays.
 
@@ -513,6 +537,7 @@ T6_ALIAS_COLUMNS = [
 T6_STORAGE = {1: "loaded", 2: "streamed", 3: "primed"}
 # Fields WaW has and this playback mapping does not carry (yet). Reported, not silent.
 PLAYBACK_NOT_TRANSLATED = ["driver routing/ducking (stock BO2 groups; original bus gain baked into alias)", "speaker map (stock pan)",
+                           "explicit WaW room reverb presets (I3DL2 to RAD DSP)",
                            "softest voice limit (approximated with priority)", "chain alias",
                            "team/cylinder/move/slave/master fields",
                            "falloff curve shape where no stock BO2 curve matches (nearest loudness used)"]
@@ -715,6 +740,7 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
     report = {"status": "t6_playback_bank_not_full_semantics", "bank": bank, "aliases": 0, "variants": 0,
               "not_translated": PLAYBACK_NOT_TRANSLATED, "volume_encoding": "linear gain to T6 dB SPL",
               "source_bus_gain_applied": True,
+              "default_reverb": default_reverb_mix(project),
               "voice_limit_approximations": [], "errors": []}
     rows = []
     for item in bindings["aliases"]:

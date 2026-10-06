@@ -9,6 +9,43 @@ from pathlib import Path
 from waw2bo2 import sounds
 
 
+class DefaultReverbTests(unittest.TestCase):
+    def generate(self, patch):
+        from waw2bo2 import t6bridge
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        driver = root / "content_source/sound_ir/driver_globals.json"
+        driver.parent.mkdir(parents=True)
+        driver.write_text(json.dumps({"reverbPatches": [patch]}))
+        report = t6bridge.StageReport("example")
+        t6bridge.write_amb_csc(report, "example", root)
+        text = (root / "clientscripts/mp/example_amb.csc").read_text()
+        return root, report, text
+
+    def test_silent_source_default_restored_without_changing_aliases(self):
+        root, report, text = self.generate({"name": "DEFAULT", "room": -10000,
+                                          "reflections": -10000, "reverb": -10000})
+        self.assertEqual(report.content["default_reverb"]["wet"], 0)
+        self.assertIn('declareambientroom( "waw_default", 1 )', text)
+        self.assertIn('setambientroomreverb( "waw_default", "default", 1, 0, 0 )', text)
+        self.assertIn('setreverb( "snd_enveffectsprio_level", "default", 1, 0, 0 )', text)
+        self.assertIn('declaremusicstate( "WAVE" )', text)
+        self.assertFalse((root / "soundbank").exists())
+
+    def test_custom_audible_default_is_reported_and_not_muted(self):
+        _, report, text = self.generate({"name": "default", "room": -1000,
+                                        "reflections": -711, "reverb": 83})
+        self.assertEqual(report.content["default_reverb"]["status"], "unsupported_source_default")
+        self.assertNotIn('setreverb(', text)
+        self.assertNotIn('waw_default', text)
+        self.assertTrue(report.warnings)
+
+    def test_missing_source_default_is_not_assumed_silent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertEqual(sounds.default_reverb_mix(Path(temp))["status"], "missing_source_default")
+
+
 def fixture():
     globals_data = {"_game": "T4", "_type": "waw2bo2_sound_globals", "_version": 1,
                     "buses": [{"index": 8, "name": "rfl_1st", "volumeMod": .68}],

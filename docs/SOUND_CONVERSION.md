@@ -1,5 +1,18 @@
 # Sound gain, attenuation, and voice limits
 
+WaW's stock `DEFAULT` I3DL2 reverb patch is silent (-10000 millibels for
+room, reflections, and reverb). BO2's `default` RAD preset has audible
+reflections. Without a declared room, a converted map inherited that BO2
+effect on all aliases with nonzero sends, particularly gunfire after the
+linear gain correction. The converter now reads the staged WaW driver and,
+when its default is silent, declares a default ambient room with dry gain 1
+and wet gain 0. It also selects that mix at client startup. The normal ambient
+room controller owns subsequent room changes; alias sends, source PCM, and
+loaded weapon allocation are unchanged. Missing or audible custom source
+defaults are reported and are never assumed silent. Explicit WaW room presets
+still require I3DL2-to-RAD DSP translation; this fixes the baseline rather
+than claiming complete room acoustics conversion.
+
 WaW sound aliases retain their original audio, distance ranges, and four
 dry/wet falloff curves in the converter's sound IR. BO2 rejects a second
 `snddriverglobals` asset, so the converter binds against curves in the stock

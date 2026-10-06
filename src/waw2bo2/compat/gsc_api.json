@@ -77,6 +77,9 @@
     "maps\\createfx\\dlc3_fx"
   ],
   "function_renames": {
+    "add_zombie_hint": "maps\\mp\\waw\\_waw2bo2_compat::waw_add_zombie_hint",
+    "get_zombie_hint": "maps\\mp\\waw\\_waw2bo2_compat::waw_get_zombie_hint",
+    "set_hint_string": "maps\\mp\\waw\\_waw2bo2_compat::waw_set_hint_string",
     "include_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_include_weapon",
     "add_zombie_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_add_zombie_weapon"
   },

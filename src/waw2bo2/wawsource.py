@@ -8,21 +8,23 @@ reimplemented: the compiled data is exactly what WaW's toolchain produces
 (verified: recompiled stock effects dump identical to the shipped ones,
 except where the shipped zone was built from an older revision of the source).
 
-Opt-in: these assets were never compiled into the map, so porting them adds
-content the WaW build did not show. Every use is reported by the caller
-(``WAW_SOURCE_ASSET``).
+FX source recovery is opt-in: those effects were never compiled into the map,
+so porting them adds content the WaW build did not show. Referenced material and model
+definitions also use this compiler before being declared absent. Every use is
+reported by the caller (``WAW_SOURCE_ASSET``).
 """
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 LINKER = Path("bin") / "linker_pc.exe"
 DUMP_ASSETS = "material,image,fx,xmodel"
-DUMP_MARKER = ".waw2bo2_source_dump_v2"  # v2: xmodel collSurfs/contents
+DUMP_MARKER = ".waw2bo2_source_dump_v3"  # v3: verify the requested asset was actually dumped
 LINK_TIMEOUT = 300  # s; after an unrecoverable error the linker waits for a key press
 
 
@@ -83,12 +85,22 @@ class WawSourceAssets:
         return problems
 
     def source(self, kind: str, name: str) -> Path | None:
+        if kind == 'xmodel':
+            p = self.raw / 'xmodel' / name
+            return p if p.is_file() else None
         if kind == "fx":
             p = self.raw / "fx" / f"{name}.efx"
             return p if p.is_file() else None
         if kind == 'material':
             p = self.raw / 'materials' / name
-            return p if p.is_file() else None
+            if p.is_file():
+                return p
+            # The linker adds a draw-family prefix; raw materials do not have it.
+            family, _, base = name.partition('/')
+            if family in ('mc', 'wc', 'mlv'):
+                p = self.raw / 'materials' / base
+                return p if p.is_file() else None
+            return None
         return None
 
     def _workspace(self) -> Path:
@@ -107,6 +119,18 @@ class WawSourceAssets:
         src = self.source(kind, name)
         if src is None:
             return None
+        # Engine $ materials are compiled without a draw-family variant. Models
+        # imported from other CoD tools can nevertheless name mc/$default3d.
+        family, _, base = name.partition('/')
+        if (kind == 'material' and family in ('mc', 'wc', 'mlv') and base.startswith('$')
+                and src == self.raw / 'materials' / base):
+            recovered = self.compile(kind, base)
+            from .techsets import oat_material_path
+            original = recovered / oat_material_path(base)
+            alias = recovered / oat_material_path(name)
+            alias.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(original, alias)
+            return recovered
         zone = "w2bsrc_" + re.sub(r"[^A-Za-z0-9_]", "_", f"{kind}_{name}").lower()
         out = self.work / zone
         stamp = f"{src.stat().st_mtime_ns} {src.stat().st_size}"
@@ -128,6 +152,13 @@ class WawSourceAssets:
         text = log.read_text(encoding="utf-8", errors="replace")
         if not ff.exists() or "UNRECOVERABLE ERROR" in text:
             raise WawSourceError(f"WaW linker failed compiling {kind} {name} (see {log})")
+        if out.exists():
+            # A changed source must not inherit an asset from an older dump
+            # when the linker emits an incomplete fastfile.
+            out.resolve().relative_to(self.work.resolve())
+            if out.is_symlink():
+                raise WawSourceError(f"source dump is a symlink: {out}")
+            shutil.rmtree(out)
         dump_log = self.work / f"{zone}.dump.log"
         with dump_log.open("w", encoding="utf-8") as fh:
             r = subprocess.run([str(self.unlinker), "--no-color", "--search-path", str(self.waw_root / "main"),
@@ -136,6 +167,9 @@ class WawSourceAssets:
                                stdout=fh, stderr=subprocess.STDOUT)
         if r.returncode:
             raise WawSourceError(f"dump of compiled source {kind} {name} failed ({r.returncode}); see {dump_log}")
+        from .assetresolve import asset_path
+        if not (out / asset_path(kind, name)).is_file():
+            raise WawSourceError(f"WaW linker produced no {kind} {name} (see {log})")
         marker.write_text(stamp, encoding="utf-8")
         return out
 

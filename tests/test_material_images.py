@@ -13,6 +13,57 @@ def write_json(path, data):
 
 
 class MaterialImageTests(unittest.TestCase):
+    def test_recovered_waw_material_wins_before_native_equivalent_and_updates_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, recovered, native = [root / n for n in ('source', 'recovered', 'native')]
+            write_json(recovered / 'materials/shared.json', {'techniqueSet': '2d', 'textures': []})
+            write_json(native / 'materials/shared.json', {'techniqueSet': 'trivial_12345678', 'textures': []})
+            source_compiler = unittest.mock.Mock()
+            source_compiler.compile.return_value = recovered
+            report = t6bridge.StageReport('any_map')
+            roots, fallbacks = t6bridge.recover_material_sources(report, {'shared'}, [source], None,
+                                                                source_compiler, native / 'materials')
+            self.assertEqual(fallbacks, {})
+            self.assertIn(recovered, roots)
+            closure = report.content['material_dependencies']
+            self.assertEqual(closure['missing'], [])
+            self.assertIn(str(recovered), closure['roots'])
+            self.assertEqual(closure['nodes'][0]['provenance'], 'WAW_SOURCE_ASSET')
+
+    def test_default_builtin_uses_its_own_color_map_on_model_pass(self):
+        match = techsets.match('default', ['mc_unlit_replace_12345678'])
+        self.assertEqual(match.target, 'mc_unlit_replace_12345678')
+        material = techsets.build_material(
+            {'techniqueSet': 'default', 'textures': [{'name': 'colorMap', 'image': 'default'}]},
+            {'techniqueSet': match.target, 'textures': [{'name': 'colorMap', 'image': 'donor'}]}, [])
+        self.assertEqual(material['textures'][0]['image'], 'default')
+
+    def test_native_material_in_raw_uses_dumped_pixels_in_weapon_namespace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, native, project, bo2 = [root / n for n in ('source', 'native', 'project', 'bo2')]
+            name = 'mc/shared_import'
+            material = {'techniqueSet': 'mc_unlit_replace_12345678', 'textures': [
+                {'name': 'colorMap', 'image': 'native_color', 'semantic': 'colorMap'}]}
+            write_json(bo2 / 'raw/materials/mc/shared_import.json', material)
+            write_json(native / 'materials/donor.json', material)
+            write_json(native / 'techniquesets/mc_unlit_replace_12345678.json', {'techniques': []})
+            (native / 'images').mkdir()
+            blob = iwi.solid_rgba_iwi(2, 2, (10, 20, 30, 255))
+            (native / 'images/native_color.iwi').write_bytes(blob)
+            write_json(project / 'weapons.stage.json', {'models': {'materials': [name]}, 'dependencies': {}})
+            report = t6bridge.StageReport('any_map')
+            roots, fallbacks = t6bridge.recover_material_sources(report, {name}, [source], None, None,
+                                                                native / 'materials', bo2)
+            result = weapons.stage_visuals(roots, project, native / 'materials', native,
+                                          native_fallbacks=fallbacks)
+            output = 'waw_image/bo2_fallback/native_color'
+            self.assertEqual(result['failed_materials'], {})
+            self.assertEqual(result['material_images']['waw_material/' + name], [output])
+            self.assertEqual((project / f'images/{output}.iwi').read_bytes(), blob)
+            self.assertTrue(any('BO2_FALLBACK' in w for w in result['warnings']))
+
     def test_custom_unlit_decal_keeps_transparency_depth_and_draw_order(self):
         state = {'blendOpRgb': 'add', 'srcBlendRgb': 'srcalpha', 'dstBlendRgb': 'invsrcalpha',
                  'depthWrite': False, 'colorWriteRgb': True, 'polygonOffset': 'offset0'}

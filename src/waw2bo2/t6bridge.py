@@ -31,7 +31,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, oneway, paths, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
+from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, oneway, paths, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
 from .fbx import collision_material_slots, write_collision_fbx, write_world_fbx
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
@@ -98,6 +98,45 @@ def _find(roots: list[Path], rel: Path) -> Path | None:
 
 def _star_parts(name: str) -> list[str]:
     return name[1:].split("(")[0].split("_")
+
+
+def recover_material_sources(report: StageReport, names: set[str], roots: list[Path],
+                             stock_waw, source_waw, stock_materials: Path,
+                             bo2_root: Path | None = None) -> tuple[list[Path], dict[str, Path]]:
+    """One lookup for world, HUD and weapon materials, before placeholders.
+
+    Compiled WaW definitions win, followed by raw WaW sources. BO2 equivalents
+    must be explicit or exact-name matches, and keep their native image payloads.
+    """
+    resolver = assetresolve.Resolver(roots, stock_waw)
+    closure = resolver.expand({('material', n) for n in names})
+    roots = resolver.roots
+    equivalents = _load_json(Path(__file__).parent / 'compat/bo2_equivalents.json').get('material', {})
+    native_fallbacks = {}
+    for name in sorted(names):
+        if _find(roots, techsets.oat_material_path(name)) is not None:
+            continue
+        if source_waw is not None:
+            recovered = source_waw.compile('material', name)
+            if recovered is not None:
+                roots.append(recovered)
+                report.warnings.append(f'WAW_SOURCE_ASSET material {name}: compiled from WaW Mod Tools')
+                node = resolver.nodes['material', name]
+                node.update(status='resolved', provenance='WAW_SOURCE_ASSET',
+                            source=str(recovered / techsets.oat_material_path(name)))
+                continue
+        relative = techsets.oat_material_path(equivalents.get(name, name))
+        candidates = [stock_materials.parent]
+        if bo2_root is not None:
+            candidates.append(bo2_root / 'raw')
+        candidate = _find(candidates, relative)
+        if candidate is not None:
+            native_fallbacks[name] = candidate
+            resolver.nodes['material', name]['native_equivalent'] = str(candidate)
+    closure['roots'] = [str(root) for root in roots]
+    closure['missing'] = [node for node in closure['nodes'] if node['status'] != 'resolved']
+    report.content['material_dependencies'] = closure
+    return roots, native_fallbacks
 
 
 def dangling_substitute(name: str, roots: list[Path]) -> tuple[str, str] | None:
@@ -173,17 +212,21 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
                 if not image or image.startswith('$'):
                     texture['image'] = techsets.as_reference(image)
                     continue
-                output = image_prefix + 'bo2_fallback/' + image
-                image_path = native_root / techsets.oat_image_path(image)
+                output = (image_prefix or 'waw_image/') + 'bo2_fallback/' + image
+                # A definition can be present only in BO2 raw while its packed
+                # image is available in the stock-zone dump.
+                material_folder = next(p for p in native_path.parents if p.name == 'materials')
+                image_roots = [native_root, material_folder.parent]
+                image_path = _find(image_roots, techsets.oat_image_path(image))
                 dst = project_root / techsets.oat_image_path(output)
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                if image_path.is_file():
+                if image_path is not None:
                     if image_path.read_bytes()[:4] != b'IWi\x1b':
                         raise StageError(f'BO2 equivalent image {image}: not an IWI27 source')
                     shutil.copy2(image_path, dst)
                 else:
-                    image_path = native_root / techsets.oat_image_path(image, '.dds')
-                    if not image_path.is_file():
+                    image_path = _find(image_roots, techsets.oat_image_path(image, '.dds'))
+                    if image_path is None:
                         raise StageError(f'BO2 equivalent material {name}: image {image} missing from {native_root}')
                     iwi.convert_file(image_path, dst)
                 texture['image'] = output
@@ -673,6 +716,62 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
     return materials
 
 
+def stage_fx_models(report: StageReport, project_root: Path, names: set[str]) -> set[str]:
+    """Isolate converted FX models from BO2's same-named gameplay models.
+
+    Geometry and materials are the already staged WaW sources. The independent
+    asset name prevents an FX dependency from resolving to a preloaded BO2 model.
+    """
+    staged = set()
+    entries = []
+    for name in sorted(names):
+        source = project_root / "xmodel" / (name + ".json")
+        if not source.is_file():
+            report.errors.append(f"FX xmodel {name}: converted WaW model missing")
+            continue
+        model = _load_json(source)
+        if model.get("_game", "").lower() != "t6" or not model.get("lods"):
+            report.errors.append(f"FX xmodel {name}: converted WaW model is invalid")
+            continue
+        output = fx.model_name(name)
+        target = project_root / "xmodel" / (output + ".json")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        staged.add(output)
+        entries.append({"source_model": name, "name": output,
+                        "file": target.relative_to(project_root).as_posix(),
+                        "lods": [lod["file"] for lod in model["lods"]]})
+    report.content["fx_model_assets"] = entries
+    return staged
+
+
+
+def stage_model_overlay_fx(report: StageReport, project_root: Path) -> list[str]:
+    entries = []
+    for source, name in sorted(report.fx_table.items()):
+        path = fx.fx_file(project_root, name)
+        if not path.exists(): continue
+        for model, variant in fx.model_overlay_variants(_load_json(path)):
+            dst = fx.fx_file(project_root, variant['name'])
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(json.dumps(variant, indent=1) + '\n', encoding='utf-8')
+            entries.append({'source': source, 'model': model, 'variant': variant['name']})
+    assets = project_root / 'maps/mp/waw/_waw2bo2_assets.gsc'
+    if assets.exists():
+        text = assets.read_text(encoding='utf-8')
+        text = re.sub(r'\n    // BEGIN MODEL OVERLAY FX.*?    // END MODEL OVERLAY FX\n', '', text, flags=re.S)
+        lines = ['    // BEGIN MODEL OVERLAY FX', '    level.waw2bo2_model_overlay_fx = [];']
+        for source in sorted({e['source'] for e in entries}):
+            lines.append('    level.waw2bo2_model_overlay_fx[' + json.dumps(source) + '] = [];')
+        for entry in entries:
+            lines.append('    level.waw2bo2_model_overlay_fx[' + json.dumps(entry['source']) + ']['
+                         + json.dumps(entry['model']) + '] = ' + json.dumps(entry['variant']) + ';')
+        lines.append('    // END MODEL OVERLAY FX')
+        text = text.replace('init()\n{', 'init()\n{\n' + '\n'.join(lines) + '\n', 1)
+        assets.write_text(text, encoding='utf-8')
+    report.content['model_overlay_fx'] = entries
+    return [e['variant'] for e in entries]
+
 def verify_techsets(report: StageReport, used: set[str], techset_root: Path | None, project_root: Path | None = None) -> None:
     report.techsets = sorted(used)
     if techset_root is None:
@@ -739,7 +838,19 @@ main()
 def write_amb_csc(report: StageReport, project: str, project_root: Path) -> None:
     dst = project_root / "clientscripts" / "mp" / f"{project}_amb.csc"
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(AMB_CSC, encoding="utf-8")
+    mix = sounds.default_reverb_mix(project_root / "content_source")
+    text = AMB_CSC
+    if mix["status"] == "silent_source_default":
+        text = text.replace('    declaremusicstate( "WAVE" );',
+            '    // WaW DEFAULT is silent; the BO2 DEFAULT radverb has reflections.\n'
+            '    declareambientroom( "waw_default", 1 );\n'
+            '    setambientroomreverb( "waw_default", "default", 1, 0, 0 );\n'
+            '    setreverb( "snd_enveffectsprio_level", "default", 1, 0, 0 );\n'
+            '    declaremusicstate( "WAVE" );', 1)
+    else:
+        report.warnings.append(f"SOUND_DEFAULT_REVERB {mix['status']}: source baseline not translated")
+    report.content["default_reverb"] = mix
+    dst.write_text(text, encoding="utf-8")
 
 
 def stage_scripts(report: StageReport, project: str, project_root: Path,
@@ -793,7 +904,7 @@ def map_scripts(project_root: Path, project: str) -> list[str]:
 
 def write_zone(stage: Path, project: str, images: list[str], ipak: bool,
                xmodels: list[str] = (), scripts: list[str] = (), zbarriers: list[str] = (),
-               effects: list[str] = (), materials: list[str] = ()) -> Path:
+               effects: list[str] = (), materials: list[str] = (), localizations: list[str] = ()) -> Path:
     zone_dir = stage / "zone_source"
     zone_dir.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -813,6 +924,7 @@ def write_zone(stage: Path, project: str, images: list[str], ipak: bool,
     # HUD materials the scripts draw (setShader); nothing else references them
     lines += [f"material,{name}" for name in materials]
     lines += [f"script,{name}" for name in scripts]
+    lines += [f"localize,{name}" for name in localizations]
     path = zone_dir / f"{project}.zone"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
@@ -1083,8 +1195,16 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     source_waw = None
     weapon_report = None
     if waw_map_script is not None and bo2_root is not None:
+        if waw_mod_tools is not None and waw_root is not None and t4_unlinker is not None:
+            source_waw = wawsource.WawSourceAssets(waw_mod_tools, waw_root, t4_unlinker,
+                                                   waw_source_dumps or stage / "waw_source_dumps")
+            problems = source_waw.check()
+            if problems:
+                report.errors.append(f"WaW Mod Tools sources unusable: {'; '.join(problems)}")
+                source_waw = None
         script_models |= port_scripts(report, stage, project_root, waw_map_script, bo2_root, waw_script_roots or [],
-                                      iwd_dirs or [], waw_stock_scripts, t6_unlinker, roots, clip)
+                                      iwd_dirs or [], waw_stock_scripts, t6_unlinker, roots, clip,
+                                      stock_waw, source_waw)
         fx_names = list(report.scripts.get("fx", [])) if report.scripts else []
         # Weapons first: their resolution widens the roots (stock WaW dumps for
         # script models too) and their effects join the map zone's conversion.
@@ -1095,14 +1215,6 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         if stock_waw is None:
             report.warnings.append("no --waw-root/--t4-unlinker: assets the map only references cannot be "
                                    "looked up in the stock WaW zones")
-        source_waw = None
-        if waw_mod_tools is not None and waw_root is not None and t4_unlinker is not None:
-            source_waw = wawsource.WawSourceAssets(waw_mod_tools, waw_root, t4_unlinker,
-                                                   waw_source_dumps or stage / "waw_source_dumps")
-            problems = source_waw.check()
-            if problems:
-                report.errors.append(f"WaW Mod Tools sources unusable: {'; '.join(problems)}")
-                source_waw = None
         effects = stage_effects(report, fx_names + weapon_fx, roots, stock_waw, project_root, stock_materials,
                                 techset_dump,
                                 bo2_root, [*(iwd_dirs or []), *([waw_root / "main"] if waw_root else [])],
@@ -1125,26 +1237,14 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
     model_materials = stage_models(report, world, project, stage, project_root, script_models | clip_models, roots,
                                    entity_box_models)
+    fx_models = stage_fx_models(report, project_root, effects.models)
     hud_materials = sorted(report.scripts.get("hud_materials", [])) if report.scripts else []
     names = {s.material for s in world.surfaces} | model_materials | set(hud_materials)
-    material_resolver = assetresolve.Resolver(roots, stock_waw)
-    closure = material_resolver.expand({('material', n) for n in names})
-    roots = material_resolver.roots
-    native_fallbacks = {}
-    equivalents = _load_json(Path(__file__).parent / 'compat/bo2_equivalents.json').get('material', {})
-    for name in sorted(names):
-        if _find(roots, techsets.oat_material_path(name)) is not None:
-            continue
-        if source_waw is not None:
-            recovered = source_waw.compile('material', name)
-            if recovered is not None:
-                roots.append(recovered)
-                report.warnings.append(f'WAW_SOURCE_ASSET material {name}: compiled from WaW Mod Tools')
-                continue
-        candidate = stock_materials / techsets.oat_material_path(equivalents.get(name, name)).relative_to('materials')
-        if candidate.is_file():
-            native_fallbacks[name] = candidate
-    report.content['material_dependencies'] = closure
+    weapon_materials = set(weapon_report['models']['materials']) if weapon_report else set()
+    if weapon_report:
+        weapon_materials.update(weapon_report['dependencies'].get('material', []))
+    roots, native_fallbacks = recover_material_sources(report, names | weapon_materials, roots,
+                                                      stock_waw, source_waw, stock_materials, bo2_root)
     # Primary lights keep their shadow maps only with the WaW shadow geometry
     # (lighting.stage_primary_lights); otherwise the shadowed techniques are unreachable.
     primary_lights = Path(str(gfx_bin).removesuffix(".gfx.bin") + ".primarylights.json")
@@ -1186,7 +1286,6 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if bo2_root is not None and (bo2_root / "mods" / "zm_test").exists():
         stage_template_scripts(report, project, project_root, bo2_root / "mods" / "zm_test", "zm_test")
     stage_scripts(report, project, project_root, template_root, template_name)
-    write_amb_csc(report, project, project_root)
     for script_name in map_scripts(project_root, project):
         script_path = project_root / script_name
         source = script_path.read_text(encoding="utf-8", errors="replace")
@@ -1219,6 +1318,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             if bo2_root is None:
                 raise ValueError("BO2 runtime sources required to stage WaW perk ownership")
             gscport.stage_bo2_perk_support(project_root, bo2_root)
+            gscport.hook_bo2_perk_server(main_gsc)
             gscport.hook_bo2_perk_client(project_root / "clientscripts" / "mp" / f"{project}.csc")
             gscport.hook_bo2_animtrees(main_gsc, project_root / "clientscripts" / "mp" / f"{project}.csc", project_root,
                                        report.scripts.get("staged_animtrees", []))
@@ -1231,7 +1331,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if weapon_report is not None:
         _stage_weapon_runtime(report, project, project_root, roots, stock_materials, techset_dump, bo2_root,
                               t6_unlinker, stage, wavelets, set(effects.table),
-                              waw_map_script.stem if waw_map_script is not None else None)
+                              waw_map_script.stem if waw_map_script is not None else None, native_fallbacks)
     shader_report = shaders.stage(roots, project_root / 'content_source/shaders')
     report.content['shaders'] = {k: v for k, v in shader_report.items() if k != 'shaders'}
     report.content['shaders']['report'] = 'content_source/shaders/stage.json'
@@ -1278,7 +1378,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # Converted WaW scripts own both fog and vision changes instead.
     client_text = client_text.replace('    level thread init_fog_vol_to_visionset();\n', '')
     hook = '    clientscripts\\mp\\waw\\_waw2bo2_environment::init();\n'
-    client_main.write_text(client_text.replace('    start_zombie_stuff();', '    start_zombie_stuff();\n' + hook, 1), encoding='utf-8')
+    if hook.strip() not in client_text:
+        client_text = client_text.replace('    start_zombie_stuff();', '    start_zombie_stuff();\n' + hook, 1)
+    client_main.write_text(client_text, encoding='utf-8')
     sound_resolver = assetresolve.Resolver(roots, stock_waw)
     defined_sounds = compiled_sound_names | ({n for kinds in stock_waw.index.values()
         for n in kinds.get('sound', [])} if stock_waw else set())
@@ -1298,6 +1400,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     budget = sounds.loaded_budget(bo2_root, bo2_root / "mods" / "zm_test" / "soundbank" / "zmb_test.all.aliases.csv") \
         if bo2_root is not None else None
     bank_report = sounds.write_t6_bank(project_root / "content_source", bank, project_root / "soundbank", budget)
+    write_amb_csc(report, project, project_root)
     if budget is not None:
         report.warnings.append(
             f"SOUND_LOADED_TO_STREAMED {budget['streamed_files']} WaW loaded sounds streamed: loaded-bank budget "
@@ -1410,10 +1513,19 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         report.warnings.append("T6 barrier asset supplied by zm_test mod.ff")
     else:
         report.errors.append(f"stock T6 zbarrier {entities.ZBARRIER_ASSET} missing from techset dump")
+    model_overlay_fx = stage_model_overlay_fx(report, project_root)
     scripts = map_scripts(project_root, project)
+    localization_report = localization.stage(project_root, roots, iwd_dirs or [], stock_waw,
+        t4_unlinker, stage / 'localization_dumps',
+        [root / 'raw' for root in (waw_mod_tools, waw_root) if root is not None], bo2_root,
+        t6_unlinker=t6_unlinker)
+    report.content['localization'] = localization_report
+    report.errors += localization_report['errors']
+    with (project_root / MOD_EXTRA_ZONE).open('a', encoding='utf-8') as zone:
+        zone.write(f"localize,{localization_report['asset']}\n")
     staged = {m["name"] for m in report.materials}
-    write_zone(stage, project, images, ipak, sorted(script_models), scripts, zbarriers, effects.zone_fx,
-               [m for m in hud_materials if m in staged])
+    write_zone(stage, project, images, ipak, sorted(script_models | fx_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
+               [m for m in hud_materials if m in staged], [localization_report['asset']])
 
     (project_root / "bridge_stage.report.json").write_text(report.to_json(), encoding="utf-8")
     return report
@@ -1669,7 +1781,7 @@ TEMPLATE_ZONE = Path("mods") / "zm_test" / "zm_test.zone"
 def _stage_weapon_runtime(report: StageReport, project: str, project_root: Path, roots: list[Path],
                           stock_materials: Path, techset_dump: Path | None, bo2_root: Path | None,
                           t6_unlinker: Path | None, stage: Path, wavelets, converted_fx: set[str],
-                          waw_map: str | None) -> None:
+                          waw_map: str | None, native_fallbacks: dict[str, Path] | None = None) -> None:
     """Weapon visuals + the weapons mod.ff can carry (weapons.stage_runtime).
     Their zone lines go to mod_extra.zone (built by the BO2 mod tools linker,
     which reads the raw xanims); the scripts' weapon table is regenerated."""
@@ -1679,7 +1791,9 @@ def _stage_weapon_runtime(report: StageReport, project: str, project_root: Path,
     if techset_dump is None:
         report.errors.append("weapons: no --techset-dump; weapon materials cannot be translated")
         return
-    visuals = weapons.stage_visuals(roots, content, stock_materials, techset_dump, wavelets)
+    visuals = weapons.stage_visuals(roots, content, stock_materials, techset_dump, wavelets,
+                                    native_fallbacks=native_fallbacks)
+    report.warnings += visuals['warnings']
     loaded: dict[str, set[str]] = {}
     reserved: set[str] = set()
     if bo2_root is not None:
@@ -1782,9 +1896,43 @@ def stage_core_animtrees(report: StageReport, sources, roots: list[Path], projec
 SCRIPT_MODEL_RE = re.compile(r'\b(?:precachemodel|setmodel|setviewmodel|attach)\s*\(\s*"([^"]+)"', re.IGNORECASE)
 
 
+def recover_script_models(report: StageReport, wanted: set[str], roots: list[Path],
+                          stock_waw=None, source_waw=None) -> set[str]:
+    """Resolve runtime model dependencies from WaW before filtering precaches.
+
+    A setModel-only asset need not occur in the map's entity/model table. Keep
+    those requests through the complete WaW lookup, without BO2 substitution.
+    The caller's roots are widened so geometry and material staging see them.
+    """
+    resolver = assetresolve.Resolver(roots, stock_waw)
+    models = set()
+    dependencies = []
+    raw_roots = []
+    for name in sorted(wanted):
+        path = resolver.find('xmodel', name)
+        provenance = 'compiled_waw'
+        if path is None and source_waw is not None:
+            recovered = source_waw.compile('xmodel', name)
+            if recovered is not None:
+                raw_roots.append(recovered)
+                path = recovered / assetresolve.asset_path('xmodel', name)
+                provenance = 'WAW_SOURCE_ASSET'
+                report.warnings.append(f'WAW_SOURCE_ASSET xmodel {name}: compiled from WaW Mod Tools')
+        node = {'name': name, 'status': 'resolved' if path else 'missing_waw_source'}
+        if path is not None:
+            models.add(name)
+            node.update(source=str(path), provenance=provenance)
+        dependencies.append(node)
+    roots[:] = list(dict.fromkeys([*resolver.roots, *raw_roots]))
+    report.scripts['requested_models'] = sorted(wanted)
+    report.scripts['model_sources'] = dependencies
+    return models
+
+
 def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_script: Path, bo2_root: Path,
                  roots: list[Path], iwd_dirs: list[Path], stock: Path | None,
-                 t6_unlinker: Path | None, model_roots: list[Path], clip=None) -> set[str]:
+                 t6_unlinker: Path | None, model_roots: list[Path], clip=None,
+                 stock_waw=None, source_waw=None) -> set[str]:
     """Translate the WaW map's gameplay scripts (gscport). Returns the WaW
     models the scripts use that the map zone must carry."""
     map_name = waw_map_script.stem
@@ -1834,17 +1982,26 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     for path in port.ported:
         wanted |= {m for m in SCRIPT_MODEL_RE.findall(sources.text.get(path + ".gsc", ""))}
     stock_models = api.stock_assets.get("xmodel", set())
-    models = set()
+    models = recover_script_models(report, wanted, model_roots, stock_waw, source_waw)
+    missing = {name for name in wanted if name not in models and name.lower() not in stock_models}
+    guarded = []
+    for path in (project_root / 'maps/mp/waw').rglob('*.gsc'):
+        source, names = gscport.guard_missing_model_calls(path.read_text(encoding='utf-8'), missing)
+        if names:
+            path.write_text(source, encoding='utf-8')
+            guarded.extend({'script': path.relative_to(project_root).as_posix(), 'model': name} for name in names)
+    report.scripts['guarded_missing_model_calls'] = guarded
     for name in sorted(wanted):
-        if any((r / "xmodel" / f"{name}.json").exists() for r in model_roots):
-            models.add(name)
-        elif name.lower() not in stock_models:
-            report.warnings.append(f"UNSUPPORTED_ASSET xmodel {name}: used by the map scripts, not in any WaW "
-                                   f"zone dump nor a stock BO2 zone")
+        if name not in models and name.lower() not in stock_models:
+            report.warnings.append(f"UNSUPPORTED_ASSET xmodel {name}: used by the map scripts, absent from "
+                                   f"the supplied WaW zones and searched WaW sources")
     # the named models the scripts precache, in the first frame (WaW scripts
     # also precache late, which T6 rejects); only the ones the zones carry
     precached = {m for path in port.ported
                  for m in SCRIPT_PRECACHE_MODEL_RE.findall(sources.text.get(path + ".gsc", ""))}
+    # T6 also requires models referenced only by setModel/attach to be cached
+    # during startup; waiting until a power-on thread runs is too late.
+    precached |= models
     precached = sorted(m for m in precached if m in models or m.lower() in stock_models)
     (project_root / "maps" / "mp" / "waw" / "_waw2bo2_precache.gsc").write_text(
         gscport.precache_source(precached), encoding="utf-8")

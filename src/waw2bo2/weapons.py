@@ -419,7 +419,7 @@ def stage(roots: list[Path], project: Path, names: set[str] | None = None, stock
 
 
 def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techset_dump: Path,
-                  wavelets=None) -> dict:
+                  wavelets=None, *, native_fallbacks: dict[str, Path] | None = None) -> dict:
     """Translate weapon materials and isolate their original images from BO2.
 
     Uses the same measured material translator as world/FX assets. Missing
@@ -435,7 +435,8 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
     names.update(stage_report["dependencies"].get("material", []))
     report = t6bridge.StageReport("weapon_visuals")
     used = t6bridge.stage_materials(report, names, roots, stock_materials, project, techset_dump,
-                                    {n: output_name("material", n) for n in names}, image_prefix='')
+                                    {n: output_name("material", n) for n in names}, image_prefix='',
+                                    native_fallbacks=native_fallbacks)
     translated = {e.get("source", e["name"]) for e in report.materials}
     failed: dict[str, list[str]] = {n: [e for e in report.errors if e.startswith(f"material {n}:")
                                         or e.startswith(f"material {n} (")] or ["not translated"]
@@ -454,6 +455,11 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
             if name.startswith((',', '$')):
                 texture['image'] = name.removeprefix(',')
                 images.append(',' + texture['image'])
+                continue
+            if entry.get('native_equivalent'):
+                # stage_materials already copied the native IWI and namespaced
+                # its binding. Looking for those pixels in WaW would lose them.
+                images.append(name)
                 continue
             output = output_name("image", name.removeprefix(","))
             if output not in image_status:

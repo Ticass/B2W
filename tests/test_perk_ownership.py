@@ -56,6 +56,16 @@ class PerkOwnershipTests(unittest.TestCase):
             self.assertIn('maps\\mp\\waw\\_zombiemode_perks::perk_think', extra)
             self.assertNotIn('maps\\mp\\zombies\\_zm_perks::', main + extra)
 
+    def test_source_effect_table_cannot_be_overwritten_by_bo2(self):
+        tokens = gsc.tokenize('level._effect = []; level._effect["packapunch_fx"] = '
+                              'loadfx("source"); playfx(level._effect["packapunch_fx"], origin); '
+                              'ent._effect = 1; note = "level._effect";')
+        gscport.rename_level_fields(tokens)
+        text = gsc.emit(tokens)
+        self.assertEqual(text.count('level.waw_effect'), 3)
+        self.assertIn('ent._effect = 1;', text)
+        self.assertIn('"level._effect"', text)
+
     def test_bo2_machine_controllers_are_removed_but_runtime_exports_remain(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -68,6 +78,10 @@ class PerkOwnershipTests(unittest.TestCase):
                              'perks_register_clientfield() { registerclientfield("x"); }\n'
                              'initialize_custom_perk_arrays() {}\n'
                              'support_function(a) { return a; }\n')
+            (root / 'bo2/raw/maps/mp/zombies/_zm.gsc').write_text(
+                '#include maps\\mp\\zombies\\_zm_perks;\n'
+                'init() { maps\\mp\\zombies\\_zm_perks::init(); '
+                'maps\\mp\\zombies\\_zm_score::init(); }\n')
             out = root / 'out'
             client_stock = self.write_client_stock(root)
             gscport.stage_bo2_perk_support(out, root / 'bo2')
@@ -105,6 +119,20 @@ class PerkOwnershipTests(unittest.TestCase):
             self.assertIn('clientscripts\\mp\\waw\\_waw2bo2_perks::init()', bootstrap)
             self.assertNotIn('clientscripts\\mp\\zombies\\_zm_perks', bootstrap)
             self.assertIn('clientscripts\\mp\\zombies\\_zm_score::init()', bootstrap)
+            owned_server = out / 'maps/mp/waw/_waw2bo2_perks.gsc'
+            self.assertNotIn('perk_machine_spawn_init();', owned_server.read_text())
+            bootstrap_server = out / 'maps/mp/waw/_waw2bo2_zm.gsc'
+            self.assertIn('maps\\mp\\waw\\_waw2bo2_perks::init()', bootstrap_server.read_text())
+            self.assertNotIn('maps\\mp\\zombies\\_zm_perks', bootstrap_server.read_text())
+            server_main = out / 'maps/mp/any_project.gsc'
+            server_main.write_text('main() { maps\\mp\\zombies\\_zm::init(); '
+                                   'level thread maps\\mp\\zombies\\_zm_perks::perk_unpause_all_perks(); }')
+            gscport.hook_bo2_perk_server(server_main)
+            hooked_server = server_main.read_text()
+            self.assertIn('maps\\mp\\waw\\_waw2bo2_zm::init()', hooked_server)
+            self.assertNotIn('maps\\mp\\zombies\\_zm_perks::', hooked_server)
+            gscport.hook_bo2_perk_server(server_main)
+            self.assertEqual(hooked_server, server_main.read_text())
             main = out / 'clientscripts/mp/any_project.csc'
             main.write_text('main() { clientscripts\\mp\\zombies\\_zm::init(); }')
             gscport.hook_bo2_perk_client(main)
