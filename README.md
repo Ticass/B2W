@@ -1,82 +1,71 @@
-# waw2bo2
+# waw2bo2 — World at War to Black Ops II map converter
 
-Fresh, fail-closed conversion pipeline for compiled World at War custom maps.
-It extracts typed assets directly from the original T4 fastfile and stages them
-for the Black Ops II T6 linker. It does not use live game-memory captures or any
-previously converted map.
+`waw2bo2` extracts compiled World at War custom maps and translates geometry,
+collision, materials, images, scripts, models, weapons, effects, and audio into
+Black Ops II Zombies zones for Plutonium T6.
 
-Current verified stages:
+**Development preview:** this is a source release for modders with a native
+build environment. Coverage depends on the map; a successful link does not
+establish complete gameplay or visual fidelity. Game content, proprietary Mod
+Tools, external dependency checkouts, and native binaries are not bundled.
 
-1. Offline T4 fastfile loading.
-2. Lossless render-world extraction (positions, colors, UV0, lightmap UV,
-   normals, tangents, material assignments, surface metadata and static-model
-   placements).
-3. Collision extraction (terrain triangles, collision materials and brushes).
-4. Strict schema/range validation.
-5. UV/material-preserving FBX generation for OAT's T6 BSP linker.
+## How to use it
 
-## Quick start
+Start with the **[installation and usage guide](docs/USAGE.md)** for native tool
+setup, conversion, installation, launching, and troubleshooting.
 
-Set `PYTHONPATH` to `src` and run the fresh pipeline against the downloaded
-WaW fastfile:
+To view the Python command interface in PowerShell:
 
 ```powershell
-$env:PYTHONPATH = 'C:\WawConverter\src'
-python -m waw2bo2.cli convert `
-  'C:\Users\thrif\AppData\Local\Activision\CoDWaW\mods\Nuketown Remastered 1.2\nuketown.ff' `
-  'C:\WawConverter\work\nuketown_fresh' `
-  --unlinker 'C:\WawConverter\vendor\OpenAssetTools\build\bin\Release_x86\Unlinker.exe' `
-  --search-path 'C:\Program Files (x86)\Steam\steamapps\common\Call of Duty World at War\main'
+git clone https://github.com/Ticass/B2W.git C:\WawConverter
+Set-Location C:\WawConverter
+$env:PYTHONPATH = Join-Path (Get-Location) 'src'
+python -m waw2bo2.cli --help
 ```
 
-The WaW `main` search path is important: it supplies stock images referenced by
-the downloaded custom map. Without it, hundreds of false “missing texture”
-reports are produced.
+Python 3.11 or newer is required. Full conversion additionally requires Windows,
+patched OpenAssetTools builds, WaW and BO2 game assets, BO2 Mod Tools, and
+Plutonium. Read the guide before running the pipeline.
 
-`convert` writes typed world/collision dumps, WaW material/image assets, GLTF
-static models, and `zone_raw\zm_test\BSP\map_gfx.fbx` plus `map_col.fbx`.
-`official-build` is the packaging gate and invokes the
-installed `bin\cod9map64.exe -platform pc` when a `.map` source is present,
-then the installed `bin\Linker.exe`; a non-zero tool result is returned and no
-successful zone is claimed.
+## Conversion behavior
 
-Render interchange v4 also preserves the surface ranges belonging to moving
-brush models. FBX merging separates owners, and the T6 linker keeps each brush
-range outside static-world visibility and camera-region ranges. Legacy render
-dumps must be refreshed when collision submodels exist. Verify a linked zone
-with `tools/audit_brush_render.py <map_gfx.fbx> <map.gfxworld.txt>` after dumping
-its mapents with the T6 Unlinker.
+- Reads typed assets from original T4 fastfiles and companion zones.
+- Preserves geometry, UVs, vertex colors, lightmap data, static models, and
+  moving brush ownership through the T6 bridge.
+- Translates collision, scripts, asset dependencies, materials/shaders,
+  weapons/animations, FX, localization, and sound banks, with reports of
+  unsupported features and compatibility decisions.
+- Reduces network entity load by translating a narrowly matched stationary FX
+  carrier idiom into effects at the original position and orientation.
+- Supports optional authored titles, descriptions, icons, and map menu artwork.
 
-Material translation is explicit and fail-closed:
+WaW source assets take priority. Ordinary WaW primary frags currently map to
+BO2's native frag; sound curve approximation is enabled by the convenience
+driver, and stock FX fallback is opt-in. Inspect the reports to assess fidelity.
 
-```powershell
-python -m waw2bo2.cli materials <gfx.bin> <t4-material-dir> <t6-template.json> <output-dir> --images <dds-dir>
-```
+## Documentation
 
-If even one material or referenced image is absent, the command stops and
-reports it. This is deliberate: silently replacing missing WaW textures is the
-failure mode that caused the earlier bad conversions.
-
-Static model coverage can be checked with:
-
-```powershell
-python -m waw2bo2.cli static-models <gfx.bin> <model_export-dir> <report.json>
-```
-
-Material/image/model translators remain fail-closed until their output passes
-an actual BO2 Linker build and zone-load test. A partial or placeholder zone is
-never reported as successful.
+- [Setup, conversion, installation, and troubleshooting](docs/USAGE.md)
+- [Release history and limitations](CHANGELOG.md)
+- [Collision conversion](docs/COLLISION_CONVERSION.md)
+- [Authored map menus](docs/MAP_MENU_ASSETS.md)
+- [Sound conversion](docs/SOUND_CONVERSION.md)
+- [Shader translation](docs/SHADER_TRANSLATION.md)
+- [Perk conversion](docs/PERK_CONVERSION.md)
+- [Source model recovery](docs/SCRIPT_MODEL_SOURCE_RECOVERY.md)
+- [Development guidelines](GUIDELINES.MD)
 
 ## Repository layout
 
-- `src/waw2bo2/`: the converter (Python); `tests/`: unit tests (`python -m unittest discover -s tests`).
-- `tools/`: pipeline driver (`run_bridge.ps1`) and native investigation helpers.
-- `vendor/OpenAssetToolsT6/`: T6 fork of [OpenAssetTools](https://github.com/Laupetin/OpenAssetTools)
-  (GPL-3.0) with the bridge linker (BSP/clipmap/gfxworld linkers, loaders, diagnostic dumpers).
-  Source only: fetch its `thirdparty/` submodules from upstream before building.
-- `vendor/OpenAssetTools.patch`: T4 dumper changes (material/techset/shader, world, FX, sound
-  dumpers) against upstream commit `7d027e8`; apply with `git apply` on a clone at that commit.
-- `AGENT_HANDOFF.md`: session-by-session engineering log; `GUIDELINES.MD`: conversion rules.
+- `src/waw2bo2/`: Python converter and compatibility scripts/data.
+- `tests/`: regression tests; run with `PYTHONPATH=src` as shown in the guide.
+- `tools/`: `run_bridge.ps1`, native audio helper, and conversion audit tools.
+- `vendor/OpenAssetToolsT6/`: modified T6 OpenAssetTools source with the BSP,
+  clipmap, and gfxworld bridge and native asset loaders/dumpers.
+- `vendor/OpenAssetTools.patch`: T4 dumper changes against upstream commit
+  `7d027e8f89118196713e955b0e11f8404149c54d`.
+- `AGENT_HANDOFF.md`: detailed engineering and playtest evidence.
 
-Not in the repository: extracted game data (`work/`), game installs, Activision's WaW Mod Tools,
-and all built binaries.
+Extracted data (`work/`), game installs, WaW Mod Tools, third-party dependency
+checkouts, and native build outputs are excluded from Git. The vendored T6
+OpenAssetTools code is GPL-3.0; see its [license](vendor/OpenAssetToolsT6/LICENSE).
