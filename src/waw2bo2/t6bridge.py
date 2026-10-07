@@ -31,7 +31,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, oneway, paths, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
+from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, oneway, paths, projectilecollision, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
 from .fbx import collision_material_slots, write_collision_fbx, write_world_fbx
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
@@ -694,6 +694,10 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
             else:
                 xm["collSurfs"] = [hulls.bounds_box_collsurf(*bounds, xm.get("rootBoneName", "tag_origin"))]
                 xm["contents"] = xm.get("contents", 0) | hulls.SCRIPT_MODEL_CONTENTS
+                # T6 XModelTraceLine (0x40DFD0) rejects a negative collLod
+                # before reading collSurfs. Enable only the synthesized entity
+                # box; authored movement/world clip masks stay untouched.
+                xm["collLod"] = 0
                 report.content.setdefault("script_model_collision_boxes", []).append(dst_name)
         xm.update(T6_XMODEL_DEFAULTS)
         if xm.pop("physPreset", None) is not None:
@@ -1237,6 +1241,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
     model_materials = stage_models(report, world, project, stage, project_root, script_models | clip_models, roots,
                                    entity_box_models)
+    projectile_models = projectilecollision.recover(report, world, clip, project_root, roots)
     fx_models = stage_fx_models(report, project_root, effects.models)
     hud_materials = sorted(report.scripts.get("hud_materials", [])) if report.scripts else []
     names = {s.material for s in world.surfaces} | model_materials | set(hud_materials)
@@ -1524,7 +1529,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     with (project_root / MOD_EXTRA_ZONE).open('a', encoding='utf-8') as zone:
         zone.write(f"localize,{localization_report['asset']}\n")
     staged = {m["name"] for m in report.materials}
-    write_zone(stage, project, images, ipak, sorted(script_models | fx_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
+    write_zone(stage, project, images, ipak, sorted(script_models | fx_models | projectile_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
                [m for m in hud_materials if m in staged], [localization_report['asset']])
 
     (project_root / "bridge_stage.report.json").write_text(report.to_json(), encoding="utf-8")

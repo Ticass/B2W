@@ -98,6 +98,8 @@ class Resolver:
                 child_kind = weapons.DEPENDENCY_TYPES.get(t4.get(key))
                 if child_kind:
                     children.add((child_kind, value))
+                if t4.get(key) == "WFT_BOUNCE_SOUND":
+                    children.update(("sound", n) for n in weapons.bounce_aliases(value, self.roots, self.stock))
                 if key == "altWeapon":
                     children.add(("weapon", value))
                 if key in ("aiVsAiAccuracyGraph", "aiVsPlayerAccuracyGraph"):

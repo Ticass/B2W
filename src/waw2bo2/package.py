@@ -10,6 +10,7 @@ Launch into the Zombies lobby with::
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 from pathlib import Path
@@ -31,10 +32,19 @@ def package(project: str, map_out: Path, mod_out: Path, dest: Path | None = None
         raise FileNotFoundError(f"cannot package, missing: {missing}")
     dest.mkdir(parents=True, exist_ok=True)
     for f in files:
-        shutil.copy2(f, dest / f.name)
+        target = dest / f.name
+        # A running map keeps its image packs open. Identical files need no
+        # replacement, and skipping them also avoids copying large packs.
+        if target.is_file() and target.stat().st_size == f.stat().st_size:
+            with f.open('rb') as source_stream, target.open('rb') as target_stream:
+                if hashlib.file_digest(source_stream, 'sha256').digest() == hashlib.file_digest(target_stream, 'sha256').digest():
+                    continue
+        shutil.copy2(f, target)
+    metadata_path = mod_out / 'menu_metadata.json'
+    metadata = json.loads(metadata_path.read_text(encoding='utf-8')) if metadata_path.is_file() else {}
     (dest / "mod.json").write_text(json.dumps({
-        "name": f"{project} (WaW -> BO2)",
-        "description": f"{project}: World at War custom map converted by waw2bo2",
+        "name": metadata.get('title', f"{project} (WaW -> BO2)"),
+        "description": metadata.get('description', f"{project}: World at War custom map converted by waw2bo2"),
         "version": "0.1.0",
     }, indent=2) + "\n", encoding="utf-8")
     return dest

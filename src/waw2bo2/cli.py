@@ -299,6 +299,7 @@ def _build_mod(args: argparse.Namespace) -> int:
     project_root = extra.parent
     modzone.stage_lobby_map_table(args.bo2.resolve() / "raw/zm/mapstable.csv", project_root, args.project)
     modzone.stage_lobby_gametype_table(args.bo2.resolve() / "raw/zm/gametypestable.csv", project_root, args.project)
+    extra_lines += [entry for entry in modzone.stage_menu_assets(project_root, args.project) if entry not in extra_lines]
     for lobby_entry in ("stringtable,zm/mapstable.csv", "stringtable,zm/gametypestable.csv"):
         if lobby_entry not in extra_lines:
             extra_lines.append(lobby_entry)

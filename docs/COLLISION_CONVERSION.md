@@ -83,6 +83,9 @@ every edge standable. T4 clip dump v6 carries WaW's bits;
   collSurf to such xmodels. KNOWN ISSUE: bounds currently come from the LOD0
   GLTF assuming game = (x, -z, y); some skinned exports (vending machines) are
   in other axes. Take the bounds from the loaded model instead.
+  Synthesized boxes must select `collLod = 0`: T6 `XModelTraceLine` (0x40DFD0)
+  returns before inspecting surfaces when that signed field is negative.
+  Authored collision LODs and contents are preserved.
 
 ## 6. Triangle winding
 
@@ -119,6 +122,47 @@ every brush at its own points; triangle contents equal the leaf aabb material
 (no ancestor mask differs). The blocking brushes at other spots are WaW walls.
 
 ## How to verify (do this after any collision change)
+
+### Physical prop projectile repair (2026-10-06)
+
+Never add MISSILECLIP to player/monster clip masks globally. Those volumes
+include invisible map boundaries and zombie-window barriers. Blocking movement
+does not imply blocking grenades.
+
+`projectilecollision.recover` adds independent, missile-only static collision
+for visible props lacking authored model collision. This is a **geometry-based
+compatibility inference**, not a lossless recovery of authored WaW collision:
+
+- Only hard material surface types qualify; imported default materials require
+  an opaque lit model replace pass. Glass, foliage, grass, water, unlit/alpha
+  cards and unknown material metadata are excluded.
+- Intersection with an original world movement brush qualifies a physical
+  placement; it does not trim collision to the movement brush. Keep its complete
+  hard LOD0 surfaces. Trimming left fence tops and rock faces unprotected.
+  Complete brush ownership is required; entity-owned brushes are excluded.
+  No bounding box or invisible brush face becomes static grenade collision.
+- Recovered faces are two-sided: T6 XModelTraceLine (0x40DFD0) accepts only
+  front-to-back crossings, while render meshes can contain open sheets. Both
+  windings stop missiles without filling picket gaps or changing source meshes.
+- Independent `waw_projectile/` assets carry contents 0x80 only. Gaps between
+  fence pickets and open space inside movement barriers retain no collision.
+  Existing world brushes, submodels, terrain and model contents stay exact.
+- Nearby surfaces are batched into clipmap-only assets to conserve the xmodel
+  pool. Each placement keeps its own surface bounds. The required LOD uses one
+  real recovered face; it is never referenced by the render world's placements.
+- `PROJECTILE_PROP_COLLISION_RECOVERED` and `content.projectile_prop_collision`
+  report each source model, placement, generated asset, surface and face count.
+  Unsupported mesh-node transforms are reported rather than guessed.
+
+Native extraction must verify the generated faces/contents/LOD and the original
+map collision, while gameplay testing checks bounce behavior and window gaps.
+This repair cannot establish original WaW behavior from a render mesh alone;
+the user confirmed the affected physical props stop grenades in WaW.
+
+Native layout check: T6 WeaponDef.isRollingGrenade is offset 0x698; 0x738
+is plantable. The box-trace branch in G_RunMissile's helper 0x42C950 tests
+plantable, so it is not evidence that ordinary frag grenades skip static models.
+Never change grenade physics based on the earlier misidentified field.
 
 1. `tools/audit_collision_roundtrip.py <clip.bin> <collision.json>`: every
    triangle, winding and flag matches, and **no partition is non-convex**.

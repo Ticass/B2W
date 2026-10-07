@@ -13,6 +13,33 @@ def write_json(path: Path, data) -> None:
 
 
 class RuntimeWeaponTests(unittest.TestCase):
+    def test_primary_frags_use_stock_weapon_without_carrying_ghost_assets(self):
+        frag = {"weaponType": "grenade", "offhandClass": "Frag Grenade",
+                "offhandSlot": "Lethal grenade", "projectileModel": "waw_xmodel/absent"}
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            project = self.project(base, {
+                "fraggrenade": frag, "stielhandgranate": frag,
+                "zombie_cymbal_monkey": {"weaponType": "grenade", "offhandClass": "Frag Grenade"},
+                "custom_special_grenade": {"weaponType": "grenade", "offhandClass": "Frag Grenade"},
+                "gun": {"altWeapon": "fraggrenade"}}, missing=["absent"])
+            result = weapons.stage_runtime(project, "map_mod")
+            self.assertEqual(result["replacements"], {
+                "fraggrenade": "frag_grenade_zm", "stielhandgranate": "frag_grenade_zm"})
+            self.assertEqual(result["weapons"], ["custom_special_grenade", "gun", "zombie_cymbal_monkey"])
+            self.assertEqual(result["excluded"], {})
+            self.assertEqual(result["zone_lines"].count("weapon,frag_grenade_zm"), 1)
+            for name in ("fraggrenade", "stielhandgranate"):
+                self.assertFalse((project / "weapons" / name).exists())
+                self.assertTrue((project / "weapons_not_carried" / name).exists())
+                self.assertNotIn(f"weapon,{name}", result["zone_lines"])
+            self.assertEqual(weapons.read_info((project / "weapons/gun").read_text())["altWeapon"],
+                             "frag_grenade_zm")
+
+    def test_tactical_grenade_is_not_replaced_even_with_stock_frag_name(self):
+        self.assertIsNone(weapons.primary_frag_replacement("fraggrenade", {
+            "weaponType": "grenade", "offhandClass": "Frag Grenade", "offhandSlot": "Tactical grenade"}))
+
     def project(self, base: Path, weapon_fields: dict[str, dict], models=(), missing=(), unsupported=None,
                 failed_materials=None):
         project = base / "project"

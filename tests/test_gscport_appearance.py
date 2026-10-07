@@ -6,6 +6,41 @@ from pathlib import Path
 from waw2bo2 import gsc, gscport
 
 
+class StationaryFxTests(unittest.TestCase):
+    emitter = '''emitter(loop) {
+        fx = self.script_noteworthy;
+        fxTag = "tag_origin";
+        self.fx = spawn("script_model", self.origin);
+        self.fx setmodel("tag_origin");
+        self.fx.angles = self.angles;
+        self.fx.origin = self.origin;
+        self.fx linkto(self, fxTag);
+        if (isdefined(loop)) playloopedfx(level._effect[fx], self.speed, self.origin);
+        else playfxontag(level._effect[fx], self.fx, fxTag);
+    }'''
+
+    def test_stationary_fx_keeps_asset_transform_and_loop_timing_without_model(self):
+        tokens = gsc.tokenize(self.emitter)
+        self.assertEqual(gscport.lower_stationary_fx_carriers(tokens), 1)
+        gscport.rename_level_fields(tokens)
+        result = gsc.emit(tokens)
+        self.assertNotIn('spawn("script_model"', result)
+        self.assertIn('::waw_playfx(level.waw_effect[fx], self.origin,', result)
+        self.assertIn('anglestoforward(self.angles), anglestoup(self.angles)', result)
+        self.assertIn('playloopedfx(level.waw_effect[fx], self.speed, self.origin)', result)
+        self.assertEqual(gscport.lower_stationary_fx_carriers(tokens), 0)
+
+    def test_moving_triggered_or_externally_used_carriers_are_preserved(self):
+        for extra in ['self waittill("trigger");', 'self.fx moveto((1,2,3), 1);',
+                      'other = self.fx;', 'self.fx delete();']:
+            with self.subTest(extra=extra):
+                tokens = gsc.tokenize(self.emitter.replace('fx = self.script_noteworthy;',
+                                                          extra + 'fx = self.script_noteworthy;'))
+                self.assertEqual(gscport.lower_stationary_fx_carriers(tokens), 0)
+                self.assertEqual(gsc.emit(tokens), self.emitter.replace('fx = self.script_noteworthy;',
+                                                                      extra + 'fx = self.script_noteworthy;'))
+
+
 class AppearanceTests(unittest.TestCase):
     def test_iwd_script_wins_over_zone_rawfile(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -49,6 +84,29 @@ class AppearanceTests(unittest.TestCase):
 
 
 class WeaponRegistrationTests(unittest.TestCase):
+    def test_offhand_save_and_restore_use_weapon_translation(self):
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "maps").mkdir()
+            (root / "maps/test.gsc").write_text(
+                'main(){ x = self getcurrentoffhand(); self switchtooffhand(x); }')
+            translator = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}),
+                                           gscport.PortReport())
+            source = translator.translate(r"maps\test")
+            self.assertIn("::waw_getcurrentoffhand()", source)
+            self.assertIn("::waw_switchtooffhand(x)", source)
+
+    def test_shared_primary_frag_has_one_stable_reverse_name(self):
+        source = gscport.assets_source({}, weapons={
+            "stielhandgranate": "frag_grenade_zm", "fraggrenade": "frag_grenade_zm",
+            "zombie_cymbal_monkey": "zombie_cymbal_monkey"})
+        self.assertIn('level.waw2bo2_weapons["stielhandgranate"] = "frag_grenade_zm";', source)
+        self.assertIn('level.waw2bo2_weapons["fraggrenade"] = "frag_grenade_zm";', source)
+        self.assertEqual(source.count('level.waw2bo2_weapon_names["frag_grenade_zm"]'), 1)
+        self.assertIn('level.waw2bo2_weapon_names["frag_grenade_zm"] = "fraggrenade";', source)
+        self.assertIn('level.waw2bo2_runtime_weapons["zombie_cymbal_monkey"] = "cymbal_monkey_zm";', source)
+
     def test_monkey_runtime_support_preserves_source_registration(self):
         source = gscport.assets_source({}, weapons={"zombie_cymbal_monkey": "zombie_cymbal_monkey"})
         self.assertIn('level.waw2bo2_weapons["zombie_cymbal_monkey"] = "zombie_cymbal_monkey";', source)

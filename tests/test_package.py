@@ -33,3 +33,22 @@ class PackageTests(unittest.TestCase):
             package("zm_example", maps, mod, dest)
             self.assertEqual((dest / "mod_load.ff").read_bytes(), b"frontend")
             self.assertIn("zm_example", json.loads((dest / "mod.json").read_text())["name"])
+
+    def test_authored_menu_is_packaged_without_replacing_identical_open_packs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            maps, mod, dest = root / 'map', root / 'mod', root / 'installed'
+            maps.mkdir()
+            mod.mkdir()
+            for name in ('zm_example.ff', 'zm_example.ipak'):
+                (maps / name).write_bytes(name.encode())
+            for name in ('mod.ff', 'mod_load.ff', 'zm_example_menu.ipak'):
+                (mod / name).write_bytes(name.encode())
+            (mod / 'menu_metadata.json').write_text(json.dumps({'title': 'Custom Town', 'description': 'Custom description'}))
+            package('zm_example', maps, mod, dest)
+            self.assertEqual((dest / 'zm_example_menu.ipak').read_bytes(), b'zm_example_menu.ipak')
+            metadata = json.loads((dest / 'mod.json').read_text())
+            self.assertEqual((metadata['name'], metadata['description']), ('Custom Town', 'Custom description'))
+            with patch('waw2bo2.package.shutil.copy2', side_effect=PermissionError('open image pack')) as copy:
+                package('zm_example', maps, mod, dest)
+                copy.assert_not_called()

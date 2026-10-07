@@ -643,6 +643,18 @@ waw_switchtoweapon( name )
         self switchtoweapon( weapon );
 }
 
+waw_switchtooffhand( name )
+{
+    weapon = waw_weapon( name );
+    if ( isdefined( weapon ) )
+        self switchtooffhand( weapon );
+}
+
+waw_getcurrentoffhand()
+{
+    return waw_weapon_name( self getcurrentoffhand() );
+}
+
 waw_hasweapon( name )
 {
     weapon = waw_weapon( name );
@@ -791,6 +803,11 @@ waw_player_fields()
 
 waw_player_stats()
 {
+    if ( !isdefined( self.waw2bo2_grenade_monitor ) )
+    {
+        self.waw2bo2_grenade_monitor = 1;
+        self thread waw_grenade_diagnostics();
+    }
     if ( isdefined( self.stats ) )
         return;
     self.stats = [];
@@ -799,6 +816,48 @@ waw_player_stats()
     self.stats["downs"] = 0;
     self.stats["revives"] = 0;
     self.stats["perks"] = 0;
+}
+
+// Record the actual missile selected by the inventory, including after give all.
+// Server-side evidence only: model names do not establish client delivery or
+// rendering. Observe entity allocation and lifetime without changing missiles.
+waw_grenade_diagnostics()
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+    count = 0;
+    for ( ;; )
+    {
+        self waittill( "grenade_fire", grenade, weapon );
+        count++;
+        model = "<unset>";
+        if ( isdefined( grenade ) && isdefined( grenade.model ) )
+            model = grenade.model;
+        if ( !isdefined( weapon ) )
+            weapon = "<unset>";
+        number = -1;
+        if ( isdefined( grenade ) )
+            number = grenade getentitynumber();
+        entities = getentarray();
+        println( "WAW2BO2 GRENADE throw=" + count + " weapon=" + weapon + " model=" + model + " entity=" + number + " time=" + gettime() + " script_entities=" + entities.size );
+        self thread waw_grenade_lifecycle( grenade, count, weapon, gettime() );
+    }
+}
+
+waw_grenade_lifecycle( grenade, count, weapon, start )
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+    wait 0.25;
+    if ( isdefined( grenade ) )
+    {
+        model = "<unset>";
+        if ( isdefined( grenade.model ) )
+            model = grenade.model;
+        println( "WAW2BO2 GRENADE STATE throw=" + count + " weapon=" + weapon + " elapsed=" + ( gettime() - start ) + " entity=" + grenade getentitynumber() + " model=" + model + " origin=" + grenade.origin );
+    }
+    else
+        println( "WAW2BO2 GRENADE STATE throw=" + count + " weapon=" + weapon + " elapsed=" + ( gettime() - start ) + " removed=1" );
 }
 
 // WaW's co-op revive marker must also work when BO2's native teammate

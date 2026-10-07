@@ -848,6 +848,31 @@ namespace
     void DumpXModelCollisionDiag(AssetDumpingContext& context, const XAssetInfo<XModel>& asset)
     {
         const auto* model = asset.Asset();
+        if (const auto geometry = context.OpenAssetFile(std::format("xmodel/{}.collsurfs.bin", asset.m_name)))
+        {
+            const auto write = [&geometry](const auto& value) {
+                geometry->write(reinterpret_cast<const char*>(&value), sizeof(value));
+            };
+            write(model->contents);
+            write(model->numCollSurfs);
+            write(model->collLod);
+            for (auto s = 0; model->collSurfs && s < model->numCollSurfs; ++s)
+            {
+                const auto& surf = model->collSurfs[s];
+                write(surf.contents);
+                write(surf.surfFlags);
+                write(surf.boneIdx);
+                write(surf.mins);
+                write(surf.maxs);
+                write(surf.numCollTris);
+                for (auto t = 0; t < surf.numCollTris; ++t)
+                {
+                    write(surf.collTris[t].plane);
+                    write(surf.collTris[t].svec);
+                    write(surf.collTris[t].tvec);
+                }
+            }
+        }
         const auto assetFile = context.OpenAssetFile(std::format("xmodel/{}.collision.txt", asset.m_name));
         if (!assetFile)
             return;

@@ -65,6 +65,21 @@ DEPENDENCY_TYPES = {"CSPFT_XMODEL": "xmodel", "CSPFT_MATERIAL": "material", "CSP
                     "CSPFT_PHYS_PRESET": "physpreset"}
 
 
+def bounce_aliases(prefix: str, roots: list[Path], stock=None) -> set[str]:
+    """Existing surface aliases for a T4 weapon's bounce-sound prefix."""
+    names = {prefix + '_default'}
+    for root in roots:
+        folder = root / 'soundaliases'
+        if folder.is_dir():
+            names.update(p.relative_to(folder).as_posix().removesuffix('.w2bsnd.json')
+                         for p in folder.rglob('*.w2bsnd.json')
+                         if p.relative_to(folder).as_posix().startswith(prefix + '_'))
+    if stock is not None:
+        names.update(n for kinds in stock.index.values() for n in kinds.get('sound', [])
+                     if n.startswith(prefix + '_'))
+    return names
+
+
 # Values the BO2 mod tools linker accepts (its own error message lists them).
 T6_PLAYER_ANIM_TYPES = {"none", "default", "other", "sniper", "m203", "hold", "briefcase", "reviver", "radio",
                         "dualwield", "remotecontrol", "crossbow", "minigun", "beltfed", "g11", "rearclip",
@@ -122,6 +137,14 @@ def convert(name: str, source: dict[str, str], t4_schema: dict[str, str], t6_sch
                                     "reason": "no measured T6 playerAnimType"}
             continue
         kind = DEPENDENCY_TYPES.get(src_type)
+        if value and src_type == "WFT_BOUNCE_SOUND":
+            # Both loaders append surface suffixes to this prefix. The aliases
+            # live in the WaW bank namespace, just like ordinary sound fields.
+            output_name("sound", value)
+            out.dependencies.setdefault("sound", set()).add(value + "_default")
+            out.translations[key] = {"source": value, "target": "waw/" + value,
+                "reason": "T4 surface bounce aliases -> namespaced T6 sound prefix"}
+            value = "waw/" + value
         if value and kind:
             output_name(kind, value)  # validate all asset paths, including sound/FX
             out.dependencies.setdefault(kind, set()).add(value)
@@ -156,6 +179,14 @@ def convert(name: str, source: dict[str, str], t4_schema: dict[str, str], t6_sch
             out.fields["adsZoomFov2"] = out.fields["adsZoomFov3"] = value
             out.translations[key] = {"source": value, "target": "adsZoomFov1/2/3",
                                      "reason": "T6 per-zoom-level ADS FOV; WaW has one"}
+    # WaW selects offhands by class. T6 additionally needs a slot; leaving its
+    # new field at None produces an offhand the grenade inventory cannot own.
+    slot = {"Frag Grenade": "Lethal grenade", "Smoke Grenade": "Tactical grenade",
+            "Flash Grenade": "Tactical grenade"}.get(source.get("offhandClass"))
+    if slot and "offhandSlot" not in source:
+        out.fields["offhandSlot"] = slot
+        out.translations["offhandSlot"] = {"source": source["offhandClass"], "target": slot,
+            "reason": "T4 offhand class -> T6 required inventory slot"}
     return out
 
 
@@ -324,6 +355,9 @@ def plan(roots: list[Path], project: Path) -> tuple[dict[str, ConvertedWeapon], 
     for name, path in sources.items():
         output_name("weapon", name)
         converted[name] = convert(name, read_info(path.read_text(encoding="utf-8")), t4, t6)
+        prefix = converted[name].fields.get('bounceSound', '').removeprefix('waw/')
+        if prefix:
+            converted[name].dependencies.setdefault('sound', set()).update(bounce_aliases(prefix, roots))
     report = {"weapons": [dict(w.report(), source=str(sources[name])) for name, w in sorted(converted.items())]}
     project.mkdir(parents=True, exist_ok=True)
     (project / "weapons.plan.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -537,6 +571,19 @@ def _stage_image(roots: list[Path], project: Path, name: str, output: str, wavel
 # leaves the weapon usable; the primary models do not.
 VARIANT_MODEL_SLOT = re.compile(r"^(gunModel|worldModel)([2-9]|1[0-6])$")
 ENGINE_WEAPONS = {"none"}
+# User-authorized ordinary lethal replacement. Never classify unknown/special
+# grenades by offhand class alone: custom equipment can share that class.
+BO2_PRIMARY_FRAGS = {"fraggrenade", "stielhandgranate"}
+
+
+def primary_frag_replacement(name: str, fields: dict[str, str]) -> str | None:
+    if (name.lower() in BO2_PRIMARY_FRAGS and fields.get("weaponType") == "grenade"
+            and fields.get("offhandClass") == "Frag Grenade"
+            and fields.get("offhandSlot") == "Lethal grenade"):
+        return "frag_grenade_zm"
+    return None
+
+
 # T6 weapon field types stored as raw char* (see stage_runtime)
 POINTER_STRING_FIELDS = {"CSPFT_STRING", "WFT_ANIM_NAME"}
 WAW_WEAPON_PREFIX = "waw_"
@@ -553,6 +600,8 @@ def stage_runtime(project: Path, ipak: str, equivalents=None, loaded: dict[str, 
     for a model-index variant slot, are cleared; UI materials, animations and
     effects that did not convert are cleared from their field. Everything is
     reported. Excluded weapons stay out of mod.ff entirely, never half-built.
+    Standard WaW lethal frags use the user-requested native BO2 frag; their
+    source files are parked so inventory cheats cannot expose broken copies.
     """
     base = Path(__file__).resolve().parents[2]
     t6_types = field_schema(base / "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/WeaponFields.h")
@@ -571,6 +620,7 @@ def stage_runtime(project: Path, ipak: str, equivalents=None, loaded: dict[str, 
     excluded: dict[str, list[str]] = {}
     notes: list[str] = []
     table: dict[str, str] = {}
+    replacements: dict[str, str] = {}
     fields_by_weapon: dict[str, dict[str, str]] = {}
     for entry in stage_report["weapons"]:
         name = entry["name"]
@@ -583,6 +633,12 @@ def stage_runtime(project: Path, ipak: str, equivalents=None, loaded: dict[str, 
             notes.append(f"WEAPON_RENAMED {name} -> {table[name]}: BO2 has a weapon of that name; scripts reach "
                          f"it through level.waw2bo2_weapons")
         fields = read_info((project / "weapons" / name).read_text(encoding="utf-8"))
+        replacement = primary_frag_replacement(name, fields)
+        if replacement:
+            table[name] = replacements[name] = replacement
+            notes.append(f"BO2_PRIMARY_FRAG {name} -> {replacement}: ordinary lethal replacement; "
+                         "special grenades retain their source weapons")
+            continue
         reasons = []
         if table[name].lower() in reserved:
             reasons.append(f"BO2 already has weapons named {name} and {table[name]}")
@@ -635,7 +691,8 @@ def stage_runtime(project: Path, ipak: str, equivalents=None, loaded: dict[str, 
         changed = False
         for name, fields in fields_by_weapon.items():
             alt = fields.get("altWeapon")
-            carried = alt and (alt.lower() in ENGINE_WEAPONS or (alt in fields_by_weapon and alt not in excluded))
+            carried = alt and (alt.lower() in ENGINE_WEAPONS or alt in replacements
+                               or (alt in fields_by_weapon and alt not in excluded))
             if name not in excluded and alt and not carried:
                 excluded[name] = [f"alternate weapon {alt} is not carried"]
                 changed = True
@@ -680,10 +737,13 @@ def stage_runtime(project: Path, ipak: str, equivalents=None, loaded: dict[str, 
     # converted effects live in the map zone; mod.ff only references them
     lines += [f"fx,,{n}" for n in sorted(effects)]
     lines += [f"weapon,{table[n]}" for n in runtime]
+    lines += [f"weapon,{n}" for n in sorted(set(replacements.values()))]
     # every WaW weapon: its BO2 name, or "" when mod.ff does not carry it
-    table = {w: (b if w in runtime or w.lower() in ENGINE_WEAPONS else "") for w, b in table.items()}
+    table = {w: (b if w in runtime or w in replacements or w.lower() in ENGINE_WEAPONS else "")
+             for w, b in table.items()}
     result = {"status": "runtime_zone_lines_not_native_validated", "ipak": ipak if images else None,
-              "weapons": runtime, "table": table, "excluded": excluded, "notes": notes, "zone_lines": lines,
+              "weapons": runtime, "table": table, "replacements": replacements,
+              "excluded": excluded, "notes": notes, "zone_lines": lines,
               "images": len(images), "xanims": len(anims), "fx_references": sorted(effects)}
     (project / "weapons.runtime.json").write_text(json.dumps(result, indent=2) + chr(10), encoding="utf-8")
     return result

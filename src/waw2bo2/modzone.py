@@ -293,6 +293,50 @@ def _drop_entry(zone_text: str, kind: str, name: str) -> tuple[str, str | None]:
     return zone_text, None
 
 
+def menu_metadata(project_root: Path) -> dict:
+    """Optional authored frontend assets; independent of source map names."""
+    path = project_root / 'menu.json'
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    for field in ('title', 'description', 'icon', 'blit'):
+        if not isinstance(data.get(field), str) or not data[field].strip():
+            raise ValueError(f'menu.json requires {field}')
+    return data
+
+
+def stage_menu_assets(project_root: Path, project: str) -> list[str]:
+    """Localize authored branding and include its materials in both zones."""
+    data = menu_metadata(project_root)
+    if not data:
+        return []
+    from .localization import quote
+    prefix = 'WAW_MENU_' + project.upper()
+    asset = 'menu_' + project
+    path = project_root / 'english/localizedstrings' / (asset + '.str')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    values = {'TITLE': data['title'], 'CAPS': data['title'].upper(), 'DESC': data['description']}
+    path.write_text('VERSION "1"\nCONFIG ""\nFILENOTES "Authored map menu"\n\n' +
+                    ''.join(f'REFERENCE {prefix}_{key}\nLANG_ENGLISH {quote(value)}\n\n'
+                            for key, value in values.items()) + 'ENDMARKER\n', encoding='utf-8')
+    names = list(dict.fromkeys([data['icon'], data['blit'],
+        f'menu_{project}_map', f'menu_{project}_map_blur', f'menu_{project}_zclassic_default',
+        f'loadscreen_{project}_zclassic_default', f'loadscreen_{project}_zclassic_', *data.get('materials', [])]))
+    streaming_file = project_root / 'images/streaming.json'
+    streaming = json.loads(streaming_file.read_text()) if streaming_file.is_file() else {'streamingMode': {}}
+    for name in names:
+        material = project_root / 'materials' / (name + '.json')
+        if not material.is_file():
+            raise FileNotFoundError(f'authored menu material missing: {material}')
+        for texture in json.loads(material.read_text())['textures']:
+            if not (project_root / 'images' / (texture['image'] + '.iwi')).is_file():
+                raise FileNotFoundError(f'authored menu image missing: {texture["image"]}')
+            streaming['streamingMode'][texture['image']] = 2
+    streaming_file.write_text(json.dumps(streaming, indent=2) + '\n', encoding='utf-8')
+    pack = data.get('image_pack', project + '_menu')
+    return [f'>level.ipak_read,{pack}', f'>ipak,{pack}', f'localize,{asset}'] + [f'material,{name}' for name in names]
+
+
 def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path:
     """Keep custom-map lobby metadata in mod.ff after the map zone unloads.
 
@@ -343,6 +387,11 @@ def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path
     count[1] = str(len(maps))
     if not existing[5].strip():
         existing[5] = str(maps.index(existing))
+    metadata = menu_metadata(project_root)
+    if metadata:
+        existing[3] = 'WAW_MENU_' + project.upper() + '_TITLE'
+        existing[4] = metadata['icon']
+        existing[6] = 'WAW_MENU_' + project.upper() + '_DESC'
     result = project_root / "zm/mapstable.csv"
     result.parent.mkdir(parents=True, exist_ok=True)
     with result.open("w", encoding="utf-8", newline="") as stream:
@@ -374,6 +423,11 @@ def stage_lobby_gametype_table(stock: Path, project_root: Path, project: str) ->
         entries = [r for r in rows if r and r[0] == category]
         # Engine iteration uses these bounds, not the physical CSV row count.
         count[1] = str(max((int(r[1]) for r in entries), default=-1) + 1)
+    metadata = menu_metadata(project_root)
+    if metadata:
+        entry = next(r for r in rows if len(r) > 2 and r[0] == '5' and r[2] == project)
+        prefix = 'WAW_MENU_' + project.upper()
+        entry[4], entry[5], entry[6], entry[16] = prefix + '_CAPS', prefix + '_DESC', metadata['blit'], prefix + '_TITLE'
     result = project_root / "zm/gametypestable.csv"
     result.parent.mkdir(parents=True, exist_ok=True)
     with result.open("w", encoding="utf-8", newline="") as stream:
@@ -385,9 +439,9 @@ def link_lobby(bo2: Path, project_root: Path, project: str, work: Path,
                linker: Path, stock: Path | None = None) -> Path:
     """Build frontend-only mod_load.ff so selection works before loading a map.
 
-    WaW has no BO2 globe artwork. Use the stock empty map frame for the menu
-    backdrop, keeping the converted map's own name and a selectable location.
-    Gameplay assets stay in mod.ff and the map zone.
+    Authored menu.json metadata uses the same materials and localized strings
+    in the frontend and gameplay zones. Unbranded projects retain the empty
+    stock frame and their technical name.
     """
     stage_lobby_map_table(bo2 / "raw/zm/mapstable.csv", project_root, project)
     stage_lobby_gametype_table(bo2 / "raw/zm/gametypestable.csv", project_root, project)
@@ -398,14 +452,19 @@ def link_lobby(bo2: Path, project_root: Path, project: str, work: Path,
     names = [f"menu_{project}_map", f"menu_{project}_map_blur",
              f"menu_{project}_zclassic_default", f"loadscreen_{project}_zclassic_default",
              f"loadscreen_{project}_zclassic_"]
+    authored = stage_menu_assets(project_root, project)
     for name in names:
-        shutil.copy2(frame, materials / f"{name}.json")
+        if authored:
+            if not (project_root / 'materials' / f'{name}.json').is_file():
+                raise FileNotFoundError(f'authored menu backdrop missing: {name}')
+        else:
+            shutil.copy2(frame, materials / f"{name}.json")
     source = root / "zone_source"
     source.mkdir(parents=True, exist_ok=True)
     (source / "mod_load.zone").write_text(
         ">game,T6\nstringtable,zm/mapstable.csv\nstringtable,zm/gametypestable.csv\n"
         "techniqueset,,trivial_9z33feqw\nimage,,menu_zm_map_frame\n" +
-        "".join(f"material,{name}\n" for name in names), encoding="utf-8")
+        "".join(f"{entry}\n" for entry in dict.fromkeys([*authored, *(f'material,{name}' for name in names)])), encoding="utf-8")
     out = work.resolve() / "out"
     command = [str(linker.resolve()), "--no-color", "--base-folder", str(project_root.resolve()),
                "--source-search-path", str(source), "--asset-search-path", "?base?",
@@ -419,6 +478,11 @@ def link_lobby(bo2: Path, project_root: Path, project: str, work: Path,
     result = out / "mod_load.ff"
     if proc.returncode or not result.is_file() or re.search(r"(?m)^(?:ERROR:|Missing asset|Failed to load|Could not load)", proc.stdout):
         raise RuntimeError(f"lobby zone link failed; see {root / 'linker.log'}")
+    metadata = menu_metadata(project_root)
+    if metadata:
+        (out / 'menu_metadata.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+    else:
+        (out / 'menu_metadata.json').unlink(missing_ok=True)
     return result
 
 

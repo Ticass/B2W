@@ -103,6 +103,8 @@
     "giveweapon",
     "takeweapon",
     "switchtoweapon",
+    "switchtooffhand",
+    "getcurrentoffhand",
     "hasweapon",
     "givemaxammo",
     "setweaponammoclip",

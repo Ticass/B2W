@@ -10,6 +10,71 @@ from waw2bo2 import modzone
 
 
 class ModZoneTests(unittest.TestCase):
+    def test_authored_branding_survives_stock_table_rebuilds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / 'project'
+            project.mkdir()
+            (project / 'menu.json').write_text(json.dumps({'title': 'Test Town',
+                'description': 'A ruined town.', 'icon': 'custom_atom', 'blit': 'custom_cutout'}))
+            stock = root / 'maps.csv'
+            base = ['zm_stock', 'cdc', 'cia', 'STOCK', 'signpost', '0', 'DESC', 'compass', 'SMALL',
+                    'NO', 'YES', '0', 'CDC', 'CIA', 'faction_cdc', 'faction_cia', '110', '40', '0', 'top']
+            with stock.open('w', newline='') as stream:
+                csv.writer(stream).writerows([[f'c{i}' for i in range(20)], ['maxnum_map', '1'], base,
+                                              ['default', 'cdc', 'cia'] + [''] * 17])
+            for _ in range(2):
+                output = modzone.stage_lobby_map_table(stock, project, 'zm_custom')
+                with output.open() as stream:
+                    row = next(r for r in csv.reader(stream) if r[0] == 'zm_custom')
+                self.assertEqual((row[3], row[4], row[6]),
+                    ('WAW_MENU_ZM_CUSTOM_TITLE', 'custom_atom', 'WAW_MENU_ZM_CUSTOM_DESC'))
+                self.assertEqual(row[11], '0')
+            modes = root / 'modes.csv'
+            with modes.open('w', newline='') as stream:
+                csv.writer(stream).writerows([[f'c{i}' for i in range(23)], ['maxnum_startloc', '1'],
+                    ['5', '0', 'zm_stock', 'town'] + [''] * 19, ['startloc_gamemode_map', '1'],
+                    ['6', '0', 'zm_stock', 'town', 'zstandard', '2', 'left', 'YES'] + [''] * 15])
+            output = modzone.stage_lobby_gametype_table(modes, project, 'zm_custom')
+            with output.open() as stream:
+                row = next(r for r in csv.reader(stream) if r[0] == '5' and r[2] == 'zm_custom')
+            self.assertEqual(row[4:7], ['WAW_MENU_ZM_CUSTOM_CAPS', 'WAW_MENU_ZM_CUSTOM_DESC', 'custom_cutout'])
+            self.assertEqual(row[7:12], ['1', '0', '0', '180', '-50'])
+            self.assertEqual(row[17:19], ['100', '-90'])
+
+    def test_authored_menu_requires_all_runtime_materials_and_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'menu.json').write_text(json.dumps({'title': 'A "Town"',
+                'description': 'Custom text', 'icon': 'icon', 'blit': 'blit'}))
+            with self.assertRaises(FileNotFoundError):
+                modzone.stage_menu_assets(root, 'zm_custom')
+            names = ['icon', 'blit', 'menu_zm_custom_map', 'menu_zm_custom_map_blur',
+                'menu_zm_custom_zclassic_default', 'loadscreen_zm_custom_zclassic_default',
+                'loadscreen_zm_custom_zclassic_']
+            (root / 'materials').mkdir()
+            (root / 'images').mkdir()
+            for name in names:
+                (root / 'materials' / (name + '.json')).write_text(json.dumps({'textures': [{'image': name}]}))
+                (root / 'images' / (name + '.iwi')).write_bytes(b'image fixture')
+            entries = modzone.stage_menu_assets(root, 'zm_custom')
+            self.assertTrue(all('material,' + name in entries for name in names))
+            self.assertLess(entries.index('>ipak,zm_custom_menu'),
+                            min(i for i, entry in enumerate(entries) if entry.startswith('material,')))
+            streaming = json.loads((root / 'images/streaming.json').read_text())['streamingMode']
+            self.assertEqual(streaming, dict.fromkeys(names, 2))
+            metadata = json.loads((root / 'menu.json').read_text())
+            metadata['image_pack'] = 'zm_custom_menu_revision2'
+            (root / 'menu.json').write_text(json.dumps(metadata))
+            revised = modzone.stage_menu_assets(root, 'zm_custom')
+            self.assertEqual(revised[:2], ['>level.ipak_read,zm_custom_menu_revision2', '>ipak,zm_custom_menu_revision2'])
+            from waw2bo2.localization import parse
+            strings = parse((root / 'english/localizedstrings/menu_zm_custom.str').read_text())
+            self.assertEqual(strings['WAW_MENU_ZM_CUSTOM_TITLE'], 'A "Town"')
+            (root / 'images/icon.iwi').unlink()
+            with self.assertRaisesRegex(FileNotFoundError, 'menu image missing'):
+                modzone.stage_menu_assets(root, 'zm_custom')
+
     def test_linked_stock_table_cannot_pass_custom_lobby_verification(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

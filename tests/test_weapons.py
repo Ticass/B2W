@@ -7,6 +7,27 @@ from waw2bo2 import weapons
 
 
 class WeaponTests(unittest.TestCase):
+    def test_waw_offhand_class_gets_t6_inventory_slot(self):
+        schema = {"offhandClass": "WFT_OFFHAND_CLASS"}
+        for cls, slot in (("Frag Grenade", "Lethal grenade"),
+                          ("Smoke Grenade", "Tactical grenade"),
+                          ("Flash Grenade", "Tactical grenade")):
+            converted = weapons.convert("custom", {"offhandClass": cls}, schema, schema)
+            self.assertEqual(converted.fields["offhandSlot"], slot)
+        self.assertNotIn("offhandSlot", weapons.convert("gun", {}, {}, {}).fields)
+
+    def test_bounce_sound_prefix_reaches_namespaced_surface_aliases(self):
+        schema = {"bounceSound": "WFT_BOUNCE_SOUND"}
+        converted = weapons.convert("custom", {"bounceSound": "custom/bounce"}, schema, schema)
+        self.assertEqual(converted.fields["bounceSound"], "waw/custom/bounce")
+        self.assertEqual(converted.dependencies['sound'], {'custom/bounce_default'})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'soundaliases/custom').mkdir(parents=True)
+            (root/'soundaliases/custom/bounce_wood.w2bsnd.json').write_text('{}')
+            self.assertEqual(weapons.bounce_aliases('custom/bounce', [root]),
+                             {'custom/bounce_default', 'custom/bounce_wood'})
+
     def test_infostring_roundtrip(self):
         fields = {"displayName": "A custom gun", "notetrackSoundMap": "mag_out custom_mag\nbolt custom_bolt"}
         self.assertEqual(weapons.read_info(weapons.write_info(fields)), fields)

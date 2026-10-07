@@ -427,6 +427,76 @@ def bridge_launch_triggers(tokens: list[gsc.Token]) -> int:
     return fixes
 
 
+def lower_stationary_fx_carriers(tokens: list[gsc.Token]) -> int:
+    """Play effects on inert tag_origin carriers at their authored transform.
+
+    The common WaW stationary emitter idiom attaches a model to a struct
+    solely to play FX. Keeping that permanent network entity in T6 can fill
+    CL_GetSnapshot's 512 slots. Match the complete carrier usage, excluding
+    triggered/moving/deletable emitters; direct PlayFX retains asset looping.
+    """
+    bodies = []
+    i = 0
+    while i < len(tokens):
+        if tokens[i].text == '{':
+            close = gsc._match(tokens, i, '{', '}')
+            if i and tokens[i - 1].text == ')':
+                bodies.append((i + 1, close))
+            i = close + 1
+        else:
+            i += 1
+    changed = 0
+    patterns = [
+        'self.fx = spawn("script_model", self.origin);',
+        'self.fx setmodel("tag_origin");',
+        'self.fx.angles = self.angles;',
+        'self.fx.origin = self.origin;',
+        'self.fx linkto(self, fxTag);',
+    ]
+    patterns = [[t.low for t in gsc.tokenize(p)[:-1]] for p in patterns]
+    for begin, end in bodies:
+        words = [t.low for t in tokens]
+        body = words[begin:end]
+        if any(w in body for w in ('waittill', 'waittill_any', 'moveto', 'rotateyaw', 'delete', 'endon')):
+            continue
+        if 'script_noteworthy' not in body or not any(
+                words[i:i + 4] == ['fxtag', '=', '"tag_origin"', ';'] for i in range(begin, end - 3)):
+            continue
+        ranges = []
+        for pattern in patterns:
+            hits = [i for i in range(begin, end - len(pattern) + 1)
+                    if words[i:i + len(pattern)] == pattern]
+            if len(hits) != 1:
+                break
+            ranges.append((hits[0], hits[0] + len(pattern)))
+        if len(ranges) != len(patterns):
+            continue
+        calls = [i for i in range(begin, end) if words[i] == 'playfxontag']
+        carriers = [i for i in range(begin, end - 2) if words[i:i + 3] == ['self', '.', 'fx']]
+        if len(calls) != 1 or len(carriers) != 6:
+            continue
+        call = calls[0]
+        if _argc(tokens, call) != 3:
+            continue
+        close = gsc._match(tokens, call + 1, '(', ')')
+        # All remaining carrier references must be the attachment receiver.
+        tail = ['self', '.', 'fx', ',', 'fxtag']
+        if words[close - 5:close] != tail or words[close - 6] != ',':
+            continue
+        tokens[call].text = COMPAT + '::waw_playfx'
+        tokens[call].kind = gsc.PUNCT
+        tokens[close - 5].text = ('self.origin, anglestoforward(self.angles), '
+                                 'anglestoup(self.angles)')
+        tokens[close - 5].kind = gsc.PUNCT
+        for t in tokens[close - 4:close]:
+            t.text = t.pre = ''
+        for start, stop in ranges:
+            for t in tokens[start:stop]:
+                t.text = t.pre = ''
+        changed += 1
+    return changed
+
+
 class Translator:
     def __init__(self, sources: Sources, api: T6Api, report: PortReport):
         self.sources = sources
@@ -548,6 +618,7 @@ class Translator:
     def translate(self, path: str, main_split: bool = False) -> str:
         script = self.sources.get(path)
         tokens = script.tokens
+        self.report.rewrites["stationary FX carriers lowered to authored-position FX"] += lower_stationary_fx_carriers(tokens)
         self.report.rewrites["launch volume includes its activation trigger"] += bridge_launch_triggers(tokens)
         where_file = self.sources.origin.get(norm(path) + ".gsc", path)
         included_bo2: set[str] = set()
@@ -1068,10 +1139,12 @@ def assets_source(fx_table: dict[str, str], waw_map: str | None = None,
         lines.append(f'    level.waw_script = "{waw_map}";')
     for waw, bo2 in sorted(fx_table.items()):
         lines.append(f'    level.waw2bo2_fx["{waw}"] = "{bo2}";')
+    reverse_names = set()
     for waw, bo2 in sorted((weapons or {}).items()):
         lines.append(f'    level.waw2bo2_weapons["{waw}"] = "{bo2}";')
-        if bo2 and bo2 != waw:
+        if bo2 and bo2 != waw and bo2 not in reverse_names:
             lines.append(f'    level.waw2bo2_weapon_names["{bo2}"] = "{waw}";')
+            reverse_names.add(bo2)
         runtime = BO2_TACTICAL_RUNTIME_WEAPONS.get(waw)
         if bo2 and runtime and runtime != bo2:
             lines.append(f'    level.waw2bo2_runtime_weapons["{waw}"] = "{runtime}";')
