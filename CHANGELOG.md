@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.6
+
+- Replace full-game extraction with a compact conversion cache: stock metadata, scripts, and shared render/runtime donors.
+- Extract other WaW stock payloads only when referenced; cache those dependencies once.
+- Migrate existing full exports without another dump where possible, and remove obsolete stock generations after validation.
+- Remove failed partial native exports while preserving diagnostic logs.
+
 ## v0.2.5
 
 - Extract installed zones and custom-map companion fastfiles in parallel using every logical CPU.

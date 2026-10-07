@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import ExitStack
 import shutil
 import struct
 import subprocess
@@ -39,6 +40,17 @@ def ensure_laa(linker: Path) -> None:
 
 def build(settings: Settings, *, redump: bool = False, root: Path | None = None,
           cache_paths: all2raw.CachePaths | None = None) -> int:
+    caches = cache_paths or all2raw.CachePaths.for_settings(settings)
+    # Extraction may prune old generations. Protect the stock view while a
+    # build reads it; dependency extraction locks its own separate folders.
+    with ExitStack() as locks:
+        for cache in sorted({caches.waw, caches.bo2}, key=str):
+            locks.enter_context(all2raw.cache_lock(cache))
+        return _build(settings, redump=redump, root=root, cache_paths=caches)
+
+
+def _build(settings: Settings, *, redump: bool = False, root: Path | None = None,
+           cache_paths: all2raw.CachePaths | None = None) -> int:
     import os
     os.environ['WAW2BO2_VERBOSE'] = '1' if settings.verbose else '0'
     paths = BuildPaths.for_settings(settings)

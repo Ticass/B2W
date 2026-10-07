@@ -15,14 +15,15 @@ interface: select a WaW map, click **Build Map**, then **Install to Plutonium**
 and **Launch Map**. It remembers game paths, manages intermediate files, checks
 requirements, displays progress, and collects conversion reports.
 
-Run **Setup → Extract All** once to cache assets from all installed WaW and BO2
-maps. Builds reuse that cache. Enable **Verbose Console** for individual asset
+Run **Setup → Extract All** once to prepare a compact conversion cache.
+Additional WaW stock dependencies are cached only when a map needs them.
+Enable **Verbose Console** for individual asset
 names and native-tool output; phase timings and quiet-process activity messages
 appear by default. See [Extract All](docs/EXTRACT_ALL.md).
 
-**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.5/WawConverter-Windows.zip)** ·
-**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.5/WawConverter-Linux-x86_64.tar.gz)** ·
-[v0.2.5 release](https://github.com/Ticass/B2W/releases/tag/v0.2.5).
+**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.6/WawConverter-Windows.zip)** ·
+**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.6/WawConverter-Linux-x86_64.tar.gz)** ·
+[v0.2.6 release](https://github.com/Ticass/B2W/releases/tag/v0.2.6).
 
 Portable Windows builds include Python and the native conversion tools. Extract
 the whole ZIP and open `WawConverter.exe`. Game installations and BO2 Mod Tools

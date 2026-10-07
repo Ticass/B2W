@@ -106,10 +106,11 @@ class All2RawTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
         self.assertEqual(all2raw.ready(self.game, self.tool, self.cache, engine='T6'), raw)
 
-    def test_stock_sound_driver_and_all_other_supported_types_are_not_filtered(self):
+    def test_stock_exports_only_conversion_metadata_for_other_maps(self):
         self.prepare()
         dumps = [c for c in self.commands if '--list' not in c]
-        self.assertTrue(all('--include-assets' not in c for c in dumps))
+        self.assertTrue(all(c[c.index('--include-assets') + 1] ==
+                            all2raw.stock_assets('T6', Path(c[-1])) for c in dumps))
         self.assertTrue(all('IWI' in c for c in dumps))
 
     def test_native_search_paths_never_include_missing_optional_folders(self):
@@ -202,11 +203,44 @@ class All2RawTests(unittest.TestCase):
         all2raw.prepare(self.game, self.tool, self.cache, engine='T4')
         resolver = wawassets.StockWawAssets(self.game, self.tool, self.cache)
         self.commands.clear()
-        with patch('subprocess.run', side_effect=AssertionError('stock extraction repeated')):
+        with patch('subprocess.run', side_effect=AssertionError('uncached native call')):
             resolver.load()
             self.assertEqual(resolver.zones_defining('material', 'shared'), ['en_common_zm'])
             self.assertTrue((resolver.dump('en_common_zm') / 'materials/shared.json').is_file())
+            resolver.dump('en_common_zm')
+        self.assertEqual(len(self.commands), 2)
+        self.commands.clear()
+        retry = wawassets.StockWawAssets(self.game, self.tool, self.cache)
+        retry.load()
+        retry.dump('en_common_zm')
         self.assertEqual(self.commands, [])
+
+    def test_compact_policy_excludes_heavy_game_assets(self):
+        self.assertEqual(all2raw.stock_assets('T4', Path('campaign.ff')), 'rawfile')
+        self.assertNotIn('gfxworld', all2raw.stock_assets('T4', Path('common.ff')))
+        for zone in ('zm_nuked', 'zm_prison', 'campaign', 'mp_test'):
+            kinds = set(all2raw.stock_assets('T6', Path(zone + '.ff')).split(','))
+            self.assertTrue(kinds.isdisjoint({'clipmap', 'gfxworld', 'xanim', 'sound', 'loadedsound', 'rawfile'}))
+        self.assertNotIn('image', all2raw.stock_assets('T6', Path('mp_test.ff')))
+
+    def test_old_full_exports_migrate_without_native_calls_or_heavy_payloads(self):
+        ff = self.ff('all', 'mp_beta')
+        zone_root = self.cache / 'zone'
+        def full_export(command, log):
+            self.native(command, log)
+            if '--list' not in command:
+                output = Path(command[command.index('--output-folder') + 1])
+                (output / 'sound').mkdir()
+                (output / 'sound/unneeded.wav').write_bytes(b'large audio')
+        with patch.object(all2raw, 'SCHEMA', 1), patch.object(all2raw, 'run', side_effect=full_export):
+            old, _ = all2raw.extract_zone(ff, self.tool, zone_root, '', assets=None, image_format='IWI')
+        self.commands.clear()
+        new, data = all2raw.extract_zone(ff, self.tool, zone_root, '',
+            assets=all2raw.stock_assets('T6', ff), image_format='IWI')
+        self.assertNotEqual(old, new)
+        self.assertEqual(self.commands, [])
+        self.assertEqual(data['files'], ['materials/shared.json'])
+        self.assertFalse((new / 'sound').exists())
 
     def test_custom_map_sources_and_companions_are_prepared_once(self):
         folder = self.root / 'custom map'
@@ -240,9 +274,20 @@ class All2RawTests(unittest.TestCase):
         original = self.prepare()
         refreshed = self.prepare(refresh=True)
         self.assertNotEqual(original, refreshed)
+        self.assertFalse(original.exists())
         self.commands.clear()
         self.assertEqual(self.prepare(), refreshed)
         self.assertEqual(self.commands, [])
+
+    def test_failed_native_dump_removes_partial_files_but_keeps_log(self):
+        def fail(command, log):
+            self.native(command, log)
+            raise RuntimeError('failed export')
+        with patch.object(all2raw, 'run', side_effect=fail):
+            with self.assertRaisesRegex(RuntimeError, 'failed export'):
+                self.prepare()
+        self.assertEqual(list((self.cache / 'zones').rglob('pending-*')), [])
+        self.assertTrue(list((self.cache / 'zones').rglob('*.log')))
 
     def test_removed_zones_disappear_from_new_lookup_without_other_redumps(self):
         self.prepare()

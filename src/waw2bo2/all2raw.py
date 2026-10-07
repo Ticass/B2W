@@ -13,9 +13,25 @@ import subprocess
 import time
 import uuid
 
-SCHEMA = 1
+SCHEMA = 2
 WAW_ASSETS = ('clipmap,gfxworld,gameworldsp,material,image,fx,xmodel,weapon,xanim,sound,'
               'loadedsound,rawfile,comworld,lightdef,physpreset,snddriverglobals,localize')
+
+
+def stock_assets(engine: str, ff: Path) -> str:
+    """Cache conversion metadata across maps without exporting entire games."""
+    if engine == 'T4':
+        if ff.stem in ('common', 'code_post_gfx'):
+            return WAW_ASSETS.replace('clipmap,gfxworld,gameworldsp,', '')
+        # Keep scripts and a complete definition index. Other stock payloads
+        # are fetched by the WaW dependency resolver only when referenced.
+        return 'rawfile'
+    assets = 'material,techniqueset,snddriverglobals,zbarrier'
+    if ff.stem in ('zm_nuked', 'zm_prison', 'common_zm', 'code_post_gfx_zm'):
+        assets += ',image'
+    if ff.stem == 'zm_prison':
+        assets += ',xmodel'
+    return assets
 
 
 def parallel_zones(zones, extract, *, label: str, workers: int | None = None):
@@ -77,6 +93,27 @@ def write_json(path: Path, data) -> None:
     temporary.replace(path)
 
 
+def prune_stock_cache(root: Path, entries: dict, raw: Path) -> None:
+    """Remove unpublished/obsolete stock generations; retain custom sources."""
+    keep = {Path(entry['folder']).resolve() for entry in entries.values()}
+    for zone_root in (root / 'zones').iterdir():
+        if not zone_root.is_dir():
+            continue
+        for generation in zone_root.iterdir():
+            if generation.is_dir() and generation.resolve() not in keep:
+                shutil.rmtree(generation)
+            elif generation.suffix == '.json':
+                try:
+                    target = zone_root / json.loads(generation.read_text())['folder']
+                    if target.resolve() not in keep:
+                        generation.unlink()
+                except (OSError, ValueError, KeyError):
+                    continue
+    for view in (root / 'views').iterdir():
+        if view.is_dir() and view.resolve() != raw.resolve():
+            shutil.rmtree(view)
+
+
 @contextmanager
 def cache_lock(root: Path):
     root.mkdir(parents=True, exist_ok=True)
@@ -115,6 +152,51 @@ def listing(text: str, *, references: bool = False) -> dict[str, list[str]]:
     return assets
 
 
+def reuse_compact_subset(root: Path, temporary: Path, inputs: dict) -> dict | None:
+    """Migrate prior full exports using hard links, without another native dump."""
+    assets = inputs['assets']
+    if assets is None:
+        return None
+    wanted = set(assets.split(','))
+    supported = {'rawfile', 'material', 'techniqueset', 'image', 'snddriverglobals', 'zbarrier', 'xmodel'}
+    if not wanted <= supported:
+        return None
+    comparable = {k: v for k, v in inputs.items() if k not in ('schema', 'assets')}
+    prefixes = {'zone_source'}
+    for kind, paths in {'material': ('materials', 'shader_bin'),
+                        'techniqueset': ('techniquesets', 'shader_bin'), 'image': ('images',),
+                        'snddriverglobals': ('sounddriverglobals',), 'zbarrier': ('zbarrier',),
+                        'xmodel': ('xmodel', 'model_export')}.items():
+        if kind in wanted:
+            prefixes.update(paths)
+    for receipt in sorted(root.glob('*/extraction.json')):
+        try:
+            cached = json.loads(receipt.read_text(encoding='utf-8'))
+            old = cached['inputs']
+            if {k: v for k, v in old.items() if k not in ('schema', 'assets')} != comparable:
+                continue
+            if old['assets'] is not None and not wanted <= set(old['assets'].split(',')):
+                continue
+            rawfiles = {n.replace('\\', '/').lower() for n in cached['index'].get('rawfile', [])}
+            files = [n for n in cached['files'] if n.split('/')[0] in prefixes or
+                     ('rawfile' in wanted and n.lower() in rawfiles)]
+            if not files or not all((receipt.parent / n).is_file() for n in files):
+                continue
+            for name in files:
+                target = temporary / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(receipt.parent / name, target)
+                except OSError:
+                    shutil.copy2(receipt.parent / name, target)
+            print(f'Extract All: retaining compact subset of {Path(inputs["file"]).name} '
+                  f'({len(files)}/{len(cached["files"])} files)', flush=True)
+            return {**cached, 'inputs': inputs, 'files': files}
+        except (OSError, ValueError, KeyError):
+            continue
+    return None
+
+
 def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str | None,
                  image_format: str, tool_digest: str | None = None, dependencies=None,
                  refresh: bool = False, list_assets: bool = True) -> tuple[Path, dict]:
@@ -144,6 +226,13 @@ def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str |
         folder = root / (key(inputs) + '-' + uuid.uuid4().hex[:8])
     temporary = root / ('pending-' + uuid.uuid4().hex)
     temporary.mkdir(parents=True)
+    if not refresh:
+        migrated = reuse_compact_subset(root, temporary, inputs)
+        if migrated is not None:
+            write_json(temporary / 'extraction.json', migrated)
+            temporary.rename(folder)
+            write_json(root / (key(inputs) + '.json'), {'folder': folder.name})
+            return folder, migrated
     log = root / (ff.stem + '.log')
     command = [str(tool), '--no-color', '--search-path', search,
                '--image-format', image_format, '--model-format', 'GLTF',
@@ -151,12 +240,20 @@ def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str |
     if assets is not None:
         command += ['--include-assets', assets]
     command.append(str(ff))
-    run(command, log)
+    try:
+        run(command, log)
+    except BaseException:
+        shutil.rmtree(temporary)
+        raise
     index: dict[str, list[str]] = {}
     loaded_index: dict[str, list[str]] = {}
     if list_assets:
         list_log = root / (ff.stem + '.assets.log')
-        run([str(tool), '--no-color', '--list', '--search-path', search, str(ff)], list_log)
+        try:
+            run([str(tool), '--no-color', '--list', '--search-path', search, str(ff)], list_log)
+        except BaseException:
+            shutil.rmtree(temporary)
+            raise
         index = listing(list_log.read_text(encoding='utf-8', errors='replace'))
         loaded_index = listing(list_log.read_text(encoding='utf-8', errors='replace'), references=True)
     files = sorted(p.relative_to(temporary).as_posix() for p in temporary.rglob('*') if p.is_file())
@@ -247,7 +344,7 @@ def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = 
             print(f'Extract All: {engine} starting {name}', flush=True)
             folder, data = extract_zone(ff, tool, zone_root,
                 search_paths((ff.parent, game / 'zone/all', game / 'main', game / 'sound', game)),
-                assets=WAW_ASSETS if engine == 'T4' else None,
+                assets=stock_assets(engine, ff),
                 image_format='DDS' if engine == 'T4' else 'IWI', tool_digest=tool_hash,
                 dependencies=archives, refresh=refresh)
             return {'folder': str(folder), 'files': data['files'], 'index': data['index'],
@@ -293,6 +390,7 @@ def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = 
             t6api.build(game, raw / 't6api_cache.json', tool, stock_dump=raw)
         write_json(root / 'all2raw.json', {'schema': SCHEMA, 'engine': engine, 'raw': str(raw),
                                          'zones': entries, 'inventory': inputs})
+        prune_stock_cache(root, entries, raw)
         print(f'Extract All: {engine} cache ready ({len(zones)} zones): {raw}', flush=True)
         return raw
 

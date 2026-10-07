@@ -31,6 +31,7 @@ class StockWawAssets:
     work: Path
     index: dict[str, dict[str, list[str]]] = field(default_factory=dict)  # zone -> type -> names
     prepared: dict[str, Path] = field(default_factory=dict)
+    prepared_sources: dict[str, dict] = field(default_factory=dict)
 
     @property
     def zone_dir(self) -> Path:
@@ -45,6 +46,7 @@ class StockWawAssets:
                     zone = Path(filename).stem
                     self.index[zone] = entry['index']
                     self.prepared[zone] = Path(entry['folder'])
+                    self.prepared_sources[zone] = entry['inputs']
             return
         cache = self.work / "stock_index.json"
         if cache.exists():
@@ -75,7 +77,22 @@ class StockWawAssets:
 
     def dump(self, zone: str) -> Path:
         if zone in self.prepared:
-            return self.prepared[zone]
+            inputs = self.prepared_sources.get(zone, {})
+            if inputs.get('assets') != 'rawfile':
+                return self.prepared[zone]
+            from . import all2raw
+            ff = Path(inputs['file'])
+            root = self.work / 'dependencies' / all2raw.key(str(ff))
+            with all2raw.cache_lock(root):
+                print(f'Extracting referenced WaW stock zone once: {ff.name}', flush=True)
+                output, _ = all2raw.extract_zone(ff, self.unlinker, root,
+                    all2raw.search_paths((ff.parent, self.waw_root / 'main', self.waw_root)),
+                    assets=all2raw.WAW_ASSETS.replace('clipmap,gfxworld,gameworldsp,', ''),
+                    image_format='DDS', dependencies=inputs.get('dependencies'))
+            self.prepared[zone] = output
+            # Future lookups in this build use the complete dependency dump.
+            self.prepared_sources[zone] = {**inputs, 'assets': all2raw.WAW_ASSETS}
+            return output
         out = self.work / zone
         if not (out / DUMP_MARKER).exists():
             log = self.work / f"{zone}.log"
