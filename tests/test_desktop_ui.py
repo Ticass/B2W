@@ -1,0 +1,59 @@
+"""Launcher state transitions without running game tools or modifying maps."""
+from pathlib import Path
+import tempfile
+import tkinter as tk
+import unittest
+from unittest.mock import patch
+from waw2bo2.gui import Launcher
+from waw2bo2.launcher import Settings
+
+
+class DesktopUITests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        try:
+            self.root = tk.Tk()
+        except tk.TclError as error:
+            self.skipTest(str(error))
+        self.root.withdraw()
+        self.addCleanup(self.root.destroy)
+        with patch('waw2bo2.gui.discover', side_effect=lambda s: s):
+            self.app = Launcher(self.root, settings=Settings(work=self.temp.name),
+                                settings_path=Path(self.temp.name) / 'settings.json')
+        self.root.update_idletasks()
+
+    def test_missing_requirements_block_native_build(self):
+        with patch('waw2bo2.gui.messagebox.showinfo') as dialog, patch.object(self.app, '_start') as start:
+            self.app.build_button.invoke()
+            dialog.assert_called_once()
+            start.assert_not_called()
+            self.assertEqual(self.app.tabs.select(), str(self.app.setup_tab))
+
+    def test_install_and_launch_require_completed_outputs(self):
+        self.assertIn('disabled', self.app.install_button.state())
+        self.assertIn('disabled', self.app.launch_button.state())
+
+    def test_progress_and_failure_do_not_display_completion(self):
+        self.app._line('== 3b. compiling map scripts')
+        self.assertEqual(self.app.current_step, 4)
+        self.app._finished('build', 7, 'Linker failed')
+        self.assertIn('failed', self.app.status.get())
+        self.assertLess(self.app.progress['value'], 8)
+        self.assertIn('Linker failed', self.app.console.get('1.0', 'end'))
+
+    def test_worker_messages_are_consumed_on_ui_thread(self):
+        self.app.events.put(('line', '== 2. staging assets'))
+        self.app.events.put(('line', 'WARNING: unsupported source feature'))
+        self.app._poll()
+        self.assertEqual(self.app.current_step, 2)
+        self.assertEqual(self.app.warnings, 1)
+
+    def test_advanced_paths_and_reports_are_accessible(self):
+        self.app._toggle_advanced()
+        self.assertEqual(self.app.advanced.winfo_manager(), 'grid')
+        self.app._toggle_advanced()
+        self.assertFalse(self.app.advanced.winfo_manager())
+        self.app._show_reports()
+        self.assertEqual(self.app.tabs.select(), str(self.app.reports_tab))
+        self.assertIn('report', self.app.report_text.get('1.0', 'end').lower())

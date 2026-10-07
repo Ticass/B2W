@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.0 — Desktop mod tools preview (2026-10-07)
+
+- Native Windows launcher with Mod Builder, Setup, Reports, a build checklist,
+  live console, saved settings, Steam path discovery, and prerequisite checks.
+- Build, Install to Plutonium, Launch Map, and cancellation controls.
+- Automatic working folders and cache refresh when source/game archives change.
+- Portable GUI/CLI executables bundling Python, native extractors/bridge,
+  audio decoder, schemas, compatibility data, licenses, and native sources.
+- Builds stay separate from installed maps until Install is clicked.
+- Portable resource lookup and a relocatable PowerShell pipeline; bundled
+  large-address-aware linkers do not need Visual Studio on the user's machine.
+- 267 tests pass; packaged GUI/resource checks, real native map extraction,
+  relocation to a folder with spaces, and a 67,022-argument material audit pass.
+  A full conversion through the GUI has not yet been playtested.
+
 ## v0.1.0 — Development preview
 
 First tagged source release of the World at War to Black Ops II converter.

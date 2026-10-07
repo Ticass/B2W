@@ -1,8 +1,12 @@
 # Installation and usage
 
+For a simpler workflow, use the [desktop launcher](DESKTOP.md): select a map,
+click Build Map, then Install and Launch. Portable builds include Python and
+the native conversion tools. The instructions below cover source builds and
+advanced CLI usage.
+
 These examples use Windows PowerShell and `C:\WawConverter`. The convenience
-driver sets `PYTHONPATH` to `C:\WawConverter\src`; if you use another checkout
-location, update that assignment or invoke the CLI stages manually.
+driver locates `src` relative to itself, so other checkout locations work too.
 
 ## 1. Requirements
 

@@ -38,7 +38,9 @@ param(
     # itself keeps it opt-in (--waw-source-fx). -NoWawSourceFx turns it off.
     [string]$WawModTools = 'C:\WawConverter\wawModTools',
     [switch]$NoWawSourceFx,
-    [string]$XwmaDecoder
+    [string]$XwmaDecoder,
+    [string]$PythonExe = 'python',
+    [switch]$NoInstall
 )
 $fxFallbackArgs = @()
 if ($FxFallback) { $fxFallbackArgs = @('--fx-fallback') }
@@ -48,7 +50,10 @@ if (-not $NoWawSourceFx) {
 }
 # native tools write progress to stderr; check exit codes explicitly instead
 $ErrorActionPreference = 'Continue'
-$env:PYTHONPATH = 'C:\WawConverter\src'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$bridgeRepo = Split-Path $PSScriptRoot -Parent
+$env:PYTHONPATH = Join-Path $bridgeRepo 'src'
+New-Item -ItemType Directory -Force $Stage, $WawDumps, $Dump, $ModBuild | Out-Null
 $wawSearch = "$MapMod;$(Join-Path $Waw 'main')"
 if (-not $XwmaDecoder) {
     & (Join-Path $PSScriptRoot 'build_audio_decoder.ps1') | Out-Host
@@ -172,7 +177,7 @@ if ($Redump -or -not (Test-Path (Join-Path $Dump 'sounddriverglobals\singleton.w
 }
 
 Write-Host "== 2. staging $Project"
-python -m waw2bo2.cli stage-bridge $Stage $Project `
+& $PythonExe -m waw2bo2.cli stage-bridge $Stage $Project `
     --gfx (Join-Path $Stage "waw2bo2\maps\$MapZone.d3dbsp.gfx.bin") `
     --clip (Join-Path $Stage "waw2bo2\maps\$MapZone.d3dbsp.clip.bin") `
     @extraRoots `
@@ -195,42 +200,57 @@ if ($LASTEXITCODE) {
 # The 32-bit bridge linker exhausts its 2 GB address space on this map
 # (3842 static models + 34k brushes) and crashes nondeterministically.
 # Large-address-aware gives it 4 GB on 64-bit Windows; a rebuild resets it.
+$bridgeLinkerPath = Join-Path $OatT6 'Linker.exe'
+$bridgeLinkerBytes = [IO.File]::ReadAllBytes($bridgeLinkerPath)
+$bridgePeOffset = [BitConverter]::ToInt32($bridgeLinkerBytes, 0x3c)
+$bridgeIsLaa = ([BitConverter]::ToUInt16($bridgeLinkerBytes, $bridgePeOffset + 22) -band 0x20) -ne 0
+if (-not $bridgeIsLaa) {
 $editbin = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio', 'C:\Program Files (x86)\Microsoft Visual Studio' `
     -Recurse -Filter editbin.exe -ErrorAction SilentlyContinue | Where-Object FullName -like '*Hostx64\x86*' | Select-Object -First 1
 if (-not $editbin) { throw "editbin.exe not found (install the MSVC x86 tools)" }
 & $editbin.FullName /nologo /LARGEADDRESSAWARE (Join-Path $OatT6 'Linker.exe')
 if ($LASTEXITCODE) { throw "editbin failed ($LASTEXITCODE)" }
+}
 
 Write-Host "== 3a. linking gameplay mod.ff with the BO2 mod tools linker"
-python -m waw2bo2.cli build-mod $Stage $Project --bo2 $Bo2 --work $ModBuild --unlinker (Join-Path $OatT6 'Unlinker.exe') --linker (Join-Path $OatT6 'Linker.exe') --techset-dump $Dump
+& $PythonExe -m waw2bo2.cli build-mod $Stage $Project --bo2 $Bo2 --work $ModBuild --unlinker (Join-Path $OatT6 'Unlinker.exe') --linker (Join-Path $OatT6 'Linker.exe') --techset-dump $Dump
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
 Write-Host "== 3b. compiling map scripts with the BO2 mod tools linker"
-python -m waw2bo2.cli compile-scripts $Stage $Project --bo2 $Bo2 --unlinker (Join-Path $OatT6 'Unlinker.exe')
+& $PythonExe -m waw2bo2.cli compile-scripts $Stage $Project --bo2 $Bo2 --unlinker (Join-Path $OatT6 'Unlinker.exe')
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
 Write-Host "== 4. linking $Project with the T6 bridge"
-python -m waw2bo2.cli bridge-link $Stage $Project `
+& $PythonExe -m waw2bo2.cli bridge-link $Stage $Project `
     --linker (Join-Path $OatT6 'Linker.exe') `
     --techset-dump $Dump `
     --log (Join-Path $Stage "$Project`_bridge.log")
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
+if (-not $NoInstall) {
 Write-Host "== 5. packaging the Plutonium mod"
-python -m waw2bo2.cli package $Stage $Project --bo2 $Bo2 --work $ModBuild
+& $PythonExe -m waw2bo2.cli package $Stage $Project --bo2 $Bo2 --work $ModBuild
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
+}
 
 # T6 resolves material constant/texture arguments with unbounded table scans
-# (crashes 0x77C253, 0x7777F9, 0x77C173): replay them on what was installed.
-Write-Host "== 6. auditing installed material arguments"
-$installed = Join-Path $env:LOCALAPPDATA "Plutonium\storage\t6\mods\$Project"
-foreach ($zone in @((Join-Path $Stage "zone_out\$Project\$Project.ff"), (Join-Path $installed 'mod.ff'))) {
+# (crashes 0x77C253, 0x7777F9, 0x77C173): replay them on the finished zones.
+Write-Host "== 6. auditing built material arguments"
+$bridgeModOut = Join-Path $ModBuild 'out'
+foreach ($zone in @((Join-Path $Stage "zone_out\$Project\$Project.ff"), (Join-Path $bridgeModOut 'mod.ff'))) {
     $audit = Join-Path $Stage ("audit_" + [IO.Path]::GetFileNameWithoutExtension($zone))
-    if (Test-Path $audit) { Remove-Item -Recurse -Force $audit }
+    if (Test-Path $audit) {
+        $bridgeStageFull = [IO.Path]::GetFullPath($Stage).TrimEnd('\') + '\'
+        $bridgeAuditFull = [IO.Path]::GetFullPath($audit)
+        if (-not $bridgeAuditFull.StartsWith($bridgeStageFull, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Audit cleanup target is outside the staging directory: $bridgeAuditFull"
+        }
+        Remove-Item -LiteralPath $bridgeAuditFull -Recurse -Force
+    }
     & (Join-Path $OatT6 'Unlinker.exe') --no-color --search-path (Join-Path $Bo2 'zone\all') `
         --include-assets 'material,techniqueset' --output-folder $audit $zone *> "$audit.log"
     if ($LASTEXITCODE) { throw "audit unlink of $zone failed ($LASTEXITCODE)" }
-    python (Join-Path $PSScriptRoot 'audit_material_args.py') $audit $Dump
+    & $PythonExe (Join-Path $PSScriptRoot 'audit_material_args.py') $audit $Dump
     if ($LASTEXITCODE) { throw "material argument audit failed for $zone (would crash the game)" }
 }
 exit 0

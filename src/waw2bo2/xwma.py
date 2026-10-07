@@ -14,6 +14,7 @@ import struct
 import subprocess
 import tempfile
 from pathlib import Path
+from .resources import resource_root
 
 from .sounds import SoundError
 
@@ -38,7 +39,7 @@ def validate(parts: dict[bytes, bytes]) -> tuple[int, int]:
 
 
 def find_helper(explicit: Path | None = None) -> Path:
-    path = explicit or Path(__file__).resolve().parents[2] / "tools/bin/xaudio_wma_decoder.exe"
+    path = explicit or resource_root() / "tools/bin/xaudio_wma_decoder.exe"
     if not path.is_file():
         raise SoundError("native XWMA bridge not built: build tools/xaudio_wma_decoder.cpp (x86) or use --xwma-decoder")
     return path.resolve()

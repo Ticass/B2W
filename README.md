@@ -4,15 +4,28 @@
 collision, materials, images, scripts, models, weapons, effects, and audio into
 Black Ops II Zombies zones for Plutonium T6.
 
-**Development preview:** this is a source release for modders with a native
-build environment. Coverage depends on the map; a successful link does not
-establish complete gameplay or visual fidelity. Game content, proprietary Mod
-Tools, external dependency checkouts, and native binaries are not bundled.
+**Development preview:** coverage depends on the map; a successful link does
+not establish complete gameplay or visual fidelity. Game content and proprietary
+Mod Tools are not bundled.
 
 ## How to use it
 
-Start with the **[installation and usage guide](docs/USAGE.md)** for native tool
-setup, conversion, installation, launching, and troubleshooting.
+The **[desktop launcher](docs/DESKTOP.md)** provides a familiar Windows mod-tools
+interface: select a WaW map, click **Build Map**, then **Install to Plutonium**
+and **Launch Map**. It remembers game paths, manages intermediate files, checks
+requirements, displays progress, and collects conversion reports.
+
+**[Download the portable Windows GUI](https://github.com/Ticass/B2W/releases/download/v0.2.0/WawConverter-Windows.zip)**
+or view the [v0.2.0 release](https://github.com/Ticass/B2W/releases/tag/v0.2.0).
+
+Portable Windows builds include Python and the native conversion tools. Extract
+the whole ZIP and open `WawConverter.exe`. Game installations and BO2 Mod Tools
+are still required. In a source checkout with Python installed, double-click
+`Launch Mod Tools.bat`.
+
+See the **[desktop quick-start guide](docs/DESKTOP.md)** for normal use and the
+**[advanced installation and usage guide](docs/USAGE.md)** for native setup and
+individual CLI stages.
 
 To view the Python command interface in PowerShell:
 
@@ -46,6 +59,7 @@ driver, and stock FX fallback is opt-in. Inspect the reports to assess fidelity.
 ## Documentation
 
 - [Setup, conversion, installation, and troubleshooting](docs/USAGE.md)
+- [Desktop launcher and portable Windows builds](docs/DESKTOP.md)
 - [Release history and limitations](CHANGELOG.md)
 - [Collision conversion](docs/COLLISION_CONVERSION.md)
 - [Authored map menus](docs/MAP_MENU_ASSETS.md)

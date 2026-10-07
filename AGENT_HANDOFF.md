@@ -1,5 +1,42 @@
 # WaW → BO2 Custom Map Converter Handoff
 
+## v0.2.0 release preparation, 2026-10-07
+
+- User explicitly requested pushing and releasing the desktop GUI. Preparing
+  v0.2.0 as a development prerelease with the portable Windows ZIP, checksums,
+  direct README download link, desktop quick start, and known verification limits.
+  Tool/package version updated consistently to 0.2.0. Rebuilding the bundle from
+  the release sources before upload; native build and gameplay scope unchanged.
+
+## Desktop mod-tools launcher, 2026-10-07
+
+- User requested a simple native GUI resembling T6 Mod Tools. Added Tk/ttk
+  Mod Builder, Setup, Reports, grouped build/install/run controls, stage checklist,
+  console, saved paths, Steam discovery, prerequisite checks, and owned-process
+  cancellation. Source entry is `Launch Mod Tools.bat` / `python -m waw2bo2.gui`.
+- Launcher manages isolated working folders per source and game-installation pair;
+  input archive/tool timestamps invalidate cached dumps. Build output stays separate
+  until Install is clicked. Required native stages, material audit, and package
+  outputs must succeed before a success receipt is recorded.
+- PowerShell driver supports explicit Python worker and NoInstall, resolves its
+  source folder relatively, creates required folders, and uses already-LAA linkers
+  without requiring editbin on the end user's machine. Resource lookup supports
+  frozen executables. Existing conversion semantics are unchanged.
+- `tools/build_desktop.py` + `desktop.spec` create GUI and console worker EXEs,
+  Python/Tk runtime, T4/T6 native tools, decoder, schemas/compat data, and native
+  corresponding source archives/licenses. Local portable ZIP:
+  `work/desktop_dist/WawConverter-Windows.zip`; app folder alongside it.
+- 267 tests pass, including real subprocess output/failure/cancellation and GUI
+  gating/event transitions. Packaged self-test confirms Tk, native tool presence,
+  compatibility data, and weapon schemas. Real WaW extraction/inspection using
+  the portable worker/extractor succeeded; bundled T6 Unlinker + portable audit
+  checked 67,022 material arguments, zero violations/missing technique sets.
+- UI screenshot: `work/desktop_smoke/launcher.png`. Evidence logs/native extracts
+  are under `work/desktop_smoke/`. No new full conversion/playtest was performed;
+  installed playable map was only read for the T6 audit and was not replaced.
+  No game was launched or closed. GUI/source changes are local and uncommitted;
+  no new GitHub release has been published for this request.
+
 ## Session 32 (2026-10-02): vision fallback, pipeline audit, reference tool
 
 - INSTALLED BUILD at session start was a leftover DIAGNOSTIC (WAW2BO2_DIAG_LIGHTMAP + FALLBACK_MAGENTA, logs work/diag_*.log, not recorded by Session 31): world drew lightmap only. Always rebuild clean and check a lit program's instruction count before handing a build to the user.

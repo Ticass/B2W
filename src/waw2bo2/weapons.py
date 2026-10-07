@@ -12,6 +12,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from .resources import resource_root
 
 
 class WeaponError(ValueError):
@@ -347,7 +348,7 @@ def stage_physpreset(roots: list[Path], project: Path, name: str, staged: dict[s
 
 
 def plan(roots: list[Path], project: Path) -> tuple[dict[str, ConvertedWeapon], dict]:
-    base = Path(__file__).resolve().parents[2]
+    base = resource_root()
     t4 = field_schema(base / "vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h")
     t6 = field_schema(base / "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/WeaponFields.h")
     converted = {}
@@ -603,7 +604,7 @@ def stage_runtime(project: Path, ipak: str, equivalents=None, loaded: dict[str, 
     Standard WaW lethal frags use the user-requested native BO2 frag; their
     source files are parked so inventory cheats cannot expose broken copies.
     """
-    base = Path(__file__).resolve().parents[2]
+    base = resource_root()
     t6_types = field_schema(base / "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/WeaponFields.h")
     stage_report = json.loads((project / "weapons.stage.json").read_text(encoding="utf-8"))
     visuals = json.loads((project / "weapons.visuals.json").read_text(encoding="utf-8"))

@@ -30,6 +30,7 @@ import struct
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from .resources import resource_root
 
 from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, oneway, paths, projectilecollision, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
 from .fbx import collision_material_slots, write_collision_fbx, write_world_fbx
@@ -445,7 +446,7 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
 # T6-only xmodel fields. WaW flag bits do not carry over; these are the values
 # of the dominant stock static props in zm_nuked (0x200000: 397/687 models,
 # lighting origin: 686/687 models).
-OAT_T6_RAW = Path(__file__).resolve().parents[2] / "vendor" / "OpenAssetToolsT6" / "raw" / "t6"
+OAT_T6_RAW = resource_root() / "vendor" / "OpenAssetToolsT6" / "raw" / "t6"
 
 T6_XMODEL_DEFAULTS = {
     "flags": 0x200000,

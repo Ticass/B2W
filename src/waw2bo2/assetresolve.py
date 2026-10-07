@@ -10,6 +10,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from .resources import resource_root
 
 from . import fx, techsets, weapons
 
@@ -90,7 +91,7 @@ class Resolver:
         children = set()
         if kind == "weapon":
             source = weapons.read_info(path.read_text(encoding="utf-8"))
-            base = Path(__file__).resolve().parents[2]
+            base = resource_root()
             t4 = weapons.field_schema(base / "vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h")
             for key, value in source.items():
                 if not value:

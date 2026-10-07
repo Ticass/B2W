@@ -7,6 +7,7 @@ import subprocess
 import os
 import sys
 from pathlib import Path
+from .resources import resource_root
 
 from . import iwi, t6bridge, wawsource, weapons
 from .fbx import write_collision_fbx, write_world_fbx
@@ -243,7 +244,7 @@ def _stage_weapons(args: argparse.Namespace) -> int:
 def _stage_bridge(args: argparse.Namespace) -> int:
     waw_root = args.waw_root.resolve() if args.waw_root else None
     mod_tools = wawsource.locate_mod_tools(args.waw_mod_tools.resolve() if args.waw_mod_tools else None,
-                                          waw_root, Path(__file__).resolve().parents[2])
+                                          waw_root, resource_root())
     if args.waw_source_fx:
         if mod_tools is None:
             print("error: --waw-source-fx needs the WaW Mod Tools (--waw-mod-tools; none found automatically)",
