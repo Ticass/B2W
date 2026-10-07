@@ -13,6 +13,8 @@ import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 import webbrowser
+from PIL import Image, ImageTk
+from .menuart import SIZES, read_art
 
 from .launcher import (BuildPaths, ProcessRunner, Settings, build_command, cli_command,
                        discover, map_fastfiles, perform_build, preflight, project_name, user_directory)
@@ -44,7 +46,9 @@ class Launcher(ttk.Frame):
         self.errors = 0
         self.action_widgets: list = []
         self.vars = {key: tk.StringVar(value=getattr(self.settings, key)) for key in
-                     ('waw', 'bo2', 'waw_tools', 't4', 't6', 'decoder', 'work', 'fastfile', 'project')}
+                     ('waw', 'bo2', 'waw_tools', 't4', 't6', 'decoder', 'work', 'fastfile', 'project',
+                      'menu_title', 'menu_description', 'menu_blit', 'menu_large', 'menu_blur')}
+        self.art_cache = {}
         self.source_fx = tk.BooleanVar(value=self.settings.source_fx)
         self.redump = tk.BooleanVar(value=self.settings.redump)
         self.status = tk.StringVar(value='Choose a WaW map to begin.')
@@ -57,6 +61,9 @@ class Launcher(ttk.Frame):
         self.pack(fill='both', expand=True)
         for variable in self.vars.values():
             variable.trace_add('write', lambda *_: self._refresh())
+        for key in ('menu_title', 'menu_description', 'menu_blit', 'menu_large', 'menu_blur', 'project'):
+            self.vars[key].trace_add('write', lambda *_: self._art_preview())
+        self._art_preview()
         self.source_fx.trace_add('write', lambda *_: self._refresh())
         self._refresh()
         if self.vars['fastfile'].get():
@@ -135,6 +142,7 @@ class Launcher(ttk.Frame):
         tool_group = self._group(sidebar, 'Tools')
         tool_group.pack(fill='x', pady=(0, 10))
         self._button(tool_group, 'Game Paths', lambda: self.tabs.select(self.setup_tab)).pack(fill='x', pady=2)
+        self._button(tool_group, 'Map Details & Artwork', lambda: self.tabs.select(self.art_tab)).pack(fill='x', pady=2)
         self._button(tool_group, 'Build Folder', self._open_build).pack(fill='x', pady=2)
         self._button(tool_group, 'Conversion Report', self._show_reports).pack(fill='x', pady=2)
         self._button(tool_group, 'Quick Help', self._help).pack(fill='x', pady=2)
@@ -162,10 +170,13 @@ class Launcher(ttk.Frame):
         self.builder_tab = ttk.Frame(self.tabs, padding=12)
         self.setup_tab = ttk.Frame(self.tabs, padding=12)
         self.reports_tab = ttk.Frame(self.tabs, padding=12)
+        self.art_tab = ttk.Frame(self.tabs, padding=12)
         self.tabs.add(self.builder_tab, text='  Mod Builder  ')
+        self.tabs.add(self.art_tab, text='  Map Details & Artwork  ')
         self.tabs.add(self.setup_tab, text='  Setup  ')
         self.tabs.add(self.reports_tab, text='  Reports  ')
         self._builder()
+        self._artwork()
         self._setup_tab()
         self._reports()
         progress_row = ttk.Frame(body)
@@ -229,6 +240,111 @@ class Launcher(ttk.Frame):
         self.install_button.pack(fill='x', pady=(8, 5))
         self.launch_button = self._button(checklist, 'Launch Map', self._launch)
         self.launch_button.pack(fill='x')
+
+    def _artwork(self):
+        tab = self.art_tab
+        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, weight=1)
+        details = self._group(tab, 'In-game map details')
+        details.grid(row=0, column=0, sticky='nsew', padx=(0, 10))
+        for key, label in [('menu_title', 'Map title'), ('menu_description', 'Map description')]:
+            ttk.Label(details, text=label).pack(anchor='w')
+            entry = ttk.Entry(details, textvariable=self.vars[key])
+            entry.pack(fill='x', pady=(3, 8))
+            self.action_widgets.append(entry)
+        ttk.Label(details, text='Shown in map selection, the lobby, and the mod list.\nBlank fields use the BO2 map name.',
+                  style='Muted.TLabel', wraplength=330).pack(anchor='w')
+        uploads = self._group(tab, 'Upload map images')
+        uploads.grid(row=1, column=0, sticky='nsew', padx=(0, 10), pady=(8, 0))
+        self.upload_labels = {}
+        for role, (w, h) in SIZES.items():
+            ttk.Label(uploads, text=f'{role.title()} — {w} × {h} px' + (' · transparent PNG / TGA' if role == 'blit' else ' · PNG / JPG / TGA'),
+                      font=('Segoe UI', 9, 'bold')).pack(anchor='w')
+            row = ttk.Frame(uploads)
+            row.pack(fill='x', pady=(3, 6))
+            self.upload_labels[role] = ttk.Label(row, text='No image selected', width=18, style='Muted.TLabel')
+            self.upload_labels[role].pack(side='left', fill='x', expand=True)
+            self._button(row, 'Upload…', lambda r=role: self._choose_art(r)).pack(side='right')
+        self._button(uploads, 'Clear artwork', self._clear_art).pack(anchor='w', pady=(3, 0))
+        ttk.Label(uploads, text='Large supplies loading art and the 256 × 256 lobby thumbnail.\nUpload all three; no automatic cropping or blur.',
+                  style='Muted.TLabel', wraplength=410, font=('Segoe UI', 9)).pack(anchor='w', pady=(6, 0))
+        preview = self._group(tab, 'In-game artwork preview')
+        preview.grid(row=0, column=1, rowspan=2, sticky='nsew')
+        self.preview_mode = tk.StringVar(value='Map selection')
+        modes = ttk.Combobox(preview, state='readonly', textvariable=self.preview_mode,
+                            values=['Map selection', 'Large', 'Blur', 'Blit', 'Lobby thumbnail', 'Loading screen'])
+        modes.pack(fill='x')
+        modes.bind('<<ComboboxSelected>>', lambda _: self._art_preview())
+        self.preview_canvas = tk.Canvas(preview, width=360, height=225, bg='#151a20', highlightthickness=0)
+        self.preview_canvas.pack(fill='both', expand=True, pady=8)
+        self.preview_canvas.bind('<Configure>', lambda _: self._art_preview())
+        self.art_status = ttk.Label(preview, text='', wraplength=330, style='Muted.TLabel')
+        self.art_status.pack(anchor='w')
+        ttk.Label(preview, text='Approximate stock layout. Verify final framing in game.',
+                  style='Muted.TLabel', wraplength=410, font=('Segoe UI', 9)).pack(anchor='w', pady=(4, 0))
+
+    def _clear_art(self):
+        for role in SIZES:
+            self.vars['menu_' + role].set('')
+        self._save()
+
+    def _choose_art(self, role):
+        path = filedialog.askopenfilename(parent=self.root, title=f'Upload {role.title()} ({SIZES[role][0]} × {SIZES[role][1]} px)',
+                                          filetypes=[('Map images', '*.png *.jpg *.jpeg *.tga'), ('All files', '*.*')])
+        if not path:
+            return
+        try:
+            read_art(path, role)
+        except (OSError, ValueError) as error:
+            messagebox.showerror('Invalid map image', str(error), parent=self.root)
+            return
+        self.vars['menu_' + role].set(path)
+        self._save()
+
+    def _art_preview(self):
+        canvas = self.preview_canvas
+        canvas.delete('all')
+        images, errors = {}, []
+        for role in SIZES:
+            path = self.vars['menu_' + role].get()
+            name = Path(path).name
+            self.upload_labels[role].configure(text=(name[:24] + '…' if len(name) > 25 else name) or 'No image selected')
+            if not path:
+                continue
+            try:
+                stat = Path(path).stat()
+                key = (path, stat.st_mtime_ns, stat.st_size)
+                if self.art_cache.get(role, (None,))[0] != key:
+                    self.art_cache[role] = (key, read_art(path, role))
+                images[role] = self.art_cache[role][1]
+            except (OSError, ValueError) as error:
+                errors.append(str(error))
+        mode = self.preview_mode.get()
+        role = {'Large': 'large', 'Blur': 'blur', 'Blit': 'blit', 'Lobby thumbnail': 'large',
+                'Loading screen': 'large', 'Map selection': 'large'}[mode]
+        image = images.get(role)
+        width, height = max(360, canvas.winfo_width()), max(225, canvas.winfo_height())
+        if image is not None:
+            image = image.copy()
+            if mode == 'Map selection' and 'blit' in images:
+                # Measured stock Blit-to-Large projection (MAP_MENU_ASSETS.md).
+                overlay = images['blit'].resize((320, 284), Image.Resampling.LANCZOS)
+                image.alpha_composite(overlay, (864, 882))
+            if mode == 'Lobby thumbnail':
+                image = image.resize((256, 256), Image.Resampling.LANCZOS)
+            if mode in ('Map selection', 'Loading screen'):
+                image = image.resize((width - 20, max(80, (width - 20) * 9 // 16)), Image.Resampling.LANCZOS)
+            image.thumbnail((width - 20, height - 78), Image.Resampling.LANCZOS)
+            self.preview_photo = ImageTk.PhotoImage(image, master=self.root)
+            canvas.create_image(width // 2, 8, anchor='n', image=self.preview_photo)
+        else:
+            canvas.create_text(width // 2, 55, text=f'Upload {role.title()} to preview {mode.lower()}', fill='#abb8c3', width=width - 24)
+        title = self.vars['menu_title'].get() or self.vars['project'].get() or 'YOUR MAP TITLE'
+        description = self.vars['menu_description'].get() or 'Your map description appears here.'
+        canvas.create_text(12, height - 66, anchor='nw', text=title.upper(), fill='white', font=('Segoe UI', 11, 'bold'), width=width - 24)
+        canvas.create_text(12, height - 42, anchor='nw', text=description, fill='#b4c1cb', width=width - 24, font=('Segoe UI', 9))
+        missing = [r.title() for r in SIZES if r not in images]
+        self.art_status.configure(text='\n'.join(errors) if errors else ('Still needed: ' + ', '.join(missing) if missing else 'All three images match the required resolutions.'))
 
     def _setup_tab(self):
         tab = self.setup_tab
@@ -385,7 +501,9 @@ class Launcher(ttk.Frame):
         failures = [c for c in preflight(settings) if c.required and not c.ready]
         if failures:
             messagebox.showinfo('Setup required', '\n\n'.join(c.name + '\n' + c.detail for c in failures), parent=self.root)
-            self.tabs.select(self.setup_tab if any(c.name not in ('Source map', 'BO2 map name') for c in failures) else self.builder_tab)
+            self.tabs.select(self.art_tab if failures[0].name == 'Map artwork' else
+                             self.setup_tab if any(c.name not in ('Source map', 'BO2 map name', 'Map artwork') for c in failures) else
+                             self.art_tab if any(c.name == 'Map artwork' for c in failures) else self.builder_tab)
             return
         self._save()
         self.warnings = self.errors = 0

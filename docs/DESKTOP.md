@@ -14,6 +14,10 @@ Choose the portable ZIP asset rather than GitHub's source-code archives.
    to your installations if needed. BO2 Mod Tools must be installed with BO2.
 4. In **Mod Builder**, browse to your WaW map's original `.ff` file. Leave its
    `mod.ff` and IWD archives beside it. The BO2 map name is filled in for you.
+   Use **Map Details & Artwork** to set the title and description and upload
+   Blit (512 × 256 with transparency), Large (2048 × 2048), and Blur (2048 × 2048).
+   The tab previews map selection, lobby, and loading artwork. Large supplies
+   the loading image and the 256 × 256 lobby thumbnail.
 5. Click **Build Map**. The tool creates its own working folders, runs each
    conversion stage, shows progress, and records the build logs.
 6. Review **Reports**. Close BO2, then click **Install to Plutonium**.
@@ -27,6 +31,8 @@ recovery is optional and disabled by default in the desktop app.
 
 - **Mod Builder:** source map, output name, Build Map, build checklist,
   Install to Plutonium, and Launch Map.
+- **Map Details & Artwork:** title, description, three image uploads,
+  required resolutions, validation, and approximate in-game previews.
 - **Setup:** saved game paths, automatic Steam library detection, prerequisite
   checks, and optional advanced paths for custom native tool builds.
 - **Reports:** staging errors, unsupported features, compatibility decisions,
@@ -52,6 +58,7 @@ Double-click `Launch Mod Tools.bat` with Python 3.11+ installed, including
 Tcl/Tk, or run from PowerShell:
 
 ```powershell
+python -m pip install -e .
 $env:PYTHONPATH = Join-Path (Get-Location) 'src'
 python -m waw2bo2.gui
 ```

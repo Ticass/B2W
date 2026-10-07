@@ -2,6 +2,14 @@
 
 ## v0.2.0 — Desktop mod tools preview (2026-10-07)
 
+- Map Details & Artwork tab with title/description editing and Blit, Large,
+  and Blur uploads, required-resolution guidance, alpha/size validation,
+  and live map-selection, lobby-thumbnail, and loading-screen previews.
+- Uploaded artwork exports to native T6 textures/materials; metadata appears
+  in frontend/gameplay menus and the packaged mod. Large supplies loading
+  art and the lobby thumbnail. Preview framing still needs an in-game check.
+- Artwork update: 33 focused tests and native frontend link/roundtrip
+  registration verification pass.
 - Native Windows launcher with Mod Builder, Setup, Reports, a build checklist,
   live console, saved settings, Steam path discovery, and prerequisite checks.
 - Build, Install to Plutonium, Launch Map, and cancellation controls.

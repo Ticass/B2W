@@ -1,5 +1,21 @@
 # Authored BO2 map menus
 
+The desktop launcher has a **Map Details & Artwork** tab. Enter the title and
+description and upload Blit (512 × 256, transparent PNG/TGA), Large (2048 × 2048),
+and Blur (2048 × 2048). Large and Blur accept PNG, JPEG, or TGA. All three images
+are required when using custom artwork; incorrect sizes and opaque Blits are
+rejected. Text can also be customized without uploading artwork.
+
+The preview selector shows map selection, individual canvases, the lobby
+thumbnail, and the loading screen. The three-upload workflow uses Large for
+loading artwork and resamples it to 256 × 256 for the lobby thumbnail. It does
+not crop uploaded artwork or generate Blur. Map selection overlays Blit using
+the measured projection below. These are layout approximations; stock menu
+projection and final framing still require an in-game check.
+
+The build exports native T6 IWI textures and materials and carries the title,
+description, and artwork through both frontend zones and the packaged mod.
+
 A staged project can carry `menu.json` with `title`, `description`, `icon`,
 and `blit` strings. The last two name authored materials. Additional material
 names can be listed in `materials`. This is project data; converter code does

@@ -38,6 +38,11 @@ class Settings:
     work: str = field(default_factory=lambda: str(user_directory() / 'builds'))
     fastfile: str = ''
     project: str = ''
+    menu_title: str = ''
+    menu_description: str = ''
+    menu_blit: str = ''
+    menu_large: str = ''
+    menu_blur: str = ''
     source_fx: bool = False
     redump: bool = False
 
@@ -161,6 +166,12 @@ def preflight(settings: Settings, *, include_map: bool = True) -> list[Check]:
             checks.append(Check('BO2 map name', True, settings.project))
         except ValueError as error:
             checks.append(Check('BO2 map name', False, str(error)))
+        from .menuart import validate_art
+        try:
+            validate_art(settings)
+            checks.append(Check('Map artwork', True, 'Ready'))
+        except (OSError, ValueError) as error:
+            checks.append(Check('Map artwork', False, str(error)))
     checks.append(Check('Build folder', bool(settings.work.strip()), settings.work or 'Choose a writable build folder.'))
     return checks
 
@@ -295,6 +306,8 @@ def perform_build(settings: Settings, runner: ProcessRunner) -> int:
                 raise ValueError('This map is already building in another launcher.') from error
         receipt = paths.root / 'build.json'
         receipt.unlink(missing_ok=True)
+        from .menuart import stage_art
+        stage_art(settings, paths.stage / 'zone_raw' / settings.project)
         code = runner.run(build_command(settings), paths.root / 'build.log')
         if code or runner.cancelled.is_set():
             return code or -1

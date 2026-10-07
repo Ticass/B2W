@@ -57,3 +57,15 @@ class DesktopUITests(unittest.TestCase):
         self.app._show_reports()
         self.assertEqual(self.app.tabs.select(), str(self.app.reports_tab))
         self.assertIn('report', self.app.report_text.get('1.0', 'end').lower())
+
+    def test_artwork_tab_and_details_preview(self):
+        self.app.tabs.select(self.app.art_tab)
+        self.app.vars['menu_title'].set('My Custom Map')
+        self.app.vars['menu_description'].set('Survive here.')
+        self.app.preview_mode.set('Loading screen')
+        self.app._art_preview()
+        texts = [self.app.preview_canvas.itemcget(item, 'text') for item in self.app.preview_canvas.find_all()
+                 if self.app.preview_canvas.type(item) == 'text']
+        self.assertIn('MY CUSTOM MAP', texts)
+        self.assertIn('Survive here.', texts)
+        self.assertEqual(self.app._snapshot().menu_title, 'My Custom Map')

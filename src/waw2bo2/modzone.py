@@ -299,9 +299,13 @@ def menu_metadata(project_root: Path) -> dict:
     if not path.is_file():
         return {}
     data = json.loads(path.read_text(encoding='utf-8'))
-    for field in ('title', 'description', 'icon', 'blit'):
+    for field in ('title', 'description'):
         if not isinstance(data.get(field), str) or not data[field].strip():
             raise ValueError(f'menu.json requires {field}')
+    if 'icon' in data or 'blit' in data:
+        for field in ('icon', 'blit'):
+            if not isinstance(data.get(field), str) or not data[field].strip():
+                raise ValueError(f'menu.json requires {field}')
     return data
 
 
@@ -319,6 +323,8 @@ def stage_menu_assets(project_root: Path, project: str) -> list[str]:
     path.write_text('VERSION "1"\nCONFIG ""\nFILENOTES "Authored map menu"\n\n' +
                     ''.join(f'REFERENCE {prefix}_{key}\nLANG_ENGLISH {quote(value)}\n\n'
                             for key, value in values.items()) + 'ENDMARKER\n', encoding='utf-8')
+    if not data.get('icon'):
+        return [f'localize,{asset}']
     names = list(dict.fromkeys([data['icon'], data['blit'],
         f'menu_{project}_map', f'menu_{project}_map_blur', f'menu_{project}_zclassic_default',
         f'loadscreen_{project}_zclassic_default', f'loadscreen_{project}_zclassic_', *data.get('materials', [])]))
@@ -390,7 +396,7 @@ def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path
     metadata = menu_metadata(project_root)
     if metadata:
         existing[3] = 'WAW_MENU_' + project.upper() + '_TITLE'
-        existing[4] = metadata['icon']
+        existing[4] = metadata.get('icon', existing[4])
         existing[6] = 'WAW_MENU_' + project.upper() + '_DESC'
     result = project_root / "zm/mapstable.csv"
     result.parent.mkdir(parents=True, exist_ok=True)
@@ -427,7 +433,7 @@ def stage_lobby_gametype_table(stock: Path, project_root: Path, project: str) ->
     if metadata:
         entry = next(r for r in rows if len(r) > 2 and r[0] == '5' and r[2] == project)
         prefix = 'WAW_MENU_' + project.upper()
-        entry[4], entry[5], entry[6], entry[16] = prefix + '_CAPS', prefix + '_DESC', metadata['blit'], prefix + '_TITLE'
+        entry[4], entry[5], entry[6], entry[16] = prefix + '_CAPS', prefix + '_DESC', metadata.get('blit', entry[6]), prefix + '_TITLE'
     result = project_root / "zm/gametypestable.csv"
     result.parent.mkdir(parents=True, exist_ok=True)
     with result.open("w", encoding="utf-8", newline="") as stream:
@@ -454,7 +460,7 @@ def link_lobby(bo2: Path, project_root: Path, project: str, work: Path,
              f"loadscreen_{project}_zclassic_"]
     authored = stage_menu_assets(project_root, project)
     for name in names:
-        if authored:
+        if menu_metadata(project_root).get('icon'):
             if not (project_root / 'materials' / f'{name}.json').is_file():
                 raise FileNotFoundError(f'authored menu backdrop missing: {name}')
         else:
