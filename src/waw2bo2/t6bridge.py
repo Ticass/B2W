@@ -221,6 +221,9 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
                 material_folder = next(p for p in native_path.parents if p.name == 'materials')
                 image_roots = [native_root, material_folder.parent]
                 image_path = _find(image_roots, techsets.oat_image_path(image))
+                if image_path is None and _find(image_roots, techsets.oat_image_path(image, '.dds')) is None:
+                    from .all2raw import required_bo2_image
+                    image_path = required_bo2_image(native_root, image)
                 dst = project_root / techsets.oat_image_path(output)
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if image_path is not None:

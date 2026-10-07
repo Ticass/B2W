@@ -75,10 +75,12 @@ class StockWawAssets:
         hits = [z for z, types in self.index.items() if any(n.lower() == low for n in types.get(kind, []))]
         return sorted(hits, key=_zone_rank)
 
-    def dump(self, zone: str) -> Path:
+    def dump(self, zone: str, kind: str | None = None) -> Path:
         if zone in self.prepared:
             inputs = self.prepared_sources.get(zone, {})
-            if inputs.get('assets') != 'rawfile':
+            available = set((inputs.get('assets') or '').split(','))
+            if inputs.get('assets') is None or kind in available or (
+                    inputs.get('assets') != 'rawfile' and 'material' in available):
                 return self.prepared[zone]
             from . import all2raw
             ff = Path(inputs['file'])
@@ -111,4 +113,4 @@ class StockWawAssets:
         zones = self.zones_defining(kind, name)
         if not zones:
             return None
-        return zones[0], self.dump(zones[0])
+        return zones[0], self.dump(zones[0], kind)

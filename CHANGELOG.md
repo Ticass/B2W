@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.7
+
+- Limit BO2 preparation to Nuketown, prison (basic wooden barrier), and shared Zombies runtime zones. Other BO2 maps are neither exported nor required.
+- Trim prison to the wooden barrier dependency closure; fetch additional BO2 textures only when needed.
+- Includes the compact-cache migration and cleanup from v0.2.6.
+
 ## v0.2.6
 
 - Replace full-game extraction with a compact conversion cache: stock metadata, scripts, and shared render/runtime donors.

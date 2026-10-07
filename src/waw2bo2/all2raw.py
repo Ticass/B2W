@@ -7,13 +7,14 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import time
 import uuid
 
-SCHEMA = 2
+SCHEMA = 3
 WAW_ASSETS = ('clipmap,gfxworld,gameworldsp,material,image,fx,xmodel,weapon,xanim,sound,'
               'loadedsound,rawfile,comworld,lightdef,physpreset,snddriverglobals,localize')
 
@@ -21,17 +22,109 @@ WAW_ASSETS = ('clipmap,gfxworld,gameworldsp,material,image,fx,xmodel,weapon,xani
 def stock_assets(engine: str, ff: Path) -> str:
     """Cache conversion metadata across maps without exporting entire games."""
     if engine == 'T4':
-        if ff.stem in ('common', 'code_post_gfx'):
-            return WAW_ASSETS.replace('clipmap,gfxworld,gameworldsp,', '')
+        if ff.stem == 'code_post_gfx':
+            return 'rawfile,image,lightdef'
         # Keep scripts and a complete definition index. Other stock payloads
         # are fetched by the WaW dependency resolver only when referenced.
         return 'rawfile'
     assets = 'material,techniqueset,snddriverglobals,zbarrier'
-    if ff.stem in ('zm_nuked', 'zm_prison', 'common_zm', 'code_post_gfx_zm'):
+    if ff.stem == 'zm_prison':
         assets += ',image'
     if ff.stem == 'zm_prison':
         assets += ',xmodel'
     return assets
+
+
+def trim_barrier_payload(folder: Path, data: dict) -> dict:
+    """Keep only the basic wooden barrier's render closure from prison."""
+    from .entities import ZBARRIER_ASSET
+    from . import techsets
+    from .t6bridge import _techset_shaders
+    barrier = folder / 'zbarrier' / ZBARRIER_ASSET
+    if not barrier.is_file():
+        raise RuntimeError(f'Prison donor is missing required barrier {ZBARRIER_ASSET}')
+    keep = {barrier.relative_to(folder).as_posix()}
+    parts = barrier.read_text(encoding='utf-8').split('\\')[1:]
+    models = {value.lstrip(',') for field, value in zip(parts[::2], parts[1::2])
+              if value and re.search(r'model\d+$', field, re.I)}
+    materials = set()
+    for name in models:
+        relative = f'xmodel/{name}.json'
+        path = folder / relative
+        if not path.is_file():
+            raise RuntimeError(f'Barrier dependency model {name} is missing from prison donor')
+        keep.add(relative)
+        model = json.loads(path.read_text())
+        for lod in model.get('lods', []):
+            relative = lod['file']
+            keep.add(relative)
+            gltf = json.loads((folder / relative).read_text())
+            materials.update(m['name'].lstrip(',') for m in gltf.get('materials', []) if m.get('name'))
+            for asset in [*gltf.get('buffers', []), *gltf.get('images', [])]:
+                uri = asset.get('uri', '')
+                if uri and not uri.startswith('data:'):
+                    dependency = (folder / relative).parent / uri
+                    dependency = dependency.resolve()
+                    if not dependency.is_relative_to(folder.resolve()):
+                        raise RuntimeError('Barrier GLTF dependency escapes the cache')
+                    keep.add(dependency.relative_to(folder.resolve()).as_posix())
+    for name in materials:
+        path = folder / techsets.oat_material_path(name)
+        if not path.is_file():
+            raise RuntimeError(f'Barrier material {name} is missing from prison donor')
+        material = json.loads(path.read_text())
+        keep.add(path.relative_to(folder).as_posix())
+        technique = material.get('techniqueSet')
+        if technique:
+            technique_path = folder / 'techniquesets' / (technique + '.json')
+            if technique_path.is_file():
+                keep.add(technique_path.relative_to(folder).as_posix())
+                keep.update(_techset_shaders(json.loads(technique_path.read_text())))
+        for texture in material.get('textures', []):
+            image = texture.get('image', '').lstrip(',')
+            if image and not image.startswith('$'):
+                keep.add(techsets.oat_image_path(image).as_posix())
+    payloads = {'xmodel', 'model_export', 'images', 'zbarrier', 'materials', 'techniquesets', 'shader_bin'}
+    files = []
+    for name in data['files']:
+        if name.split('/')[0] in payloads and name not in keep:
+            (folder / name).unlink()
+        else:
+            files.append(name)
+    result = {**data, 'files': files}
+    write_json(folder / 'extraction.json', result)
+    print(f'Extract All: prison barrier closure retained ({len(models)} models, '
+          f'{len(files)}/{len(data["files"])} files)', flush=True)
+    return result
+
+
+def required_bo2_image(stock: Path, name: str, tool: Path | None = None) -> Path | None:
+    """Persist one requested stock image, discarding the rest of its zone dump."""
+    from . import techsets
+    from .resources import resource_root
+    catalog_file = stock / 'catalog.json'
+    if not catalog_file.is_file():
+        return None
+    catalog = json.loads(catalog_file.read_text())
+    for entry in catalog['zones'].values():
+        if name not in entry['index'].get('image', []):
+            continue
+        ff = Path(entry['inputs']['file'])
+        tool = tool or resource_root() / 'vendor/OpenAssetToolsT6/build/bin/Release_x86/Unlinker.exe'
+        root = stock.parent.parent / 'dependencies/images' / key([str(ff), name])
+        relative = techsets.oat_image_path(name)
+        with cache_lock(root):
+            output, data = extract_zone(ff, tool, root, search_paths((ff.parent, ff.parents[2])),
+                assets='image', image_format='IWI', list_assets=False)
+            wanted = output / relative
+            if not wanted.is_file():
+                return None
+            for filename in data['files']:
+                if filename != relative.as_posix():
+                    (output / filename).unlink()
+            write_json(output / 'extraction.json', {**data, 'files': [relative.as_posix()]})
+            return wanted
+    return None
 
 
 def parallel_zones(zones, extract, *, label: str, workers: int | None = None):
@@ -95,6 +188,7 @@ def write_json(path: Path, data) -> None:
 
 def prune_stock_cache(root: Path, entries: dict, raw: Path) -> None:
     """Remove unpublished/obsolete stock generations; retain custom sources."""
+    print('Extract All: removing obsolete stock exports and partial views', flush=True)
     keep = {Path(entry['folder']).resolve() for entry in entries.values()}
     for zone_root in (root / 'zones').iterdir():
         if not zone_root.is_dir():
@@ -289,6 +383,17 @@ def _rank(name: str) -> tuple[int, str]:
     return (core.index(stem) if stem in core else len(core), name)
 
 
+def stock_zones(game: Path, engine: str) -> list[Path]:
+    zones = (game / 'zone').rglob('*.ff')
+    if engine == 'T6':
+        # Nuketown donors and its always-loaded Zombies framework. The basic
+        # wooden barrier is defined in prison, not in Nuketown's magic box.
+        selected = {'zm_nuked', 'common_zm', 'code_pre_gfx_zm', 'code_post_gfx_zm',
+                    'patch_zm', 'zm_prison'}
+        zones = (p for p in zones if p.stem in selected and p.parent.name == 'all')
+    return sorted(zones, key=lambda p: _rank(p.relative_to(game).as_posix()))
+
+
 def inventory(game: Path, tool: Path, engine: str) -> dict:
     archives = {str(p.relative_to(game)): stamp(p) for directory in ('main', 'zone', 'sound')
                 for p in (game / directory).rglob('*') if p.is_file() and p.suffix.lower() in
@@ -301,7 +406,7 @@ def inventory(game: Path, tool: Path, engine: str) -> dict:
                 derived[str(path.relative_to(game))] = stamp(path)
     return {'schema': SCHEMA, 'engine': engine, 'game': str(game.resolve()), 'tool': digest(tool),
             'archives': archives, 'derived': derived,
-            'zones': {p.relative_to(game).as_posix(): stamp(p) for p in sorted((game / 'zone').rglob('*.ff'))}}
+            'zones': {p.relative_to(game).as_posix(): stamp(p) for p in stock_zones(game, engine)}}
 
 
 def ready(game: Path, tool: Path, root: Path, *, engine: str) -> Path:
@@ -329,7 +434,7 @@ def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = 
             return raw
         except RuntimeError:
             pass
-    zones = sorted((game / 'zone').rglob('*.ff'), key=lambda p: _rank(p.relative_to(game).as_posix()))
+    zones = stock_zones(game, engine)
     if not zones:
         raise FileNotFoundError(f'No installed fastfiles found in {game / "zone"}')
     inputs = inventory(game, tool, engine)
@@ -347,6 +452,8 @@ def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = 
                 assets=stock_assets(engine, ff),
                 image_format='DDS' if engine == 'T4' else 'IWI', tool_digest=tool_hash,
                 dependencies=archives, refresh=refresh)
+            if engine == 'T6' and ff.stem == 'zm_prison':
+                data = trim_barrier_payload(folder, data)
             return {'folder': str(folder), 'files': data['files'], 'index': data['index'],
                     'loaded_index': data['loaded_index'], 'inputs': data['inputs']}
         outputs = parallel_zones(zones, extract, label=engine, workers=workers)

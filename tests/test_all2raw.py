@@ -26,6 +26,11 @@ class All2RawTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch.object(all2raw, 'run', side_effect=self.native).start()
         patch.object(t6api, 'build', side_effect=self.api).start()
+        self.real_trim_barrier = all2raw.trim_barrier_payload
+        patch.object(all2raw, 'trim_barrier_payload', side_effect=lambda folder, data: data).start()
+        self.real_stock_zones = all2raw.stock_zones
+        patch.object(all2raw, 'stock_zones', side_effect=lambda game, engine:
+            sorted((game / 'zone').rglob('*.ff'), key=lambda p: all2raw._rank(p.relative_to(game).as_posix()))).start()
 
     def ff(self, folder, name):
         path = self.game / 'zone' / folder / (name + '.ff')
@@ -217,11 +222,64 @@ class All2RawTests(unittest.TestCase):
 
     def test_compact_policy_excludes_heavy_game_assets(self):
         self.assertEqual(all2raw.stock_assets('T4', Path('campaign.ff')), 'rawfile')
-        self.assertNotIn('gfxworld', all2raw.stock_assets('T4', Path('common.ff')))
+        self.assertEqual(all2raw.stock_assets('T4', Path('common.ff')), 'rawfile')
         for zone in ('zm_nuked', 'zm_prison', 'campaign', 'mp_test'):
             kinds = set(all2raw.stock_assets('T6', Path(zone + '.ff')).split(','))
             self.assertTrue(kinds.isdisjoint({'clipmap', 'gfxworld', 'xanim', 'sound', 'loadedsound', 'rawfile'}))
         self.assertNotIn('image', all2raw.stock_assets('T6', Path('mp_test.ff')))
+        self.assertNotIn('image', all2raw.stock_assets('T6', Path('zm_nuked.ff')))
+
+    def test_prison_keeps_only_barrier_models_and_their_textures(self):
+        folder = self.root / 'prison'
+        files = {
+            'zbarrier/zmcore_basicwoodbarrier': 'ZBARRIER\\boardModel1\\board\\boardModel2\\',
+            'zbarrier/unrelated': 'unneeded',
+            'xmodel/board.json': json.dumps({'lods': [{'file': 'model_export/board.gltf'}]}),
+            'xmodel/unrelated.json': '{}',
+            'model_export/board.gltf': json.dumps({'materials': [{'name': 'wood'}]}),
+            'model_export/unrelated.gltf': '{}',
+            'materials/wood.json': json.dumps({'textures': [{'image': 'wood'}]}),
+            'images/wood.iwi': 'pixels', 'images/unrelated.iwi': 'unneeded'}
+        for name, content in files.items():
+            path = folder / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        data = self.real_trim_barrier(folder, {'files': list(files), 'inputs': {}})
+        self.assertIn('images/wood.iwi', data['files'])
+        self.assertIn('model_export/board.gltf', data['files'])
+        self.assertTrue(all('unrelated' not in name for name in data['files']))
+
+    def test_bo2_image_dependency_keeps_only_requested_texture_and_reuses_it(self):
+        stock = self.cache / 'views/test'
+        stock.mkdir(parents=True)
+        ff = self.ff('all', 'zm_nuked')
+        ff.write_text('nuked')
+        (stock / 'catalog.json').write_text(json.dumps({'zones': {'nuked': {
+            'inputs': {'file': str(ff)}, 'index': {'image': ['needed']}}}}))
+        def export(command, log):
+            self.commands.append(command)
+            output = Path(command[command.index('--output-folder') + 1])
+            (output / 'images').mkdir()
+            for name in ('needed', 'unrelated'):
+                (output / 'images' / (name + '.iwi')).write_bytes(b'image')
+            log.write_text('done')
+        with patch.object(all2raw, 'run', side_effect=export):
+            image = all2raw.required_bo2_image(stock, 'needed', self.tool)
+            self.assertTrue(image.is_file())
+            self.assertFalse(image.with_name('unrelated.iwi').exists())
+            self.commands.clear()
+            self.assertEqual(all2raw.required_bo2_image(stock, 'needed', self.tool), image)
+            self.assertEqual(self.commands, [])
+
+    def test_bo2_only_prepares_nuketown_shared_runtime_and_barrier_donor(self):
+        for name in ('zm_nuked', 'zm_prison', 'zm_transit', 'code_post_gfx_zm', 'patch_zm'):
+            self.ff('all', name).write_text(name)
+        with patch.object(all2raw, 'stock_zones', side_effect=self.real_stock_zones):
+            self.prepare()
+            names = {Path(c[-1]).stem for c in self.commands}
+            self.assertEqual(names, {'common_zm', 'zm_nuked', 'zm_prison', 'code_post_gfx_zm', 'patch_zm'})
+            inputs = all2raw.inventory(self.game, self.tool, 'T6')
+            self.assertNotIn('zone/all/zm_transit.ff', inputs['zones'])
 
     def test_old_full_exports_migrate_without_native_calls_or_heavy_payloads(self):
         ff = self.ff('all', 'mp_beta')

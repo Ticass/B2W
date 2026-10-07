@@ -3,16 +3,17 @@
 The Setup **Extract All** button prepares a reusable conversion cache. It does
 not export every asset from every installed game fastfile.
 
-WaW caches scripts and definition indexes across installed maps, plus shared
-assets from common/code_post_gfx. Other stock-zone payloads are extracted once
+WaW caches scripts and definition indexes across installed maps, plus shared lighting images from code_post_gfx. Other stock-zone payloads are extracted once
 only when the selected custom map references them. Campaign geometry is not
 exported into the stock cache. The selected source map and its companion FFs
 retain the world data needed for conversion.
 
-BO2 caches material and technique/shader metadata across installed maps, the
-stock sound-driver curves and barrier definitions. Images are limited to the
-shared Zombies runtime and the existing Nuketown/prison donor zones; prison
-models supply barrier render dependencies. Campaign/multiplayer geometry,
+BO2 only scans Nuketown, prison, and the shared Zombies runtime fastfiles.
+It caches material and technique/shader metadata, the
+stock sound-driver curves and barrier definitions. Prison payloads are trimmed to the basic wooden barrier and its model,
+material, shader, and texture dependencies. Other BO2 images are fetched only
+when an actual material fallback requires them, and only that requested texture
+is retained. Campaign/multiplayer geometry,
 animation libraries, sound banks, and gameplay exports are excluded. BO2 raw
 assets remain in the installed mod tools rather than being copied wholesale.
 
