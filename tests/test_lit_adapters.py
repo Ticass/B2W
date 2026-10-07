@@ -1,7 +1,9 @@
+import json
 import struct
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from waw2bo2 import lightmaps, shaders, shaderruntime as runtime
 
@@ -118,8 +120,8 @@ class LightmapPageTests(unittest.TestCase):
             sec, pri = Path(tmp) / 's.dds', Path(tmp) / 'p.dds'
             sec.write_bytes(_dds(w, 2 * w, rgba=top + bottom))
             pri.write_bytes(_dds(2 * w, 2 * w, lum=bytes([200, 100] * (2 * w * w))))
-            width, waw, t6 = lightmaps.build_page(sec, pri)
-        self.assertEqual(width, w)
+            width, height, waw, t6 = lightmaps.build_page(sec, pri)
+        self.assertEqual((width, height), (w, w))
         n = w * w * 4
         self.assertEqual(waw[:n], top)
         self.assertEqual(waw[n:2 * n], bottom)
@@ -130,6 +132,64 @@ class LightmapPageTests(unittest.TestCase):
         for got, want in zip(decoded, (128 / 255, 64 / 255, 1.0)):
             self.assertAlmostEqual(got, want * want, delta=0.01)
         self.assertEqual(t6[2 * n + 3], 150)  # sun visibility in the third page alpha
+
+
+    def test_rectangular_page_preserves_rows_and_filters_primary_in_both_axes(self):
+        w, h = 2, 4
+        top = b''.join(bytes([20 + y, 40, 80, 255]) * w for y in range(h))
+        bottom = b''.join(bytes([0, 0, 0, y]) * w for y in range(h))
+        # Every 2x2 primary block averages to 20*y + 5, retaining row order.
+        primary = b''.join(bytes([20 * (y // 2), 20 * (y // 2) + 10]) * w
+                           for y in range(2 * h))
+        with tempfile.TemporaryDirectory() as tmp:
+            sec, pri = Path(tmp) / 's.dds', Path(tmp) / 'p.dds'
+            sec.write_bytes(_dds(w, 2 * h, rgba=top + bottom))
+            pri.write_bytes(_dds(2 * w, 2 * h, lum=primary))
+            width, height, waw, t6 = lightmaps.build_page(sec, pri)
+        self.assertEqual((width, height), (w, h))
+        n = w * h * 4
+        self.assertEqual(len(waw), 3 * n)
+        self.assertEqual(len(t6), 3 * n)
+        self.assertEqual(waw[:2 * n], top + bottom)
+        visibility = b''.join(bytes([20 * y + 5]) * w for y in range(h))
+        self.assertEqual(waw[2 * n::4], visibility)
+        self.assertEqual(t6[2 * n + 3::4], visibility)
+        for y in range(h):
+            pixel = t6[y * w * 4:y * w * 4 + 4]
+            self.assertAlmostEqual(pixel[0] / pixel[3], ((20 + y) / 255) ** 2, delta=0.002)
+
+    def test_reported_512_by_2048_secondary_stages_512_by_3072_images(self):
+        w, h = 512, 1024
+        n = w * h * 4
+        top = bytes([128, 64, 255, 255]) * (w * h)
+        bottom = bytes([0, 0, 0, 0]) * (w * h)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / '_lightmap0_secondary.dds').write_bytes(_dds(w, 2 * h, rgba=top + bottom))
+            world = SimpleNamespace(surfaces=[SimpleNamespace(material='wall', lightmap_index=0)])
+            report = lightmaps.stage(world, [root], root / 'project', {'wall'})
+            self.assertEqual(report['errors'], [])
+            self.assertEqual((report['pages'][0]['width'], report['pages'][0]['height']), (w, h))
+            plan = json.loads((root / 'project/BSP/lightmaps.json').read_text())
+            for encoding in ('waw', 't6'):
+                blob = (root / 'project/images' / (plan['pages'][0][encoding] + '.iwi')).read_bytes()
+                self.assertEqual(struct.unpack_from('<HH', blob, 6), (w, 3 * h))
+                self.assertEqual(struct.unpack_from('<I', blob, 32)[0], len(blob))
+                self.assertEqual(len(blob), 64 + 3 * n)
+                if encoding == 'waw':
+                    self.assertEqual(blob[64:64 + 2 * n], top + bottom)
+                self.assertEqual(blob[64 + 2 * n + 3::4], bytes([255]) * (w * h))
+
+    def test_odd_secondary_height_and_incompatible_primary_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sec, pri = Path(tmp) / 's.dds', Path(tmp) / 'p.dds'
+            sec.write_bytes(_dds(2, 7, rgba=bytes(2 * 7 * 4)))
+            with self.assertRaisesRegex(lightmaps.LightmapError, 'two equal stacked'):
+                lightmaps.build_page(sec, None)
+            sec.write_bytes(_dds(2, 8, rgba=bytes(2 * 8 * 4)))
+            pri.write_bytes(_dds(4, 6, lum=bytes(4 * 6)))
+            with self.assertRaisesRegex(lightmaps.LightmapError, 'integer multiple'):
+                lightmaps.build_page(sec, pri)
 
 
 if __name__ == '__main__':

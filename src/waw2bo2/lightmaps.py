@@ -1,12 +1,12 @@
 """WaW lightmap pages for the T6 world.
 
 A WaW lightmap page is two textures (measured on the dumped world programs):
-  * secondary, W x 2W RGBA8: top half colour A + direction x in alpha, bottom
+  * secondary, W x 2H RGBA8: top half colour A + direction x in alpha, bottom
     half colour B + direction y in alpha. ``lm_*`` pixel programs sample it at
     (u, v/2) and (u, v/2 + 1/2).
-  * primary, 2W x 2W L8: sun visibility, sampled at (u, v) by sun programs.
+  * primary, 2W x 2H L8: sun visibility, sampled at (u, v) by sun programs.
 
-A T6 page is one W x 3W RGBA8 texture of three stacked pages, bound as
+A T6 page is one W x 3H RGBA8 texture of three stacked pages, bound as
 ``lightmapSamplerSecondary`` (measured on stock world lit programs):
   1. ambient, decoded rgb / (a + 1e-6), linear
   2. directional colour, decoded the same way
@@ -17,7 +17,7 @@ albedo * lighting in gamma space.
 Two encodings of each page are produced:
   * WaW-encoded: [secondary top, secondary bottom, primary] stacked in T6's
     shape; translated WaW programs sample it through an exact UV remap
-    (``WAW_PAGE_UV``). The primary is box-filtered 2x2 to the page width
+    (``WAW_PAGE_UV``). The primary is box-filtered to the W x H layer size
     (reported: sun shadow detail at half resolution).
   * T6-encoded, for surfaces still drawn by T6 donor programs: ambient =
     WaW's own lighting at a flat normal, squared into T6's linear units
@@ -100,28 +100,30 @@ def _flat_weight_table() -> list[float]:
     return table
 
 
-def build_page(secondary: Path, primary: Path | None) -> tuple[int, bytes, bytes]:
-    """(page width, WaW-encoded RGBA, T6-encoded RGBA) for one WaW page."""
+def build_page(secondary: Path, primary: Path | None) -> tuple[int, int, bytes, bytes]:
+    """(layer width, layer height, WaW RGBA, T6 RGBA) for one WaW page."""
     sw, sh, sec = _rgba(secondary)
-    if sh != 2 * sw:
-        raise LightmapError(f'{secondary.name}: expected a W x 2W secondary lightmap, got {sw}x{sh}')
-    half = sw * sw * 4
+    if sw <= 0 or sh <= 0 or sh % 2:
+        raise LightmapError(f'{secondary.name}: expected two equal stacked secondary lightmap layers, got {sw}x{sh}')
+    height = sh // 2
+    pixels = sw * height
+    half = pixels * 4
     top, bottom = sec[:half], sec[half:]
     if primary is not None:
         pw, ph, pri = _rgba(primary)
-        vis = _box_luminance(pw, ph, pri, sw, sw)
+        vis = _box_luminance(pw, ph, pri, sw, height)
     else:
-        vis = bytes([255]) * (sw * sw)
-    third = bytearray(sw * sw * 4)
+        vis = bytes([255]) * pixels
+    third = bytearray(pixels * 4)
     for c in range(3):
         third[c::4] = vis
     third[3::4] = vis
     waw = top + bottom + bytes(third)
 
     weights = _flat_weight_table()
-    ambient = bytearray(sw * sw * 4)
+    ambient = bytearray(pixels * 4)
     ta, ba = top[3::4], bottom[3::4]
-    for i in range(sw * sw):
+    for i in range(pixels):
         w = weights[ta[i] * 256 + ba[i]]
         p = i * 4
         light = [(top[p + c] + bottom[p + c] * w) / 255.0 for c in range(3)]
@@ -130,14 +132,14 @@ def build_page(secondary: Path, primary: Path | None) -> tuple[int, bytes, bytes
         for c in range(3):
             ambient[p + c] = min(255, int(round(linear[c] / peak * 255.0)))
         ambient[p + 3] = min(255, max(1, int(round(255.0 / peak))))
-    directional = bytes([0, 0, 0, 255]) * (sw * sw)
-    direction = bytearray(sw * sw * 4)
-    direction[0::4] = bytes([128]) * (sw * sw)
-    direction[1::4] = bytes([128]) * (sw * sw)
-    direction[2::4] = bytes([255]) * (sw * sw)
+    directional = bytes([0, 0, 0, 255]) * pixels
+    direction = bytearray(pixels * 4)
+    direction[0::4] = bytes([128]) * pixels
+    direction[1::4] = bytes([128]) * pixels
+    direction[2::4] = bytes([255]) * pixels
     direction[3::4] = vis
     t6 = bytes(ambient) + directional + bytes(direction)
-    return sw, waw, t6
+    return sw, height, waw, t6
 
 
 def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set[str]) -> dict:
@@ -169,7 +171,7 @@ def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set
         secondary, primary = find(index, 'secondary'), find(index, 'primary')
         if primary is None:
             report['warnings'].append(f'lightmap page {index}: primary (sun visibility) absent; fully visible')
-        width, waw, t6 = build_page(secondary, primary)
+        width, height, waw, t6 = build_page(secondary, primary)
         names = {'waw': f'lightmap{index}_waw_secondary', 't6': f'lightmap{index}_t6_secondary'}
         for key, data in (('waw', waw), ('t6', t6)):
             if os.environ.get('WAW2BO2_DIAG_PAGEID'):
@@ -178,16 +180,16 @@ def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set
                 palette = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 255, 255)]
                 code = bytes([*(palette[index % 5] if key == 'waw' else (255, 0, 255)), 255])
                 data = bytearray(data)
-                for y in range(width * 3 - 4, width * 3):
-                    for x in range(width - 4, width):
+                for y in range(max(0, height * 3 - 4), height * 3):
+                    for x in range(max(0, width - 4), width):
                         o = (y * width + x) * 4
                         data[o:o + 4] = code
                 data = bytes(data)
             dst = project_root / 'images' / f'{names[key]}.iwi'
             dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(_iwi_rgba(width, width * 3, data))
+            dst.write_bytes(_iwi_rgba(width, height * 3, data))
         pages.append(names)
-        report['pages'].append({'index': index, 'width': width, **names})
+        report['pages'].append({'index': index, 'width': width, 'height': height, **names})
     bsp = project_root / 'BSP'
     bsp.mkdir(parents=True, exist_ok=True)
     (bsp / 'lightmaps.json').write_text(json.dumps({'pages': pages, 'wawMaterials': sorted(waw_materials)}, indent=1) + '\n',

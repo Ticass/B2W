@@ -5,7 +5,7 @@ on:
       tag:
         description: Draft release tag containing the Windows ZIP
         required: true
-        default: v0.2.1
+        default: v0.2.2
 permissions:
   contents: write
 jobs:

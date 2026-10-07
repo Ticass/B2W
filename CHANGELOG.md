@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.2 — Rectangular lightmap hotfix (2026-10-07)
+
+- Accept rectangular WaW lightmap layers, including 512x2048 secondary textures
+  that previously stopped conversion with an expected-size error.
+- Preserve layer dimensions, lighting data, and sun visibility in both encodings.
+- 36 related lighting and shader tests pass, including the reported dimensions.
+  The affected user map has not yet been converted or playtested.
+
 ## v0.2.1 â€” Windows and Linux executables (2026-10-07)
 
 - Native Linux x86-64 GUI/CLI, with a bundled Windows conversion worker using

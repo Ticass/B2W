@@ -15,9 +15,9 @@ interface: select a WaW map, click **Build Map**, then **Install to Plutonium**
 and **Launch Map**. It remembers game paths, manages intermediate files, checks
 requirements, displays progress, and collects conversion reports.
 
-**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.1/WawConverter-Windows.zip)** ·
-**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.1/WawConverter-Linux-x86_64.tar.gz)** ·
-[v0.2.1 release](https://github.com/Ticass/B2W/releases/tag/v0.2.1).
+**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.2/WawConverter-Windows.zip)** ·
+**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.2/WawConverter-Linux-x86_64.tar.gz)** ·
+[v0.2.2 release](https://github.com/Ticass/B2W/releases/tag/v0.2.2).
 
 Portable Windows builds include Python and the native conversion tools. Extract
 the whole ZIP and open `WawConverter.exe`. Game installations and BO2 Mod Tools
