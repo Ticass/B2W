@@ -66,7 +66,8 @@ def source_files(root: Path, language: str) -> list[Path]:
 def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
           unlinker: Path | None = None, work: Path | None = None,
           raw_roots: list[Path] = (), bo2_root: Path | None = None,
-          language: str = 'english', t6_unlinker: Path | None = None) -> dict:
+          language: str = 'english', t6_unlinker: Path | None = None,
+          t6_stock_dump: Path | None = None) -> dict:
     """Source zones/IWDs, stock WaW, then raw WaW; never fabricate key text."""
     work = work or project / 'content_source/localization_cache'
     previous = project / 'content_source/localization.stage.json'
@@ -105,12 +106,19 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
         for path in source_files(root, language):
             add(path.read_text(encoding='utf-8-sig', errors='replace'), str(path), path.stem)
 
+    prepared = {}
+    for root in roots:
+        receipt = root / 'extraction.json'
+        if receipt.is_file():
+            data = json.loads(receipt.read_text(encoding='utf-8'))
+            prepared[str(Path(data['inputs']['file']).resolve())] = root
     if unlinker is not None:
         zones = {ff for directory in iwd_dirs if directory.is_dir() for ff in directory.glob('*.ff')}
         # Patched definitions win; common localization is the map's baseline.
         for ff in sorted(zones, key=lambda p: ('patch' not in p.stem.lower(),
                                               'common' in p.stem.lower(), p.name)):
-            add_root(dump_zone(ff, unlinker, work, [ff.parent, *iwd_dirs]))
+            cached = prepared.get(str(ff.resolve()))
+            add_root(cached if cached is not None else dump_zone(ff, unlinker, work, [ff.parent, *iwd_dirs]))
     for root in roots:
         add_root(root)
     for directory in iwd_dirs:
@@ -130,7 +138,9 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
         for key in sorted(requested - sources.keys()):
             zones = stock.zones_defining('localize', key)
             if zones:
-                add_root(dump_zone(stock.zone_dir / (zones[0] + '.ff'), stock.unlinker, work, [stock.waw_root / 'main']))
+                cached = getattr(stock, 'prepared', {}).get(zones[0])
+                add_root(cached if cached is not None else dump_zone(
+                    stock.zone_dir / (zones[0] + '.ff'), stock.unlinker, work, [stock.waw_root / 'main']))
     for root in raw_roots:
         add_root(root)
     known.update(sources)
@@ -138,7 +148,11 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
     # Exact BO2 text is eligible only after the complete source search fails.
     fallback = {}
     if bo2_root is not None:
-        if t6_unlinker is not None:
+        if t6_stock_dump is not None:
+            for path in source_files(t6_stock_dump, language):
+                for key, value in parse(path.read_text(encoding='utf-8-sig', errors='replace'), language).items():
+                    fallback.setdefault(key, (value, str(path)))
+        elif t6_unlinker is not None:
             for zone in ('patch_zm', 'common_zm', 'code_post_gfx_zm'):
                 ff = bo2_root / 'zone' / language / (language[:2] + '_' + zone + '.ff')
                 if ff.is_file():

@@ -49,6 +49,20 @@ class DesktopUITests(unittest.TestCase):
         self.assertEqual(self.app.current_step, 2)
         self.assertEqual(self.app.warnings, 1)
 
+    def test_asset_progress_updates_current_step_without_advancing_it(self):
+        self.app._line('== 2. staging assets')
+        self.app._line('[staging] Audio: 20/100 completed')
+        self.assertEqual(self.app.current_step, 2)
+        self.assertIn('Step 3 of 8', self.app.status.get())
+        self.assertIn('Audio: 20/100', self.app.status.get())
+        self.app.verbose.set(True)
+        self.assertTrue(self.app._snapshot().verbose)
+
+    def test_activity_repeating_previous_warning_does_not_count_it_again(self):
+        self.app._line('WARNING: missing optional asset')
+        self.app._line('[activity] Process still running. Last output: WARNING: missing optional asset')
+        self.assertEqual(self.app.warnings, 1)
+
     def test_advanced_paths_and_reports_are_accessible(self):
         self.app._toggle_advanced()
         self.assertEqual(self.app.advanced.winfo_manager(), 'grid')
@@ -69,3 +83,14 @@ class DesktopUITests(unittest.TestCase):
         self.assertIn('MY CUSTOM MAP', texts)
         self.assertIn('Survive here.', texts)
         self.assertEqual(self.app._snapshot().menu_title, 'My Custom Map')
+
+    def test_extract_all_is_available_without_a_selected_map(self):
+        with patch('waw2bo2.gui.preflight', return_value=[]), patch.object(self.app, '_start') as start:
+            self.app.extract_button.invoke()
+        self.assertEqual(start.call_args.args[0], 'extract')
+
+    def test_extraction_completion_does_not_claim_a_map_was_built_or_installed(self):
+        self.app._finished('extract', 0, '')
+        self.assertIn('game assets extracted', self.app.status.get())
+        self.assertNotIn('Installed to Plutonium.', self.app.console.get('1.0', 'end'))
+        self.assertIn('disabled', self.app.install_button.state())

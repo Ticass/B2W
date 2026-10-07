@@ -29,6 +29,33 @@ class VisionsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 visions.film((.5,.5,.5), fields)
 
+    def test_shipped_sniper_brightness_uses_waw_numeric_prefix(self):
+        self.assertEqual(visions.vision_float('0.O458'), 0)
+        self.assertEqual(visions.vision_float('-.25tail'), -.25)
+        self.assertEqual(visions.vision_float('1.5e-2suffix'), .015)
+        self.assertEqual(visions.film((.5, .5, .5), {'r_filmbrightness': '0.O458'}),
+                         visions.film((.5, .5, .5), {'r_filmbrightness': '0'}))
+        with self.assertRaises(ValueError):
+            visions.vision_float('O.0458')
+
+    def test_staging_reports_numeric_prefix_without_modifying_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / 'project'
+            (project / 'maps/mp/waw').mkdir(parents=True)
+            (project / 'maps/mp/waw/test.gsc').write_text('main(){ waw_visionsetnaked("sniper",0); }')
+            (root / 'vision').mkdir()
+            source = root / 'vision/sniper.vision'
+            original = 'r_filmBrightness "0.O458"'
+            source.write_text(original)
+            donor = root / 'lut.json'
+            donor.write_text(json.dumps({'textures': [{'image': 'stock_lut'}]}))
+            report = visions.stage(project, [root], [], donor=donor)
+            self.assertEqual(report['numeric_prefixes'][0]['original'], '0.O458')
+            self.assertEqual(report['numeric_prefixes'][0]['parsed'], 0)
+            self.assertEqual(source.read_text(), original)
+            self.assertFalse(report['errors'])
+
     def test_stock_precedes_modtools_vision_source(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

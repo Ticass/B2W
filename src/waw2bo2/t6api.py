@@ -145,10 +145,17 @@ CACHE_VERSION = 3
 STOCK_ZONES = ("code_pre_gfx_zm", "code_post_gfx_zm", "common_zm", "patch_zm")
 
 
-def list_zone_assets(bo2_root: Path, unlinker: Path) -> dict[str, set[str]]:
+def list_zone_assets(bo2_root: Path, unlinker: Path, stock_dump: Path | None = None) -> dict[str, set[str]]:
     import subprocess
 
     out: dict[str, set[str]] = {}
+    if stock_dump is not None and (stock_dump / 'catalog.json').is_file():
+        catalog = json.loads((stock_dump / 'catalog.json').read_text(encoding='utf-8'))
+        for filename, entry in catalog['zones'].items():
+            if Path(filename).stem in STOCK_ZONES:
+                for kind, names in entry.get('loaded_index', entry['index']).items():
+                    out.setdefault(kind, set()).update(name.lower() for name in names)
+        return out
     for zone in STOCK_ZONES:
         ff = bo2_root / "zone" / "all" / f"{zone}.ff"
         if not ff.exists():
@@ -162,7 +169,7 @@ def list_zone_assets(bo2_root: Path, unlinker: Path) -> dict[str, set[str]]:
     return out
 
 
-def build(bo2_root: Path, cache: Path, unlinker: Path | None = None) -> T6Api:
+def build(bo2_root: Path, cache: Path, unlinker: Path | None = None, stock_dump: Path | None = None) -> T6Api:
     if cache.exists():
         data = json.loads(cache.read_text(encoding="utf-8"))
         if data.get("version") == CACHE_VERSION and (unlinker is None or data.get("stock_assets")):
@@ -194,7 +201,7 @@ def build(bo2_root: Path, cache: Path, unlinker: Path | None = None) -> T6Api:
             functions[name] = (0, 32)
         if meth and name not in methods:
             methods[name] = (0, 32)
-    assets = list_zone_assets(bo2_root, unlinker) if unlinker is not None else {}
+    assets = list_zone_assets(bo2_root, unlinker, stock_dump) if unlinker is not None else {}
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps({"version": CACHE_VERSION, "builtins": functions, "methods": methods,
                                  "scripts": scripts,

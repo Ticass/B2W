@@ -17,6 +17,25 @@ from . import glow, gsc, iwi
 
 PAIR = re.compile(r'([\w]+)\s+"([^"\r\n]*)"')
 LUMA = (.299, .587, .114)
+FLOAT_PREFIX = re.compile(r'^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?')
+
+
+def vision_float(value) -> float:
+    """WaW sub_462AA0 reads scalar vision fields with sscanf("%f").
+
+    A numeric prefix is accepted: shipped sniper visions contain "0.O458",
+    which WaW reads as zero. Do not replace O with 0 and change the grading.
+    """
+    try:
+        result = float(value)
+    except ValueError:
+        match = FLOAT_PREFIX.match(str(value).lstrip())
+        if match is None:
+            raise ValueError(f'invalid numeric vision value: {value!r}') from None
+        result = float(match.group())
+    if not math.isfinite(result):
+        raise ValueError(f'non-finite vision value: {value!r}')
+    return result
 
 def lut_donor(root: Path | None) -> Path | None:
     """Find the native LUT material by renderer role, independent of map name."""
@@ -39,7 +58,7 @@ def film_terms(fields):
     r_brightness (sum) and r_desaturation (d (d + (1 - d) r_desaturation)),
     which a map script may set (USER_DVARS, merged into ``fields``)."""
     def scalar(k, default):
-        v = float(fields.get(k, default))
+        v = vision_float(fields.get(k, default))
         if not math.isfinite(v):
             raise ValueError(f'non-finite vision field {k}')
         return v
@@ -86,7 +105,7 @@ def script_dvars(paths) -> dict[str, str]:
 def film(rgb, fields):
     """Evaluate the native WaW film equation (default user renderer dvars)."""
     def scalar(k, default):
-        v = float(fields.get(k, default))
+        v = vision_float(fields.get(k, default))
         if not math.isfinite(v):
             raise ValueError(f'non-finite vision field {k}')
         return v
@@ -196,7 +215,7 @@ def stage(project: Path, roots: list[Path], iwds: list[Path], stock=None,
     report = {'status': 'native_lut', 'visions': {}, 'missing': [], 'not_translated': {},
               'sampling': '32^3 RGB8, native T6 spatial LUT interpolation',
               'transition': 'LUT grade switches immediately; shared vision fields retain native fade time',
-              'errors': []}
+              'errors': [], 'numeric_prefixes': []}
     def lookup(name):
         if name not in sources and stock is not None:
             hit = stock.root_for('rawfile', f'vision/{name}.vision')
@@ -237,6 +256,21 @@ def stage(project: Path, roots: list[Path], iwds: list[Path], stock=None,
             report['errors'].append(f'invalid vision name: {name}')
             continue
         fields = {**parse(sources[name][0]), **user}
+        for key, value in list(fields.items()):
+            if not key.startswith('r_') or len(value.split()) != 1:
+                continue
+            try:
+                float(value)
+            except ValueError:
+                match = FLOAT_PREFIX.match(value.lstrip())
+                if match is not None:
+                    parsed = vision_float(value)
+                    fields[key] = repr(parsed)
+                    note = {'vision': name, 'source': sources[name][1], 'field': key,
+                            'original': value, 'parsed': parsed}
+                    report['numeric_prefixes'].append(note)
+                    print(f'WARNING: vision {name}: {key} {value!r} read as {parsed:g} '
+                          f'using WaW numeric-prefix parsing ({sources[name][1]})', flush=True)
         index = len(grades)
         # vc_LUT's native range is -32..32; it selects abs(value)-1.
         if index >= 32:

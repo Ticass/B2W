@@ -153,13 +153,14 @@ def resample(pcm: bytes, channels: int, rate: int, target: int, tool: Path) -> b
 
 def stage(project: Path, output: Path, decoder: Path | None = None,
           xwma_decoder: Path | None = None) -> dict:
+    from .progress import items
     source_report = json.loads((project / "sounds.stage.json").read_text())
     decoder = find_decoder(decoder) if decoder else None
     report = {"status": "partial_pcm_stage", "decoder": str(decoder) if decoder else None,
               "audio": [], "errors": [], "runtime_validated": False}
     written = {}
     resampler = None
-    for entry in source_report["audio"]:
+    for entry in items('Audio', source_report['audio'], name=lambda entry: entry['name']):
         if "output" not in entry:
             report["errors"].append({"name": entry["name"], "reason": entry["status"]})
             continue

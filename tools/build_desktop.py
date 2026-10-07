@@ -93,6 +93,7 @@ def main():
     shutil.copy2(ROOT / 'tools/xaudio_wma_decoder.cpp', source / 'xaudio_wma_decoder.cpp')
     shutil.copy2(ROOT / 'docs/DESKTOP.md', bundle / 'START HERE.md')
     shutil.copy2(ROOT / 'docs/LINUX.md', bundle / 'LINUX.md')
+    shutil.copy2(ROOT / 'docs/EXTRACT_ALL.md', bundle / 'Extract All.md')
     shutil.copy2(ROOT / 'docs/USAGE.md', bundle / 'Advanced usage.md')
     for name in ['desktop.spec', 'build_desktop.py', 'desktop_entry.py', 'build_audio_decoder.ps1']:
         shutil.copy2(ROOT / 'tools' / name, source / name)

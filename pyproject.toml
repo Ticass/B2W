@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waw2bo2"
-version = "0.2.2"
+version = "0.2.3"
 description = "Fail-closed World at War custom-map to Black Ops II zone conversion pipeline"
 requires-python = ">=3.11"
 dependencies = ["Pillow>=10"]
 
 [project.scripts]
 waw2bo2 = "waw2bo2.cli:main"
+all2raw = "waw2bo2.all2raw_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

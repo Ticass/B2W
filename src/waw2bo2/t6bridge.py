@@ -31,6 +31,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from .resources import resource_root
+from . import progress
 
 from . import assetresolve, audio, entities, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, oneway, paths, projectilecollision, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones
 from .fbx import collision_material_slots, write_collision_fbx, write_world_fbx
@@ -178,6 +179,7 @@ def dangling_substitute(name: str, roots: list[Path]) -> tuple[str, str] | None:
     return None
 
 
+@progress.phase('Convert materials')
 def stage_materials(report: StageReport, names: set[str], roots: list[Path], stock_materials: Path,
                     project_root: Path, techset_root: Path | None = None,
                     rename: dict[str, str] | None = None, *, image_prefix: str = 'waw_world/',
@@ -196,7 +198,7 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
         raise StageError(f"no stock T6 material donors found under {stock_materials}")
     candidates = sorted(donors)
     used_techsets: set[str] = set()
-    for name in sorted(names):
+    for name in progress.items('Materials', sorted(names)):
         rel = techsets.oat_material_path(name)
         src = _find(roots, rel)
         out_rel = techsets.oat_material_path(rename.get(name, name))
@@ -357,6 +359,7 @@ def _in_iwds(stem: str, iwd_dirs: list[Path]) -> bool:
     return stem.lower() in _IWD_CACHE[key]
 
 
+@progress.phase('Convert images')
 def stage_images(report: StageReport, image_roots: list[Path], project_root: Path,
                  iwd_dirs: list[Path] | None = None, extra_images: list[str] = (),
                  wavelets: wavelet.IwdRecovery | None = None) -> list[str]:
@@ -371,7 +374,7 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
         wanted[asset] = stem
     written = []
     native_images = {e['name'] for e in report.images if e.get('source_kind') == 't6_equivalent'}
-    for asset, stem in sorted(wanted.items()):
+    for asset, stem in progress.items('Images', sorted(wanted.items()), name=lambda pair: pair[0]):
         dst = project_root / techsets.oat_image_path(asset)
         if asset in native_images:
             if not dst.is_file():
@@ -643,6 +646,7 @@ def _gltf_game_bounds(path: Path):
     return tuple(mins), tuple(maxs)
 
 
+@progress.phase('Convert models and collision')
 def stage_models(report: StageReport, world, project: str, stage: Path, project_root: Path,
                  extra_models: set[str] = frozenset(), roots: list[Path] | None = None,
                  entity_box_models: set[str] = frozenset()) -> set[str]:
@@ -660,7 +664,7 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
     targets.update({name: name for name in extra_models})
     # the skybox is staged by stage_skybox (T6 needs a sky technique)
     materials: set[str] = set()
-    for src_name, dst_name in sorted(targets.items()):
+    for src_name, dst_name in progress.items('Models', sorted(targets.items()), name=lambda pair: pair[0]):
         src_root = next((r for r in (roots or [stage]) if (r / "xmodel" / f"{src_name}.json").exists()), None)
         if src_root is None:
             report.errors.append(f"xmodel {src_name}: xmodel/{src_name}.json missing from every WaW zone dump")
@@ -1001,6 +1005,7 @@ def write_shadow_geometry(report: StageReport, world, mesh_of_surface: dict[int,
                                          "removed_source_surfaces": dropped}
 
 
+@progress.phase('Convert world geometry')
 def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_root: Path,
                    stock_waw=None) -> str | None:
     """World FBX (sky surfaces removed), terrain collision FBX, brushes.json."""
@@ -1162,8 +1167,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # Do not add the recovery root to general lookup paths until dependencies
     # have been decoded; stage_images calls recover independently below.
 
-    world = read_gfx_world(gfx_bin)
-    clip = read_collision(clip_bin)
+    world = progress.timed('Read map world', read_gfx_world, gfx_bin)
+    clip = progress.timed('Read map collision', read_collision, clip_bin)
     sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw)
     ents_file = gfx_bin.parent / f"{gfx_bin.name.removesuffix('.gfx.bin')}.ents"
     if not ents_file.exists():
@@ -1268,7 +1273,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # translated WaW lit programs get the WaW-encoded copy (by FBX material name).
     waw_lightmap_materials = {m.get('source', m['name']) for m in report.materials
                               if m.get('shader_runtime', {}).get('lightmap') == 'waw'}
-    lightmap_report = lightmaps.stage(world, [r / 'images' for r in roots], project_root, waw_lightmap_materials)
+    lightmap_report = progress.timed('Convert lightmaps', lightmaps.stage, world, [r / 'images' for r in roots], project_root, waw_lightmap_materials)
     report.errors += lightmap_report['errors']
     report.warnings += lightmap_report['warnings']
     report.content['lightmaps'] = {'pages': lightmap_report['pages'],
@@ -1338,7 +1343,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         _stage_weapon_runtime(report, project, project_root, roots, stock_materials, techset_dump, bo2_root,
                               t6_unlinker, stage, wavelets, set(effects.table),
                               waw_map_script.stem if waw_map_script is not None else None, native_fallbacks)
-    shader_report = shaders.stage(roots, project_root / 'content_source/shaders')
+    shader_report = progress.timed('Translate shaders', shaders.stage, roots, project_root / 'content_source/shaders')
     report.content['shaders'] = {k: v for k, v in shader_report.items() if k != 'shaders'}
     report.content['shaders']['report'] = 'content_source/shaders/stage.json'
     runtime_materials = list(report.materials)
@@ -1358,7 +1363,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                "remaining programs require supported T6 pass adapters")
     # No loose raw/ visions: WaW (fastfile mode) reads visions only from loaded
     # zones and replaces a missing one with vision/default (CoDWaW sub_4629F0).
-    vision_report = visions.stage(project_root,
+    vision_report = progress.timed('Convert vision and glow', visions.stage, project_root,
         [*([waw_map_script.parent.parent] if waw_map_script else []),
          *(waw_script_roots or []), *roots, *([waw_stock_scripts] if waw_stock_scripts else [])],
         sorted({f for d in (iwd_dirs or []) for f in d.glob('*.iwd')}), stock_waw,
@@ -1393,11 +1398,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     script_sounds = sounds.script_aliases(project_root, defined_sounds)
     compiled_sound_names.update(script_sounds)
     report.content['script_sound_dependencies'] = sorted(script_sounds)
-    sound_graph = sound_resolver.expand({("sound", n) for n in compiled_sound_names})
+    sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
     sound_names = {n["name"] for n in sound_graph["nodes"] if n["kind"] == "sound"}
-    sound_report = sounds.stage(sound_resolver.roots, project_root / "content_source", image_iwds,
+    sound_report = progress.timed('Stage sound sources', sounds.stage, sound_resolver.roots, project_root / "content_source", image_iwds,
                                 stock_waw, sound_names)
-    audio_report = audio.stage(project_root / "content_source", project_root / "content_source/pcm", audio_decoder, xwma_decoder)
+    audio_report = progress.timed('Decode audio', audio.stage, project_root / "content_source", project_root / "content_source/pcm", audio_decoder, xwma_decoder)
     binding_report = sounds.bind_pcm(project_root / "content_source", project_root / "content_source/pcm")
     if t6_sound_driver is None and techset_dump is not None:
         t6_sound_driver = techset_dump / "sounddriverglobals/singleton.w2bsdg"
@@ -1405,7 +1410,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     bank = f"waw_{project}.all"
     budget = sounds.loaded_budget(bo2_root, bo2_root / "mods" / "zm_test" / "soundbank" / "zmb_test.all.aliases.csv") \
         if bo2_root is not None else None
-    bank_report = sounds.write_t6_bank(project_root / "content_source", bank, project_root / "soundbank", budget)
+    bank_report = progress.timed('Build sound bank', sounds.write_t6_bank, project_root / "content_source", bank, project_root / "soundbank", budget)
     write_amb_csc(report, project, project_root)
     if budget is not None:
         report.warnings.append(
@@ -1521,10 +1526,10 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         report.errors.append(f"stock T6 zbarrier {entities.ZBARRIER_ASSET} missing from techset dump")
     model_overlay_fx = stage_model_overlay_fx(report, project_root)
     scripts = map_scripts(project_root, project)
-    localization_report = localization.stage(project_root, roots, iwd_dirs or [], stock_waw,
+    localization_report = progress.timed('Stage localization', localization.stage, project_root, roots, iwd_dirs or [], stock_waw,
         t4_unlinker, stage / 'localization_dumps',
         [root / 'raw' for root in (waw_mod_tools, waw_root) if root is not None], bo2_root,
-        t6_unlinker=t6_unlinker)
+        t6_unlinker=t6_unlinker, t6_stock_dump=techset_dump)
     report.content['localization'] = localization_report
     report.errors += localization_report['errors']
     with (project_root / MOD_EXTRA_ZONE).open('a', encoding='utf-8') as zone:
@@ -1572,6 +1577,7 @@ class EffectsResult:
     sounds: set[str] = field(default_factory=set)
 
 
+@progress.phase('Convert effects')
 def stage_effects(report: StageReport, names: list[str], roots: list[Path], stock_waw, project_root: Path,
                   stock_materials: Path, techset_dump: Path | None, bo2_root: Path,
                   iwd_dirs: list[Path] = (), source_waw=None,
@@ -1757,6 +1763,7 @@ def stage_effects(report: StageReport, names: list[str], roots: list[Path], stoc
     return res
 
 
+@progress.phase('Resolve weapons and dependencies')
 def _stage_weapons(report: StageReport, roots: list[Path], project_root: Path, names: set[str],
                    script_models: set[str], stock_waw, sound_names: set[str]):
     """Resolve and stage the map's compiled weapons (weapons.stage). The map
@@ -1784,6 +1791,7 @@ WEAPON_IPAK_SUFFIX = "_mod"
 TEMPLATE_ZONE = Path("mods") / "zm_test" / "zm_test.zone"
 
 
+@progress.phase('Convert weapon runtime assets')
 def _stage_weapon_runtime(report: StageReport, project: str, project_root: Path, roots: list[Path],
                           stock_materials: Path, techset_dump: Path | None, bo2_root: Path | None,
                           t6_unlinker: Path | None, stage: Path, wavelets, converted_fx: set[str],
@@ -1935,6 +1943,7 @@ def recover_script_models(report: StageReport, wanted: set[str], roots: list[Pat
     return models
 
 
+@progress.phase('Port map scripts and animation dependencies')
 def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_script: Path, bo2_root: Path,
                  roots: list[Path], iwd_dirs: list[Path], stock: Path | None,
                  t6_unlinker: Path | None, model_roots: list[Path], clip=None,
@@ -2057,7 +2066,7 @@ def compile_scripts(stage: Path, project: str, bo2_root: Path, oat_unlinker: Pat
     (work / "zone_source" / f"{zone}.zone").write_text(
         ">game,T6\n" + "".join(f"script,{s}\n" for s in scripts), encoding="utf-8")
     linker = bo2_root / "bin" / "Linker.exe"
-    proc = subprocess.run([str(linker), "--no-color", "--source-search-path", str(work / "zone_source"),
+    proc = progress.captured([str(linker), "--no-color", "--source-search-path", str(work / "zone_source"),
                            "--add-asset-search-path", str(project_root), "--output-folder", str(work / "out"), zone],
                           cwd=str(linker.parent), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                           errors="replace")
@@ -2071,7 +2080,7 @@ def compile_scripts(stage: Path, project: str, bo2_root: Path, oat_unlinker: Pat
     if errors or missing or not ff.exists():
         raise StageError(f"script compilation failed: {errors[:5]} missing={missing[:5]}; see {work / 'linker.log'}")
     out = compiled_scripts_root(stage, project)
-    proc = subprocess.run([str(oat_unlinker), "--no-color", "--include-assets", "script", "--output-folder", str(out),
+    proc = progress.captured([str(oat_unlinker), "--no-color", "--include-assets", "script", "--output-folder", str(out),
                            str(ff)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
     for name in compiled:
         blob = out / name

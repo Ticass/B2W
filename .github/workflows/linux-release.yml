@@ -5,7 +5,7 @@ on:
       tag:
         description: Draft release tag containing the Windows ZIP
         required: true
-        default: v0.2.2
+        default: v0.2.3
 permissions:
   contents: write
 jobs:
@@ -37,6 +37,7 @@ jobs:
           unzip -q work/windows/WawConverter-Windows.zip -d work/windows
       - name: Test launcher and driver
         run: |
+          python -m unittest discover -s tests -p test_all2raw.py
           python -m unittest discover -s tests -p test_linuxruntime.py
           python -m unittest discover -s tests -p test_builddriver.py
       - name: Build native Linux executables
@@ -46,6 +47,7 @@ jobs:
           file work/linux_dist/WawConverter-Linux/WawConverter
           xvfb-run -a work/linux_dist/WawConverter-Linux/WawConverter.CLI --self-test
           work/linux_dist/WawConverter-Linux/WawConverter.CLI -m waw2bo2.cli --help
+          work/linux_dist/WawConverter-Linux/All2Raw --help
       - name: Smoke-test the Windows worker through Wine
         env:
           WINEPREFIX: ${{ runner.temp }}/wawconverter-wine

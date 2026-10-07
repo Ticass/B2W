@@ -31,6 +31,7 @@ def main():
         shutil.copytree(portable / folder, bundle / folder, dirs_exist_ok=True)
     shutil.copy2(ROOT / 'docs/LINUX.md', bundle / 'START HERE.md')
     shutil.copy2(ROOT / 'docs/DESKTOP.md', bundle / 'Desktop guide.md')
+    shutil.copy2(ROOT / 'docs/EXTRACT_ALL.md', bundle / 'Extract All.md')
     shutil.copy2(ROOT / 'tools/build_linux.py', bundle / 'source/build_linux.py')
     shutil.copy2(ROOT / 'tools/linux.spec', bundle / 'source/linux.spec')
     archive = output / 'WawConverter-Linux-x86_64.tar.gz'

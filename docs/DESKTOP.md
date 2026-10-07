@@ -2,8 +2,8 @@
 
 ## Quick start
 
-[Download WawConverter-Windows.zip](https://github.com/Ticass/B2W/releases/download/v0.2.1/WawConverter-Windows.zip)
-from the [v0.2.1 release](https://github.com/Ticass/B2W/releases/tag/v0.2.1).
+[Download WawConverter-Windows.zip](https://github.com/Ticass/B2W/releases/download/v0.2.3/WawConverter-Windows.zip)
+from the [v0.2.3 release](https://github.com/Ticass/B2W/releases/tag/v0.2.3).
 Choose the portable ZIP asset rather than GitHub's source-code archives.
 
 1. Extract the entire portable Windows ZIP into a writable folder. Keep
@@ -18,7 +18,8 @@ Choose the portable ZIP asset rather than GitHub's source-code archives.
    Blit (512 × 256 with transparency), Large (2048 × 2048), and Blur (2048 × 2048).
    The tab previews map selection, lobby, and loading artwork. Large supplies
    the loading image and the 256 × 256 lobby thumbnail.
-5. Click **Build Map**. The tool creates its own working folders, runs each
+5. Click **Extract All** in Setup once to prepare
+   shared game assets. Then click **Build Map**. The tool creates its own working folders, runs each
    conversion stage, shows progress, and records the build logs.
 6. Review **Reports**. Close BO2, then click **Install to Plutonium**.
 7. Click **Launch Map** and playtest the conversion.
@@ -53,12 +54,22 @@ only after native stages, material verification, and packaging complete.
 Install and Launch unlock when the corresponding output exists.
 
 Settings and build files default to `%LOCALAPPDATA%/WawConverter/`. Each source
-map and game-installation pair has separate intermediate files. Changes to
-source archives, donor fastfiles, or extractors automatically refresh the caches.
+map and game-installation pair has separate intermediate files. Custom-map
+source changes invalidate that source's dump. The updated Extract All workflow
+checks stock cache freshness at build time and asks for Extract All if it is
+stale. See [Extract All](EXTRACT_ALL.md).
 Select **Refresh source files** to force a fresh extraction when troubleshooting.
 Installed maps live in `%LOCALAPPDATA%/Plutonium/storage/t6/mods/<map>/`.
 
 ## Run from source
+
+The console reports staging phases, asset counts, and phase durations. Enable
+**Verbose Console** before starting a build or extraction to show individual
+asset names and stream native extractor/linker output. The choice is saved.
+Quiet subprocesses report their PID, total elapsed time, and time since the
+last output every 15 seconds. These messages confirm the process is still
+running; they cannot establish whether it is making progress. Console activity
+is also written to the build or extraction log.
 
 Double-click `Launch Mod Tools.bat` with Python 3.11+ installed, including
 Tcl/Tk, or run from PowerShell:

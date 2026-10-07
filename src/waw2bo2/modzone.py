@@ -18,6 +18,7 @@ import json
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
+from .progress import captured
 
 TEMPLATE_MAP = "zm_test"
 # world assets live in the map fastfile (the bridge links skinnedverts too;
@@ -78,7 +79,7 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
     baseline.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ff, baseline)
     dump = work/'shader_baseline/dump'
-    proc = subprocess.run([str(unlinker.resolve()), '--no-color', '--include-assets', 'material',
+    proc = captured([str(unlinker.resolve()), '--no-color', '--include-assets', 'material',
                            '--output-folder', str(dump), str(baseline)], capture_output=True, text=True)
     (work/'shader_baseline/unlinker.log').write_text(proc.stdout+proc.stderr)
     if proc.returncode:
@@ -131,13 +132,13 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
     command = [str(linker.resolve()), '--no-color', '--base-folder', str(work),
                '--load', str(baseline), '--source-search-path', str(source_root),
                '--asset-search-path', str(overlay), '--output-folder', str(output), 'mod']
-    proc = subprocess.run(command, capture_output=True, text=True, errors='replace')
+    proc = captured(command, capture_output=True, text=True, errors='replace')
     (work/'shader_linker.log').write_text(proc.stdout+proc.stderr)
     linked = output/'mod.ff'
     if proc.returncode or not linked.is_file() or re.search(r'(?m)^ERROR:', proc.stdout):
         raise RuntimeError(f'bound shader mod relink failed ({proc.returncode}); see {work / "shader_linker.log"}')
     check = work/'shader_check'
-    proc = subprocess.run([str(unlinker.resolve()), '--no-color', '--include-assets', 'material,techniqueset',
+    proc = captured([str(unlinker.resolve()), '--no-color', '--include-assets', 'material,techniqueset',
         '--output-folder', str(check), str(linked)], capture_output=True, text=True, errors='replace')
     (work/'shader_check.log').write_text(proc.stdout+proc.stderr)
     if proc.returncode:
@@ -214,11 +215,17 @@ CALL_RE = re.compile(r"\b([a-z_][\w]*(?:\\[\w]+)+)::", re.IGNORECASE)
 STOCK_SCRIPT_ZONES = ("common_zm", "patch_zm")
 
 
-def stock_scripts(bo2: Path, unlinker: Path) -> set[str]:
+def stock_scripts(bo2: Path, unlinker: Path, stock_dump: Path | None = None) -> set[str]:
     names: set[str] = set()
+    if stock_dump is not None and (stock_dump / 'catalog.json').is_file():
+        catalog = json.loads((stock_dump / 'catalog.json').read_text(encoding='utf-8'))
+        for filename, entry in catalog['zones'].items():
+            if Path(filename).stem in STOCK_SCRIPT_ZONES:
+                names.update(n.lower() for n in entry.get('loaded_index', entry['index']).get('script', []))
+        return names
     for zone in STOCK_SCRIPT_ZONES:
         ff = bo2 / "zone" / "all" / f"{zone}.ff"
-        proc = subprocess.run([str(unlinker), "--no-color", "--list", "--search-path", str(ff.parent), str(ff)],
+        proc = captured([str(unlinker), "--no-color", "--list", "--search-path", str(ff.parent), str(ff)],
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
         names.update(l.split(",", 1)[1].strip().lower() for l in proc.stdout.splitlines() if l.startswith("script,"))
     return names
@@ -479,7 +486,7 @@ def link_lobby(bo2: Path, project_root: Path, project: str, work: Path,
     if stock:
         command += ["--add-asset-search-path", str(stock.resolve())]
     command += ["--output-folder", str(out), "mod_load"]
-    proc = subprocess.run(command, capture_output=True, text=True, errors="replace")
+    proc = captured(command, capture_output=True, text=True, errors="replace")
     (root / "linker.log").write_text(proc.stdout + proc.stderr, encoding="utf-8")
     result = out / "mod_load.ff"
     if proc.returncode or not result.is_file() or re.search(r"(?m)^(?:ERROR:|Missing asset|Failed to load|Could not load)", proc.stdout):
@@ -498,7 +505,7 @@ def verify_lobby_tables(ff: Path, unlinker: Path, work: Path, project: str) -> N
     if dump.exists():
         dump.relative_to(work.resolve())
         shutil.rmtree(dump)
-    proc = subprocess.run([str(unlinker.resolve()), '--no-color', '--include-assets', 'stringtable',
+    proc = captured([str(unlinker.resolve()), '--no-color', '--include-assets', 'stringtable',
                            '--output-folder', str(dump), str(ff.resolve())],
                           capture_output=True, text=True, errors='replace')
     (work.resolve() / f"verify_{ff.stem}_lobby.log").write_text(proc.stdout + proc.stderr)
@@ -523,7 +530,7 @@ def verify_lobby_tables(ff: Path, unlinker: Path, work: Path, project: str) -> N
 
 def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
              asset_root: Path | None = None, extra_asset_roots: list[Path] = (),
-             linker: Path | None = None) -> tuple[Path, list[str]]:
+             linker: Path | None = None, stock_dump: Path | None = None) -> tuple[Path, list[str]]:
     """Link mod.ff. Template entries whose raw assets are not on disk (DLC
     weapons etc. that All2Raw did not produce) are dropped one at a time and
     returned, so the caller can report exactly what the build lacks."""
@@ -533,7 +540,7 @@ def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
     zone_file = work / "zone_source" / "mod.zone"
     zone_file.parent.mkdir(parents=True, exist_ok=True)
     zone_text = build_mod_zone(template, dropped)
-    closure = script_closure(zone_text, bo2 / "raw", stock_scripts(bo2, unlinker))
+    closure = script_closure(zone_text, bo2 / "raw", stock_scripts(bo2, unlinker, stock_dump))
     if closure:
         zone_text += "// waw2bo2: scripts the template's scripts depend on\n" + \
                      "".join(f"script,{s}\n" for s in closure)
@@ -571,7 +578,7 @@ def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
         for root in extra_asset_roots:
             command += ["--add-asset-search-path", str(Path(root).resolve())]
         command += ["--output-folder", str(work / "out"), "mod"]
-        proc = subprocess.run(command,
+        proc = captured(command,
                               cwd=str(linker.parent), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                               errors="replace")
         (work / "linker.log").write_text(proc.stdout, encoding="utf-8")

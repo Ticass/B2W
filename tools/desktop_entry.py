@@ -5,6 +5,12 @@ import sys
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, 'reconfigure'):
+            stream.reconfigure(line_buffering=True, write_through=True)
+    if Path(sys.executable).stem.lower() == 'all2raw':
+        from waw2bo2.all2raw_cli import main as extract_main
+        return extract_main(sys.argv[1:])
     if sys.argv[1:] == ['--self-test']:
         import json
         import tempfile

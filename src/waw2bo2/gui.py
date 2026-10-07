@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 from .menuart import SIZES, read_art
 
 from .launcher import (BuildPaths, ProcessRunner, Settings, build_command, cli_command,
-                       discover, map_fastfiles, perform_build, preflight, project_name, user_directory)
+                       discover, map_fastfiles, perform_build, perform_extract_all, preflight, project_name, user_directory)
 from .resources import resource_root
 
 
@@ -51,6 +51,7 @@ class Launcher(ttk.Frame):
         self.art_cache = {}
         self.source_fx = tk.BooleanVar(value=self.settings.source_fx)
         self.redump = tk.BooleanVar(value=self.settings.redump)
+        self.verbose = tk.BooleanVar(value=self.settings.verbose)
         self.status = tk.StringVar(value='Choose a WaW map to begin.')
         self.elapsed = tk.StringVar(value='Ready')
         self.output_text = tk.StringVar()
@@ -196,6 +197,9 @@ class Launcher(ttk.Frame):
         ttk.Label(footer, textvariable=self.count_text, style='Muted.TLabel').pack(side='left')
         ttk.Button(footer, text='Save Console', command=self._save_console).pack(side='right', padx=(6, 0))
         ttk.Button(footer, text='Clear Console', command=self._clear_console).pack(side='right')
+        verbose_check = ttk.Checkbutton(footer, text='Verbose Console', variable=self.verbose)
+        verbose_check.pack(side='right', padx=10)
+        self.action_widgets.append(verbose_check)
 
     def _builder(self):
         tab = self.builder_tab
@@ -370,6 +374,12 @@ class Launcher(ttk.Frame):
             self._path_row(self.advanced, row, field, title)
         self.advanced_shown = False
         self._button(options, 'Advanced Paths', self._toggle_advanced).pack(side='right')
+        cache = self._group(tab, 'Shared Game Assets')
+        cache.grid(row=3, column=0, sticky='ew', pady=(0, 6))
+        ttk.Label(cache, text='Extract installed WaW and BO2 zones once. All maps reuse this cache.',
+                  style='Muted.TLabel').pack(side='left')
+        self.extract_button = self._button(cache, 'Extract All', self._extract_all)
+        self.extract_button.pack(side='right', padx=(8, 0))
         self.setup_tree = ttk.Treeview(tab, columns=('status', 'details'), show='tree headings', height=6)
         self.setup_tree.heading('#0', text='Requirement')
         self.setup_tree.heading('status', text='Status')
@@ -400,7 +410,7 @@ class Launcher(ttk.Frame):
 
     def _snapshot(self) -> Settings:
         return Settings(**{key: value.get().strip() for key, value in self.vars.items()},
-                        source_fx=self.source_fx.get(), redump=self.redump.get())
+                        source_fx=self.source_fx.get(), redump=self.redump.get(), verbose=self.verbose.get())
 
     def _refresh(self):
         settings = self._snapshot()
@@ -515,17 +525,34 @@ class Launcher(ttk.Frame):
         self._log('\nBuilding ' + settings.project + ' from ' + settings.fastfile, 'info')
         self._start('build', settings, lambda runner: perform_build(settings, runner))
 
+    def _extract_all(self):
+        if self.busy:
+            return
+        settings = self._snapshot()
+        failures = [c for c in preflight(settings, include_map=False) if c.required and not c.ready
+                    and c.name not in ('Audio decoder', 'WaW source tools')]
+        if failures:
+            messagebox.showinfo('Setup required', '\n\n'.join(c.name + '\n' + c.detail for c in failures), parent=self.root)
+            return
+        self._save()
+        self._log('Extracting all installed game zones into the shared cache.', 'info')
+        self._start('extract', settings, lambda runner: perform_extract_all(settings, runner))
+
     def _start(self, kind, settings, operation):
         self.busy = True
         self.started = time.monotonic()
         self.active_settings = replace(settings)
-        self.runner = ProcessRunner(lambda event, value: self.events.put((event, value)))
+        self.runner = ProcessRunner(lambda event, value: self.events.put((event, value)), verbose=settings.verbose)
         runner = self.runner
         for widget in self.action_widgets:
             widget.configure(state='disabled')
         self.stop_button.configure(state='normal')
         self.process_label.configure(text='Building map' if kind == 'build' else 'Installing map')
         self.status.set('Starting build…' if kind == 'build' else 'Installing to Plutonium…')
+        if kind == 'extract':
+            self.process_label.configure(text='Extracting game assets')
+            self.status.set('Extracting all game assets…')
+            self.stop_button.configure(text='Stop Extraction')
 
         def work():
             try:
@@ -596,6 +623,11 @@ class Launcher(ttk.Frame):
 
     def _line(self, line):
         import re
+        if line.startswith('[activity]'):
+            self._log(line, 'info')
+            return
+        if line.startswith('[staging]'):
+            self.status.set(f'Step {self.current_step + 1} of {len(STEPS)} — ' + line[len('[staging] '):])
         stage = re.match(r'^==\s+(\d+[a-z]?)\.', line)
         if stage and stage.group(1) in STAGE_INDEX:
             self.current_step = STAGE_INDEX[stage.group(1)]
@@ -619,22 +651,28 @@ class Launcher(ttk.Frame):
     def _finished(self, kind, code, error):
         cancelled = self.runner is not None and self.runner.cancelled.is_set()
         self.busy = False
-        self.stop_button.configure(state='disabled')
+        self.stop_button.configure(state='disabled', text='Stop Build')
         for widget in self.action_widgets:
             widget.configure(state='normal')
         self.process_label.configure(text='No active build')
         self.last_result = 'Stopped' if cancelled else 'Failed' if code else 'Complete'
         if cancelled:
-            self.status.set('Build stopped. No successful build was recorded.')
+            self.status.set('Extraction stopped. Run Extract All again to resume.' if kind == 'extract' else
+                            'Build stopped. No successful build was recorded.')
             self._log('Stopped the active build and its child tools.', 'warning')
         elif code:
             self.errors += 1
-            self.status.set('Build failed. Review the console and reports.')
+            self.status.set('Extraction failed. Run Extract All again to resume.' if kind == 'extract' else
+                            'Build failed. Review the console and reports.')
             self._log(error or f'Native tool exited with code {code}.', 'error')
             self._failure_details()
         else:
-            self.status.set('Map built. Install to Plutonium when ready.' if kind == 'build' else 'Installed. Launch Map to playtest.')
-            self._log('Build complete. Package verified and ready to install.' if kind == 'build' else 'Installed to Plutonium.', 'success')
+            if kind != 'extract':
+                self.status.set('Map built. Install to Plutonium when ready.' if kind == 'build' else 'Installed. Launch Map to playtest.')
+                self._log('Build complete. Package verified and ready to install.' if kind == 'build' else 'Installed to Plutonium.', 'success')
+            if kind == 'extract':
+                self.status.set('Shared game assets extracted. Ready to build maps.')
+                self._log('Extract All complete. Future builds reuse the shared game cache.', 'success')
             if kind == 'build':
                 self.progress['value'] = len(STEPS)
                 for index, label in enumerate(self.step_labels):

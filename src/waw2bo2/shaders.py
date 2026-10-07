@@ -493,13 +493,14 @@ def stage(roots: list[Path], destination: Path) -> dict:
     Staging artifacts are intentionally outside shader_bin: without a verified
     T6 pass contract they cannot override a live shader with incompatible ABI.
     """
+    from .progress import items
     sources = {}
     for root in roots:
         for folder in (root / 'shader_bin', root / 'content_source/shader_bin'):
             for path in sorted(folder.rglob('*.cso')):
                 sources.setdefault(path.relative_to(folder).as_posix(), path)
     rows = []
-    for name, source in sources.items():
+    for name, source in items('Shaders', list(sources.items()), name=lambda pair: pair[0]):
         # T6 donor DXBC is not WaW input. Preserve it through the existing path.
         if source.read_bytes()[:4] == b'DXBC':
             continue

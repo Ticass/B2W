@@ -30,12 +30,22 @@ class StockWawAssets:
     unlinker: Path
     work: Path
     index: dict[str, dict[str, list[str]]] = field(default_factory=dict)  # zone -> type -> names
+    prepared: dict[str, Path] = field(default_factory=dict)
 
     @property
     def zone_dir(self) -> Path:
         return self.waw_root / "zone" / "english"
 
     def load(self) -> None:
+        shared = self.work / 'all2raw.json'
+        if shared.is_file():
+            data = json.loads(shared.read_text(encoding='utf-8'))
+            for filename, entry in data['zones'].items():
+                if Path(filename).parent.name.lower() == 'english':
+                    zone = Path(filename).stem
+                    self.index[zone] = entry['index']
+                    self.prepared[zone] = Path(entry['folder'])
+            return
         cache = self.work / "stock_index.json"
         if cache.exists():
             data = json.loads(cache.read_text(encoding="utf-8"))
@@ -64,6 +74,8 @@ class StockWawAssets:
         return sorted(hits, key=_zone_rank)
 
     def dump(self, zone: str) -> Path:
+        if zone in self.prepared:
+            return self.prepared[zone]
         out = self.work / zone
         if not (out / DUMP_MARKER).exists():
             log = self.work / f"{zone}.log"

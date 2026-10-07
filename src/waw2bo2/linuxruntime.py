@@ -74,6 +74,30 @@ def build_command(settings, paths, *, redump: bool) -> list[str]:
                '--settings-json', json.dumps(payload), '--build-root', windows_path(paths.root)]
     if redump:
         command.append('--redump')
+    from .all2raw import CachePaths
+    caches = CachePaths.for_settings(settings)
+    command += ['--waw-cache-root', windows_path(caches.waw), '--bo2-cache-root', windows_path(caches.bo2)]
+    return command
+
+
+def extract_command(settings) -> list[str]:
+    # Use the same path conversion and cache roots as the build worker.
+    from .launcher import BuildPaths
+    # Extraction works before a map/project has been selected.
+    from dataclasses import replace
+    temporary_settings = replace(settings, project=settings.project or 'zm_extract',
+                                 fastfile=settings.fastfile or str(Path(settings.work) / 'unused.ff'))
+    paths = BuildPaths.for_settings(temporary_settings)
+    command = build_command(temporary_settings, paths, redump=False)
+    command[command.index('build-map')] = 'all2raw'
+    index = command.index('--build-root')
+    del command[index:index + 2]
+    payload_index = command.index('--settings-json') + 1
+    payload = json.loads(command[payload_index])
+    if not settings.fastfile:
+        payload['fastfile'] = ''
+    payload['project'] = settings.project
+    command[payload_index] = json.dumps(payload)
     return command
 
 

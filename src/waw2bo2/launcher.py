@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import signal
 from dataclasses import asdict, dataclass, field
 
@@ -50,6 +51,7 @@ class Settings:
     menu_blur: str = ''
     source_fx: bool = False
     redump: bool = False
+    verbose: bool = False
 
     @classmethod
     def load(cls, path: Path | None = None) -> Settings:
@@ -59,7 +61,7 @@ class Settings:
                 return cls()
             allowed = cls.__dataclass_fields__
             return cls(**{k: v for k, v in data.items() if k in allowed and
-                          (isinstance(v, bool) if k in ('source_fx', 'redump') else isinstance(v, str))})
+                          (isinstance(v, bool) if k in ('source_fx', 'redump', 'verbose') else isinstance(v, str))})
         except (OSError, ValueError, TypeError):
             return cls()
 
@@ -144,7 +146,7 @@ class Check:
     required: bool = True
 
 
-def preflight(settings: Settings, *, include_map: bool = True) -> list[Check]:
+def preflight(settings: Settings, *, include_map: bool = True, cache_paths=None) -> list[Check]:
     checks: list[Check] = []
 
     def files(name: str, folder: str, paths: list[str], *, required: bool = True) -> None:
@@ -155,13 +157,18 @@ def preflight(settings: Settings, *, include_map: bool = True) -> list[Check]:
     files('Black Ops II + Mod Tools', settings.bo2, ['bin/Linker.exe', 'raw/animtrees/fxanim_props.atr',
           'raw/zm/mapstable.csv', 'raw/zm/gametypestable.csv', 'raw/maps/mp/zombies/_zm.gsc',
           'mods/zm_test/maps/mp/zm_test.gsc', 'mods/zm_test/clientscripts/mp/zm_test.csc',
-          'zone/all/zm_nuked.ff', 'zone/all/zm_prison.ff', 'zone/all/common_zm.ff', 'zone/all/code_post_gfx_zm.ff'])
+          'zone/all/common_zm.ff', 'zone/all/code_post_gfx_zm.ff'])
     files('WaW extractor', settings.t4, ['Unlinker.exe'])
     files('BO2 bridge tools', settings.t6, ['Unlinker.exe', 'Linker.exe'])
     decoder_ok = bool(settings.decoder) and Path(settings.decoder).is_file()
     checks.append(Check('Audio decoder', decoder_ok, 'Ready' if decoder_ok else 'Select xaudio_wma_decoder.exe in Advanced paths.'))
     files('WaW source tools', settings.waw_tools, ['bin/linker_pc.exe'], required=settings.source_fx)
     if include_map:
+        from .all2raw import CachePaths
+        caches = cache_paths or CachePaths.for_settings(settings)
+        extracted = all((root / 'all2raw.json').is_file() for root in (caches.waw, caches.bo2))
+        checks.append(Check('Shared game assets', extracted,
+                            'Extracted; freshness checked when building' if extracted else 'Run Extract All in Setup'))
         source = Path(settings.fastfile)
         valid_source = bool(settings.fastfile) and source.is_file() and source.suffix.lower() == '.ff'
         checks.append(Check('Source map', valid_source, source.name if valid_source else 'Choose the source map fastfile (.ff).'))
@@ -201,7 +208,9 @@ class BuildPaths:
         # Cache native dumps separately for each map and game installation pair.
         game_key = hashlib.sha256((settings.waw.casefold() + '\0' + settings.bo2.casefold()).encode()).hexdigest()[:8]
         root = Path(settings.work).resolve() / f'{settings.project}_{digest}_{game_key}'
-        return cls(root, root / 'stage', root / 'stock_t6', root / 'waw_dumps', root / 'mod_build', root / 'package')
+        from .all2raw import CachePaths
+        return cls(root, root / 'stage', CachePaths.for_settings(settings).bo2 / 'views',
+                   root / 'waw_dumps', root / 'mod_build', root / 'package')
 
     def complete(self, project: str) -> bool:
         expected = [self.output / name for name in (project + '.ff', project + '.ipak', 'mod.ff', 'mod_load.ff', 'mod.json')]
@@ -215,16 +224,24 @@ class BuildPaths:
 def build_command(settings: Settings) -> list[str]:
     paths = BuildPaths.for_settings(settings)
     command = cli_command('build-map', '--settings-json', json.dumps(asdict(settings)))
-    try:
-        cache = json.loads((paths.root / 'cache.json').read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        cache = None
-    if settings.redump or cache != input_stamp(settings):
+    if settings.redump:
         command.append('--redump')
     if os.name != 'nt':
         from .linuxruntime import build_command as linux_build_command
         return linux_build_command(settings, paths, redump='--redump' in command)
     return command
+
+
+def perform_extract_all(settings: Settings, runner: ProcessRunner) -> int:
+    failures = [c for c in preflight(settings, include_map=False) if c.required and not c.ready
+                and c.name not in ('Audio decoder', 'WaW source tools')]
+    if failures:
+        raise ValueError('\n'.join(c.name + ': ' + c.detail for c in failures))
+    command = cli_command('all2raw', '--settings-json', json.dumps(asdict(settings)))
+    if os.name != 'nt':
+        from .linuxruntime import extract_command
+        command = extract_command(settings)
+    return runner.run(command, Path(settings.work) / 'asset_cache/extract.log')
 
 
 def input_stamp(settings: Settings) -> dict:
@@ -243,8 +260,10 @@ def cli_command(*args: str) -> list[str]:
 
 class ProcessRunner:
     """Stream a subprocess without blocking the UI; cancel only its process tree."""
-    def __init__(self, emit):
+    def __init__(self, emit, *, verbose=False, heartbeat_interval=15):
         self.emit = emit
+        self.verbose = verbose
+        self.heartbeat_interval = heartbeat_interval
         self.process: subprocess.Popen | None = None
         self.cancelled = threading.Event()
 
@@ -256,7 +275,8 @@ class ProcessRunner:
         env['PYTHONPATH'] = str(resource_root() / 'src')
         env['PYTHONUNBUFFERED'] = '1'
         env['PYTHONIOENCODING'] = 'utf-8'
-        if os.name != 'nt' and 'build-map' in command:
+        env['WAW2BO2_VERBOSE'] = '1' if self.verbose else '0'
+        if os.name != 'nt' and ('build-map' in command or 'all2raw' in command):
             env.pop('LOCALAPPDATA', None)
         with log.open('w', encoding='utf-8') as output:
             self.process = subprocess.Popen(command, cwd=cwd or resource_root(), env=env,
@@ -264,15 +284,42 @@ class ProcessRunner:
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), start_new_session=os.name != 'nt')
             if self.cancelled.is_set():
                 self._terminate()
-            assert self.process.stdout is not None
-            for line in self.process.stdout:
-                output.write(line)
-                output.flush()
-                self.emit('line', line.rstrip())
-            code = self.process.wait()
-            self.process.stdout.close()
-            self.process = None
-            return code
+            process = self.process
+            assert process.stdout is not None
+            started = time.monotonic()
+            last_output = started
+            last_line = 'waiting for worker output'
+            finished = threading.Event()
+            lock = threading.Lock()
+
+            def write(line):
+                with lock:
+                    output.write(line + '\n')
+                    output.flush()
+                    self.emit('line', line)
+
+            def heartbeat():
+                while not finished.wait(self.heartbeat_interval):
+                    now = time.monotonic()
+                    if process.poll() is None and now - last_output >= self.heartbeat_interval:
+                        elapsed = int(now - started)
+                        write(f'[activity] Process {process.pid} still running; elapsed '
+                              f'{elapsed // 60}m {elapsed % 60}s; no new output for '
+                              f'{int(now - last_output)}s. Last output: {last_line[:240]}')
+
+            monitor = threading.Thread(target=heartbeat, name='build-activity', daemon=True)
+            monitor.start()
+            try:
+                for line in process.stdout:
+                    last_output = time.monotonic()
+                    last_line = line.rstrip()
+                    write(last_line)
+                return process.wait()
+            finally:
+                finished.set()
+                monitor.join()
+                process.stdout.close()
+                self.process = None
 
     def _terminate(self) -> None:
         process = self.process

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.3 - Shared extraction cache and build progress (2026-10-07)
+
+- Add Extract All and standalone All2Raw executables for Windows and Linux.
+- Cache all installed WaW/BO2 zones, asset indexes, and stock sound-driver data across builds.
+- Resume interrupted extraction and detect changed inputs or missing cache files.
+- Add Verbose Console, asset counts, phase timings, and 15-second quiet-process status messages.
+- Accept numeric prefixes in vision scalar fields like WaW, including shipped 0.O458 brightness values, and report them.
+- Retain the v0.2.2 rectangular lightmap fix.
+
 ## v0.2.2 — Rectangular lightmap hotfix (2026-10-07)
 
 - Accept rectangular WaW lightmap layers, including 512x2048 secondary textures

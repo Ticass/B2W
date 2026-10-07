@@ -39,6 +39,11 @@ class LauncherTests(unittest.TestCase):
         Path(values.fastfile).parent.mkdir()
         Path(values.fastfile).write_bytes(b'fixture')
         Path(values.fastfile).with_name('mod.ff').write_bytes(b'fixture')
+        from waw2bo2.all2raw import CachePaths
+        caches = CachePaths.for_settings(values)
+        for root in (caches.waw, caches.bo2):
+            root.mkdir(parents=True)
+            (root / 'all2raw.json').write_text('{}')
         return values
 
     def test_settings_roundtrip_and_corrupt_file(self):
@@ -97,13 +102,13 @@ class LauncherTests(unittest.TestCase):
         self.assertFalse(payload['source_fx'])
         self.assertIn('build-map', command)
         self.assertNotIn('powershell.exe', command)
-        self.assertIn('--redump', command)
+        self.assertNotIn('--redump', command)
         paths = BuildPaths.for_settings(settings)
         paths.root.mkdir(parents=True)
         (paths.root / 'cache.json').write_text(json.dumps(input_stamp(settings)))
         self.assertNotIn('--redump', build_command(settings))
         Path(settings.fastfile).write_bytes(b'changed source')
-        self.assertIn('--redump', build_command(settings))
+        self.assertNotIn('--redump', build_command(settings))
         self.assertIn('--redump', build_command(replace(settings, redump=True)))
 
     def test_real_child_process_streams_output_and_propagates_failure(self):
@@ -119,6 +124,37 @@ class LauncherTests(unittest.TestCase):
         runner = ProcessRunner(lambda *_: None)
         runner.cancel()
         self.assertEqual(runner.run(['nonexistent-tool'], self.root / 'run.log'), -1)
+
+    def test_quiet_process_reports_activity_and_stops_monitor_when_done(self):
+        events = []
+        runner = ProcessRunner(lambda event, text: events.append(text), heartbeat_interval=0.05)
+        log = self.root / 'quiet.log'
+        code = runner.run([sys.executable, '-u', '-c',
+                           "import time; print('Decoding audio'); time.sleep(0.3)"], log)
+        self.assertEqual(code, 0)
+        activity = [line for line in events if line.startswith('[activity]')]
+        self.assertTrue(activity)
+        self.assertIn('Last output: Decoding audio', activity[-1])
+        self.assertIn(activity[-1], log.read_text())
+        self.assertFalse(any(t.name == 'build-activity' for t in threading.enumerate()))
+
+    def test_verbose_setting_reaches_worker_environment(self):
+        events = []
+        runner = ProcessRunner(lambda event, text: events.append(text), verbose=True)
+        code = runner.run([sys.executable, '-c',
+                           "import os; print(os.environ['WAW2BO2_VERBOSE'])"], self.root / 'verbose.log')
+        self.assertEqual(code, 0)
+        self.assertIn('1', events)
+
+    def test_worker_preflight_uses_explicit_shared_cache_roots(self):
+        from waw2bo2.all2raw import CachePaths
+        settings = self.settings()
+        paths = CachePaths(self.root / 'mapped_waw_cache', self.root / 'mapped_bo2_cache')
+        for root in (paths.waw, paths.bo2):
+            root.mkdir()
+            (root / 'all2raw.json').write_text('{}')
+        shared = next(c for c in preflight(settings, cache_paths=paths) if c.name == 'Shared game assets')
+        self.assertTrue(shared.ready)
 
     def test_cancel_running_process_exits_and_stream_remains_responsive(self):
         started = threading.Event()

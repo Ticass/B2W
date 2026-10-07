@@ -307,12 +307,13 @@ def _build_mod(args: argparse.Namespace) -> int:
     if args.linker and args.techset_dump:
         with modzone.baseline_shader_materials(project_root, args.techset_dump) as active:
             ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
-                project_root, [project_root/'content_source/pcm', project_root/'content_source'])
+                project_root, [project_root/'content_source/pcm', project_root/'content_source', args.techset_dump],
+                stock_dump=args.techset_dump)
         if active:
             modzone.activate_mod_shaders(ff, project_root, args.work, args.linker, args.unlinker, args.techset_dump)
     else:
         ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
-            project_root, [project_root/'content_source/pcm', project_root/'content_source'])
+            project_root, [project_root/'content_source/pcm', project_root/'content_source'], stock_dump=args.techset_dump)
     print(f"mod.ff: {ff}")
     lobby = modzone.link_lobby(args.bo2.resolve(), project_root, args.project, args.work,
                               args.linker or args.bo2.resolve() / "bin/Linker.exe", args.techset_dump)
@@ -348,6 +349,7 @@ def _compile_scripts(args: argparse.Namespace) -> int:
 
 
 def _bridge_link(args: argparse.Namespace) -> int:
+    from .progress import captured
     stage = args.stage.resolve()
     command = t6bridge.linker_command(args.linker.resolve(), stage, args.project,
                                       args.techset_dump.resolve() if args.techset_dump else None)
@@ -358,7 +360,7 @@ def _bridge_link(args: argparse.Namespace) -> int:
     # Retry a bounded number of times and report every crash; not yet root-caused.
     access_violation = 0xC0000005
     for attempt in range(1, 4):
-        proc = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        proc = captured(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               cwd=str(stage), text=True, errors="replace")
         if proc.returncode != access_violation:
             break
@@ -388,7 +390,15 @@ def parser() -> argparse.ArgumentParser:
     desktop_p.add_argument('--settings-json', required=True, help='desktop Settings object as JSON')
     desktop_p.add_argument('--redump', action='store_true')
     desktop_p.add_argument('--build-root', type=Path, help='explicit workspace shared with the native Linux frontend')
+    desktop_p.add_argument('--waw-cache-root', type=Path)
+    desktop_p.add_argument('--bo2-cache-root', type=Path)
     desktop_p.set_defaults(func=_build_map)
+    extract_p = sub.add_parser('all2raw', help='Extract All installed WaW/BO2 zones once into shared caches')
+    extract_p.add_argument('--settings-json', required=True)
+    extract_p.add_argument('--waw-cache-root', type=Path)
+    extract_p.add_argument('--bo2-cache-root', type=Path)
+    extract_p.add_argument('--refresh', action='store_true', help='explicitly rebuild every zone cache')
+    extract_p.set_defaults(func=_extract_all)
     inspect_p = sub.add_parser("inspect", help="validate and report fresh offline world dumps")
     inspect_p.add_argument("gfx", type=Path)
     inspect_p.add_argument("clip", type=Path)
@@ -555,10 +565,24 @@ def _build_map(args: argparse.Namespace) -> int:
     from .builddriver import build
     from .launcher import Settings, preflight
     settings = Settings(**json.loads(args.settings_json))
-    failures = [c for c in preflight(settings) if c.required and not c.ready]
+    from .all2raw import CachePaths
+    paths = CachePaths.for_settings(settings)
+    paths = CachePaths(args.waw_cache_root or paths.waw, args.bo2_cache_root or paths.bo2)
+    failures = [c for c in preflight(settings, cache_paths=paths) if c.required and not c.ready]
     if failures:
         raise ValueError('\n'.join(c.name + ': ' + c.detail for c in failures))
-    return build(settings, redump=args.redump, root=args.build_root)
+    return build(settings, redump=args.redump, root=args.build_root, cache_paths=paths)
+
+
+def _extract_all(args: argparse.Namespace) -> int:
+    from .all2raw import CachePaths, extract_all
+    from .launcher import Settings
+    settings = Settings(**json.loads(args.settings_json))
+    os.environ['WAW2BO2_VERBOSE'] = '1' if settings.verbose else '0'
+    paths = CachePaths.for_settings(settings)
+    paths = CachePaths(args.waw_cache_root or paths.waw, args.bo2_cache_root or paths.bo2)
+    extract_all(settings, refresh=args.refresh, cache_paths=paths)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

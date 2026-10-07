@@ -37,6 +37,14 @@ class BuildDriverTests(unittest.TestCase):
         struct.pack_into('<I', data, 0x3c, 64)
         data[64:68] = b'PE\0\0'
         self.linker.write_bytes(data)
+        self.stock = self.root / 'stock'
+        self.stock.mkdir()
+        (self.stock / 't6api_cache.json').write_text('{}')
+        self.addCleanup(patch.stopall)
+        patch.object(builddriver.all2raw, 'ready', return_value=self.stock).start()
+        patch.object(builddriver.all2raw, 'source_dumps', return_value={
+            'map': self.root / 'source_map', 'mod': self.root / 'source_mod',
+            'patch': self.root / 'source_patch'}).start()
 
     def test_pipeline_preserves_sources_runs_audits_and_never_installs(self):
         commands = []
@@ -60,7 +68,12 @@ class BuildDriverTests(unittest.TestCase):
         self.assertIn(str(Path(self.settings.fastfile).parent), stage)
         self.assertIn('--approximate-sound-curves', stage)
         self.assertNotIn('--waw-source-fx', stage)
-        self.assertEqual(stage.count('--extra-root'), 6)
+        self.assertEqual(stage.count('--extra-root'), 4)
+        # The only native Unlinker invocations during a build verify newly built
+        # outputs. No installed stock FF is extracted or listed.
+        unlinks = [c for c in commands if Path(c[0]).name == 'Unlinker.exe']
+        self.assertEqual(len(unlinks), 2)
+        self.assertTrue(all(str(paths.root) in c[-1] for c in unlinks))
         audits = [c for c in commands if any(Path(arg).name == 'audit_material_args.py' for arg in c)]
         self.assertEqual(len(audits), 2)
         self.assertEqual(struct.unpack_from('<H', self.linker.read_bytes(), 86)[0] & 0x20, 0x20)
@@ -71,18 +84,12 @@ class BuildDriverTests(unittest.TestCase):
                 builddriver.build(self.settings)
         self.assertEqual(run.call_count, 1)
 
-    def test_failed_cache_refresh_does_not_retain_completion_marker(self):
-        paths = BuildPaths.for_settings(self.settings)
-        marker = paths.waw_dumps / 'stock_scripts/.complete'
-        marker.parent.mkdir(parents=True)
-        marker.touch()
-        def fake_run(command, log=None):
-            if any('stock_scripts_' in str(arg) for arg in (log,) if arg):
-                raise RuntimeError('stock script dump failed')
-        with patch.object(builddriver, 'run', side_effect=fake_run):
-            with self.assertRaisesRegex(RuntimeError, 'stock script dump failed'):
-                builddriver.build(self.settings, redump=True)
-        self.assertFalse(marker.exists())
+    def test_missing_stock_cache_stops_before_any_native_build(self):
+        with patch.object(builddriver.all2raw, 'ready', side_effect=RuntimeError('Run Extract All')), \
+             patch.object(builddriver, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'Run Extract All'):
+                builddriver.build(self.settings)
+        run.assert_not_called()
 
     def test_real_failed_process_is_not_treated_as_success(self):
         log = self.root / 'failure.log'

@@ -1,8 +1,10 @@
 from pathlib import Path
 import os
+import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 root = Path(SPECPATH).parent
+sys.path.insert(0, str(root / 'src'))
 portable = Path(os.environ['WAWCONVERTER_WINDOWS_BUNDLE'])
 datas = collect_data_files('waw2bo2')
 datas += [(str(root / 'tools/audit_material_args.py'), 'tools'),
@@ -17,4 +19,6 @@ gui = EXE(pyz, a.scripts, [], exclude_binaries=True, name='WawConverter',
           debug=False, strip=False, upx=False, console=True)
 cli = EXE(pyz, a.scripts, [], exclude_binaries=True, name='WawConverter.CLI',
           debug=False, strip=False, upx=False, console=True)
-coll = COLLECT(gui, cli, a.binaries, a.datas, strip=False, upx=False, name='WawConverter-Linux')
+extract = EXE(pyz, a.scripts, [], exclude_binaries=True, name='All2Raw',
+              debug=False, strip=False, upx=False, console=True)
+coll = COLLECT(gui, cli, extract, a.binaries, a.datas, strip=False, upx=False, name='WawConverter-Linux')
