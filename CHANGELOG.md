@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.5
+
+- Extract installed zones and custom-map companion fastfiles in parallel using every logical CPU.
+- Preserve deterministic duplicate-asset priority, resumable caches, and per-zone logs across concurrent workers.
+- Report worker and completion counts; WAW2BO2_EXTRACT_WORKERS can limit concurrency.
+- Avoid extracting mod.ff twice when it is selected as the source.
+
 ## v0.2.4 - Extract All search-path crash fix (2026-10-07)
 
 - Pass only existing search directories to the native extractors.

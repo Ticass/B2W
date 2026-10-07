@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import hashlib
 import json
@@ -9,11 +10,44 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
 import uuid
 
 SCHEMA = 1
 WAW_ASSETS = ('clipmap,gfxworld,gameworldsp,material,image,fx,xmodel,weapon,xanim,sound,'
               'loadedsound,rawfile,comworld,lightdef,physpreset,snddriverglobals,localize')
+
+
+def parallel_zones(zones, extract, *, label: str, workers: int | None = None):
+    """Run independent native processes on every available logical CPU.
+
+    Return results in input order so completion order cannot change which
+    duplicate asset wins. Completed zone receipts survive any failed job.
+    """
+    if not zones:
+        return []
+    if workers is None:
+        workers = int(os.environ.get('WAW2BO2_EXTRACT_WORKERS') or os.cpu_count() or 1)
+    if workers < 1:
+        raise ValueError('Extraction worker count must be at least 1')
+    workers = min(workers, len(zones))
+    print(f'Extract All: {label}: {workers} parallel workers, {len(zones)} zones', flush=True)
+    started = time.monotonic()
+    results = [None] * len(zones)
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='extract-zone') as pool:
+        pending = {pool.submit(extract, zone): index for index, zone in enumerate(zones)}
+        try:
+            for completed, future in enumerate(as_completed(pending), 1):
+                results[pending[future]] = future.result()
+                print(f'Extract All: {label}: {completed}/{len(zones)} zones completed '
+                      f'({time.monotonic() - started:.1f}s)', flush=True)
+        except BaseException:
+            # Finish active jobs so their caches remain reusable, but do not
+            # start queued work after an error. No complete cache is published.
+            for future in pending:
+                future.cancel()
+            raise
+    return results
 
 
 def digest(path: Path) -> str:
@@ -189,7 +223,8 @@ def ready(game: Path, tool: Path, root: Path, *, engine: str) -> Path:
     raise RuntimeError(f'{engine} game asset cache is missing or stale. Run Extract All in Setup before building.')
 
 
-def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = False) -> Path:
+def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = False,
+            workers: int | None = None) -> Path:
     if not refresh:
         try:
             raw = ready(game, tool, root, engine=engine)
@@ -204,20 +239,21 @@ def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = 
     tool_hash = inputs['tool']
     archives = inputs['archives']
     with cache_lock(root):
-        entries = {}
-        for number, ff in enumerate(zones, 1):
+        def extract(ff):
             name = ff.relative_to(game).as_posix()
             zone_root = root / 'zones' / key(name)
             # Extraction stamps are checked independently: changing one FF does
             # not invalidate another FF or a different custom map's cache.
-            print(f'Extract All: {engine} {number}/{len(zones)} {name}', flush=True)
+            print(f'Extract All: {engine} starting {name}', flush=True)
             folder, data = extract_zone(ff, tool, zone_root,
                 search_paths((ff.parent, game / 'zone/all', game / 'main', game / 'sound', game)),
                 assets=WAW_ASSETS if engine == 'T4' else None,
                 image_format='DDS' if engine == 'T4' else 'IWI', tool_digest=tool_hash,
                 dependencies=archives, refresh=refresh)
-            entries[name] = {'folder': str(folder), 'files': data['files'], 'index': data['index'],
-                             'loaded_index': data['loaded_index'], 'inputs': data['inputs']}
+            return {'folder': str(folder), 'files': data['files'], 'index': data['index'],
+                    'loaded_index': data['loaded_index'], 'inputs': data['inputs']}
+        outputs = parallel_zones(zones, extract, label=engine, workers=workers)
+        entries = {ff.relative_to(game).as_posix(): data for ff, data in zip(zones, outputs)}
         generation = key({'entries': entries, 'inventory': inputs})
         raw = root / 'views' / generation
         if (raw / 'catalog.json').is_file():
@@ -283,11 +319,15 @@ def source_dumps(settings, paths: CachePaths, *, refresh=False) -> dict[str, Pat
                     ('mod', folder / 'mod.ff')]
         expected = {ff for _, ff in selected}
         selected += [('extra:' + ff.stem, ff) for ff in sorted(folder.glob('*.ff')) if ff not in expected]
-        for role, ff in selected:
-            if not ff.is_file():
-                continue
+        selected = [(role, ff) for role, ff in selected if ff.is_file()]
+        unique = list(dict.fromkeys(ff for _, ff in selected))
+        tool_hash = digest(tool)
+        def extract(ff):
+            print(f'Extract All: custom map starting {ff.name}', flush=True)
             output, _ = extract_zone(ff, tool, root / key(str(ff)),
                 search_paths((folder, Path(settings.waw) / 'main')), assets=WAW_ASSETS,
-                image_format='DDS', dependencies=dependencies, refresh=refresh)
-            result[role] = output
+                image_format='DDS', tool_digest=tool_hash, dependencies=dependencies, refresh=refresh)
+            return output
+        outputs = dict(zip(unique, parallel_zones(unique, extract, label='custom map')))
+        result = {role: outputs[ff] for role, ff in selected}
     return result

@@ -2,6 +2,7 @@ from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -49,6 +50,53 @@ class All2RawTests(unittest.TestCase):
 
     def prepare(self, **kwargs):
         return all2raw.prepare(self.game, self.tool, self.cache, engine='T6', **kwargs)
+
+    def test_native_extraction_overlaps_with_configured_worker_limit(self):
+        barrier = threading.Barrier(2, timeout=10)
+        lock = threading.Lock()
+        active = 0
+        peak = 0
+        def concurrent_native(command, log):
+            nonlocal active, peak
+            if '--list' in command:
+                return self.native(command, log)
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            try:
+                barrier.wait()
+                self.native(command, log)
+            finally:
+                with lock:
+                    active -= 1
+        with patch.object(all2raw, 'run', side_effect=concurrent_native):
+            raw = self.prepare(workers=2)
+        self.assertEqual(peak, 2)
+        self.assertEqual((raw / 'materials/shared.json').read_text(), 'common_zm')
+
+    def test_all_logical_cpus_are_used_by_default_and_results_keep_input_order(self):
+        started = threading.Barrier(4, timeout=10)
+        first_finished = threading.Event()
+        def extract(index):
+            started.wait()
+            if index == 0:
+                self.assertTrue(first_finished.wait(10))
+            else:
+                first_finished.set()
+            return index
+        with patch.dict('os.environ', {'WAW2BO2_EXTRACT_WORKERS': ''}), \
+                patch.object(all2raw.os, 'cpu_count', return_value=4):
+            self.assertEqual(all2raw.parallel_zones(list(range(4)), extract, label='test'), list(range(4)))
+
+    def test_selecting_mod_ff_extracts_it_once_for_both_roles(self):
+        folder = self.root / 'custom'
+        folder.mkdir()
+        (folder / 'mod.ff').write_text('mod')
+        settings = Settings(waw=str(self.game), t4=str(self.root), work=str(self.root),
+                            fastfile=str(folder / 'mod.ff'))
+        outputs = all2raw.source_dumps(settings, all2raw.CachePaths.for_settings(settings))
+        self.assertEqual(outputs['map'], outputs['mod'])
+        self.assertEqual(len(self.commands), 2)
 
     def test_all_installed_zones_are_extracted_and_reused_without_native_calls(self):
         raw = self.prepare()

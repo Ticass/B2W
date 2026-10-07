@@ -7,6 +7,11 @@ executables and `_internal` folder. Source: `python -m waw2bo2.all2raw_cli`.
 
 The extractor scans every installed `.ff` under both games' `zone` directories,
 including campaign, multiplayer, Zombies, installed DLC, and language zones.
+Independent fastfiles extract concurrently, with one native worker per logical
+CPU (up to the number of zones). The console shows the worker count and completed
+zones. Asset priority and cache reuse do not depend on completion order.
+To limit CPU or memory usage, set `WAW2BO2_EXTRACT_WORKERS` to a positive worker
+count before launching. WaW and BO2 run in separate batches using the same limit.
 It caches all supported BO2 asset exporters and the WaW assets used by the
 converter: materials, shader dependencies, images, models, animations, weapons,
 FX, audio assets and sound drivers, scripts, localization, world/collision data,
