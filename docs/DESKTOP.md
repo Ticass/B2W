@@ -2,8 +2,8 @@
 
 ## Quick start
 
-[Download WawConverter-Windows.zip](https://github.com/Ticass/B2W/releases/download/v0.2.3/WawConverter-Windows.zip)
-from the [v0.2.3 release](https://github.com/Ticass/B2W/releases/tag/v0.2.3).
+[Download WawConverter-Windows.zip](https://github.com/Ticass/B2W/releases/download/v0.2.4/WawConverter-Windows.zip)
+from the [v0.2.4 release](https://github.com/Ticass/B2W/releases/tag/v0.2.4).
 Choose the portable ZIP asset rather than GitHub's source-code archives.
 
 1. Extract the entire portable Windows ZIP into a writable folder. Keep

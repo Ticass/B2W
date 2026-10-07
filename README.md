@@ -20,9 +20,9 @@ maps. Builds reuse that cache. Enable **Verbose Console** for individual asset
 names and native-tool output; phase timings and quiet-process activity messages
 appear by default. See [Extract All](docs/EXTRACT_ALL.md).
 
-**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.3/WawConverter-Windows.zip)** ·
-**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.3/WawConverter-Linux-x86_64.tar.gz)** ·
-[v0.2.3 release](https://github.com/Ticass/B2W/releases/tag/v0.2.3).
+**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.4/WawConverter-Windows.zip)** ·
+**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.4/WawConverter-Linux-x86_64.tar.gz)** ·
+[v0.2.4 release](https://github.com/Ticass/B2W/releases/tag/v0.2.4).
 
 Portable Windows builds include Python and the native conversion tools. Extract
 the whole ZIP and open `WawConverter.exe`. Game installations and BO2 Mod Tools

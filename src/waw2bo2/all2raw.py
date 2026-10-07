@@ -30,6 +30,13 @@ def key(data) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:24]
 
 
+def search_paths(paths) -> str:
+    # Native Unlinker aborts when constructing a search path for a missing
+    # directory. WaW normally has zone/<language> and main, but no zone/all
+    # or sound; those optional layouts must never be passed unconditionally.
+    return ';'.join(str(path) for path in paths if path.is_dir())
+
+
 def write_json(path: Path, data) -> None:
     temporary = path.with_name(path.name + '.tmp')
     temporary.write_text(json.dumps(data, sort_keys=True), encoding='utf-8')
@@ -205,7 +212,7 @@ def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = 
             # not invalidate another FF or a different custom map's cache.
             print(f'Extract All: {engine} {number}/{len(zones)} {name}', flush=True)
             folder, data = extract_zone(ff, tool, zone_root,
-                ';'.join(map(str, (ff.parent, game / 'zone/all', game / 'main', game / 'sound', game))),
+                search_paths((ff.parent, game / 'zone/all', game / 'main', game / 'sound', game)),
                 assets=WAW_ASSETS if engine == 'T4' else None,
                 image_format='DDS' if engine == 'T4' else 'IWI', tool_digest=tool_hash,
                 dependencies=archives, refresh=refresh)
@@ -280,7 +287,7 @@ def source_dumps(settings, paths: CachePaths, *, refresh=False) -> dict[str, Pat
             if not ff.is_file():
                 continue
             output, _ = extract_zone(ff, tool, root / key(str(ff)),
-                str(folder) + ';' + str(Path(settings.waw) / 'main'), assets=WAW_ASSETS,
+                search_paths((folder, Path(settings.waw) / 'main')), assets=WAW_ASSETS,
                 image_format='DDS', dependencies=dependencies, refresh=refresh)
             result[role] = output
     return result

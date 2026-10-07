@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.4 - Extract All search-path crash fix (2026-10-07)
+
+- Pass only existing search directories to the native extractors.
+- Fix Extract All aborting on normal WaW installations without zone/all or sound directories.
+- Resume previously completed zone extractions when retrying after the crash.
+
 ## v0.2.3 - Shared extraction cache and build progress (2026-10-07)
 
 - Add Extract All and standalone All2Raw executables for Windows and Linux.

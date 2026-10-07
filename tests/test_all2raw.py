@@ -64,6 +64,19 @@ class All2RawTests(unittest.TestCase):
         self.assertTrue(all('--include-assets' not in c for c in dumps))
         self.assertTrue(all('IWI' in c for c in dumps))
 
+    def test_native_search_paths_never_include_missing_optional_folders(self):
+        self.prepare()
+        for command in self.commands:
+            search = command[command.index('--search-path') + 1]
+            folders = [Path(p) for p in search.split(';')]
+            self.assertTrue(all(p.is_dir() for p in folders))
+            self.assertIn(Path(command[-1]).parent, folders)
+            self.assertNotIn(self.game / 'main', folders)
+            self.assertNotIn(self.game / 'sound', folders)
+        main = self.game / 'main'
+        main.mkdir()
+        self.assertEqual(all2raw.search_paths((main, self.game / 'missing')), str(main))
+
     def test_changed_zone_invalidates_cache_but_only_that_zone_is_redumped(self):
         self.prepare()
         self.commands.clear()
