@@ -18,6 +18,9 @@ from . import __version__
 
 
 def plutonium_mods_dir() -> Path:
+    if os.name != 'nt':
+        from .linuxruntime import configure_localappdata
+        configure_localappdata()
     return Path(os.environ["LOCALAPPDATA"]) / "Plutonium" / "storage" / "t6" / "mods"
 
 

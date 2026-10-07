@@ -1,0 +1,59 @@
+name: Build Linux release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Draft release tag containing the Windows ZIP
+        required: true
+        default: v0.2.1
+permissions:
+  contents: write
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build and smoke-test dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb wine wine32 wine64
+          python -m pip install pyinstaller Pillow imageio-ffmpeg
+      - name: Download the Windows conversion runtime
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p work/windows
+          gh release download "$RELEASE_TAG" --pattern WawConverter-Windows.zip --dir work/windows
+          unzip -q work/windows/WawConverter-Windows.zip -d work/windows
+      - name: Test launcher and driver
+        run: |
+          python -m unittest discover -s tests -p test_linuxruntime.py
+          python -m unittest discover -s tests -p test_builddriver.py
+      - name: Build native Linux executables
+        run: python tools/build_linux.py --windows-bundle work/windows/WawConverter
+      - name: Smoke-test the native Linux GUI and CLI
+        run: |
+          file work/linux_dist/WawConverter-Linux/WawConverter
+          xvfb-run -a work/linux_dist/WawConverter-Linux/WawConverter.CLI --self-test
+          work/linux_dist/WawConverter-Linux/WawConverter.CLI -m waw2bo2.cli --help
+      - name: Smoke-test the Windows worker through Wine
+        env:
+          WINEPREFIX: ${{ runner.temp }}/wawconverter-wine
+          WINEDEBUG: '-all'
+        run: |
+          xvfb-run -a wine work/linux_dist/WawConverter-Linux/_internal/wine_runtime/WawConverter.CLI.exe -m waw2bo2.cli build-map --help
+      - name: Upload Linux release assets
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release upload "$RELEASE_TAG" work/linux_dist/WawConverter-Linux-x86_64.tar.gz work/linux_dist/WawConverter-Linux-x86_64.tar.gz.sha256 --clobber

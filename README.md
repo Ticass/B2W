@@ -10,18 +10,20 @@ Mod Tools are not bundled.
 
 ## How to use it
 
-The **[desktop launcher](docs/DESKTOP.md)** provides a familiar Windows mod-tools
+The **[desktop launcher](docs/DESKTOP.md)** provides a familiar mod-tools
 interface: select a WaW map, click **Build Map**, then **Install to Plutonium**
 and **Launch Map**. It remembers game paths, manages intermediate files, checks
 requirements, displays progress, and collects conversion reports.
 
-**[Download the portable Windows GUI](https://github.com/Ticass/B2W/releases/download/v0.2.0/WawConverter-Windows.zip)**
-or view the [v0.2.0 release](https://github.com/Ticass/B2W/releases/tag/v0.2.0).
+**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.1/WawConverter-Windows.zip)** ·
+**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.1/WawConverter-Linux-x86_64.tar.gz)** ·
+[v0.2.1 release](https://github.com/Ticass/B2W/releases/tag/v0.2.1).
 
 Portable Windows builds include Python and the native conversion tools. Extract
 the whole ZIP and open `WawConverter.exe`. Game installations and BO2 Mod Tools
 are still required. In a source checkout with Python installed, double-click
-`Launch Mod Tools.bat`.
+`Launch Mod Tools.bat`. Linux builds include a native GUI/CLI and use Wine for
+the Windows conversion worker. See the [Linux setup guide](docs/LINUX.md).
 
 See the **[desktop quick-start guide](docs/DESKTOP.md)** for normal use and the
 **[advanced installation and usage guide](docs/USAGE.md)** for native setup and
@@ -36,7 +38,7 @@ $env:PYTHONPATH = Join-Path (Get-Location) 'src'
 python -m waw2bo2.cli --help
 ```
 
-Python 3.11 or newer is required. Full conversion additionally requires Windows,
+Python 3.11 or newer is required for source use. Full conversion requires Windows or Wine,
 patched OpenAssetTools builds, WaW and BO2 game assets, BO2 Mod Tools, and
 Plutonium. Read the guide before running the pipeline.
 

@@ -561,8 +561,13 @@ class Launcher(ttk.Frame):
             messagebox.showinfo('Plutonium required', 'Install the built map and configure Plutonium T6 first.', parent=self.root)
             return
         try:
-            subprocess.Popen([str(boot), 't6zm', settings.bo2, '-lan', '+set', 'fs_game',
-                              'mods/' + settings.project, '+devmap', settings.project], cwd=pluto,
+            command = [str(boot), 't6zm', settings.bo2, '-lan', '+set', 'fs_game',
+                       'mods/' + settings.project, '+devmap', settings.project]
+            if os.name != 'nt':
+                from .linuxruntime import launch_command, wine_environment
+                command = launch_command(command)
+            subprocess.Popen(command, cwd=pluto,
+                             env=wine_environment() if os.name != 'nt' else None,
                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             self._log('Launched ' + settings.project + ' in Plutonium T6.', 'success')
         except OSError as error:
@@ -761,6 +766,12 @@ class Launcher(ttk.Frame):
 
 
 def main() -> None:
+    if os.name != 'nt':
+        from .linuxruntime import configure_localappdata
+        try:
+            configure_localappdata()
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            pass  # The GUI remains available to inspect paths without Wine.
     if os.name == 'nt':
         import ctypes
         try:

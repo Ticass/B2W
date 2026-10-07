@@ -1,5 +1,6 @@
 """Build the portable Windows launcher using existing native converter tools."""
 from pathlib import Path
+import argparse
 import importlib.metadata
 import shutil
 import struct
@@ -37,6 +38,10 @@ def source_archive(folder: Path, destination: Path, *, tracked: list[str] | None
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--native-source-dir', type=Path,
+                        help='reuse corresponding source archives for unchanged native binaries')
+    args = parser.parse_args()
     output = ROOT / 'work/desktop_dist'
     work = ROOT / 'work/desktop_build'
     subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--distpath', str(output),
@@ -71,18 +76,23 @@ def main():
         'Python, Tcl/Tk, and runtime dependency notices are retained under _internal/.\n', encoding='utf-8')
     source = bundle / 'source'
     source.mkdir(exist_ok=True)
-    source_archive(ROOT / 'vendor/OpenAssetTools', source / 'OpenAssetTools-T4.zip')
-    tracked = subprocess.run(['git', 'ls-files', 'vendor/OpenAssetToolsT6'], check=True,
-        capture_output=True, text=True, cwd=ROOT).stdout.splitlines()
-    prefix = 'vendor/OpenAssetToolsT6/'
-    source_archive(ROOT / 'vendor/OpenAssetToolsT6', source / 'OpenAssetTools-T6.zip',
-                   tracked=[p.removeprefix(prefix) for p in tracked])
+    if args.native_source_dir:
+        for name in ('OpenAssetTools-T4.zip', 'OpenAssetTools-T6.zip'):
+            shutil.copy2(args.native_source_dir / name, source / name)
+    else:
+        source_archive(ROOT / 'vendor/OpenAssetTools', source / 'OpenAssetTools-T4.zip')
+        tracked = subprocess.run(['git', 'ls-files', 'vendor/OpenAssetToolsT6'], check=True,
+            capture_output=True, text=True, cwd=ROOT).stdout.splitlines()
+        prefix = 'vendor/OpenAssetToolsT6/'
+        source_archive(ROOT / 'vendor/OpenAssetToolsT6', source / 'OpenAssetTools-T6.zip',
+                       tracked=[p.removeprefix(prefix) for p in tracked])
     python_source = bundle / 'source/waw2bo2'
     shutil.copytree(ROOT / 'src/waw2bo2', python_source, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     shutil.copy2(ROOT / 'tools/run_bridge.ps1', source / 'run_bridge.ps1')
     shutil.copy2(ROOT / 'tools/xaudio_wma_decoder.cpp', source / 'xaudio_wma_decoder.cpp')
     shutil.copy2(ROOT / 'docs/DESKTOP.md', bundle / 'START HERE.md')
+    shutil.copy2(ROOT / 'docs/LINUX.md', bundle / 'LINUX.md')
     shutil.copy2(ROOT / 'docs/USAGE.md', bundle / 'Advanced usage.md')
     for name in ['desktop.spec', 'build_desktop.py', 'desktop_entry.py', 'build_audio_decoder.ps1']:
         shutil.copy2(ROOT / 'tools' / name, source / name)

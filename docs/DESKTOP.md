@@ -2,8 +2,8 @@
 
 ## Quick start
 
-[Download WawConverter-Windows.zip](https://github.com/Ticass/B2W/releases/download/v0.2.0/WawConverter-Windows.zip)
-from the [v0.2.0 release](https://github.com/Ticass/B2W/releases/tag/v0.2.0).
+[Download WawConverter-Windows.zip](https://github.com/Ticass/B2W/releases/download/v0.2.1/WawConverter-Windows.zip)
+from the [v0.2.1 release](https://github.com/Ticass/B2W/releases/tag/v0.2.1).
 Choose the portable ZIP asset rather than GitHub's source-code archives.
 
 1. Extract the entire portable Windows ZIP into a writable folder. Keep
@@ -26,6 +26,12 @@ Choose the portable ZIP asset rather than GitHub's source-code archives.
 Game content and proprietary Mod Tools are still required. The Setup list
 identifies missing files before a build starts. WaW Mod Tools source FX
 recovery is optional and disabled by default in the desktop app.
+
+The updated desktop build driver runs in bundled Python and needs no PowerShell.
+The original v0.2.0 release used PowerShell: Wine's built-in stub could return
+success without executing the build, leaving an empty `build.log` and no map
+files. The native Linux package replaces that driver. See `LINUX.md` for launch
+instructions and verification limits.
 
 ## Familiar mod-tools workflow
 

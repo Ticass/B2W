@@ -9,17 +9,22 @@ import re
 import subprocess
 import sys
 import threading
+import signal
 from dataclasses import asdict, dataclass, field
 
 from .resources import resource_root
 
 
 def user_directory() -> Path:
+    if os.name != 'nt':
+        return Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'WawConverter'
     return Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'WawConverter'
 
 
 def python_command() -> list[str]:
     if getattr(sys, 'frozen', False):
+        if os.name != 'nt':
+            return [str(Path(sys.executable).with_name('WawConverter.CLI'))]
         return [str(Path(sys.executable).with_name('WawConverter.CLI.exe'))]
     executable = Path(sys.executable)
     if executable.name.lower() == 'pythonw.exe':
@@ -77,6 +82,9 @@ def discover(settings: Settings) -> Settings:
     """Fill only unset paths, using Steam libraries and bundled native tools."""
     root = resource_root()
     steam_paths = [Path(os.environ.get('ProgramFiles(x86)', 'C:/Program Files (x86)')) / 'Steam']
+    if os.name != 'nt':
+        steam_paths = [Path.home() / '.steam/steam', Path.home() / '.local/share/Steam',
+                       Path.home() / '.var/app/com.valvesoftware.Steam/data/Steam']
     if os.name == 'nt':
         import winreg
         try:
@@ -206,24 +214,16 @@ class BuildPaths:
 
 def build_command(settings: Settings) -> list[str]:
     paths = BuildPaths.for_settings(settings)
-    root = resource_root()
-    source = Path(settings.fastfile).resolve()
-    command = ['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-               '-File', str(root / 'tools/run_bridge.ps1'), '-Bo2', settings.bo2, '-Waw', settings.waw,
-               '-MapMod', str(source.parent), '-MapZone', source.stem, '-Project', settings.project,
-               '-Stage', str(paths.stage), '-Dump', str(paths.stock), '-WawDumps', str(paths.waw_dumps),
-               '-ModBuild', str(paths.mod), '-OatT4', settings.t4, '-OatT6', settings.t6,
-               '-XwmaDecoder', settings.decoder, '-PythonExe', python_command()[0], '-NoInstall']
-    if settings.waw_tools:
-        command += ['-WawModTools', settings.waw_tools]
-    if not settings.source_fx:
-        command.append('-NoWawSourceFx')
+    command = cli_command('build-map', '--settings-json', json.dumps(asdict(settings)))
     try:
         cache = json.loads((paths.root / 'cache.json').read_text(encoding='utf-8'))
     except (OSError, ValueError):
         cache = None
     if settings.redump or cache != input_stamp(settings):
-        command.append('-Redump')
+        command.append('--redump')
+    if os.name != 'nt':
+        from .linuxruntime import build_command as linux_build_command
+        return linux_build_command(settings, paths, redump='--redump' in command)
     return command
 
 
@@ -256,10 +256,12 @@ class ProcessRunner:
         env['PYTHONPATH'] = str(resource_root() / 'src')
         env['PYTHONUNBUFFERED'] = '1'
         env['PYTHONIOENCODING'] = 'utf-8'
+        if os.name != 'nt' and 'build-map' in command:
+            env.pop('LOCALAPPDATA', None)
         with log.open('w', encoding='utf-8') as output:
             self.process = subprocess.Popen(command, cwd=cwd or resource_root(), env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), start_new_session=os.name != 'nt')
             if self.cancelled.is_set():
                 self._terminate()
             assert self.process.stdout is not None
@@ -280,7 +282,10 @@ class ProcessRunner:
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NO_WINDOW)
             else:
-                process.terminate()
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
 
     def cancel(self) -> None:
         self.cancelled.set()
@@ -304,6 +309,12 @@ def perform_build(settings: Settings, runner: ProcessRunner) -> int:
                 msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
             except OSError as error:
                 raise ValueError('This map is already building in another launcher.') from error
+        else:
+            import fcntl
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as error:
+                raise ValueError('This map is already building in another launcher.') from error
         receipt = paths.root / 'build.json'
         receipt.unlink(missing_ok=True)
         from .menuart import stage_art
@@ -311,6 +322,16 @@ def perform_build(settings: Settings, runner: ProcessRunner) -> int:
         code = runner.run(build_command(settings), paths.root / 'build.log')
         if code or runner.cancelled.is_set():
             return code or -1
+        native_outputs = [paths.stage / 'zone_out' / settings.project / (settings.project + suffix)
+                          for suffix in ('.ff', '.ipak')]
+        native_outputs += [paths.mod / 'out' / name for name in ('mod.ff', 'mod_load.ff')]
+        missing = [str(p) for p in native_outputs if not p.is_file()]
+        if missing:
+            raise ValueError(
+                'Build driver returned success without creating the required map files. '
+                'Review ' + str(paths.root / 'build.log') + '. '
+                'If that log is empty, the bundled worker did not execute the build pipeline. '
+                'Missing: ' + ', '.join(missing))
         runner.emit('line', '== 7. assembling the finished map package')
         code = runner.run(cli_command('package', str(paths.stage), settings.project, '--bo2', settings.bo2,
                                      '--work', str(paths.mod), '--dest', str(paths.output)), paths.root / 'package.log')

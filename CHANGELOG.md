@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.1 — Windows and Linux executables (2026-10-07)
+
+- Native Linux x86-64 GUI/CLI, with a bundled Windows conversion worker using
+  the selected Wine/Faugus prefix. Linux paths translate to the same build
+  workspace, and Install uses that prefix's Plutonium storage.
+- Python build pipeline replaces the desktop PowerShell driver on both
+  platforms, fixing Wine's silent no-op PowerShell build failure.
+- Required native outputs are checked before packaging; failed cache refreshes
+  invalidate completion markers. Linux builds lock their workspace and cancel
+  their own process group.
+- Updated portable Windows package, native Linux package, checksums, and
+  automated Linux compilation/startup checks. Full Linux map conversion and
+  gameplay remain unverified.
+
 ## v0.2.0 — Desktop mod tools preview (2026-10-07)
 
 - Map Details & Artwork tab with title/description editing and Blit, Large,

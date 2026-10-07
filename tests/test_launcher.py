@@ -92,18 +92,19 @@ class LauncherTests(unittest.TestCase):
     def test_command_preserves_spaces_and_never_installs_during_build(self):
         settings = self.settings()
         command = build_command(settings)
-        self.assertIn(str(Path(settings.fastfile).parent), command)
-        self.assertIn('-NoInstall', command)
-        self.assertIn('-NoWawSourceFx', command)
-        self.assertIn('-PythonExe', command)
-        self.assertIn('-Redump', command)
+        payload = json.loads(command[command.index('--settings-json') + 1])
+        self.assertEqual(payload['fastfile'], settings.fastfile)
+        self.assertFalse(payload['source_fx'])
+        self.assertIn('build-map', command)
+        self.assertNotIn('powershell.exe', command)
+        self.assertIn('--redump', command)
         paths = BuildPaths.for_settings(settings)
         paths.root.mkdir(parents=True)
         (paths.root / 'cache.json').write_text(json.dumps(input_stamp(settings)))
-        self.assertNotIn('-Redump', build_command(settings))
+        self.assertNotIn('--redump', build_command(settings))
         Path(settings.fastfile).write_bytes(b'changed source')
-        self.assertIn('-Redump', build_command(settings))
-        self.assertIn('-Redump', build_command(replace(settings, redump=True)))
+        self.assertIn('--redump', build_command(settings))
+        self.assertIn('--redump', build_command(replace(settings, redump=True)))
 
     def test_real_child_process_streams_output_and_propagates_failure(self):
         events = []
@@ -152,12 +153,44 @@ class LauncherTests(unittest.TestCase):
                 paths.output.mkdir()
                 for name in (settings.project + '.ff', settings.project + '.ipak', 'mod.ff', 'mod_load.ff', 'mod.json'):
                     (paths.output / name).write_bytes(b'fixture')
+            else:
+                native_map = paths.stage / 'zone_out' / settings.project
+                native_map.mkdir(parents=True)
+                (paths.mod / 'out').mkdir(parents=True)
+                for suffix in ('.ff', '.ipak'):
+                    (native_map / (settings.project + suffix)).write_bytes(b'fixture')
+                for name in ('mod.ff', 'mod_load.ff'):
+                    (paths.mod / 'out' / name).write_bytes(b'fixture')
             return 0
         with patch.object(runner, 'run', side_effect=fake_native):
             self.assertEqual(perform_build(settings, runner), 0)
         self.assertTrue(paths.complete(settings.project))
         (paths.output / 'mod.ff').unlink()
         self.assertFalse(paths.complete(settings.project))
+
+    def test_successful_noop_driver_does_not_attempt_packaging(self):
+        settings = self.settings()
+        paths = BuildPaths.for_settings(settings)
+        runner = ProcessRunner(lambda *_: None)
+        with patch.object(runner, 'run', return_value=0) as run:
+            with self.assertRaisesRegex(ValueError, 'worker did not execute'):
+                perform_build(settings, runner)
+        self.assertEqual(run.call_count, 1)
+        self.assertFalse((paths.root / 'build.json').exists())
+
+    def test_partial_native_outputs_do_not_attempt_packaging(self):
+        settings = self.settings()
+        paths = BuildPaths.for_settings(settings)
+        native_map = paths.stage / 'zone_out' / settings.project
+        native_map.mkdir(parents=True)
+        for suffix in ('.ff', '.ipak'):
+            (native_map / (settings.project + suffix)).write_bytes(b'fixture')
+        runner = ProcessRunner(lambda *_: None)
+        with patch.object(runner, 'run', return_value=0) as run:
+            with self.assertRaisesRegex(ValueError, 'mod_load.ff'):
+                perform_build(settings, runner)
+        self.assertEqual(run.call_count, 1)
+        self.assertFalse((paths.root / 'build.json').exists())
 
 
 if __name__ == '__main__':

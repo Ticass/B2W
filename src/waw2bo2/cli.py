@@ -384,6 +384,11 @@ def _bridge_link(args: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="waw2bo2")
     sub = p.add_subparsers(dest="command", required=True)
+    desktop_p = sub.add_parser('build-map', help='run the desktop build pipeline without PowerShell')
+    desktop_p.add_argument('--settings-json', required=True, help='desktop Settings object as JSON')
+    desktop_p.add_argument('--redump', action='store_true')
+    desktop_p.add_argument('--build-root', type=Path, help='explicit workspace shared with the native Linux frontend')
+    desktop_p.set_defaults(func=_build_map)
     inspect_p = sub.add_parser("inspect", help="validate and report fresh offline world dumps")
     inspect_p.add_argument("gfx", type=Path)
     inspect_p.add_argument("clip", type=Path)
@@ -544,6 +549,16 @@ def _translate_shader(args: argparse.Namespace) -> int:
     report = shaders.translate_file(args.source, args.output, bindings, compile=not args.no_compile)
     print(json.dumps(report, indent=2))
     return 0
+
+
+def _build_map(args: argparse.Namespace) -> int:
+    from .builddriver import build
+    from .launcher import Settings, preflight
+    settings = Settings(**json.loads(args.settings_json))
+    failures = [c for c in preflight(settings) if c.required and not c.ready]
+    if failures:
+        raise ValueError('\n'.join(c.name + ': ' + c.detail for c in failures))
+    return build(settings, redump=args.redump, root=args.build_root)
 
 
 def main(argv: list[str] | None = None) -> int:
