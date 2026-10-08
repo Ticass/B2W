@@ -5,7 +5,7 @@ on:
       tag:
         description: Draft release tag containing the Windows ZIP
         required: true
-        default: v0.2.11
+        default: v0.2.12
 permissions:
   contents: write
 jobs:
@@ -22,12 +22,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install build and smoke-test dependencies
+      # Only the small frontend packages users install themselves (README).
+      # Wine (and its i386 packages) is not installed here: it took the whole
+      # job timeout to download on the runner and is not needed to assemble or
+      # check the frontend; the Windows worker is the already-tested Windows build.
+      - name: Install the frontend dependencies (README) and xvfb
+        timeout-minutes: 10
         run: |
-          sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y python3-tk xvfb wine wine32 wine64
-          python -m pip install pyinstaller Pillow imageio-ffmpeg
+          sudo apt-get install -y --no-install-recommends python3 python3-tk python3-pil python3-pil.imagetk xvfb
       - name: Download the Windows conversion runtime
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -41,20 +44,18 @@ jobs:
           python -m unittest discover -s tests -p test_linuxruntime.py
           python -m unittest discover -s tests -p test_builddriver.py
           python -m unittest discover -s tests -p test_gsc_comments.py
-      - name: Build native Linux executables
+      - name: Assemble the Linux release
         run: python tools/build_linux.py --windows-bundle work/windows/WawConverter
-      - name: Smoke-test the native Linux GUI and CLI
-        run: |
-          file work/linux_dist/WawConverter-Linux/WawConverter
-          xvfb-run -a work/linux_dist/WawConverter-Linux/WawConverter.CLI --self-test
-          work/linux_dist/WawConverter-Linux/WawConverter.CLI -m waw2bo2.cli --help
-          work/linux_dist/WawConverter-Linux/All2Raw --help
-      - name: Smoke-test the Windows worker through Wine
+      - name: Smoke-test the GUI and CLI with the distribution's Python
         env:
-          WINEPREFIX: ${{ runner.temp }}/wawconverter-wine
-          WINEDEBUG: '-all'
+          WAWCONVERTER_PYTHON: /usr/bin/python3
         run: |
-          xvfb-run -a wine work/linux_dist/WawConverter-Linux/_internal/wine_runtime/WawConverter.CLI.exe -m waw2bo2.cli build-map --help
+          mkdir -p work/extracted
+          tar -xzf work/linux_dist/WawConverter-Linux-x86_64.tar.gz -C work/extracted
+          cd work/extracted/WawConverter-Linux
+          xvfb-run -a ./WawConverter.CLI --self-test
+          ./WawConverter.CLI -m waw2bo2.cli --help
+          ./All2Raw --help
       - name: Upload Linux release assets
         env:
           RELEASE_TAG: ${{ inputs.tag }}

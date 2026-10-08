@@ -489,6 +489,8 @@ class Launcher(ttk.Frame):
             maps = map_fastfiles(Path(path).parent)
             if len(maps) == 1:
                 path = str(maps[0])
+            elif not maps and Path(path).stem.lower() == 'mod':
+                pass    # the map ships inside mod.ff; the build finds its world there
             else:
                 messagebox.showinfo('Choose the map', 'Select the map fastfile itself, rather than mod.ff or a patch zone.', parent=self.root)
                 return

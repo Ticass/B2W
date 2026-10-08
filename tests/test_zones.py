@@ -51,6 +51,18 @@ class SynthesizedZoneTests(unittest.TestCase):
         self.assertEqual(subs[1]["brushes"][0]["contents"], 7)  # copied from the map's own trigger brush
         self.assertEqual(subs[1]["mins"], [-612, -612, -522])
 
+    def test_missing_entity_models_are_stripped_but_entities_kept(self):
+        path = self.bsp / "entities.json"
+        path.write_text(json.dumps({"entities": [
+            {"classname": "script_model", "model": "weapons/sp/bar", "targetname": "auto12"},
+            {"classname": "script_model", "model": "zombie_teddybear"},
+            {"classname": "script_brushmodel", "model": "*3"}]}))
+        self.assertEqual(entities.placed_models(path), {"weapons/sp/bar", "zombie_teddybear"})
+        self.assertEqual(entities.strip_models(path, {"weapons/sp/bar"}), 1)
+        ents = json.loads(path.read_text())["entities"]
+        self.assertEqual(ents[0], {"classname": "script_model", "targetname": "auto12"})
+        self.assertEqual(ents[1]["model"], "zombie_teddybear")
+
     def test_bo2_script_gets_synthesized_graph(self):
         script = ('main()\n{\n    init_zones[0] = "start_zone";\n}\n'
                   'zm_x_zone_init()\n{\n    add_adjacent_zone( "a", "b", "c" );\n}\n')

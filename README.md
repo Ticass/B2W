@@ -21,15 +21,30 @@ Enable **Verbose Console** for individual asset
 names and native-tool output; phase timings and quiet-process activity messages
 appear by default. See [Extract All](docs/EXTRACT_ALL.md).
 
-**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.11/WawConverter-Windows.zip)** ·
-**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.11/WawConverter-Linux-x86_64.tar.gz)** ·
-[v0.2.11 release](https://github.com/Ticass/B2W/releases/tag/v0.2.11).
+**[Windows download](https://github.com/Ticass/B2W/releases/download/v0.2.12/WawConverter-Windows.zip)** ·
+**[Linux x86-64 download](https://github.com/Ticass/B2W/releases/download/v0.2.12/WawConverter-Linux-x86_64.tar.gz)** ·
+[v0.2.12 release](https://github.com/Ticass/B2W/releases/tag/v0.2.12).
 
 Portable Windows builds include Python and the native conversion tools. Extract
 the whole ZIP and open `WawConverter.exe`. Game installations and BO2 Mod Tools
 are still required. In a source checkout with Python installed, double-click
-`Launch Mod Tools.bat`. Linux builds include a native GUI/CLI and use Wine for
-the Windows conversion worker. See the [Linux setup guide](docs/LINUX.md).
+`Launch Mod Tools.bat`.
+
+### Linux dependencies
+
+The Linux download runs on your system's Python and uses Wine for the Windows
+conversion worker; nothing distribution-specific is bundled. Install once:
+
+| Distribution | Command |
+|---|---|
+| Ubuntu, Debian, Mint, Pop!_OS (Ubuntu 24.04+ / Debian 12+) | `sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install python3 python3-tk python3-pil python3-pil.imagetk wine wine64 wine32` |
+| Fedora | `sudo dnf install python3 python3-tkinter python3-pillow python3-pillow-tk wine` |
+| Arch, Manjaro, EndeavourOS (enable `[multilib]` first) | `sudo pacman -Syu python tk python-pillow wine` |
+
+Requirements in general: Python 3.11+, Tk (`tkinter`), Pillow with Tk support,
+and Wine able to run 32-bit programs. Then extract the archive and run
+`./WawConverter`. See the [Linux setup guide](docs/LINUX.md) for Wine prefixes
+(Plutonium/Faugus) and older distributions.
 
 See the **[desktop quick-start guide](docs/DESKTOP.md)** for normal use and the
 **[advanced installation and usage guide](docs/USAGE.md)** for native setup and

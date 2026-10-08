@@ -117,3 +117,23 @@ class BuildDriverTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WorldNameTests(unittest.TestCase):
+    def test_map_world_found_inside_mod_ff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            maps = Path(tmp) / 'waw2bo2/maps'
+            maps.mkdir(parents=True)
+            (maps / 'nazi_zombie_cellar.d3dbsp.gfx.bin').write_bytes(b'')
+            self.assertEqual(builddriver.world_name(Path(tmp), 'mod'), 'nazi_zombie_cellar')
+            (maps / 'mod.d3dbsp.gfx.bin').write_bytes(b'')
+            self.assertEqual(builddriver.world_name(Path(tmp), 'mod'), 'mod')    # the usual case wins
+
+    def test_several_worlds_need_the_map_fastfile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            maps = Path(tmp) / 'waw2bo2/maps'
+            maps.mkdir(parents=True)
+            for name in ('a', 'b'):
+                (maps / f'{name}.d3dbsp.gfx.bin').write_bytes(b'')
+            with self.assertRaisesRegex(RuntimeError, 'several map worlds'):
+                builddriver.world_name(Path(tmp), 'mod')

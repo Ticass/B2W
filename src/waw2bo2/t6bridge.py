@@ -1345,8 +1345,21 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # clipmap static models reference their xmodel (collSurfs) in the map zone
     clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
     # Entity placements need the same complete lookup as script-only models.
-    recover_script_models(report, script_models | clip_models | {m.name for m in world.static_models},
-                          roots, stock_waw, source_waw)
+    resolved = recover_script_models(report, script_models | clip_models | {m.name for m in world.static_models},
+                                     roots, stock_waw, source_waw)
+    entities_json = project_root / "BSP" / "entities.json"
+    if entities_json.exists():
+        # An entity naming a model no WaW zone or source has (b01's script
+        # models "weapons/sp/bar": weapon paths typed as models): WaW loads
+        # its default model. Keep the entity for scripts, without a model.
+        absent = entities.placed_models(entities_json) - resolved - clip_models - \
+            {m.name for m in world.static_models}
+        if absent:
+            count = entities.strip_models(entities_json, absent)
+            script_models -= absent
+            entity_box_models -= absent
+            report.warnings.append(f"ENTITY_MODEL_MISSING {sorted(absent)}: in no WaW zone or source; "
+                                   f"{count} entities keep no model (WaW draws its default model)")
     model_materials = stage_models(report, world, project, stage, project_root, script_models | clip_models, roots,
                                    entity_box_models)
     projectile_models = projectilecollision.recover(report, world, clip, project_root, roots)

@@ -25,6 +25,22 @@ def run(command: list[str], log: Path | None = None) -> None:
                            (f'; see {log}' if log else ''))
 
 
+def world_name(dump: Path, stem: str) -> str:
+    """The map's world name in its dumped zone. Usually the fastfile's name;
+    a map shipped only as mod.ff (or renamed) carries its world under the
+    map's real name (maps/<name>.d3dbsp)."""
+    maps = dump / 'waw2bo2/maps'
+    if (maps / f'{stem}.d3dbsp.gfx.bin').is_file():
+        return stem
+    worlds = sorted(p.name.removesuffix('.d3dbsp.gfx.bin') for p in maps.glob('*.d3dbsp.gfx.bin'))
+    if len(worlds) == 1:
+        print(f'== map world "{worlds[0]}" found in {stem}.ff', flush=True)
+        return worlds[0]
+    if worlds:
+        raise RuntimeError(f'{stem}.ff holds several map worlds ({", ".join(worlds)}); choose that map\'s own fastfile')
+    return stem     # no world dumped: staging reports the missing world files
+
+
 def ensure_laa(linker: Path) -> None:
     data = bytearray(linker.read_bytes())
     if len(data) < 64 or data[:2] != b'MZ':
@@ -83,8 +99,9 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
     print('== 0. reusing shared game assets and preparing cached map sources', flush=True)
     sources = all2raw.source_dumps(settings, caches, refresh=redump)
     source = Path(settings.fastfile).resolve()
-    mapzone, project = source.stem, settings.project
+    project = settings.project
     mapraw = sources['map']
+    mapzone = world_name(mapraw, source.stem)
     roots = [str(p) for p in sources.values()] + [str(wawraw)]
     extra = [arg for path in roots for arg in ('--extra-root', path)]
     linker = Path(settings.t6) / 'Linker.exe'

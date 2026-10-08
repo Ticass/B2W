@@ -59,6 +59,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_project_names_cannot_escape_build_directory(self):
         self.assertEqual(project_name('nazi_zombie_My Map.ff'), 'zm_my_map_waw')
+        self.assertEqual(project_name('C:/mods/nazi_zombie_cellar/mod.ff'), 'zm_cellar_waw')
         for name in ['../outside', 'zm_../../outside', 'zm_bad name', 'zm_bad;exit', '']:
             with self.assertRaises(ValueError):
                 validate_project(name)
@@ -84,7 +85,7 @@ class LauncherTests(unittest.TestCase):
         self.assertFalse(next(c for c in preflight(settings) if c.name == 'WaW source tools').required)
         Path(settings.fastfile).with_name('mod.ff').unlink()
         failures = [c.name for c in preflight(replace(settings, source_fx=True)) if c.required and not c.ready]
-        self.assertIn('Companion mod.ff', failures)
+        self.assertNotIn('Companion mod.ff', failures)     # maps may ship without one
         self.assertIn('WaW source tools', failures)
 
     def test_build_caches_isolate_source_maps_and_game_installations(self):

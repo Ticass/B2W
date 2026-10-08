@@ -4,10 +4,36 @@ import runpy
 import sys
 
 
+MISSING_HELP = """WawConverter needs {missing}.
+Install the dependencies with your distribution's package manager (see START HERE.md):
+  Ubuntu/Debian/Mint/Pop!_OS: sudo apt install python3 python3-tk python3-pil python3-pil.imagetk wine
+  Fedora:                     sudo dnf install python3 python3-tkinter python3-pillow python3-pillow-tk wine
+  Arch/Manjaro/EndeavourOS:   sudo pacman -S python tk python-pillow wine
+"""
+
+
+def check_linux_dependencies(gui: bool):
+    """The Linux release runs on the system Python (nothing is bundled)."""
+    if getattr(sys, 'frozen', False) or sys.platform == 'win32':
+        return
+    missing = []
+    if sys.version_info < (3, 11):
+        missing.append(f'Python 3.11 or newer (this is {sys.version.split()[0]})')
+    for module, package in (('tkinter', 'Tk for Python'), ('PIL.ImageTk', 'Pillow with Tk support')) if gui else ():
+        try:
+            __import__(module)
+        except ImportError:
+            missing.append(package)
+    if missing:
+        sys.stderr.write(MISSING_HELP.format(missing=', '.join(missing)))
+        raise SystemExit(1)
+
+
 def main():
     for stream in (sys.stdout, sys.stderr):
         if stream is not None and hasattr(stream, 'reconfigure'):
             stream.reconfigure(line_buffering=True, write_through=True)
+    check_linux_dependencies(gui=sys.argv[1:3] != ['-m', 'waw2bo2.cli'])
     if Path(sys.executable).stem.lower() == 'all2raw':
         from waw2bo2.all2raw_cli import main as extract_main
         return extract_main(sys.argv[1:])

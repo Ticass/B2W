@@ -347,6 +347,24 @@ def write_entities(ents_file: Path, project: str, bsp_dir: Path, clip=None,
     return summary, script_model_names(out)
 
 
+def placed_models(entities_json: Path) -> set[str]:
+    """xmodel names placed by entities (brush models ``*N`` excluded)."""
+    data = json.loads(entities_json.read_text(encoding="utf-8"))
+    return {e["model"] for e in data["entities"] if e.get("model") and not e["model"].startswith("*")}
+
+
+def strip_models(entities_json: Path, names: set[str]) -> int:
+    """Remove ``model`` from entities placing one of ``names``; returns the count."""
+    data = json.loads(entities_json.read_text(encoding="utf-8"))
+    count = 0
+    for ent in data["entities"]:
+        if ent.get("model") in names:
+            del ent["model"]
+            count += 1
+    entities_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    return count
+
+
 def map_wall_buys(entities_json: Path, table: dict[str, str]) -> list[str]:
     """Point WaW wall buys at the weapons mod.ff carries (``table``: WaW name ->
     BO2 name, "" = not carried). A wall buy for an uncarried weapon is removed:

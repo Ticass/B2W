@@ -129,7 +129,10 @@ def map_fastfiles(folder: Path) -> list[Path]:
 
 
 def project_name(source: str) -> str:
-    name = re.sub(r'^(?:nazi_zombie_|zm_)', '', Path(source).stem, flags=re.I)
+    stem = Path(source).stem
+    if stem.lower() == 'mod':
+        stem = Path(source).parent.name    # a map shipped only as mod.ff: its mod folder names it
+    name = re.sub(r'^(?:nazi_zombie_|zm_)', '', stem, flags=re.I)
     name = re.sub(r'[^a-z0-9_]+', '_', name.lower()).strip('_') or 'map'
     return 'zm_' + name[:45] + '_waw'
 
@@ -175,7 +178,8 @@ def preflight(settings: Settings, *, include_map: bool = True, cache_paths=None)
         valid_source = bool(settings.fastfile) and source.is_file() and source.suffix.lower() == '.ff'
         checks.append(Check('Source map', valid_source, source.name if valid_source else 'Choose the source map fastfile (.ff).'))
         if valid_source:
-            files('Companion mod.ff', str(source.parent), ['mod.ff'])
+            # Many maps ship everything in the map zone (no mod.ff; e.g. b01, ls).
+            files('Companion mod.ff', str(source.parent), ['mod.ff'], required=False)
             valid_stem = bool(re.fullmatch(r'[A-Za-z0-9_\-]+', source.stem))
             checks.append(Check('Source zone name', valid_stem, 'Ready' if valid_stem else 'Source fastfile name must use letters, numbers, underscores, or hyphens.'))
         try:

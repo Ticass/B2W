@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.12
+
+- Linux: the release no longer bundles Python, Tk or system libraries from the build machine (which tied it to Ubuntu 24.04 / glibc 2.39). It runs on the distribution's own Python; the README and START HERE list the packages for Ubuntu/Debian-based distributions, Fedora and Arch, and the app names anything missing.
+- Maps without a `mod.ff` (everything in the map zone) are no longer blocked by the setup check, and a map shipped only as `mod.ff` can be chosen: the build finds its world inside it.
+- Script-model entities naming a model that exists in no WaW zone or source (e.g. weapon paths typed as models) keep their entity without a model, as WaW loads its default, instead of failing the build.
+
 ## v0.2.11
 
 - Convert WaW maps without an `add_adjacent_zone` graph (prototype/asylum/sumpf-style scripts): spawner groups become map-wide zones, opened by the doors and debris that add them in WaW.
