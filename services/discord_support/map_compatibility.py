@@ -27,7 +27,7 @@ MAX_UPLOAD_TOTAL_BYTES = 24 * 1024 * 1024
 
 
 def normalize_map(row: dict[str, Any]) -> dict[str, Any] | None:
-    title = html.unescape(str(row.get('title', {}).get('rendered', ''))).strip()
+    title = html.unescape(re.sub(r'<[^>]*>', '', str(row.get('title', {}).get('rendered', '')))).strip()
     url = str(row.get('link', ''))
     try:
         map_id = int(row['id'])
