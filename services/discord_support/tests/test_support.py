@@ -12,10 +12,15 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import State, attachment_text, chunks, format_report, message_marker, redact
-from bot import GitHub, SupportBot
+from bot import GitHub, SupportBot, discord_login_retry_delay
 
 
 class IntakeTests(unittest.TestCase):
+    def test_discord_login_rate_limit_uses_capped_backoff(self):
+        self.assertEqual([discord_login_retry_delay(i) for i in range(1, 7)],
+                         [60, 120, 240, 480, 960, 1800])
+        self.assertEqual(discord_login_retry_delay(20), 1800)
+
     def test_zip_reads_logs_but_not_game_assets_or_traversal(self):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:

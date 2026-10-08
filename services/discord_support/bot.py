@@ -26,6 +26,11 @@ class GitHubError(Exception):
         super().__init__(f'GitHub HTTP {status}')
 
 
+def discord_login_retry_delay(attempt: int) -> int:
+    """Back off when Discord/Cloudflare rate-limits a bot login."""
+    return min(60 * (2 ** max(0, attempt - 1)), 30 * 60)
+
+
 class GitHub:
     def __init__(self, session: aiohttp.ClientSession, repository: str):
         owner, repo = repository.split('/')
@@ -480,6 +485,31 @@ class SupportBot(commands.Bot):
         await super().close()
 
 
+async def run_bot(token: str):
+    attempt = 0
+    while True:
+        bot = SupportBot()
+        try:
+            await bot.start(token)
+            await bot.close()
+            return
+        except discord.HTTPException as error:
+            await bot.close()
+            if error.status != 429:
+                raise
+            attempt += 1
+            delay = discord_login_retry_delay(attempt)
+            log.error('Discord returned HTTP 429; retrying in %s seconds (attempt %s)', delay, attempt)
+            await asyncio.sleep(delay)
+        except BaseException:
+            await bot.close()
+            raise
+
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
-    SupportBot().run(os.environ.get('DISCORD_TOKEN') or os.environ['DISCORD_BOT_TOKEN'], log_handler=None)
+    token = os.environ.get('DISCORD_TOKEN') or os.environ['DISCORD_BOT_TOKEN']
+    try:
+        asyncio.run(run_bot(token))
+    except KeyboardInterrupt:
+        pass

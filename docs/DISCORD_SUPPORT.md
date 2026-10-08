@@ -102,6 +102,12 @@ disconnect. `POLL_SECONDS=30` controls catch-up and result polling. GitHub runne
 queue times add to investigation latency. Closing a tracking issue does not
 disable new human replies in its Discord thread.
 
+If Railway logs show Discord HTTP 429 with a Cloudflare 1015 page, the egress
+IP is temporarily rate-limited. Stop the deployment retry loop by setting the
+Railway service restart policy to **Never**, wait before trying again, then
+start one replica once. The bot now backs off exponentially (up to 30 minutes)
+on Discord 429 responses so a temporary block does not cause rapid relaunches.
+
 ## What reports include
 
 The listener reads text/log/JSON/CSV attachments and diagnostic ZIPs up to
