@@ -1,0 +1,126 @@
+name: Build portable packages
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: microsoft/setup-msbuild@v2
+      - name: Install packaging dependencies
+        run: |
+          python -m pip install -e . pyinstaller==6.16.0 imageio-ffmpeg==0.6.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build patched T4, vendored T6 and audio decoder
+        run: ./tools/ci_build_native.ps1
+      - name: Run regression suite
+        run: python -m unittest discover -s tests
+      - name: Package Windows
+        run: python tools/build_desktop.py
+      - name: Smoke-test packaged GUI and command interfaces
+        run: |
+          $bundle = 'work/desktop_dist/WawConverter'
+          & "$bundle/WawConverter.CLI.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$bundle/WawConverter.CLI.exe" -m waw2bo2.cli --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$bundle/All2Raw.exe" --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Record provenance and checksum
+        env:
+          SOURCE_SHA: ${{ inputs.ref }}
+        run: |
+          $archive = 'work/desktop_dist/WawConverter-Windows.zip'
+          $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$digest  WawConverter-Windows.zip" | Set-Content "$archive.sha256" -Encoding utf8NoBOM
+          @{
+            commit = $env:SOURCE_SHA
+            repository = '${{ github.repository }}'
+            run = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+          } | ConvertTo-Json | Set-Content work/desktop_dist/build-info.json -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: |
+            work/desktop_dist/WawConverter-Windows.zip
+            work/desktop_dist/WawConverter-Windows.zip.sha256
+            work/desktop_dist/build-info.json
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    needs: windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install frontend and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-tk python3-pil python3-pil.imagetk xvfb xauth
+          python -m pip install -e . imageio-ffmpeg==0.6.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-package
+          path: work/windows
+      - name: Extract tested Windows worker
+        run: |
+          cd work/windows
+          sha256sum --check WawConverter-Windows.zip.sha256
+          unzip -q WawConverter-Windows.zip
+      - name: Test Linux frontend and driver
+        run: |
+          python -m unittest discover -s tests -p test_all2raw.py
+          python -m unittest discover -s tests -p test_linuxruntime.py
+          python -m unittest discover -s tests -p test_builddriver.py
+          python -m unittest discover -s tests -p test_gsc_comments.py
+      - name: Package Linux
+        run: python tools/build_linux.py --windows-bundle work/windows/WawConverter
+      - name: Smoke-test extracted package with system Python
+        env:
+          WAWCONVERTER_PYTHON: /usr/bin/python3
+        run: |
+          mkdir -p work/extracted
+          tar -xzf work/linux_dist/WawConverter-Linux-x86_64.tar.gz -C work/extracted
+          cd work/extracted/WawConverter-Linux
+          xvfb-run -a ./WawConverter.CLI --self-test
+          ./WawConverter.CLI -m waw2bo2.cli --help
+          ./All2Raw --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-package
+          path: |
+            work/linux_dist/WawConverter-Linux-x86_64.tar.gz
+            work/linux_dist/WawConverter-Linux-x86_64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14

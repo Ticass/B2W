@@ -1,0 +1,32 @@
+name: Bleeding edge builds
+
+on:
+  push:
+    branches:
+      - '**'
+      - '!release/nightly/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Keep every pushed commit's build; do not cancel an older build on a new push.
+jobs:
+  map-catalog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate and validate the CodRepo map catalog
+        run: python tools/build_map_compatibility_site.py --output _site
+
+  packages:
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ github.sha }}

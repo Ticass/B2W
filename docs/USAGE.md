@@ -15,7 +15,7 @@ Full conversion and playtesting additionally require:
 
 - 64-bit Windows, Visual Studio 2022 with Desktop development with C++, MSVC
   x86 tools, and the Windows SDK.
-- Premake 5 on PATH. The vendored T6 generator specifies `5.0.0-beta6`.
+- Premake 5 on PATH, version `5.0.0-beta8` or newer (required by the pinned T4 source).
 - Your WaW installation with `main/` IWD archives and `zone/english/` fastfiles.
 - The custom map folder: `<map>.ff`, `mod.ff`, its IWD archives, and
   `<map>_patch.ff` if provided. Keep these files together.
@@ -90,7 +90,7 @@ git clone https://github.com/Laupetin/OpenAssetTools.git work/oat_t6_dependencie
 git -C work/oat_t6_dependencies checkout 95b8c68fbc464109c9289a833035763505ea57da
 git -C work/oat_t6_dependencies submodule update --init --recursive
 
-Get-ChildItem work/oat_t6_dependencies/thirdparty -Directory | ForEach-Object {
+Get-ChildItem work/oat_t6_dependencies/thirdparty | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination vendor/OpenAssetToolsT6/thirdparty -Recurse -Force
 }
 
