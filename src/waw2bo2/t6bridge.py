@@ -1487,6 +1487,13 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                        report.scripts.get("staged_animtrees", []))
         except ValueError as exc:
             report.errors.append(f"scripts: {exc}")
+    # A cancelled Wine/Linker run can leave the generated client entry point
+    # absent while the compile list still expects it. Recreate it now.
+    if bo2_root is not None:
+        try:
+            gscport.ensure_owned_client_bootstrap(project_root, bo2_root)
+        except ValueError as exc:
+            report.errors.append(f"scripts: {exc}")
     stage_rawfiles(report, project_root, bo2_root)
     if weapon_report is None:
         weapon_report, roots = _stage_weapons(report, roots, project_root, compiled_weapon_names, script_models,
@@ -2281,6 +2288,7 @@ def compile_scripts(stage: Path, project: str, bo2_root: Path, oat_unlinker: Pat
     import subprocess
 
     project_root = stage / "zone_raw" / project
+    gscport.ensure_owned_client_bootstrap(project_root, bo2_root)
     scripts = map_scripts(project_root, project)
     work = stage / "script_build"
     if work.exists():
