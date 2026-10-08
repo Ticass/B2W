@@ -56,9 +56,18 @@ the [discord.py intent guide](https://discordpy.readthedocs.io/en/stable/intents
 
 Invite the bot with the `bot` OAuth2 scope. Grant it **View Channels**, **Read
 Message History**, **Send Messages**, and **Send Messages in Threads** in
-`error-logs`. It joins active report threads. Administrator permission is not
-required. Moderators must unlock inaccessible/locked archived threads when a
-reply cannot be delivered. The listener retries failed deliveries.
+`error-logs`. Also grant **Use Application Commands** (or invite with the
+`applications.commands` OAuth2 scope), plus **Send Messages**, **Embed Links**,
+and **Attach Files** in the regular channel where map reports are submitted.
+The `/map-report` command is registered to server `1557610224641245245` and
+searches CodRepo's live World at War map catalog. It asks for Playable/Broken,
+tool version, Windows/Linux, optional video, test notes, and up to five
+screenshots/log/crash files (8 MiB each; 24 MiB total). Evidence is posted in
+that channel and a public GitHub issue is created; issue changes automatically
+rebuild the public compatibility page. Do not submit private data. The bot
+joins active error-report threads. Administrator permission is not required.
+Moderators must unlock inaccessible/locked archived threads when a reply
+cannot be delivered. The listener retries failed deliveries.
 
 ## Deploy the listener on your remote host
 
