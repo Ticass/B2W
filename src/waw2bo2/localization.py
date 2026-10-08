@@ -8,7 +8,7 @@ import subprocess
 import zipfile
 from pathlib import Path
 
-from . import gsc, weapons
+from . import gsc, wawtext, weapons
 
 PREFIX = "WAW2BO2_"
 KEY = re.compile(r"[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\Z")
@@ -105,7 +105,7 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
         for path in sorted((project / folder).rglob(extension)):
             if path.name == '_waw2bo2_compat.gsc':  # this adapter uses BO2's own keys
                 continue
-            tokens = gsc.tokenize(path.read_text(encoding='utf-8'))
+            tokens = gsc.tokenize(wawtext.read(path))
             scripts[path] = tokens
             for token in tokens:
                 if token.kind == gsc.STRING:
@@ -116,7 +116,7 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
                         strings.add(original(text))
     for path in sorted((project / 'content_source/weapons').rglob('*')):
         if path.is_file():
-            fields = weapons.read_info(path.read_text(encoding='utf-8'))
+            fields = weapons.read_info_file(path)
             weapon_files[path] = fields
             requested.update(original(v) for k, v in fields.items()
                              if k in ('displayName', 'AIOverlayDescription', 'modeName') and v)

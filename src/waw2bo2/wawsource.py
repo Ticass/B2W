@@ -15,6 +15,7 @@ reported by the caller (``WAW_SOURCE_ASSET``).
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -26,6 +27,17 @@ LINKER = Path("bin") / "linker_pc.exe"
 DUMP_ASSETS = "material,image,fx,xmodel"
 DUMP_MARKER = ".waw2bo2_source_dump_v3"  # v3: verify the requested asset was actually dumped
 LINK_TIMEOUT = 300  # s; after an unrecoverable error the linker waits for a key press
+# linker_pc truncates zone names to 63 characters (measured: it then opened
+# "..._crack_blend_n.csv" for "..._crack_blend_noscorch").
+ZONE_NAME_LIMIT = 63
+
+
+def source_zone_name(kind: str, name: str) -> str:
+    zone = "w2bsrc_" + re.sub(r"[^A-Za-z0-9_]", "_", f"{kind}_{name}").lower()
+    if len(zone) <= ZONE_NAME_LIMIT:
+        return zone
+    digest = hashlib.sha1(zone.encode()).hexdigest()[:10]
+    return zone[:ZONE_NAME_LIMIT - 11] + "_" + digest
 
 
 class WawSourceError(RuntimeError):
@@ -135,7 +147,7 @@ class WawSourceAssets:
             alias.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(original, alias)
             return recovered
-        zone = "w2bsrc_" + re.sub(r"[^A-Za-z0-9_]", "_", f"{kind}_{name}").lower()
+        zone = source_zone_name(kind, name)
         out = self.work / zone
         stamp = f"{src.resolve()} {src.stat().st_mtime_ns} {src.stat().st_size}"
         marker = out / DUMP_MARKER
@@ -179,7 +191,7 @@ class WawSourceAssets:
 
     def link_warnings(self, kind: str, name: str) -> list[str]:
         """Assets the linker could not load while compiling (missing sources)."""
-        zone = "w2bsrc_" + re.sub(r"[^A-Za-z0-9_]", "_", f"{kind}_{name}").lower()
+        zone = source_zone_name(kind, name)
         log = self.work / f"{zone}.link.log"
         if not log.exists():
             return []

@@ -23,6 +23,11 @@ class ScriptModelBoxTests(unittest.TestCase):
             for p in (a, b, c):
                 self.assertTrue(-10.01 <= p[0] <= 10.01 and -20.01 <= p[1] <= 20.01 and -0.01 <= p[2] <= 50.01)
 
+    def test_flat_model_box_gets_minimum_thickness(self):
+        surf = hulls.bounds_box_collsurf((-10.0, 5.0, 0.0), (10.0, 5.0, 50.0), "tag_origin")
+        self.assertEqual(len(surf["tris"]), 12)
+        self.assertEqual((surf["mins"][1], surf["maxs"][1]), (4.5, 5.5))
+
     def test_gltf_bounds_use_measured_t4_export_axes(self):
         gltf = {"meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
                 "accessors": [{"min": [-1.0, 0.0, -3.0], "max": [2.0, 10.0, 4.0]}]}

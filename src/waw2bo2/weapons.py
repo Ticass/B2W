@@ -12,6 +12,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from . import wawtext
 from .resources import resource_root
 
 
@@ -29,6 +30,11 @@ def read_info(text: str) -> dict[str, str]:
             raise WeaponError(f"duplicate weapon field {key}")
         result[key] = value
     return result
+
+
+def read_info_file(path) -> dict[str, str]:
+    """A WaW weapon file (Windows code page) or a converted (UTF-8) copy."""
+    return read_info(wawtext.read(path))
 
 
 def write_info(fields: dict[str, str]) -> str:
@@ -81,6 +87,13 @@ def bounce_aliases(prefix: str, roots: list[Path], stock=None) -> set[str]:
     return names
 
 
+# Weapon field types parsed as name enums (OAT T6 WeaponInfoStringLoaderT6):
+# an empty value is invalid for every one of them.
+ENUM_FIELD_TYPES = {"WFT_WEAPONTYPE", "WFT_WEAPONCLASS", "WFT_OVERLAYRETICLE", "WFT_PENETRATE_TYPE",
+                    "WFT_IMPACT_TYPE", "WFT_STANCE", "WFT_PROJ_EXPLOSION", "WFT_OFFHAND_CLASS", "WFT_ANIMTYPE",
+                    "WFT_ACTIVE_RETICLE_TYPE", "WFT_GUIDED_MISSILE_TYPE", "WFT_STICKINESS", "WFT_OVERLAYINTERFACE",
+                    "WFT_INVENTORYTYPE", "WFT_FIRETYPE", "WFT_AMMOCOUNTER_CLIPTYPE", "WFT_ICONRATIO_HUD",
+                    "WFT_ICONRATIO_PICKUP", "WFT_ICONRATIO_AMMOCOUNTER", "WFT_ICONRATIO_KILL", "WFT_ICONRATIO_DPAD"}
 # Values the BO2 mod tools linker accepts (its own error message lists them).
 T6_PLAYER_ANIM_TYPES = {"none", "default", "other", "sniper", "m203", "hold", "briefcase", "reviver", "radio",
                         "dualwield", "remotecontrol", "crossbow", "minigun", "beltfed", "g11", "rearclip",
@@ -133,7 +146,12 @@ def convert(name: str, source: dict[str, str], t4_schema: dict[str, str], t6_sch
             # first-person animation tracks.
             out.translations[key] = {"source": value, "target": "default", "reason": CLASS_ANIM_TYPES[value]}
             value = "default"
-        elif key == "playerAnimType" and value and value not in T6_PLAYER_ANIM_TYPES:
+        elif dst_type in ENUM_FIELD_TYPES and not value:
+            # unset in the WaW weapon (e.g. a custom crossbow's playerAnimType);
+            # the BO2 linker rejects "" but defaults an omitted field
+            out.translations[key] = {"source": value, "target": None, "reason": "unset; T6 default"}
+            continue
+        elif key == "playerAnimType" and value not in T6_PLAYER_ANIM_TYPES:
             out.unsupported[key] = {"value": value, "source_type": src_type, "target_type": dst_type,
                                     "reason": "no measured T6 playerAnimType"}
             continue
@@ -346,7 +364,7 @@ def stage_physpreset(roots: list[Path], project: Path, name: str, staged: dict[s
     source = next((r / relative for r in roots if (r / relative).is_file()), None)
     if source is None:
         raise WeaponError(f"physics preset {name}: physic/{name} absent from the supplied WaW dumps")
-    fields = source.read_text(encoding="utf-8").split("\\")
+    fields = wawtext.read(source).split("\\")
     if fields[0] != "PHYSIC" or len(fields) % 2 != 1:
         raise WeaponError(f"physics preset {name}: not a PHYSIC infostring")
     pairs = dict(zip(fields[1::2], fields[2::2]))
@@ -367,7 +385,7 @@ def plan(roots: list[Path], project: Path) -> tuple[dict[str, ConvertedWeapon], 
     sources = discover(roots)
     for name, path in sources.items():
         output_name("weapon", name)
-        converted[name] = convert(name, read_info(path.read_text(encoding="utf-8")), t4, t6)
+        converted[name] = convert(name, read_info_file(path), t4, t6)
         prefix = converted[name].fields.get('bounceSound', '').removeprefix('waw/')
         if prefix:
             converted[name].dependencies.setdefault('sound', set()).update(bounce_aliases(prefix, roots))
@@ -645,7 +663,7 @@ def stage_runtime(project: Path, ipak: str, equivalents=None, loaded: dict[str, 
         if table[name] != name:
             notes.append(f"WEAPON_RENAMED {name} -> {table[name]}: BO2 has a weapon of that name; scripts reach "
                          f"it through level.waw2bo2_weapons")
-        fields = read_info((project / "weapons" / name).read_text(encoding="utf-8"))
+        fields = read_info_file(project / "weapons" / name)
         replacement = primary_frag_replacement(name, fields)
         if replacement:
             table[name] = replacements[name] = replacement

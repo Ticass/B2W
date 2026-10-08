@@ -90,7 +90,7 @@ class Resolver:
     def children(self, kind: str, path: Path, name: str | None = None) -> set[tuple[str, str]]:
         children = set()
         if kind == "weapon":
-            source = weapons.read_info(path.read_text(encoding="utf-8"))
+            source = weapons.read_info_file(path)
             base = resource_root()
             t4 = weapons.field_schema(base / "vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h")
             for key, value in source.items():

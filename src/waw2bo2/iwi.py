@@ -313,6 +313,39 @@ def solid_cube_rgba_iwi(size: int, rgba: tuple[int, int, int, int]) -> bytes:
     return bytes(out)
 
 
+_IWI6_HEADER = 28  # magic+version, format, flags, width, height, depth, 4 x uint32 file sizes
+_IWI_TO_FOURCC = {FMT_DXT1: b"DXT1", FMT_DXT3: b"DXT3", FMT_DXT5: b"DXT5"}
+
+
+def iwi6_to_dds(blob: bytes) -> bytes | None:
+    """A plain block-compressed WaW IWI v6 (2D) as DDS, mips largest first.
+
+    IWI v6 stores mips smallest first after the header (measured on WaW map
+    IWDs: DXT1 512x512 holds 174,768 bytes = levels 512..2). Returns None for
+    formats this does not cover (wavelets, uncompressed, cube maps)."""
+    if len(blob) < _IWI6_HEADER or blob[:4] != b"IWi\x06":
+        return None
+    fmt, flags = blob[4], blob[5]
+    width, height, depth = struct.unpack_from("<3H", blob, 6)
+    if fmt not in _IWI_TO_FOURCC or flags & (FLAG_CUBEMAP | FLAG_VOLMAP) or depth != 1:
+        return None
+    end, levels = len(blob), []
+    limit = 1 if flags & FLAG_NOMIPMAPS else full_mip_count(width, height)
+    for level in range(limit):
+        size = mip_size(fmt, width, height, 1, level)
+        if end - size < _IWI6_HEADER:
+            break
+        levels.append(blob[end - size:end])
+        end -= size
+    if not levels:
+        return None
+    # CAPS | HEIGHT | WIDTH | PIXELFORMAT | MIPMAPCOUNT | LINEARSIZE
+    header = struct.pack("<4s7I44x", b"DDS ", 124, 0xA1007, height, width, len(levels[0]), 0, len(levels))
+    pixel_format = struct.pack("<II4s5I", 32, _DDPF_FOURCC, _IWI_TO_FOURCC[fmt], 0, 0, 0, 0, 0)
+    caps = struct.pack("<4I4x", 0x401008 if len(levels) > 1 else 0x1000, 0, 0, 0)
+    return header + pixel_format + caps + b"".join(levels)
+
+
 def read_iwi_header(blob: bytes) -> dict:
     if blob[:3] != b"IWi" or blob[3] != 27:
         raise IwiError("not an IWI v27 file")

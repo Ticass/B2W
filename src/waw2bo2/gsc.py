@@ -22,7 +22,7 @@ CALL_LIKE_KEYWORDS = {"if", "while", "for", "foreach", "switch", "return", "wait
                       "notify", "endon", "thread", "case", "else", "do"}
 
 _TOKEN_RE = re.compile(r"""
-    (?P<ws>(?:\s+|//[^\n]*|/\*.*?\*/|/\*.*?(?m:^[\t ]*\*\\[\t ]*(?:\r?\n|$)))+)
+    (?P<ws>(?:\s+|//[^\n]*|/\*.*?\*/|/\*.*?(?m:^[\t ]*\*\\[\t ]*(?:\r?\n|$))|/\*(?:(?!\*/).)*\Z)+)
   | (?P<directive>\#(?:include|using_animtree|insert|define)\b[^;\n]*;?)
   | (?P<string>[&#]?"(?:\\.|[^"\\\n])*")
   | (?P<path>[A-Za-z_]\w*(?:\\[A-Za-z_]\w*)+)
@@ -77,18 +77,24 @@ def emit(tokens: list[Token]) -> str:
 
 
 def repair_block_comments(text: str) -> tuple[str, int]:
-    """Repair the standalone *\\ terminator found in authored WaW comments.
+    """Repair the standalone *\\ terminator found in authored WaW comments,
+    and close a /* left open at the end of the file (WaW's compiler ends the
+    comment there; T6's reports "unmatched multiline comment start").
 
     Normal comments win in the tokenizer. Never cross an existing */ or touch
     strings/code; callers pass only the whitespace/comment token prefixes.
     """
-    pattern = r'//[^\n]*|/\*.*?\*/|(?P<broken>/\*.*?(?m:^[\t ]*\*\\(?=[\t ]*(?:\r?\n|$))))'
+    pattern = (r'//[^\n]*|/\*.*?\*/|(?P<broken>/\*.*?(?m:^[\t ]*\*\\(?=[\t ]*(?:\r?\n|$))))'
+               r'|(?P<open>/\*(?:(?!\*/).)*\Z)')
     count = 0
     def repair(match):
         nonlocal count
         if match.lastgroup == 'broken':
             count += 1
             return match[0][:-1] + '/'
+        if match.lastgroup == 'open':
+            count += 1
+            return match[0] + '\n*/\n'
         return match[0]
     return re.sub(pattern, repair, text, flags=re.DOTALL), count
 

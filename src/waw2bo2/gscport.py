@@ -146,6 +146,11 @@ def is_core(path: str, sources: Sources) -> bool:
 LINE_COMMENT_BACKSLASH = re.compile(r"(//[^\n]*?)\\+[ \t]*(?=\r?\n|$)")
 
 
+def shadowed_name(name: str) -> str:
+    """The ported name of a map function that shares a T6 builtin's name."""
+    return "waw_" + name
+
+
 def neutralize_animations(tokens: list[gsc.Token], tree: str) -> None:
     """Drop a WaW animtree BO2 does not have: #using_animtree is commented out,
     #animtree and %anim references become strings (the animation builtins are
@@ -197,6 +202,9 @@ def bridge_contact_kill_attacks(tokens: list[gsc.Token], script: gsc.Script) -> 
     return fixes
 
 
+CONDITION_KEYWORDS = {"if", "while", "for", "foreach", "switch"}
+
+
 def fix_syntax(tokens: list[gsc.Token]) -> int:
     """WaW syntax the T6 compiler rejects. ``(a.b).size``: T6 cannot access a
     member of a parenthesised expression; the parentheses are redundant when
@@ -233,7 +241,14 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
                 simple = False
         else:
             continue
-        if simple and j > i + 1 and tokens[j + 1].text == "." and tokens[j].text == ")":
+        after = tokens[j + 1] if j + 1 < len(tokens) else None
+        # ``(self) IsTouching( x )`` / ``(self) thread f()``: WaW accepts a
+        # parenthesised method caller, T6 expects ')' (Alcatraz's elevator).
+        # Not the condition of ``if (x) foo();`` / ``while (y) bar();``.
+        method_call = after is not None and after.kind == gsc.IDENT and j + 2 < len(tokens) and \
+            (tokens[j + 2].text == "(" or after.low in ("thread", "childthread")) and \
+            not (prev is not None and prev.low in CONDITION_KEYWORDS)
+        if simple and j > i + 1 and tokens[j].text == ")" and after is not None and (after.text == "." or method_call):
             t.text = ""
             tokens[j].text = ""
             fixes += 1
@@ -648,6 +663,11 @@ class Translator:
         return self.stub(name, name, argc, where)
 
     # ---- translation ------------------------------------------------------
+    def shadows_builtin(self, name: str) -> bool:
+        """A map function named like a T6 builtin (back-ported BO2 helpers such
+        as getFirstArrayKey): the T6 compiler rejects the definition."""
+        return self.api.builtin_range(name.lower()) is not None
+
     def translate(self, path: str, main_split: bool = False) -> str:
         script = self.sources.get(path)
         tokens = script.tokens
@@ -692,6 +712,10 @@ class Translator:
         self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
         self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
         defs = {fn.start for fn in script.functions.values()}
+        for name, fn in script.functions.items():
+            if self.shadows_builtin(name):
+                tokens[fn.start].text = shadowed_name(tokens[fn.start].text)
+                self.report.rewrites["map functions named like T6 builtins renamed (waw_*)"] += 1
         self.resolve_refs(tokens, script, where_file, included_bo2, defs)
         self.report.rewrites["WaW contact-kill monitors own AI attacks"] += bridge_contact_kill_attacks(tokens, script)
         self.report.rewrites["WaW being_revived reads bridged to T6 revive state"] += bridge_revive_reads(tokens)
@@ -764,8 +788,15 @@ class Translator:
                     else:
                         self.want(target)
                         qual_tok.text = ported_path(target)
+                        if self.shadows_builtin(name):
+                            tok.text = shadowed_name(tok.text)
                 continue
             owner = self.owner(script, name)
+            if owner is not None and not is_core(owner, self.sources) and extracting is None \
+                    and self.shadows_builtin(name):
+                # the map's own function, renamed where it is defined
+                tok.text = shadowed_name(tok.text)
+                continue
             library = self.library_function(owner, name) if owner else None
             if library and owner != script.path:
                 if ref.pointer:
@@ -923,6 +954,17 @@ class Translator:
         self.anim_neutralized = False
         tokens[0].pre = f"\n// {core}::{name} ({'map override' if core + '.gsc' in self.sources.text else 'stock'})\n"
         self.keep_core_animations(script, tokens, f"{core}::{name}")
+        tree = (script.animtree or "").lower()
+        uses_tree = any(t.text == "#" and tokens[i + 1].low == "animtree" for i, t in enumerate(tokens[:-1]))
+        if uses_tree and tree not in self.core_animtrees:
+            # The extracted functions share one file, so the source script's
+            # #using_animtree does not come along (e.g. _spawner's
+            # UseAnimTree( #animtree ) with no %anim: "trying to use animtree
+            # without specified using animtree").
+            if tree in self.animtrees:
+                tokens[0].pre += f'#using_animtree( "{script.animtree}" );\n'
+            else:
+                neutralize_animations(tokens, script.animtree or "")
         where = self.sources.origin.get(core + ".gsc", core)
         self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
         self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)

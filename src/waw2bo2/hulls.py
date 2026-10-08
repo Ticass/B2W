@@ -234,6 +234,7 @@ def static_model_records(clip) -> tuple[list[dict], dict]:
 # (sub_5485E0) sets the same 0x2080 contents but traces the xmodel's collSurfs,
 # so a model without them is hit by nothing.
 SCRIPT_MODEL_CONTENTS = 0x2080
+MIN_BOX_THICKNESS = 1.0
 
 
 def collision_tri_record(a: Vec, b: Vec, c: Vec) -> dict:
@@ -252,7 +253,15 @@ def collision_tri_record(a: Vec, b: Vec, c: Vec) -> dict:
 
 
 def bounds_box_collsurf(mins: Vec, maxs: Vec, bone: str, contents: int = SCRIPT_MODEL_CONTENTS) -> dict:
-    """One collSurf: the 12 outward-facing triangles of an axis-aligned box."""
+    """One collSurf: the 12 outward-facing triangles of an axis-aligned box.
+
+    A flat model (a sign, a decal card) has a zero extent; its box gets
+    MIN_BOX_THICKNESS there so every face is a real triangle."""
+    mins, maxs = list(mins), list(maxs)
+    for k in range(3):
+        if maxs[k] - mins[k] < MIN_BOX_THICKNESS:
+            middle = (mins[k] + maxs[k]) * 0.5
+            mins[k], maxs[k] = middle - MIN_BOX_THICKNESS * 0.5, middle + MIN_BOX_THICKNESS * 0.5
     corner = lambda i: (maxs[0] if i & 1 else mins[0], maxs[1] if i & 2 else mins[1], maxs[2] if i & 4 else mins[2])
     centre = tuple((mins[k] + maxs[k]) * 0.5 for k in range(3))
     # faces as corner-index quads; orientation is fixed below from the centre

@@ -16,7 +16,7 @@ import struct
 import zipfile
 from pathlib import Path
 
-from . import gsc
+from . import gsc, wawtext
 from .weapons import output_name
 
 
@@ -58,7 +58,7 @@ def script_aliases(project_root: Path, defined: set[str]) -> set[str]:
     names = {name.lower(): name for name in sorted(defined)}
     found = set()
     for path in (project_root/'maps/mp/waw').rglob('*.gsc'):
-        for token in gsc.tokenize(path.read_text(encoding='utf-8')):
+        for token in gsc.tokenize(wawtext.read(path)):
             if token.kind == gsc.STRING:
                 name = names.get(token.text[1:-1].lower())
                 if name is not None:

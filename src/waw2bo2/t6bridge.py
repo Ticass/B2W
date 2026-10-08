@@ -486,6 +486,20 @@ SKY_SRC_DIR = "sky_src"
 SKYBOX_MATERIAL = "mc/mtl_dlc0_zm_skybox_nuketown"
 
 
+NO_SKY_IMAGE = "waw2bo2_no_sky"
+
+
+def black_cube_dds(size: int, alpha: int) -> bytes:
+    """Uncompressed A8R8G8B8 cube map (6 faces, one mip), black, the same DDS
+    layout _sky_with_hdr_alpha writes for WaW sky cubes."""
+    import struct
+    header = struct.pack("<4sIIIIIII44x", b"DDS ", 124, 0x100F, size, size, size * 4, 0, 1)
+    pixel_format = struct.pack("<IIIIIIII", 32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
+    caps = struct.pack("<IIII4x", 0x1008, 0xFE00, 0, 0)
+    face = bytes([0, 0, 0, alpha]) * (size * size)
+    return header + pixel_format + caps + face * 6
+
+
 def _sky_with_hdr_alpha(report: StageReport, project_root: Path, sky_image: str) -> str:
     """Copy the WaW sky cube with the T6 HDR intensity in alpha (uncompressed
     32-bit DDS only). Returns the image name to use."""
@@ -591,9 +605,19 @@ def stage_skybox(report: StageReport, project: str, project_root: Path, bo2_root
     distant surface. T6 skies are small domes drawn with mc_skycubemaphdr
     (behind everything), so the stock Nuketown dome and its material are used
     with the WaW sky cubemap. Returns (material name, image name)."""
-    if bo2_root is None or sky_image is None:
-        report.errors.append("skybox: needs --bo2 and a WaW sky cubemap")
+    if bo2_root is None:
+        report.errors.append("skybox: needs --bo2")
         return None, None
+    synthesized = sky_image is None
+    if synthesized:
+        # An enclosed map with no sky surface and no skybox model: WaW draws
+        # nothing there (black). Keep T6's dome behind everything, black.
+        sky_image = NO_SKY_IMAGE
+        dst = project_root / SKY_SRC_DIR / f"{sky_image}.dds"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(black_cube_dds(4, SKY_HDR_ALPHA))
+        report.warnings.append("SKY_SYNTHESIZED the WaW map has no sky surface or skybox model; "
+                               "the T6 sky dome is black, as WaW draws it")
     raw = bo2_root / "raw"
     src_json = raw / "xmodel" / f"{SKYBOX_TEMPLATE}.json"
     src_mat = raw / "materials" / f"{SKYBOX_MATERIAL}.json"
@@ -612,7 +636,8 @@ def stage_skybox(report: StageReport, project: str, project_root: Path, bo2_root
     dst_json = project_root / "xmodel" / f"skybox_{project}.json"
     dst_json.parent.mkdir(parents=True, exist_ok=True)
     dst_json.write_text(json.dumps(xm, indent=4) + "\n", encoding="utf-8")
-    sky_image = _sky_with_hdr_alpha(report, project_root, sky_image)
+    if not synthesized:
+        sky_image = _sky_with_hdr_alpha(report, project_root, sky_image)
     mat = _load_json(src_mat)
     for tex in mat.get("textures", []):
         if tex.get("name") == "colorMap":
@@ -622,6 +647,23 @@ def stage_skybox(report: StageReport, project: str, project_root: Path, bo2_root
     dst_mat.write_text(json.dumps(mat, indent=2) + "\n", encoding="utf-8")
     report.warnings.append(f"skybox: BO2 {SKYBOX_TEMPLATE} dome with the WaW sky cubemap {sky_image}")
     return mat.get("techniqueSet"), sky_image
+
+
+_NEUTRAL_TRANSFORM = {"translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0]}
+
+
+def _neutralize_nan_transforms(gltf: dict) -> int:
+    """The WaW exporter writes a NaN bone offset as JSON null, which OAT
+    rejects ("type must be number, but is null"; Alcatraz's cell_elec_door
+    joints). Such a component becomes its neutral value. Returns the count."""
+    fixed = 0
+    for node in gltf.get("nodes", []):
+        for key, neutral in _NEUTRAL_TRANSFORM.items():
+            values = node.get(key)
+            if values and any(not isinstance(v, (int, float)) for v in values):
+                node[key] = [v if isinstance(v, (int, float)) else n for v, n in zip(values, neutral)]
+                fixed += 1
+    return fixed
 
 
 def _strip_bad_skins(gltf: dict) -> bool:
@@ -699,9 +741,17 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
             dst_file = project_root / lod["file"]
             dst_file.parent.mkdir(parents=True, exist_ok=True)
             data = _load_json(gltf)
+            changed = False
             if _strip_bad_skins(data):
                 report.warnings.append(f"xmodel {src_name}: skin without a single root joint removed "
                                        f"({lod['file']}); drawn rigid in its bind pose")
+                changed = True
+            bad_nodes = _neutralize_nan_transforms(data)
+            if bad_nodes:
+                report.warnings.append(f"xmodel {src_name}: {bad_nodes} node transform(s) with NaN components "
+                                       f"neutralized ({lod['file']})")
+                changed = True
+            if changed:
                 dst_file.write_text(json.dumps(data), encoding="utf-8")
             else:
                 shutil.copy2(gltf, dst_file)

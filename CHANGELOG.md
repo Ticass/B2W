@@ -9,6 +9,19 @@
 - Rebuilding a map no longer fails the shader relink on materials left in the stage by an earlier build (`Cant find pixel shader ...`); only materials staged by the current build are bound.
 - The world link now always prefers the map's own assets over same-named BO2 stock assets (the linker orders search paths by name, so the stock cache could shadow them; e.g. `mtl_fx_bullet_chain`).
 - The gameplay-mod shader relink no longer rebinds a BO2 stock material that shares its name with a converted WaW one (`mtl_prop_bear` failed the material audit).
+- Flat script models (zero thickness on one axis) get a valid collision box instead of failing staging with `division by zero`.
+- WaW weapon, script and vision files written in the Windows code page are read correctly (`'utf-8' codec can't decode byte 0xd7`).
+- Custom-map extraction no longer silently loses files past Windows' 260-character path limit (long shader, sound and model names; e.g. 534 shaders of Empty Walls, Alcatraz's tarp models): exports are staged near the cache top, an unwritten model or image fails the extraction instead of publishing an incomplete cache, and previously extracted custom maps are extracted again once.
+- Extracted WaW framework functions that reference `#animtree` without playing animations (e.g. `_spawner`'s drones) compile instead of failing with `trying to use animtree without specified using animtree`.
+- Enclosed maps with no sky surface or skybox model get a black sky, as WaW draws them, instead of failing (`skybox: needs --bo2 and a WaW sky cubemap`).
+- Plain DXT images that a map ships only in its IWD, and that the zone dump did not write, are read straight from the IWD (`source coffee_machine_col.dds missing from every image root`).
+- An unlinker crash during extraction (access violation or fail-fast) is retried up to twice.
+- Map functions named like T6 built-ins (back-ported BO2 helpers such as `getFirstArrayKey`) are renamed with their calls instead of failing script compilation.
+- Weapons with an unset enum field (e.g. a custom crossbow's empty `playerAnimType`) link with the BO2 default instead of failing (`Not a valid value for field "playerAnimType": ""`).
+- A parenthesised method caller (`(self) IsTouching( trig )`, accepted by WaW) is unwrapped for the T6 compiler.
+- A `/*` comment left open at the end of a script hides the rest of the file, as in WaW, instead of being ported as code and failing compilation.
+- Model bones with NaN offsets (written as JSON `null`) are neutralized instead of failing the world link.
+- Long WaW source-asset names no longer exceed the WaW linker's 63-character zone-name limit (`Could not open '../zone_source/...csv'`).
 - Converted materials no longer inherit their BO2 donor's thermal-vision material, which could fail the world link on a missing stock image (`thermal_gradient2`).
 
 ## v0.2.9

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from .iwi import IwiError
+from .iwi import IwiError, iwi6_to_dds
 
 _SIGNATURES = (
     "0c000600000003000a0006000700060004000500020005000900060001000500",
@@ -212,6 +212,17 @@ class IwdRecovery:
         archive, entry = hit
         with zipfile.ZipFile(archive) as z:
             blob = z.read(entry)
+        plain = iwi6_to_dds(blob)
+        if plain is not None:
+            # A plain DXT image the zone dump did not write (measured: Asylum
+            # V2's coffee_machine_col, "Dumped" by the unlinker, no file).
+            dst = self.root / "images" / f"{stem}.dds"
+            if Path(f"{stem}.dds").is_absolute() or ".." in Path(stem).parts:
+                raise IwiError(f"unsafe image name {stem!r}")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(plain)
+            self.recovered[stem] = {"archive": str(archive), "entry": entry, "iwi_format": blob[4]}
+            return dst
         if len(blob) < 5 or blob[:4] != b"IWi\x06" or blob[4] not in range(6, 11):
             return None
         if self.binary is None or not self.binary.is_file():

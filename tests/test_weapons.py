@@ -57,6 +57,11 @@ class WeaponTests(unittest.TestCase):
         self.assertEqual(out.fields["idleAnim"], "waw_xanim/custom_idle")
         self.assertEqual(out.translations["playerAnimType"]["source"], "autorifle")
 
+    def test_unset_player_anim_type_is_left_to_the_t6_default(self):
+        schema = {"playerAnimType": "WFT_ANIMTYPE"}
+        out = weapons.convert("crossbow", {"playerAnimType": ""}, schema, schema)
+        self.assertNotIn("playerAnimType", out.fields)
+
     def test_skeleton_is_preserved_and_multiple_roots_are_not_stripped(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "source"

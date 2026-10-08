@@ -13,7 +13,7 @@ import struct
 import zipfile
 from pathlib import Path
 
-from . import glow, gsc, iwi
+from . import glow, gsc, iwi, wawtext
 
 PAIR = re.compile(r'([\w]+)\s+"([^"\r\n]*)"')
 LUMA = (.299, .587, .114)
@@ -202,7 +202,7 @@ def stage(project: Path, roots: list[Path], iwds: list[Path], stock=None,
                                (path.read_text(encoding='utf-8', errors='replace'), str(path)))
     wanted = set()
     for path in (project/'maps/mp/waw').rglob('*.gsc'):
-        tokens = gsc.tokenize(path.read_text(encoding='utf-8'))
+        tokens = gsc.tokenize(wawtext.read(path))
         for i, t in enumerate(tokens):
             if t.kind == gsc.STRING:
                 value = t.text[1:-1].lower()
@@ -223,11 +223,11 @@ def stage(project: Path, roots: list[Path], iwds: list[Path], stock=None,
                 zone, root = hit
                 path = root/'vision'/f'{name}.vision'
                 if path.exists():
-                    sources[name] = (path.read_text(encoding='utf-8'), str(path))
+                    sources[name] = (wawtext.read(path), str(path))
         if name not in sources and source_root is not None:
             path = source_root/'vision'/f'{name}.vision'
             if path.is_file():
-                sources[name] = (path.read_text(encoding='utf-8'), str(path))
+                sources[name] = (wawtext.read(path), str(path))
         return name in sources
     report['default_fallback'] = []
     for name in sorted(wanted):

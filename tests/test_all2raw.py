@@ -360,8 +360,24 @@ class All2RawTests(unittest.TestCase):
         with patch.object(all2raw, 'run', side_effect=fail):
             with self.assertRaisesRegex(RuntimeError, 'failed export'):
                 self.prepare()
-        self.assertEqual(list((self.cache / 'zones').rglob('pending-*')), [])
+        self.assertEqual([p for p in self.cache.rglob('*') if p.parent.name == 'x'], [])
         self.assertTrue(list((self.cache / 'zones').rglob('*.log')))
+
+    def test_unwritten_model_export_is_not_published(self):
+        def long_path(command, log):
+            self.native(command, log)
+            with log.open('a') as handle:
+                handle.write("\nERROR: Failed to open file 'model_export/very_long_model_lod0.gltf'\n")
+        with patch.object(all2raw, 'run', side_effect=long_path):
+            with self.assertRaisesRegex(RuntimeError, 'could not write 1 model/image'):
+                self.prepare()
+        self.assertFalse((self.cache / 'all2raw.json').is_file())
+
+    def test_exports_are_staged_near_the_cache_top(self):
+        top = Path('C:/w/asset_cache/waw_abc')
+        staging = all2raw.staging_folder(top / 'custom_maps/aaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbb')
+        self.assertEqual(staging.parent, top / 'x')
+        self.assertEqual(len(staging.name), 12)
 
     def test_removed_zones_disappear_from_new_lookup_without_other_redumps(self):
         self.prepare()
@@ -371,6 +387,16 @@ class All2RawTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
         catalog = json.loads((raw / 'catalog.json').read_text())
         self.assertNotIn('zone/all/mp_beta.ff', catalog['zones'])
+
+
+class NativeRunTests(unittest.TestCase):
+    def test_native_crash_is_retried(self):
+        import subprocess
+        results = [subprocess.CompletedProcess([], 0xC0000409), subprocess.CompletedProcess([], 0)]
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch('waw2bo2.progress.native', side_effect=lambda c, l: results.pop(0)):
+                all2raw.run(['Unlinker.exe', 'zone.ff'], Path(tmp) / 'x.log')
+        self.assertEqual(results, [])
 
 
 if __name__ == '__main__':

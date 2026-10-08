@@ -194,6 +194,47 @@ class WawBoxExtractionTests(unittest.TestCase):
         self.assertNotIn("init_weapons", state_code)    # BO2 owns the rest of init
 
 
+class ExtractedAnimtreeTests(unittest.TestCase):
+    def test_animtree_without_anims_from_unstaged_tree_is_neutralized(self):
+        from waw2bo2.t6api import T6Api
+        source = ('#using_animtree( "generic_human" );\n'
+                  'dronespawn( spawner ) { drone = spawn( "script_model", spawner.origin ); '
+                  'drone useanimtree( #animtree ); }\n')
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            (base / "zone/maps").mkdir(parents=True)
+            (base / "zone/maps/_spawner.gsc").write_text(source)
+            sources = gscport.Sources([base / "zone"], [], None)
+            api = T6Api({"spawn": (2, 6)}, {}, methods={"useanimtree": (1, 1)})
+            tr = gscport.Translator(sources, api, gscport.PortReport())
+            tr.extract_entry("maps\\_spawner", "dronespawn")
+            code = tr.translate_extracted(*tr.core_queue.pop(0))
+        self.assertNotIn("#animtree", code)
+
+
+class BuiltinShadowTests(unittest.TestCase):
+    def test_map_function_named_like_a_builtin_is_renamed_with_its_calls(self):
+        from waw2bo2.t6api import T6Api
+        util = ("getFirstArrayKey( array ) { keys = getarraykeys( array ); return keys[0]; }\n"
+                "first( a ) { k = getFirstArrayKey( a ); f = ::getFirstArrayKey; return k; }\n")
+        user = "use( a ) { return maps\\_bo2_util::getFirstArrayKey( a ); }\n"
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            (base / "zone/maps").mkdir(parents=True)
+            (base / "zone/maps/_bo2_util.gsc").write_text(util)
+            (base / "zone/maps/_user.gsc").write_text(user)
+            sources = gscport.Sources([base / "zone"], [], None)
+            api = T6Api({"getfirstarraykey": (1, 1), "getarraykeys": (1, 1)}, {})
+            tr = gscport.Translator(sources, api, gscport.PortReport())
+            util_out = tr.translate("maps\\_bo2_util")
+            user_out = tr.translate("maps\\_user")
+        self.assertIn("waw_getFirstArrayKey( array )", util_out)
+        self.assertIn("k = waw_getFirstArrayKey( a )", util_out)
+        self.assertIn("::waw_getFirstArrayKey", util_out)
+        self.assertIn("getarraykeys( array )", util_out)            # a real builtin call stays
+        self.assertIn("::waw_getFirstArrayKey( a )", user_out)
+
+
 class LibraryFunctionTests(unittest.TestCase):
     def test_trem_hintstrings_calls_become_native_hint_strings(self):
         from waw2bo2.t6api import T6Api

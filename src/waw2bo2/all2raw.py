@@ -227,10 +227,22 @@ def cache_lock(root: Path):
         yield
 
 
+# Native crashes that did not reproduce on the same input (Abandoned School's
+# map zone: 0xC0000409 once, a clean dump on the previous and next runs).
+CRASH_CODES = {0xC0000005, 0xC0000409}
+CRASH_RETRIES = 2
+
+
 def run(command: list[str], log: Path) -> None:
     from .progress import native
     log.parent.mkdir(parents=True, exist_ok=True)
     result = native(command, log)
+    for attempt in range(CRASH_RETRIES):
+        if (result.returncode & 0xFFFFFFFF) not in CRASH_CODES:
+            break
+        print(f'Extract All: {Path(command[-1]).name}: unlinker crashed (0x{result.returncode & 0xFFFFFFFF:08X}); '
+              f'retrying ({attempt + 1}/{CRASH_RETRIES})', flush=True)
+        result = native(command, log)
     if result.returncode:
         print(log.read_text(encoding='utf-8', errors='replace')[-8000:], flush=True)
         raise RuntimeError(f'Extraction failed ({result.returncode}); see {log}')
@@ -291,6 +303,18 @@ def reuse_compact_subset(root: Path, temporary: Path, inputs: dict) -> dict | No
     return None
 
 
+def staging_folder(root: Path) -> Path:
+    """Where the native unlinker writes before a zone is published.
+
+    The unlinker is not long-path aware: an export whose full path passes 260
+    characters fails to open, silently (measured: 534 shaders and a viewmodel
+    of Empty Walls; Alcatraz's ..._shower_tarp_01_tattered_mod_lod0.gltf).
+    Extract near the top of the game's cache (same volume, so publishing is
+    still a rename) instead of deep under custom_maps/<map>/<zone>/."""
+    top = next((p for p in (root, *root.parents) if p.parent.name == 'asset_cache'), root)
+    return top / 'x' / uuid.uuid4().hex[:12]
+
+
 def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str | None,
                  image_format: str, tool_digest: str | None = None, dependencies=None,
                  refresh: bool = False, list_assets: bool = True) -> tuple[Path, dict]:
@@ -318,7 +342,7 @@ def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str |
     # Unique generations preserve outputs already being read by another build.
     if folder.exists():
         folder = root / (key(inputs) + '-' + uuid.uuid4().hex[:8])
-    temporary = root / ('pending-' + uuid.uuid4().hex)
+    temporary = staging_folder(root)
     temporary.mkdir(parents=True)
     if not refresh:
         migrated = reuse_compact_subset(root, temporary, inputs)
@@ -336,6 +360,19 @@ def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str |
     command.append(str(ff))
     try:
         run(command, log)
+        # The unlinker exits 0 even when it cannot write an export; such a
+        # zone must not be published as complete and reused by later builds.
+        # The unlinker also writes some assets twice; the second open of a
+        # file it is still writing fails although the file is complete.
+        unwritten = [n for n in re.findall(r"(?m)^ERROR: Failed to open file '([^']+)'", log.read_text(errors='replace'))
+                     if not (temporary / n).is_file()]
+        required = [n for n in unwritten if n.startswith(('model_export/', 'images/', 'xmodel/'))]
+        if required:
+            raise RuntimeError(f'{ff.name}: the unlinker could not write {len(required)} model/image file(s), '
+                               f'e.g. {required[0]} (path too long?); see {log}')
+        if unwritten:
+            print(f'Extract All: warning: {ff.name}: {len(unwritten)} file(s) could not be written, '
+                  f'e.g. {unwritten[0]}; see {log}', flush=True)
     except BaseException:
         shutil.rmtree(temporary)
         raise
@@ -526,7 +563,9 @@ def source_dumps(settings, paths: CachePaths, *, refresh=False) -> dict[str, Pat
         selected += [('extra:' + ff.stem, ff) for ff in sorted(folder.glob('*.ff')) if ff not in expected]
         selected = [(role, ff) for role, ff in selected if ff.is_file()]
         unique = list(dict.fromkeys(ff for _, ff in selected))
-        tool_hash = digest(tool)
+        # ":short-staging" retires custom-map dumps published before exports
+        # were staged near the cache top (they silently lost long paths).
+        tool_hash = digest(tool) + ':short-staging'
         def extract(ff):
             print(f'Extract All: custom map starting {ff.name}', flush=True)
             output, _ = extract_zone(ff, tool, root / key(str(ff)),
