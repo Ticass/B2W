@@ -60,4 +60,3 @@ class BuildRecoveryTests(unittest.TestCase):
             t6bridge.stage_scripts(report, 'zm_fixture', output, template, 'bridge')
             self.assertEqual(report.errors, [])
             self.assertTrue((output / 'maps/mp/zm_fixture_amb.gsc').is_file())
-
