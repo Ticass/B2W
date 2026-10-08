@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import MethodType, SimpleNamespace
 import unittest
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import State, attachment_text, chunks, format_report, message_marker, redact
-from bot import GitHub
+from bot import GitHub, SupportBot
 
 
 class IntakeTests(unittest.TestCase):
@@ -99,6 +100,26 @@ class DurableStateTests(unittest.TestCase):
 
 
 class GitHubRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_recent_reply_includes_an_older_original_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = State(Path(temp) / 'support.sqlite3')
+            thread = SimpleNamespace(id=10, name='Old report')
+            author = SimpleNamespace(id=9, bot=False)
+            starter = SimpleNamespace(id=10, channel=thread, author=author, webhook_id=None,
+                content='Original StageError', attachments=[], jump_url='https://discord.com/channels/1/10/10')
+            async def fetch(message_id):
+                return starter
+            thread.fetch_message = fetch
+            listener = SimpleNamespace(state=state, cutoff=50, in_scope=lambda channel: True)
+            listener.ingest = MethodType(SupportBot.ingest, listener)
+            reply = SimpleNamespace(id=100, channel=thread, author=author, webhook_id=None,
+                content='Here is the version', attachments=[], jump_url='https://discord.com/channels/1/10/100')
+            await listener.ingest(reply)
+            pending = state.pending()
+            self.assertEqual([row['id'] for row in pending], [10, 100])
+            self.assertIn('Original StageError', json.loads(pending[0]['payload'])['content'])
+            state.db.close()
+
     async def test_recovers_issue_after_crash_before_mapping_is_saved(self):
         github = GitHub(None, 'owner/repo')
         async def pages(path):

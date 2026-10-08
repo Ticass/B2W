@@ -100,14 +100,22 @@ class SupportBot(discord.Client):
     def in_scope(self, channel) -> bool:
         return isinstance(channel, discord.Thread) and channel.parent_id == self.forum_id and channel.guild.id == self.guild_id
 
-    async def ingest(self, message: discord.Message):
-        if message.author.bot or message.webhook_id or message.id < self.cutoff or not self.in_scope(message.channel):
+    async def ingest(self, message: discord.Message, *, include_context: bool = False):
+        if (message.author.bot or message.webhook_id or
+            (message.id < self.cutoff and not include_context) or not self.in_scope(message.channel)):
             return
         if not message.content and not message.attachments:
             return
         # Duplicate gateway/history events do not re-download attachments.
         if self.state.db.execute('SELECT 1 FROM inbox WHERE id = ?', (message.id,)).fetchone():
             return
+        if message.id != message.channel.id and self.state.thread(message.channel.id) is None:
+            # A recent reply to an older post still needs the original error context.
+            try:
+                starter = await message.channel.fetch_message(message.channel.id)
+                await self.ingest(starter, include_context=True)
+            except discord.HTTPException:
+                log.info('Original report context unavailable for thread %s', message.channel.id)
         text, metadata = [message.content], []
         for attachment in message.attachments[:8]:
             metadata.append({'name': attachment.filename, 'url': attachment.url,
