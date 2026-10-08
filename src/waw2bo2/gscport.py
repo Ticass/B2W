@@ -1829,6 +1829,24 @@ def bo2_scripts(out_root: Path) -> list[str]:
     return sorted(found)
 
 
+def ensure_owned_client_bootstrap(out_root: Path, bo2_root: Path) -> Path:
+    """Recreate the generated client bootstrap if a prior build was partial."""
+    destination = out_root / "clientscripts/mp/waw/_waw2bo2_zm.csc"
+    if destination.is_file():
+        return destination
+    source = bo2_root / "raw/clientscripts/mp/zombies/_zm.csc"
+    if not source.is_file():
+        raise ValueError(f"BO2 client bootstrap missing: {source}")
+    bootstrap = source.read_text(encoding="utf-8")
+    native = "clientscripts\\mp\\zombies\\_zm_perks"
+    owned = "clientscripts\\mp\\waw\\_waw2bo2_perks"
+    if native not in bootstrap:
+        raise ValueError("BO2 client bootstrap has no perk initializer")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(PERK_OVERRIDE_HEADER + bootstrap.replace(native, owned), encoding="utf-8")
+    return destination
+
+
 PERK_OVERRIDE_HEADER = "// waw2bo2: WaW owns perk gameplay; BO2 runtime support only.\n"
 BO2_PERK_OVERRIDES = (
     "maps/mp/zombies/_zm_perks.gsc",
@@ -1904,13 +1922,7 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: b
     client.parent.mkdir(parents=True, exist_ok=True)
     client.write_text((out_root / "clientscripts/mp/zombies/_zm_perks.csc").read_text(encoding="utf-8"),
                       encoding="utf-8")
-    bootstrap = (bo2_root / "raw/clientscripts/mp/zombies/_zm.csc").read_text(encoding="utf-8")
-    native = "clientscripts\\mp\\zombies\\_zm_perks"
-    owned = "clientscripts\\mp\\waw\\_waw2bo2_perks"
-    if native + "::init" not in bootstrap:
-        raise ValueError("BO2 client bootstrap has no perk initializer")
-    bootstrap = bootstrap.replace(native, owned)
-    (client.parent / "_waw2bo2_zm.csc").write_text(PERK_OVERRIDE_HEADER + bootstrap, encoding="utf-8")
+    ensure_owned_client_bootstrap(out_root, bo2_root)
 
     # The server has the same stock-script caching risk as the client. Route
     # the framework initializer through owned names, rather than assuming a
