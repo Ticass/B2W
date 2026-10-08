@@ -482,4 +482,4 @@ class SupportBot(commands.Bot):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
-    SupportBot().run(os.environ['DISCORD_BOT_TOKEN'], log_handler=None)
+    SupportBot().run(os.environ.get('DISCORD_TOKEN') or os.environ['DISCORD_BOT_TOKEN'], log_handler=None)

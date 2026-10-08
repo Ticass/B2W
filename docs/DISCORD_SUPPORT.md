@@ -72,10 +72,14 @@ cannot be delivered. The listener retries failed deliveries.
 ## Deploy the listener on your remote host
 
 On the remote Linux host with Docker Compose installed, clone the repository,
-then create `services/discord_support/.env` from `.env.example` and fill in the
-Discord token and GitHub token in the host's secret settings or that private
-file. The server and forum IDs are already filled in. `.env` is ignored by Git
-and excluded from the Docker image. Keep the OpenAI key in GitHub's secret
+then create `services/discord_support/.env` from `.env.example` and inject the
+repository secret `DISCORD_TOKEN` into the host's secret store under the same
+environment variable name. Set `GITHUB_TOKEN` there as well. GitHub repository
+secrets are available to Actions workflows, but do not automatically transfer
+to a separately hosted Docker service; the host's secret manager must receive
+the value through your deployment process. Never commit the token or paste it
+into logs. The server and forum IDs are already filled in. `.env` is ignored by
+Git and excluded from the Docker image. Keep the OpenAI key in GitHub's secret
 settings; it is not needed on the listener host.
 
 ```sh
