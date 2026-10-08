@@ -1,0 +1,35 @@
+name: Daily Discord release announcement
+
+on:
+  schedule:
+    # After the nightly release has had several hours to build and publish.
+    - cron: '17 15 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: daily-discord-release-announcement
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Post stable, nightly, testing, and patch notes to Discord
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+          DISCORD_RELEASE_CHANNEL_ID: ${{ vars.DISCORD_RELEASE_CHANNEL_ID || '1557862642503254136' }}
+          DISCORD_RELEASE_GUILD_ID: ${{ vars.DISCORD_RELEASE_GUILD_ID || '1557610224641245245' }}
+        run: python -m services.discord_support.release_announcement

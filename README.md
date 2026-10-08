@@ -85,6 +85,7 @@ driver, and stock FX fallback is opt-in. Inspect the reports to assess fidelity.
 - [Map compatibility catalog and test records](docs/MAP_COMPATIBILITY.md)
 - [Live map compatibility page](https://ticass.github.io/B2W/)
 - [Discord error-report bot and automated investigations](docs/DISCORD_SUPPORT.md)
+- [Daily Discord release announcements](docs/RELEASE_ANNOUNCEMENTS.md)
 - [Setup, conversion, installation, and troubleshooting](docs/USAGE.md)
 - [Desktop launcher and portable Windows builds](docs/DESKTOP.md)
 - [Release history and limitations](CHANGELOG.md)
