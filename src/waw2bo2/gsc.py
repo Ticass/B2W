@@ -22,7 +22,7 @@ CALL_LIKE_KEYWORDS = {"if", "while", "for", "foreach", "switch", "return", "wait
                       "notify", "endon", "thread", "case", "else", "do"}
 
 _TOKEN_RE = re.compile(r"""
-    (?P<ws>(?:\s+|//[^\n]*|/\*.*?\*/)+)
+    (?P<ws>(?:\s+|//[^\n]*|/\*.*?\*/|/\*.*?(?m:^[\t ]*\*\\[\t ]*(?:\r?\n|$)))+)
   | (?P<directive>\#(?:include|using_animtree|insert|define)\b[^;\n]*;?)
   | (?P<string>[&#]?"(?:\\.|[^"\\\n])*")
   | (?P<path>[A-Za-z_]\w*(?:\\[A-Za-z_]\w*)+)
@@ -57,7 +57,7 @@ def tokenize(source: str) -> list[Token]:
     while pos < n:
         m = _TOKEN_RE.match(source, pos)
         if not m:
-            raise GscSyntaxError(f"line {line}: cannot tokenize {source[pos:pos + 20]!r}")
+            raise GscSyntaxError(f"line {line + pre.count(chr(10))}: cannot tokenize {source[pos:pos + 20]!r}")
         kind = m.lastgroup
         text = m.group()
         if kind == "ws":
@@ -74,6 +74,23 @@ def tokenize(source: str) -> list[Token]:
 
 def emit(tokens: list[Token]) -> str:
     return "".join(t.pre + t.text for t in tokens)
+
+
+def repair_block_comments(text: str) -> tuple[str, int]:
+    """Repair the standalone *\\ terminator found in authored WaW comments.
+
+    Normal comments win in the tokenizer. Never cross an existing */ or touch
+    strings/code; callers pass only the whitespace/comment token prefixes.
+    """
+    pattern = r'//[^\n]*|/\*.*?\*/|(?P<broken>/\*.*?(?m:^[\t ]*\*\\(?=[\t ]*(?:\r?\n|$))))'
+    count = 0
+    def repair(match):
+        nonlocal count
+        if match.lastgroup == 'broken':
+            count += 1
+            return match[0][:-1] + '/'
+        return match[0]
+    return re.sub(pattern, repair, text, flags=re.DOTALL), count
 
 
 @dataclass
@@ -113,7 +130,10 @@ ANIMTREE_RE = re.compile(r'#using_animtree\s*\(\s*"([^"]+)"\s*\)', re.IGNORECASE
 
 
 def parse(source: str, path: str) -> Script:
-    tokens = tokenize(source)
+    try:
+        tokens = tokenize(source)
+    except GscSyntaxError as error:
+        raise GscSyntaxError(f'{path}: {error}') from error
     script = Script(path, tokens)
     i = 0
     depth = 0

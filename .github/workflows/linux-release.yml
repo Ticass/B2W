@@ -5,7 +5,7 @@ on:
       tag:
         description: Draft release tag containing the Windows ZIP
         required: true
-        default: v0.2.8
+        default: v0.2.9
 permissions:
   contents: write
 jobs:
@@ -40,6 +40,7 @@ jobs:
           python -m unittest discover -s tests -p test_all2raw.py
           python -m unittest discover -s tests -p test_linuxruntime.py
           python -m unittest discover -s tests -p test_builddriver.py
+          python -m unittest discover -s tests -p test_gsc_comments.py
       - name: Build native Linux executables
         run: python tools/build_linux.py --windows-bundle work/windows/WawConverter
       - name: Smoke-test the native Linux GUI and CLI

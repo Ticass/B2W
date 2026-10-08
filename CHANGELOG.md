@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.9
+
+- Parse malformed standalone block-comment endings found in stock WaW ambient scripts, and normalize them for the BO2 compiler without enabling commented-out code.
+- Include the script name and correct line number in tokenizer errors.
+
 ## v0.2.8
 
 - Extract and locate custom map entities, refreshing incomplete caches automatically.

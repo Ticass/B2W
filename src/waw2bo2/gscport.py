@@ -203,6 +203,8 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
     they hold a plain access path. Returns the number of fixes."""
     fixes = 0
     for t in tokens:
+        t.pre, repaired = gsc.repair_block_comments(t.pre)
+        fixes += repaired
         # T6 splices a line comment ending in '\' with the next line (WaW does not)
         if "\\" in t.pre:
             fixed = LINE_COMMENT_BACKSLASH.sub(r"\1", t.pre)
