@@ -8,6 +8,27 @@ from waw2bo2 import gscport, t6bridge, wawsource
 
 
 class ScriptModelSourcesTest(unittest.TestCase):
+    def test_models_named_through_helpers_are_found(self):
+        # WaW _loadout: the player's arms reach precacheModel through a helper;
+        # without them T6 draws no viewmodel (hands nor gun)
+        source = '''set_player_viewmodel( viewmodel )
+{
+    precacheModel( viewmodel );
+    level.player_viewmodel = viewmodel;
+}
+attach_second( tag, model )
+{
+    self attach( model, tag );
+}
+init_loadout()
+{
+    set_player_viewmodel( "viewmodel_usa_marine_arms");
+    attach_second( "tag_weapon", "weapon_prop" );
+    set_switch_weapon( "zombie_thompson" );
+}
+'''
+        self.assertEqual(t6bridge.wrapped_model_literals([source]), {"viewmodel_usa_marine_arms", "weapon_prop"})
+
     def test_missing_swap_keeps_source_lights_and_notifications(self):
         source = '''main()
 {

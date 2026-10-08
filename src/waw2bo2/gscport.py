@@ -36,7 +36,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import gsc, oneway, stockperks
+from . import gsc, oneway, stockperks, zombieappearance
 from .t6api import T6Api
 
 COMPAT_DIR = Path(__file__).parent / "compat"
@@ -97,8 +97,12 @@ class Sources:
     character scripts use, and none of the models the mod.ff rawfile copies of
     those scripts name, which would otherwise fail setModel at spawn."""
 
-    def __init__(self, roots: list[Path], iwds: list[Path], stock_root: Path | None):
+    def __init__(self, roots: list[Path], iwds: list[Path], stock_root: Path | None,
+                 variant_roots: list[Path] | None = None):
         self.text: dict[str, str] = {}
+        # other stock releases of the framework (the WaW / Mod Tools raw
+        # scripts maps are authored from), for telling map edits from stock
+        self.variant_roots = list(variant_roots or [])
         self.origin: dict[str, str] = {}
         for iwd in iwds:
             with zipfile.ZipFile(iwd) as z:
@@ -127,8 +131,25 @@ class Sources:
         key = norm(path) + ext
         if key not in self._parsed:
             src = self.text.get(key, self.stock.get(key))
+            if src is None:
+                for root in self.variant_roots:
+                    raw = root / (norm(path).replace('\\', '/') + ext)
+                    if raw.is_file():
+                        src = raw.read_text(encoding='utf-8', errors='replace')
+                        self.stock[key] = src
+                        break
             self._parsed[key] = gsc.parse(src, norm(path)) if src is not None else None
         return self._parsed[key]
+
+    def stock_variants(self, path: str, ext: str = ".gsc") -> list[str]:
+        """Every known stock text of a script: the stock zones' and raw ones."""
+        key = norm(path) + ext
+        texts = [self.stock[key]] if key in self.stock else []
+        for root in self.variant_roots:
+            f = root / (norm(path).replace("\\", "/") + ext)
+            if f.is_file():
+                texts.append(f.read_text(encoding="utf-8", errors="replace"))
+        return texts
 
     def is_stock(self, path: str, ext: str = ".gsc") -> bool:
         return norm(path) + ext in self.stock
@@ -321,6 +342,78 @@ def bridge_revive_reads(tokens: list[gsc.Token]) -> int:
             t.text = t.pre = ""
         count += 1
     return count
+
+
+def bridge_player_stat_reads(tokens: list[gsc.Token]) -> int:
+    """Read stock WaW session stats from T6's native persistent counters.
+
+    Keep custom keys, assignments/increments and isdefined probes authored.
+    """
+    count = 0
+    keys = {"kills", "score", "downs", "revives", "perks", "headshots", "zombie_gibs"}
+    for i in range(2, len(tokens) - 4):
+        if (tokens[i].low != "stats" or tokens[i - 1].text != "."
+                or tokens[i + 1].text != "[" or tokens[i + 2].kind != gsc.STRING
+                or tokens[i + 2].text.strip('"') not in keys or tokens[i + 3].text != "]"
+                or tokens[i + 4].text in ("=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "++", "--")):
+            continue
+        j, depth = i - 1, 0
+        while j > 0:
+            prev = tokens[j - 1]
+            if depth == 0 and prev.text != "." and not (
+                (prev.kind == gsc.IDENT or prev.text in ("]", ")"))
+                and tokens[j].text in (".", "[")
+            ):
+                break
+            if prev.text in ("]", ")"):
+                depth += 1
+            elif prev.text in ("[", "("):
+                depth -= 1
+            j -= 1
+        if j and tokens[j - 1].text in ("++", "--"):
+            continue
+        if j >= 2 and tokens[j - 1].text == "(" and tokens[j - 2].low == "isdefined":
+            continue
+        receiver = gsc.emit(tokens[j:i - 1]).lstrip()
+        tokens[j].text = f"{COMPAT}::waw_player_stat( {receiver}, {tokens[i + 2].text} )"
+        tokens[j].kind = gsc.PUNCT
+        for t in tokens[j + 1:i + 4]:
+            t.text = t.pre = ""
+        count += 1
+    return count
+
+
+def bridge_font_scales(tokens: list[gsc.Token]) -> int:
+    """Preserve WaW's effective networked scale, including calculated values."""
+    import math
+    changed = 0
+    for i, token in enumerate(tokens):
+        if token.low != 'fontscale' or i < 1 or tokens[i - 1].text != '.' or tokens[i + 1].text != '=':
+            continue
+        start, end, depth = i + 2, i + 2, 0
+        while end < len(tokens):
+            if tokens[end].text == ';' and not depth:
+                break
+            depth += tokens[end].text in ('(', '[')
+            depth -= tokens[end].text in (')', ']')
+            end += 1
+        if end == len(tokens):
+            continue
+        rhs = gsc.emit(tokens[start:end]).strip()
+        if end == start + 1 and tokens[start].kind == gsc.NUMBER:
+            scale = float(tokens[start].text)
+            decoded = 1 + (math.floor((scale - 1) * 10 + 0.5) & 63) / 10
+            if abs(decoded - scale) < 1e-6:
+                continue
+            replacement = f'{decoded:g}'
+        else:
+            replacement = f'{COMPAT}::waw_fontscale( {rhs} )'
+        tokens[start].text = replacement
+        tokens[start].kind = gsc.PUNCT
+        for t in tokens[start + 1:end]:
+            t.text = t.pre = ''
+        changed += 1
+    return changed
 
 
 def bridge_hud_cleanup(tokens: list[gsc.Token], index: int) -> bool:
@@ -711,6 +804,10 @@ class Translator:
         self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
         self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
         self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
+        for i, token in enumerate(tokens):
+            if i and token.low == "playername" and tokens[i - 1].text == ".":
+                token.text = "name"
+                self.report.rewrites["WaW playername field -> T6 name"] += 1
         defs = {fn.start for fn in script.functions.values()}
         for name, fn in script.functions.items():
             if self.shadows_builtin(name):
@@ -719,6 +816,8 @@ class Translator:
         self.resolve_refs(tokens, script, where_file, included_bo2, defs)
         self.report.rewrites["WaW contact-kill monitors own AI attacks"] += bridge_contact_kill_attacks(tokens, script)
         self.report.rewrites["WaW being_revived reads bridged to T6 revive state"] += bridge_revive_reads(tokens)
+        self.report.rewrites["WaW session stat reads bridged to T6 counters"] += bridge_player_stat_reads(tokens)
+        self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
         header = (f"// Translated from World at War by waw2bo2 (gscport). Source: {where_file}\n")
         return header + gsc.emit(tokens)
 
@@ -925,6 +1024,116 @@ class Translator:
         self.level_state_parts.append(gsc.emit(tokens))
         return name
 
+    def extract_damage_prelude(self) -> str | None:
+        """A map's _zombiemode override may put its own rules in front of WaW's
+        player_damage_override (e.g. a shield absorbing zombie hits). BO2's _zm
+        owns player damage, so those leading statements become a BO2 player
+        damage callback: a bare WaW return (no finishPlayerDamage) drops the
+        hit, i.e. 0 damage; falling through keeps the (possibly changed) damage.
+        Returns the name of the extracted registration function in CORE."""
+        key = ZOMBIEMODE + ".gsc"
+        variants = self.sources.stock_variants(ZOMBIEMODE)
+        if key not in self.sources.text or not variants or self.sources.text[key] in variants:
+            return None
+        script = self.sources.get(ZOMBIEMODE)
+        fn = script.functions.get(DAMAGE_OVERRIDE)
+        if fn is None:
+            return None
+        toks = script.tokens
+        where = self.sources.origin.get(key, ZOMBIEMODE)
+
+        def text(ts: list[gsc.Token], span: tuple[int, int]) -> str:
+            return " ".join(t.low for t in ts[span[0]:span[1]])
+
+        stmts = [text(toks, s) for s in top_level_statements(toks, fn.body_open, fn.body_close)]
+        def header(ts: list[gsc.Token], span: tuple[int, int]) -> str:
+            # An edited stock branch still marks the end of the map prelude.
+            # Match its complete control expression, never just the keyword.
+            start, end = span
+            if ts[start].low != "if" or ts[start + 1].text != "(":
+                return text(ts, span)
+            depth = 0
+            for i in range(start + 1, end):
+                depth += ts[i].text == "("
+                depth -= ts[i].text == ")"
+                if depth == 0:
+                    return text(ts, (start, i + 1))
+            return text(ts, span)
+
+        map_spans = top_level_statements(toks, fn.body_open, fn.body_close)
+        # the map's own rules end where the stock body it was edited from starts
+        leads = []
+        for variant in variants:
+            stock = gsc.parse(variant, ZOMBIEMODE)
+            base = stock.functions.get(DAMAGE_OVERRIDE)
+            spans = top_level_statements(stock.tokens, base.body_open, base.body_close) if base else []
+            if spans and text(stock.tokens, spans[0]) in stmts:
+                leads.append(stmts.index(text(stock.tokens, spans[0])))
+            elif spans:
+                anchor = header(stock.tokens, spans[0])
+                leads.extend(i for i, span in enumerate(map_spans) if header(toks, span) == anchor)
+        if not leads:
+            self.report.errors.append(f"{where}: {DAMAGE_OVERRIDE} does not keep a stock WaW body; the map's "
+                                      f"damage rules are not ported")
+            return None
+        lead = min(leads)
+        stmts = top_level_statements(toks, fn.body_open, fn.body_close)
+        if lead == 0:
+            return None
+        body = copy.deepcopy(toks[stmts[0][0]:stmts[lead - 1][1]])
+        # Some solo-revive preludes finish a zero-damage hit before returning.
+        # A T6 callback must leave damage application to _zm; this exact
+        # zero-hit/return idiom is equivalent to the callback cancelling it.
+        for ref in gsc.references(body):
+            if (ref.pointer or ref.name.lower() != "finishplayerdamagewrapper"
+                    or norm(ref.qualifier or "") != r"maps\_callbackglobal"
+                    or ref.qual_index is None or ref.qual_index < 1
+                    or body[ref.qual_index - 1].low != "self"):
+                continue
+            opening = ref.index + 1
+            closing = gsc._match(body, opening, "(", ")")
+            args, begin, depth = [], opening + 1, 0
+            for i in range(begin, closing):
+                if body[i].text in ("(", "["):
+                    depth += 1
+                elif body[i].text in (")", "]"):
+                    depth -= 1
+                elif body[i].text == "," and depth == 0:
+                    args.append(body[begin:i])
+                    begin = i + 1
+            args.append(body[begin:closing])
+            if (len(args) != 11 or len(args[2]) != 1 or args[2][0].text != "0"
+                    or [t.text.lower() for t in body[closing + 1:closing + 4]] != [";", "return", ";"]):
+                continue
+            start = ref.qual_index - 1
+            body[start].text = f"{fn.params[2]} = 0;"
+            body[start].kind = gsc.PUNCT
+            for token in body[start + 1:closing + 2]:
+                token.text = token.pre = ""
+            self.report.rewrites["WaW zero-damage finish/return -> T6 damage cancellation"] += 1
+        if len(fn.params) != 11 or any(t.low in ("finishplayerdamage", "finishplayerdamagewrapper") for t in body):
+            self.report.errors.append(f"{where}: {DAMAGE_OVERRIDE} prelude applies damage itself; not ported")
+            return None
+        name = f"{ZOMBIEMODE.split(chr(92))[-1].lstrip('_')}__{DAMAGE_OVERRIDE}_prelude"
+        # BO2 callbacks get WaW's parameters without modelIndex (the 10th)
+        params = fn.params[:9] + fn.params[10:]
+        model_index = fn.params[9].lower()
+        reset = f"\t{fn.params[9]} = undefined;\n" if any(t.low == model_index for t in body) else ""
+        source = (f"{name}( {', '.join(params)} )\n{{\n{reset}" + gsc.emit(body) +
+                  f"\n\treturn {fn.params[2]};\n}}\n")
+        tokens = gsc.tokenize(source)
+        for i in range(len(tokens) - 1, 0, -1):
+            if tokens[i].low == "return" and tokens[i + 1].text == ";":
+                tokens.insert(i + 1, gsc.Token(gsc.NUMBER, "0", " "))
+        tokens[0].pre = f"\n// {ZOMBIEMODE}::{DAMAGE_OVERRIDE}: the map's leading rules, as a BO2 damage callback\n"
+        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
+        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=ZOMBIEMODE)
+        self.report.extracted.append(f"{ZOMBIEMODE}::{DAMAGE_OVERRIDE} (map prelude -> damage callback)")
+        self.level_state_parts.append(gsc.emit(tokens) + f"\n{name}_register()\n{{\n"
+                                      f"\tmaps\\mp\\zombies\\_zm::register_player_damage_callback( ::{name} );\n}}\n")
+        return f"{name}_register"
+
     def keep_core_animations(self, script: gsc.Script, tokens: list[gsc.Token], where: str) -> None:
         """Extracted code with ``%anim`` references from a staged animtree: name
         the tree before the function (the extracted functions share one file),
@@ -970,6 +1179,7 @@ class Translator:
         self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
         self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
+        self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
         return gsc.emit(tokens)
 
     def framework_hooks(self) -> list[str]:
@@ -1053,11 +1263,24 @@ class Translator:
 
 def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
              fx_table: dict[str, str] | None = None, animtrees: set[str] | None = None,
-             core_animtrees: dict[str, set[str]] | None = None, bo2_stock_perks: bool = False) -> PortReport:
+             core_animtrees: dict[str, set[str]] | None = None, bo2_stock_perks: bool = False,
+             actor_types: set[str] = frozenset(), actor_template: str | None = None) -> PortReport:
     """Translate the map main and everything it reaches into out_root/maps/mp/waw.
     ``animtrees``: animtree names BO2 can load (stock + converted).
     ``core_animtrees``: WaW framework-override animtrees staged for BO2 -> their
     animations with WaW xanims (t6bridge.stage_core_animtrees)."""
+    if actor_types:
+        sources = copy.copy(sources)
+        sources.text = dict(sources.text)
+        sources._parsed = {}
+        for name in sorted(actor_types):
+            path = 'aitype\\' + name
+            script = sources.get(path)
+            if script is None:
+                raise ValueError(f'WaW zombie actor {path}.gsc missing: donor appearance is forbidden')
+            original = sources.text.get(path + '.gsc', sources.stock.get(path + '.gsc'))
+            sources.text[path + '.gsc'] = zombieappearance.appearance_script(original)
+            sources._parsed.pop(path + '.gsc', None)
     if bo2_stock_perks:
         sources = copy.copy(sources)
         sources.text = {key: stockperks.translate_literals(text) for key, text in sources.text.items()}
@@ -1081,7 +1304,12 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     if out_dir.exists():
         for old in out_dir.rglob("*.gsc"):
             old.unlink()
+    for old in (out_root / 'aitype').rglob('waw_*') if (out_root / 'aitype').exists() else ():
+        if old.is_file() and old.read_text(encoding='utf-8').startswith('// waw2bo2:'):
+            old.unlink()
     tr.queue.append(main)
+    for name in sorted(actor_types):
+        tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")
     registration = {role: [tr.extract_entry(core, fn) for core, fn in entries if sources.get(core) is not None
                            and fn in sources.get(core).functions]
@@ -1125,6 +1353,9 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
                        if (state := tr.extract_level_state(core, init, read))]
     if hint_registry:
         framework_state.append(hint_registry)
+    damage_prelude = tr.extract_damage_prelude()
+    if damage_prelude:
+        framework_state.append(damage_prelude)
     drain()
     core_parts += tr.level_state_parts
     core_parts.append("\n// level state of WaW framework inits BO2 does not run (called by waw_main_pre)\n"
@@ -1148,6 +1379,16 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     report.weapon_registration = {role: [f for f in fns if f] for role, fns in registration.items()}
     report.characters = appearance
     report.fx = sorted(set(report.fx))
+    for name in sorted(actor_types):
+        if actor_template is None:
+            raise ValueError('T6 actor template missing')
+        target = out_root / 'aitype' / (zombieappearance.actor_name(name) + '.gsc')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(zombieappearance.native_actor(actor_template, ported_path('aitype\\' + name)),
+                          encoding='utf-8')
+        client = out_root / 'aitype/clientscripts' / (zombieappearance.actor_name(name) + '.csc')
+        client.parent.mkdir(parents=True, exist_ok=True)
+        client.write_text(zombieappearance.native_client_actor(name), encoding='utf-8')
     fix_arity(out_root, api, report)
     return report
 
@@ -1364,6 +1605,22 @@ BOX_STATE_INIT = ("maps\\_zombiemode_weapons", "init")
 # WaW framework inits whose level tables map scripts read (the anim tables of
 # _zombiemode::init_anims); only the fields the ported scripts read are kept
 FRAMEWORK_STATE_INITS = (("maps\\_zombiemode", "init_standard_zombie_anims"),)
+DAMAGE_OVERRIDE = "player_damage_override"
+
+
+def top_level_statements(tokens: list[gsc.Token], open_: int, close: int) -> list[tuple[int, int]]:
+    """[start, end) token spans of the statements directly inside the block
+    whose braces are at ``open_`` / ``close`` (an if/else chain is one)."""
+    spans, start, depth = [], open_ + 1, 0
+    for i in range(open_ + 1, close):
+        t = tokens[i].text
+        depth += t in ("(", "[", "{")
+        depth -= t in (")", "]", "}")
+        if depth or t not in (";", "}") or tokens[i + 1].low == "else":
+            continue
+        spans.append((start, i + 1))
+        start = i + 1
+    return spans
 # Weapons BO2's own _zm framework hands out regardless of the map (melee
 # knife, default lethal grenade, default last-stand pistol and its solo
 # upgrade). They are included but never put in the box.

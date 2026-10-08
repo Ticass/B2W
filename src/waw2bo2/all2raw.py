@@ -127,6 +127,29 @@ def required_bo2_image(stock: Path, name: str, tool: Path | None = None) -> Path
     return None
 
 
+def required_bo2_techset(stock: Path, name: str, tool: Path | None = None) -> Path | None:
+    """The folder holding techniquesets/<name>.json and its shader_bin, dumped
+    once from the stock zone that owns the set. A BO2-equivalent material can
+    name a set outside the donor view (mc/t5_foliage_dry_branch_gobo: zm_prison)."""
+    from .resources import resource_root
+    catalog_file = stock / 'catalog.json'
+    if not catalog_file.is_file():
+        return None
+    catalog = json.loads(catalog_file.read_text())
+    for entry in catalog['zones'].values():
+        if name not in entry['index'].get('techniqueset', []):
+            continue
+        ff = Path(entry['inputs']['file'])
+        tool = tool or resource_root() / 'vendor/OpenAssetToolsT6/build/bin/Release_x86/Unlinker.exe'
+        root = stock.parent.parent / 'dependencies/techniquesets' / key([str(ff)])
+        with cache_lock(root):
+            output, _ = extract_zone(ff, tool, root, search_paths((ff.parent, ff.parents[2])),
+                assets='techniqueset', image_format='IWI', list_assets=False)
+        if (output / 'techniquesets' / f'{name}.json').is_file():
+            return output
+    return None
+
+
 def parallel_zones(zones, extract, *, label: str, workers: int | None = None):
     """Run independent native processes on every available logical CPU.
 

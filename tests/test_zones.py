@@ -8,6 +8,22 @@ from waw2bo2 import entities, zones
 
 
 class ZoneGraphTests(unittest.TestCase):
+    def test_zombie_spawners_without_waw_force_flag_can_spawn_in_t6(self):
+        source = [
+            {"classname": "actor_zombie_ger_ber_sshonor", "script_noteworthy": "zombie_spawner",
+             "targetname": "zone_spawners", "origin": "1 2 3"},
+            {"classname": "actor_zombie_ger_ber_sshonor", "script_noteworthy": "zombie_spawner",
+             "targetname": "zone_spawners", "script_forcespawn": "0", "script_string": "riser"},
+            {"classname": "actor_zombie_ger_ber_sshonor", "script_noteworthy": "zombie_spawner",
+             "targetname": "zone_spawners", "script_forcespawn": "1"},
+            {"classname": "actor_ally", "script_forcespawn": "0"},
+        ]
+        out, _, summary = entities.convert_entities(source, "test", {})
+        actors = [e for e in out if e['classname'] == entities.ZOMBIE_ACTOR_CLASS]
+        self.assertEqual([e['script_forcespawn'] for e in actors], ['1', '1', '1'])
+        self.assertEqual(actors[1]['script_string'], 'riser')
+        self.assertEqual(next(e for e in out if e['classname'] == 'actor_ally')['script_forcespawn'], '0')
+        self.assertEqual(summary['renamed']['WaW DoSpawn -> T6 spawnactor spawner flag'], 2)
     def test_qualified_calls_are_read(self):
         script = ('init_zones[0] = "start_zone";\n'
                   '    maps\\_zombiemode_zone_manager::add_adjacent_zone( "start_zone", "yard", "enter_yard" );\n')
@@ -62,6 +78,18 @@ class SynthesizedZoneTests(unittest.TestCase):
         ents = json.loads(path.read_text())["entities"]
         self.assertEqual(ents[0], {"classname": "script_model", "targetname": "auto12"})
         self.assertEqual(ents[1]["model"], "zombie_teddybear")
+
+    def test_trigger_zone_volumes_become_info_volumes(self):
+        ents = [{"classname": "worldspawn"},
+                {"classname": "trigger_multiple", "targetname": "lobby_area", "target": "lobby_area_spawners", "model": "*6"},
+                {"classname": "trigger_multiple", "targetname": "playable_area", "model": "*9"}]
+        zone_set = zones.zone_names(["spawn_area"], ['"spawn_area", "lobby_area", "enter_lobby"'])
+        self.assertEqual(zone_set, {"spawn_area", "lobby_area"})
+        out, _, summary = entities.convert_entities(ents, "zm_x", zone_names=zone_set)
+        lobby = next(e for e in out if e.get("targetname") == "lobby_area")
+        self.assertEqual((lobby["classname"], lobby["model"], lobby["target"], lobby["script_noteworthy"]),
+                         ("info_volume", "*6", "lobby_area_spawners", "player_volume"))
+        self.assertEqual(next(e for e in out if e.get("targetname") == "playable_area")["classname"], "trigger_multiple")
 
     def test_bo2_script_gets_synthesized_graph(self):
         script = ('main()\n{\n    init_zones[0] = "start_zone";\n}\n'

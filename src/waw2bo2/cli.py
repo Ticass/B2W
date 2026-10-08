@@ -595,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         if os.environ.get("WAW2BO2_TRACEBACK"):
             raise
-        print(f"waw2bo2: error: {exc}", file=sys.stderr)
+        print(f"waw2bo2: error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
 

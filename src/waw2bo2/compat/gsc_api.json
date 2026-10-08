@@ -77,6 +77,7 @@
     "maps\\createfx\\dlc3_fx"
   ],
   "function_renames": {
+    "include_powerup": "maps\\mp\\zombies\\_zm_powerups::include_zombie_powerup",
     "enable_trigger": "maps\\mp\\waw\\_waw2bo2_compat::waw_enable_trigger",
     "add_zombie_hint": "maps\\mp\\waw\\_waw2bo2_compat::waw_add_zombie_hint",
     "get_zombie_hint": "maps\\mp\\waw\\_waw2bo2_compat::waw_get_zombie_hint",
@@ -173,6 +174,7 @@
   },
   "extract_exceptions": {
     "maps\\dlc3_code": [
+      "include_powerups",
       "_weighting_func",
       "dlc3_fx",
       "spawnfx"

@@ -1879,3 +1879,270 @@ Open:
 - Registration audit `blue_alignment_verified.json`:686 inlier landmarks, maximum projected corner/center deviation0.049px. `blue_alignment_projection_preview.png` is SOFTWARE-rendered native projection, NOT a game capture. `alignment.json` records mapping/canvas fit/authoring prompt summary. Preview shows one coherent blue town and blue background. Actual fresh-session visual confirmation is still pending.
 - All6 images recovered pixel-exactly from BOTH native zones (`verify_mod_blue/`, `verify_lobby_blue/`, `verified_blue.json`); native191weapons/21GSC/2CSC/930materials/138techsets/1376shaderbinaries still byte-identical to accepted gameplay baseline. 250 tests pass; diff check clean. Installed only changed mod.ff/mod_load.ff and NEW `zm_nuketown_waw_menu_blue_v3.ipak`; prior mapFF/sounds/weaponIPAK and title/lobbyphoto unchanged. `installed_blue.json` verifies all hashes. Previous authored frontend files backed up in `previous_installed_blue/`.
 - Optional generic menu.json `image_pack` permits versioned image-pack names so update does not overwrite a pack held open by the running game. Default remains `<project>_menu`. Older menu pack still installed and unchanged; new fastfiles reference the blue_v3 pack. No user game killed, no commit/push. Restart BO2 normally to load and visually validate this revision.
+
+## 2026-10-07: BO2-native dry sound mix and layer balance
+- User requests closer WaW feel using BO2-supported sound controls; gunshots still echo and some sounds are too loud. Asked whether stock BO2 clips were intended; no reply during work, proceeded with original clips through BO2-native settings and stated assumption.
+- Added optional validated authored mix profile (`compat/sound_mix_waw.json`, CLI stage-bridge --sound-mix). Staged at content_source/sound_mix.json and retained across rebuilds; remove staged file and regenerate bank to return to source volume mapping. Profile is intentional subjective tuning, NOT proof of 1:1 playback.
+- Converted alias sends are zero to make dry playback independent of room priority/startup overrides. Original recorded tails and secondary aliases retained. This opt-in profile also suppresses custom rooms; do not silently enable globally. Individual WaW noWetLevel honored globally without profile.
+- Layer role trims: weapon -2 dB, reload -3, decay/distant weapon -6, impacts -4, explosion/physics -3, voice -5, ambience -2, other effects -1, music/UI 0. Source bus layer roles precede weapon dependency membership. 206 nonspatial variants use stock BO2 wpn_all/wpn_fnt/wpn_rear/music_all pans; spatial panning stays unchanged. Pan matrices remain approximations.
+- Rebuilt gameplay mod.ff against exact currently installed baseline using native --load and full extracted zone definition, with only sound CSV and identical localized strings supplied fresh. Did not rebuild map geometry or frontend. Native gain error 1.53912e-5; all 4014 variants verified. Both generated SAB files byte-identical to previous installation. 191 weapons, 23 scripts, 937 materials, AI/character/accuracy/xmodelalias exports unchanged. Existing external xanim references and two non-48k death-music warnings remain. 120 existing sound-bank conversion errors unchanged.
+- Installed ONLY mod.ff and synchronized work/mod_build/out/mod.ff, with SHA guards against concurrent installation changes. Other 10 package files unchanged, including mod_load.ff, blue menu IPAK, map FF, and four sound banks. Previous complete install backed up at work/sound_mix_20261007/before. 275 tests passed; 29 sound tests rechecked after profile validation hardening. Evidence stage.py/staged.json, verify.py/verified.json, install.py/installed.json, native baseline/roundtrip, link.log/tests.log.
+- No game process was running; no launch/listening test performed. User needs fresh map/session to hear profile. Do not claim acoustics, bus compressors, surround channels or dynamic ducking are fully 1:1. Other concurrent desktop/menu source modifications belong to separate work; preserved them.
+
+## 2026-10-07: rake axe equip recovery installed
+- User clarified rake failure: cannot equip it as an axe. Initial action-slot hypothesis was revised after inspecting actual weapon table and bindings: nt_rake_trap is NOT renamed and user key5 already binds +actionslot3. No slot remap or binding change was installed.
+- Found source construction completion destroys progress_hud twice, setting remove_rake_huds between the calls. BO2 native _hud_util::destroyElem accesses self.children and destroys self, so a second call on the deleted receiver can terminate the construction thread before EnableOffhandWeapons/EnableWeaponCycling. The separate buildable pickup watcher can start because remove_rake_huds is already true, leaving a visible/pickable rake with weapon cycling disabled. This is a source/runtime analysis, not a captured runtime traceback.
+- gscport now lowers zero-argument unqualified native HUD destroyElem calls with simple/dotted receivers into compat waw_destroy_hud_elem(element), which guards isdefined before calling the native HUD helper. Native helper resolution is required; custom local implementations remain unchanged. Passing the HUD by argument makes repeated cleanup safe even when the receiver became undefined. More complex indexed/call receivers and explicitly qualified calls are not handled by this narrow lowering.
+- Added generic setActionSlot namespace wrapper with preserved source slots/types, weapon-name mapping, and safe blank sentinel clearing. Rake retains slot3 and key5. The earlier tentative slot3→slot1 approach was removed before staging; do not report it as the installed fix.
+- Selectively staged all3 rake progress-HUD cleanup calls and2 active rake action-slot calls; updated staged compat source. Both compile through official BO2 script tooling. Native map link exit0/zero missing assets;277 tests pass. Native before/after checks all75 map scripts: ONLY _rake_trap and _waw2bo2_compat change, all installed bytes match compilation.
+- Installed ONLY zm_nuketown_waw.ff (SHA256 4e47d2876bcd68ff083db8d5f7ba0d21e3214dd454c3d45ea81aeaef92820591); other10 package files unchanged, including latest sound mix mod.ff, allSABs, menu frontend andIPAKs. Installation guarded against concurrent baseline changes. Evidence/backups work/rake_equip_20261007/{before,staged.json,compile.log,link.log,tests.log,native_before,native_after,verified_installed.json}. Initial extraction attempted before linker finished was discarded and rerun successfully after completion; final native verification is valid.
+- No game process running and no playtest/launch performed. Fresh map build/pickup + key5 test remains needed. Source trap world animtree still unsupported; no trap animation/damage changes made in this equip-specific repair. Do not claim all trap phases are verified.
+
+## 2026-10-07: sound tuning REVERTED at user request
+- User reported sound nearly inaudible and explicitly ordered immediate rollback. Restored exact pre-tuning mod.ff from work/sound_mix_20261007/before/mod.ff to installed mod folder and work/mod_build/out/mod.ff. Verified SHA256 6a73b4e5c178e3e3a888c7f2f144b007427d2802cd16e7307499978160a61648.
+- Restored original staged alias CSV and sounds.bank.json; removed staged content_source/sound_mix.json. Reverted this turn's sound-profile code, CLI option, docs and sound tests to Git baseline; removed compat/sound_mix_waw.json. No sound tuning should be reapplied on rebuild.
+- Other10 packaged files verified unchanged, including rake-fixed mapFF, all sound banks, frontend/menuIPAKs. Rake source/HUD cleanup and action-slot name wrapper changes preserved. No game process was running when restoring. Work/sound_revert_20261007/restored.json records verification; disabled profile and previous tuned fastfile retained there for forensic reference only, not for reinstatement.
+- Earlier sound-tuning installation instructions above are superseded. User rejected the tuning; do not reintroduce volume trims or zero sends without a new request. Restart/reload map needed to hear restored playback if an existing session held the tuned fastfile.
+
+## 2026-10-07: light alignment coordinate audit (investigation pending)
+
+- User shows three bunker fixtures with bright patches away from the skull markers; requests alignment and asks whether BO2 world coordinates match WaW.
+- Read installed map FF with native Unlinker (mapents/comworld/gfxworld) into `work/light_alignment_20261007/installed`. `audit_coordinates.py` compares all 439,837 linked surface vertex records with original WaW gfx.bin: zero failures, maximum component difference 0.005 units (native text dump rounds to two decimal places). All 3,842 staged render-model origin/axis/scale tuples exactly equal source; all 54 staged primary-light origin/dir tuples exactly equal source. Evidence `coordinates.json`. No global coordinate scale/translation mismatch established.
+- `scripts/zm/waw2bo2_lightmarkers.gsc` is a leftover external diagnostic: first skull at primary light origin, second 32 units along -dir. These are PRIMARY-LIGHT markers, not Easy-FX attachment points. Earlier handoff assertion that these white patches must be misoriented UGX FX was not established and is too narrow.
+- Authored nearby triangle_ray/red_ray/green_gew_drip effects are absent from WaW zone/Mod Tools source, report WAW_FX_ABSENT and are undefined/skipped by compat. Those do not produce the screenshots' bright white patches in current build. Source light1/lightray aliases have no authored FX structs in this map. Preserve converter-wide fixes, do not arbitrarily shift source light coordinates.
+- Asked user whether white patch moves with camera or stays fixed to distinguish specular highlight from fixed lighting. Answer pending. No installed files or converter behavior changed for this investigation. Sound rollback and accepted grenade carrier reduction/rake script fix preserved. No active game process found during read-only audit.
+
+### Fixed patch follow-up
+
+- User confirms patch stays fixed with camera movement. This alone does not distinguish stationary FX from baked/direct light; no root cause established.
+- Native installed xmodel GLTF audit compares every vertex POSITION in all four LODs of fluorescent yellow and tinhatcage lamp against original WaW dump: exact coordinate multisets in all eight LODs. Evidence `audit_lamp_models.py`, `lamp_models.json`. No lamp pivot/geometry displacement established.
+- `audit_surface_lighting.py` compares all 439,837 native linked vertex records with source vertex position, lightmap page, UV and assigned primary-light ID. Zero failures; maximum UV difference 0.00000766 (UNORM16 rounding). Source no-lightmap surfaces map to native page0 and their unused UVs are excluded. Evidence `surface_lighting.json`. No reordered lighting association/UV shift established.
+- Read-only T6 IDA native sub_73AC60 and sub_782FA0 reaffirm ComPrimaryLight field offsets/copy and camera-relative position/dir. Source spotlight uniforms are already translated on relevant current materials. DO NOT analyze stale work/lighting_fx_latest_roundtrip as current shader bindings: latest installed *123_13 uses runtime_7aa5e13bd2bd08d0, fully translated WaW passes, rather than stale runtime_ad55db19cb3f942c donor passes.
+- Asked one further runtime isolation test: view white patch, console `fx_draw 0`; report whether disappears/stays/command rejected; restore `fx_draw 1`. Native executable verifies fx_draw exists at string0xd25b04. Answer pending; no new package or runtime-diagnostic scripts installed. Do not claim fixed or coordinate-shift anything based on screenshot alone. All authorized read-only audits completed, a rendering change needs identification of which path actually produces patch.
+
+
+## Nuketown perk mode and box relocation, 2026-10-07
+
+- Added saved Mod Builder `Use BO2 stock perks` option (default false), CLI
+  `--bo2-stock-perks`, PowerShell `-Bo2StockPerks`, and worker forwarding.
+  Matching build receipts gate Install when the option changes.
+- Opt-in routes source perk controllers to native BO2 ownership, translates
+  community perk IDs/groups/machine links, registers native Electric Cherry/PhD
+  server/client modules under owned names, retains native LUI/solo revive and
+  perk-loss code. Source free grants call native give_perk; duplicate source
+  HUD/perk_think and refund handlers are suppressed. Unknown machine perks or
+  unsupported source perk functions fail staging. Normal WaW ownership remains
+  the default. Native perk dependencies are protected mod_extra.zone entries.
+- BO2 raw lacks legacy Deadshot/PhD machine model names; opt-in uses shipped
+  prison machine variants for those missing names. Native optional modules and
+  client callbacks have matching registration/ownership.
+- Box enable_trigger routes through compat to restore hidden trigger_use
+  visibility after moving inactive chest pieces back to their origins. It does
+  not clear the buyer-only visibility mask. WaW box relocation flags use the
+  waw_ namespace to avoid BO2 controller writes to the same flags.
+- Validation: 333 unit tests pass; actual Nuketown translation/link checks have
+  zero errors; native BO2 compiler compiled all 75 current scripts. Native perk
+  asset-only zone resolves dependencies and links (expected no-BSP diagnostic).
+  Evidence: work/gameplay_fix_20261007/{tests.log,verification.json,asset_check/}
+  and compile_stage/script_build/linker.log.
+- No full map rebuild, install, GUI binary packaging, or gameplay playtest was
+  performed. Rebuild/install with the new option to apply it. Gameplay checks:
+  buy Quick Revive solo, down/revive three times, power, perk loss, free perks,
+  Pack-a-Punch, and multiple box moves including returning to an earlier spot.
+- Preserved pre-existing equipment/HUD changes in gscport/compat/gsc_api and
+  tests/test_equipment_slots.py; did not commit or publish.
+
+## Rancid user build failure and portable diagnostics, 2026-10-07
+
+- User supplied Downloads/waw2bo2-build (1).log. Both recorded builds stop
+  resolving viewmodel_usa_double_barrel_sawed_off_grips_lod0.gltf: custom-map
+  XModel JSON exists but its exported mesh is in a stock WaW zone dump.
+- Resolve exact exported mesh paths across owning/source/stock roots, fetching
+  the named model's stock zone when needed. Preserve map JSON and source-root
+  priority. Weapon, world-model and source-sky staging use the shared lookup.
+  Missing geometry retains dependency edges and explicit diagnostics instead
+  of leaking a FileNotFoundError. No map-specific replacements or cache edits.
+- Failed GUI builds/extractions create local diagnostics ZIPs. Reports includes
+  Save Diagnostics. Archive includes console, referenced generated native logs,
+  reports and settings, excludes game assets, and caps each file at 2 MiB.
+  Extraction failure handling works without a selected map.
+- Validation: all 337 tests pass (work/rancid_recovery_check/tests.log).
+  Real stock WaW shotgun geometry recovery/staging passed using deliberately
+  partial map metadata (verification.json). Fresh frozen CLI worker repeats
+  the same recovery with no missing/unsupported models (frozen_stage/).
+  Packaged --self-test passes GUI/schema/native tool/resource checks.
+- Rebuilt work/desktop_dist/WawConverter-Windows.zip with current Python fixes,
+  including prior Nuketown opt-in perks/box and equipment work. Native source
+  ZIPs reused from work/desktop_native_sources_for_rebuild. No publishing,
+  commit, game install or gameplay playtest. Only the user's log was available;
+  full Rancid map conversion is unverified. The initial frozen-worker command
+  omitted '-m waw2bo2.cli' and opened GUI; terminated only that test PID and
+  reran with correct dispatch successfully. This was a test invocation error.
+
+## Bank Job reported build failures, 2026-10-07 (portable 0.2.8)
+
+- User supplied seven staging errors and Downloads/build.log (Wine, Z:/home/humpy).
+  Treated logs as diagnostic data. No Bank Job fastfiles/assets available locally.
+- Corrected visibility size validation in Python and native T6 GameWorldMpLinker:
+  accept floor/ceiling of n*(n-1)/8, retain exact source bytes. The 530-node case
+  preserves 35047 bytes; do not truncate its last two meaningful bits.
+- Found TWO entity bugs: desktop WAW_ASSETS omitted mapents and stage_bridge
+  searched the exporter folder instead of the ordinary maps/*.d3dbsp.ents dump.
+  Added mapents to desktop and PowerShell extraction; lookup checks exact names
+  across prioritized source roots. Asset-selection receipt changes automatically
+  invalidate old custom caches. Shared stock caches do not need resetting.
+- Move link_check from port_scripts to completed stage_bridge after generation
+  of owned perk/bootstrap modules. Both stock-perk flag modes link cleanly.
+- Generate the missing server _amb main entry only when no authored/template
+  server ambient exists. Imported WaW scripts own actual server ambience; client
+  ambience still uses the real template. Main/fx scripts remain required.
+- Localization: derive standard price-family door/area/debris text only from
+  consistent authored WaW wording, replacing encoded cost and preserving button
+  tokens. Exact custom source strings win. Add community Mule Kick shared-key
+  mapping to BO2 ZOMBIE_PERK_ADDITIONALPRIMARYWEAPON only after WaW lookup fails.
+  Unknown keys still fail; never broadly humanize localization identifiers.
+- Validation: 343 tests pass; old-cache automatic refresh regression passes.
+  Real WaW/BO2 raw files resolve all three reported keys. Both perk ownership
+  modes pass real API link checks. Native extractor creates the expected .ents
+  from the real Nuketown FF with mapents selection. Native linker successfully
+  builds a scratch Nuketown-world fixture with 530 path nodes and 35047 bytes.
+  This validates the native layout, not Bank Job gameplay or a full Bank Job build.
+- Evidence: work/bankjob_recovery_check/{tests.log,verification.json,
+  native_build.log,native_link.log,mapents_extract.log,frozen_self_test.log,
+  package_verification.log}. Native build requires SolutionDir set to the build
+  directory for RawTemplater custom rules when building a vcxproj directly.
+- Version metadata synchronized to 0.2.8. Rebuilt desktop ZIP and GUI self-test
+  passes; archive integrity verified, bundled native corresponding-source ZIP
+  contains modified GameWorldMpLinker.cpp. Reused unchanged T4 archive, updated
+  T6 source entry (native_sources/). No commit, publication, game install or playtest.
+
+## WaW ambient tokenizer hotfix released as v0.2.9, 2026-10-07
+
+- Reported error exactly matches stock WaW raw/maps/ber1_amb.gsc: an opening
+  block comment at line 237 ends with standalone *\ at line 255, before the
+  commented radio_location line. This is a malformed comment terminator, not
+  an ordinary line continuation. Do not broadly strip backslashes from code.
+- Tokenizer recognizes this standalone ending only as a block-comment fallback;
+  valid */ comments have priority. Lossless emit retains the original source.
+  fix_syntax repairs only malformed block endings in token comment prefixes,
+  preserves disabled code and valid comments/strings, and reports a syntax fix.
+- Parse token errors include script name; tokenizer error line accounts for
+  pending whitespace/comment newlines. Unknown executable backslashes still fail.
+- 346 tests pass, including LF/CRLF, valid comments with internal *\ text,
+  exact roundtrip, repair idempotence, disabled functions and filename/line errors.
+  Real ber1_amb source parses with exactly one repair. BO2 native compiler accepts
+  a repaired fixture using its actual disabled comment content. Frozen GUI/native
+  self-test passes. Evidence work/comment_recovery_check/.
+- Pushed 66cada8 and annotated v0.2.9 to Ticass/B2W. Published preview release
+  https://github.com/Ticass/B2W/releases/tag/v0.2.9 with Windows/Linux archives
+  and checksums. Linux workflow 37715290647 succeeded, including comment tests,
+  native Linux GUI/CLI and Wine-worker smoke checks. Full affected map gameplay
+  remains unverified. No installed map changes. AGENT_HANDOFF retained locally.
+
+## 2026-10-08: Nuketown gameplay reports -> converter-wide fixes
+- User reports (Nuketown Remastered): rake trap can't be used "as an axe", bowie knife free, electric
+  trap fills screen with checkerboard ~2 s, zombie shield on back gives no protection. User asked that
+  every fix apply to all maps. All four fixes are pattern-based, none names Nuketown.
+- BOWIE FREE: core map _zombiemode_bowie -> BO2 _zm_weap_bowie (template). BO2 melee_weapon_think
+  charges `self.stub.cost`; only BO2 struct wallbuys have stubs. WaW trigger_use bowie_upgrade -> cost
+  undefined -> minus_to_player_score(undefined) returns early. compat melee_wallbuy_costs() gives every
+  stub-less melee wallbuy trigger a stub carrying its registered cost after think threads start.
+- ELECTRIC CHECKERBOARD: SetElectrified draws hard-coded material zombie_electric_shock_overlay
+  (string in both CoDWaW.exe and t6zm.exe); BO2 loads it only in zm_transit/buried. t6bridge
+  ENGINE_BUILTIN_MATERIALS stages WaW's material when ported scripts call setelectrified. Its techset
+  flamethrowerfx_color_distort_overlay_bloom had no rule: techsets.match now maps unlit sets with no
+  family rule to the same-named T6 donor set (T6 only appends a hash).
+- SHIELD ON BACK: protection lives in the map's _zombiemode::player_damage_override (core, never run in
+  BO2). gscport.extract_damage_prelude ports the statements a map override puts before the stock body
+  as a BO2 register_player_damage_callback (bare return -> return 0). Stock reference = every variant
+  (zone-dump stock AND WaW/Mod Tools raw/: zone _zombiemode is an older release whose override starts
+  `if( iDamage < self.health )`). Overrides with finishPlayerDamage in the prelude are reported, not ported.
+- RAKE AXE: nt_rake_trap is inventoryType item with its own meleeAnim/meleeDamage 2500. T4 always swings
+  the held weapon; T6 swings the melee weapon (knife) unless useAsMelee (BO2 riotshield_zm has it).
+  weapons.convert sets useAsMelee 1 for item weapons with meleeAnim + meleeDamage > 0. Earlier
+  HUD/actionslot rake fix (2026-10-07) addressed equip, not the melee.
+- PRE-EXISTING BLOCKER found on rebuild: BO2_FALLBACK material mc/bo2_t5_foliage_dry_branch_gobo uses
+  techset mc_treecanopy_sm_q8e8z12f (zm_prison only, not in donor view) -> staging error. Added
+  all2raw.required_bo2_techset (lazy per-zone dump, like required_bo2_image); verify_techsets copies the
+  set + shaders into the project.
+- Tests: tests/test_map_gameplay_bridges.py. Not installed, no playtest yet.
+
+## 2026-10-08: Bank Job follow-up (pending runtime verification)
+
+- General zombie-spawner conversion now sets script_forcespawn=1. WaW's
+  spawn_zombie has a DoSpawn fallback; BO2's helper only creates an actor in
+  its script_forcespawn branch. Bank Job's runtime had queued=6, AI=0,
+  freeactors=32, active start_zone and 19 spawners, excluding actor exhaustion.
+- ScoreSolo reads of stock WaW player.stats keys now use live BO2 counters
+  through waw_player_stat; playername becomes name. Added headshots and
+  zombie_gibs defaults. Custom keys, writes and defined probes survive.
+- Bank Job's player_damage_override edits the first stock MOD_FALLING branch.
+  Damage-prelude extraction now recognizes its complete condition as the
+  stock-body boundary, preserving the leading self_revive rule and allowing
+  the build. Other framework-body edits still appear in core_overrides.
+- Native HUD inspection: WaW mapped HUD setup 0x44C480 and BO2 0x7A2ED0
+  use identical base multipliers (0.5 bigfixed, 1/3 smallfixed, 0.25 other).
+  Ordinary solo fontscale conversion is identity, not a blanket reduction.
+  Objective font face selection differs; visual fidelity remains unverified.
+  See docs/WAW_PLAYER_STATE_AND_SPAWN.md.
+- All 400 tests pass. Fresh translation and native BO2 compilation pass for
+  Nuketown (73 scripts), Empty Walls (71), Abandoned School (67), Asylum v2 (88),
+  Alcatraz (101). Evidence work/bankjob_20261008/regressions.json.
+- Bank Job full rebuild includes the pre-existing uncommitted gameplay fixes.
+  Evidence work/bankjob_20261008/build_final.log. The earlier build_fixed.log
+  succeeds but predates the spawner/playername changes; do not test that FF.
+- Empty Walls exposed a zero-damage finishPlayerDamageWrapper followed by
+  return in its solo-revive prelude. This exact idiom now becomes callback
+  cancellation. Nonzero finishes remain rejected. Tests cover both cases.
+- Final Bank Job rebuild passed native script compilation, zero missing assets,
+  and 77,725 material argument checks with zero violations. Installed its
+  latest FF/IPAK/mod.ff into Plutonium for the next gameplay check; previous
+  changed files are backed up in work/bankjob_20261008/installed_before.
+  Receipt work/bankjob_20261008/install_receipt.json. Temporary Bankjob probe
+  removed (backups spawnprobe_before.gsc and spawnprobe_last.gsc in evidence).
+- Computer Use was stopped with physical Escape; no further UI actions or
+  game relaunches were performed after that. Final gameplay checks, commit
+  and release remain pending. Preserve this distinction when resuming.
+
+## 2026-10-08: v0.2.13 gameplay and build follow-up
+
+- Supersedes the earlier font-scale identity conclusion: WaW's -86 HUD netfield
+  rounds (fontscale-1)*10 into six bits and decodes 1+bits/10. Source 8 displays
+  as 1.6. Literal and calculated assignments now preserve that effective scale.
+- Original actor classes select original WaW characters/body/head arrays.
+  Generated T6 server/client actor scripts retain native state/animation support
+  without Nuketown character selection. Bank Job runtime used German honor-guard
+  bodies; Empty Walls used char_rus_guard_body1_1_zm.
+- Animated models no longer receive the static-prop flag 0x200000. Stock T6
+  zombie bodies/heads use 0x80000; native renderer 0x724E1A branches on the static
+  bit. Source LOD meshes and distances survive native roundtrip. The specific
+  live/dead visual comparison after the flag fix remains unverified.
+- Solo source Quick Revive grants one BO2 life. Both Bank Job and Empty Walls
+  runtime probes returned health=100 and lives=0 after a down/revive.
+- Source weapon hints and early weapon-table lookups are guarded; no-display
+  wall buys have an unmatched native target. Unrotated script-struct endpoints
+  receive zero angle vectors, fixing Bank Job's game-over rotateto error.
+- Empty Walls full build passed (zero missing native assets): 96,096 map plus
+  68,294 mod material arguments, zero violations/missing techniques. Cold
+  dependency extraction and weapon staging also completed without exceptions.
+  Original blank-error staging failure did not recur; CLI now prints the
+  exception type as well as its message. The damage-prelude build regression
+  remains covered by original-control-expression and zero-damage tests.
+- Empty Walls runtime exposed additional issues: dlc3 include_powerups callback
+  lost its parameter to a stub; scorebar read undefined level.isPlutonium;
+  native weapon registration dropped on missing rumble/flamethrower. The source
+  callback now extracts with native powerup registration, compat supplies the
+  environment flag, and rumble profiles plus graphs stage as rawfile assets.
+- Final unit suite: 411 passing. Final native script regression compilation:
+  Nuketown 82, Empty Walls 94, Abandoned School 73, Asylum 97, Alcatraz 110.
+  Evidence: work/bankjob_20261008/final_regressions.json, tests_release.log,
+  release_bankjob_runtime.log, empty_walls_trace.log, empty_cold_phase.log,
+  verify_dynamic_models.log, finalize_runtime_dependencies.log.
+- Portable Windows v0.2.13 rebuilt with current T6 native binaries and matching
+  source archives. GUI/schema/native-tool self-test and both CLI help commands
+  pass. User explicitly authorized GitHub push and release after checks.
+
+- Final Empty Walls runtime: source Russian body, health 100/lives 0 after revive,
+  EXE_MATCHENDED after second down, zero script runtime errors and COM_ERROR.
+  Evidence release_empty_runtime.log. All agent-created probes removed and
+  agent-started game processes stopped before release.

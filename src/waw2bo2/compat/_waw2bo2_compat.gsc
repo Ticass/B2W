@@ -13,6 +13,10 @@ init()
     if ( isdefined( level.waw2bo2_compat_ready ) )
         return;
     level.waw2bo2_compat_ready = 1;
+    // Converted maps run on Plutonium T6. WaW scorebar libraries use this
+    // flag to leave TAB's scoreboard to the native client.
+    if ( !isdefined( level.isPlutonium ) )
+        level.isPlutonium = 1;
     precacheshader( "waypoint_revive" );
     // WaW zones control spawning; they are not lethal player boundaries.
     // BO2 otherwise queues a kill during scripted teleports above a zone.
@@ -43,6 +47,31 @@ init()
     level thread first_player_ready_bridge();
     level thread stuck_zombie_monitor();
     level thread power_bridge();
+    level thread melee_wallbuy_costs();
+}
+
+// BO2's melee wallbuy (_zm_melee_weapon::melee_weapon_think) charges
+// self.stub.cost, which only BO2's struct wallbuys carry. A WaW map's
+// trigger_use (bowie_upgrade) has no stub, so the price is undefined and
+// minus_to_player_score returns without charging. Give each such trigger a
+// stub holding its registered cost once the think threads have started.
+melee_wallbuy_costs()
+{
+    while ( !isdefined( level._melee_weapons ) )
+        wait 0.05;
+    waittillframeend;
+    for ( i = 0; i < level._melee_weapons.size; i++ )
+    {
+        melee_weapon = level._melee_weapons[i];
+        triggers = getentarray( melee_weapon.wallbuy_targetname, "targetname" );
+        for ( j = 0; j < triggers.size; j++ )
+        {
+            if ( isdefined( triggers[j].stub ) )
+                continue;
+            triggers[j].stub = spawnstruct();
+            triggers[j].stub.cost = melee_weapon.cost;
+        }
+    }
 }
 
 report( api, detail )
@@ -761,7 +790,7 @@ waw_include_weapon( name, in_box, collector, weighting_func )
     maps\mp\zombies\_zm_weapons::include_zombie_weapon( weapon, in_box, collector, weighting_func );
     // Native tactical helpers use a different inventory name. Precache and
     // include it for their startup guards, without a second mystery-box entry.
-    if ( isdefined( level.waw2bo2_runtime_weapons[name] ) )
+    if ( isdefined( level.waw2bo2_runtime_weapons ) && isdefined( level.waw2bo2_runtime_weapons[name] ) )
         maps\mp\zombies\_zm_weapons::include_zombie_weapon( level.waw2bo2_runtime_weapons[name], 0 );
 }
 
@@ -778,7 +807,7 @@ waw_add_zombie_weapon( name, hint, cost, weaponvo, variation_count, ammo_cost )
     // WaW hints are plain text; BO2 precaches the hint as a localized string.
     // With level.monolingustic_prompt_format (set by include_weapons) BO2
     // builds the wall-buy prompt from the weapon's display name and cost.
-    if ( isdefined( hint ) && hint != "" )
+    if ( isdefined( hint ) && ( !isstring( hint ) || hint != "" ) )
         report( "WEAPON_HINT (prompt built from display name + cost)", name );
     hint = &"ZOMBIE_WEAPONCOSTONLY";
     if ( !isdefined( weaponvo ) )
@@ -786,7 +815,7 @@ waw_add_zombie_weapon( name, hint, cost, weaponvo, variation_count, ammo_cost )
     maps\mp\zombies\_zm_weapons::add_zombie_weapon( weapon, upgrade, hint, cost, weaponvo, "", ammo_cost );
     // This must precede the native tactical initializer: it checks
     // level.zombie_weapons before registering its script-model animtree.
-    if ( isdefined( level.waw2bo2_runtime_weapons[name] ) )
+    if ( isdefined( level.waw2bo2_runtime_weapons ) && isdefined( level.waw2bo2_runtime_weapons[name] ) )
         maps\mp\zombies\_zm_weapons::add_zombie_weapon( level.waw2bo2_runtime_weapons[name], undefined, hint, cost, weaponvo, "", ammo_cost );
 }
 
@@ -857,6 +886,32 @@ waw_player_stats()
     self.stats["downs"] = 0;
     self.stats["revives"] = 0;
     self.stats["perks"] = 0;
+    self.stats["headshots"] = 0;
+    self.stats["zombie_gibs"] = 0;
+}
+
+// WaW's framework maintains these session counters in stats; T6 keeps
+// them in pers. Reads from converted scripts use the native live values.
+waw_player_stat( player, key )
+{
+    native_key = key;
+    if ( key == "perks" )
+        native_key = "perks_drank";
+    else if ( key == "zombie_gibs" )
+        native_key = "gibs";
+    else if ( key == "score" )
+    {
+        if ( isdefined( player.score_total ) )
+            return player.score_total;
+        if ( isdefined( player.stats ) && isdefined( player.stats[key] ) )
+            return player.stats[key];
+        return 0;
+    }
+    if ( isdefined( player.pers ) && isdefined( player.pers[native_key] ) )
+        return player.pers[native_key];
+    if ( isdefined( player.stats ) && isdefined( player.stats[key] ) )
+        return player.stats[key];
+    return 0;
 }
 
 // Record the actual missile selected by the inventory, including after give all.
@@ -1152,11 +1207,24 @@ waw_setperk( perk )
     if ( !waw_perk_emulated( perk ) )
     {
         self setperk( perk );
+        // WaW's native perk only speeds up reviving another player. Register
+        // the life BO2's last-stand/game-over logic requires for self revive.
+        // The source map still owns its machine, purchase limit and perk HUD.
+        if ( perk == "specialty_quickrevive" && getnumconnectedplayers() == 1 )
+            self.lives = 1;
         return;
     }
     if ( !isdefined( self.waw2bo2_perks ) )
         self.waw2bo2_perks = [];
     self.waw2bo2_perks[perk] = 1;
+}
+
+// WaW's HUD netfield -86 sends round((scale - 1) * 10) in six bits.
+// Its client decodes 1 + bits * 0.1; e.g. source scale 8 displays as 1.6.
+waw_fontscale( scale )
+{
+    encoded = int( floor( ( scale - 1 ) * 10 + 0.5 ) );
+    return 1 + ( encoded & 63 ) * 0.1;
 }
 
 waw_unsetperk( perk )

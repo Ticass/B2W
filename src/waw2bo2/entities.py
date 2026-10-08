@@ -63,11 +63,35 @@ def _unique_wall_buy_targets(entities: list[dict], renamed: Counter) -> None:
             renamed[f"wall buy target {target} uniquely paired"] += 1
 
 
+def _zone_volume(ent: dict[str, str], zone_names: set[str], renamed: Counter) -> dict[str, str]:
+    """WaW's zone manager takes every entity named after a zone as its volume
+    (Bank Job uses trigger_multiple brushes); BO2's zone_init keeps only
+    info_volume, so such a zone has no volume or spawners and
+    _zm_zonemgr::create_spawner_list fails every frame. Same brush, same targets."""
+    cls = ent.get("classname", "")
+    if ent.get("targetname") in zone_names and cls != "info_volume" and ent.get("model", "").startswith("*"):
+        renamed[f"zone volume {cls} -> info_volume"] += 1
+        return {**ent, "classname": "info_volume"}
+    return ent
+
+
+def struct_defaults(ent: dict[str, str]) -> None:
+    """Restore WaW's default vectors omitted from T6 script structs."""
+    if ent.get('classname') != 'script_struct':
+        return
+    ent.setdefault('origin', '0 0 0')
+    if 'angles' not in ent:
+        angle = ent.get('angle', '0')
+        ent['angles'] = '-90 0 0' if angle == '-1' else '90 0 0' if angle == '-2' else f'0 {angle} 0'
+
+
 def convert_entities(ents: list[dict[str, str]], project: str,
-                     animscripts: dict[str, str] | None = None) -> tuple[list[dict], dict, dict]:
+                     animscripts: dict[str, str] | None = None,
+                     zone_names: set[str] = frozenset()) -> tuple[list[dict], dict, dict]:
     out: list[dict] = []
     dropped: Counter = Counter()
     renamed: Counter = Counter()
+    ents = [_zone_volume(e, zone_names, renamed) for e in ents]
     targetnames = {e.get("targetname") for e in ents}
     volume_targets = {e["target"] for e in ents if e.get("classname") == "info_volume" and e.get("target")}
     world = next((e for e in ents if e.get("classname") == "worldspawn"), {"classname": "worldspawn"})
@@ -91,6 +115,7 @@ def convert_entities(ents: list[dict[str, str]], project: str,
             dropped[f"{cls} (baked lighting only)"] += 1
             continue
         ent = dict(ent)
+        struct_defaults(ent)
         if cls == "script_struct" and ent.get("targetname") == "exterior_goal":
             # WaW goals target brush planks, a "clip" brush and a struct inside;
             # T6 requires a native zbarrier. The zbarrier joins the goal's
@@ -134,7 +159,15 @@ def convert_entities(ents: list[dict[str, str]], project: str,
         if cls.startswith("actor_") and "zombie" in cls:
             renamed[f"{cls} -> {ZOMBIE_ACTOR_CLASS}"] += 1
             ent["classname"] = ZOMBIE_ACTOR_CLASS
+            ent["waw_actor_type"] = cls.removeprefix("actor_")
             ent.pop("model", None)
+            # WaW spawn_zombie calls DoSpawn when this flag is absent/false.
+            # The T6 helper has no DoSpawn branch: it creates an actor only
+            # when script_forcespawn is true. T6's spawn functions still own
+            # zone/location selection, risers and barrier entry afterwards.
+            if ent.get("script_forcespawn") != "1":
+                ent["script_forcespawn"] = "1"
+                renamed["WaW DoSpawn -> T6 spawnactor spawner flag"] += 1
             if ent.get("script_noteworthy") == "zombie_spawner" and ent.get("targetname"):
                 # WaW (_zombiemode_spawner/_zone_manager): a zone volume targets
                 # its spawner actors. A plain spawner's zombie spawns at the actor
@@ -169,6 +202,7 @@ def convert_entities(ents: list[dict[str, str]], project: str,
             renamed["WaW rise struct -> riser_location struct"] += 1
         out.append(ent)
 
+    wall_buy_null_targets(out, renamed)
     _unique_wall_buy_targets(out, renamed)
 
     starts = [e for e in ents if e.get("targetname") == "initial_spawn_points"] or \
@@ -180,6 +214,23 @@ def convert_entities(ents: list[dict[str, str]], project: str,
     summary = {"entities": len(out), "dropped": dict(dropped), "renamed": dict(renamed),
                "spawn_points": len(points)}
     return out, spawns, summary
+
+
+def wall_buy_null_targets(ents: list[dict], renamed: Counter) -> None:
+    """T6 calls getent(target) even for source wall buys with no display model.
+
+    A guaranteed unmatched string represents that absent link without creating
+    a placeholder entity/model or binding an unrelated map object.
+    """
+    occupied = {e.get('targetname') for e in ents}
+    for i, ent in enumerate(ents):
+        if ent.get('targetname') != 'weapon_upgrade' or ent.get('target'):
+            continue
+        name = f'waw_wallbuy_without_model_{i}'
+        while name in occupied:
+            name += '_'
+        ent['target'] = name
+        renamed['WaW wall buy without display model -> unmatched T6 target'] += 1
 
 
 def zombies_spawns(points: list[dict]) -> dict:
@@ -332,9 +383,10 @@ def synthesize_zones(out: list[dict], clip, bsp_dir: Path, summary: dict) -> tup
 
 def write_entities(ents_file: Path, project: str, bsp_dir: Path, clip=None,
                    start_zones: list[str] | None = None,
-                   animscripts: dict[str, str] | None = None) -> tuple[dict, set[str]]:
+                   animscripts: dict[str, str] | None = None,
+                   zone_names: set[str] = frozenset()) -> tuple[dict, set[str]]:
     ents = parse_entities(ents_file.read_text(encoding="utf-8", errors="replace"))
-    out, spawns, summary = convert_entities(ents, project, animscripts)
+    out, spawns, summary = convert_entities(ents, project, animscripts, zone_names)
     if start_zones == [] and clip is not None and (bsp_dir / "submodels.json").exists():
         start_zones = synthesize_zones(out, clip, bsp_dir, summary)[0]
     if any(e.get("targetname") == "initial_spawn_points" for e in out):

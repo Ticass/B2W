@@ -569,7 +569,27 @@ namespace BSP
         const auto tree = std::make_unique<BSPTree>(worldMins, worldMaxs, std::move(objects), 0);
 
         // load planes, nodes, leafs, and AABB trees
-        LoadBSPNode(clipMap, *tree);
+        const int16_t root = LoadBSPNode(clipMap, *tree);
+
+        // T6 traces always start at node 0 (they never test numNodes), so a map
+        // whose whole collision fits one leaf (few partitions: Bank Job, ZZZ)
+        // still needs a root node. Both of its children are that leaf; without
+        // it the trace reads past the empty node array and crashes on load.
+        if (nodeVec.empty())
+        {
+            cplane_s plane{};
+            plane.normal = normalZ;
+            plane.type = 2;
+            plane.dist = worldMaxs.z;
+            plane.signbits = 0;
+            planeVec.emplace_back(plane);
+
+            cNode_t node{};
+            node.plane = nullptr;
+            node.children[0] = root;
+            node.children[1] = root;
+            nodeVec.emplace_back(node);
+        }
 
         // Leafs address their parent aabbs with a uint16 index; children are
         // addressed with an int. Put every parent first so the uint16 range

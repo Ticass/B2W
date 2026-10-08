@@ -475,6 +475,18 @@ T6_XMODEL_DEFAULTS = {
 }
 
 
+def model_runtime_defaults(model: dict) -> dict:
+    """Use T6's dynamic model path for animated WaW models.
+
+    Stock Nuketown zombie bodies/heads use 0x80000. 0x200000 is the
+    static-prop flag: T6's renderer at 0x724E1A selects its optimized
+    instance path from that bit. It must not be applied to live actors.
+    Keep the source LOD geometry and distances, rather than forcing LOD0.
+    """
+    return {**T6_XMODEL_DEFAULTS,
+            'flags': 0x80000 if model.get('type') in ('animated', 'viewhands') else 0x200000}
+
+
 SKYBOX_TEMPLATE = "skybox_dlc0_zm_nuketown"
 # T6 sky cubemaps (mc_skycubemaphdr) carry an HDR intensity in alpha (stock
 # zm_nuked: DXT5, mean alpha ~0.9, scaled by the material's skyColorParms).
@@ -774,7 +786,7 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
                 # box; authored movement/world clip masks stay untouched.
                 xm["collLod"] = 0
                 report.content.setdefault("script_model_collision_boxes", []).append(dst_name)
-        xm.update(T6_XMODEL_DEFAULTS)
+        xm.update(model_runtime_defaults(xm))
         if xm.pop("physPreset", None) is not None:
             report.warnings.append(f"xmodel {src_name}: physPreset dropped (static models do not simulate)")
         dst = project_root / "xmodel" / f"{dst_name}.json"
@@ -859,6 +871,18 @@ def verify_techsets(report: StageReport, used: set[str], techset_root: Path | No
         return
     for name in sorted(used):
         path = _find([*([project_root] if project_root else []), techset_root], Path('techniquesets') / f'{name}.json')
+        if path is None and project_root is not None:
+            # outside the donor view: copy it and its shaders from its own zone
+            from .all2raw import required_bo2_techset
+            owner = required_bo2_techset(techset_root, name)
+            if owner is not None:
+                source = owner / "techniquesets" / f"{name}.json"
+                for rel in [Path("techniquesets") / f"{name}.json",
+                            *map(Path, _techset_shaders(_load_json(source)))]:
+                    if (owner / rel).is_file():
+                        (project_root / rel).parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(owner / rel, project_root / rel)
+                path = project_root / "techniquesets" / f"{name}.json"
         if path is None:
             path = techset_root / "techniquesets" / f"{name}.json"
         if not path.exists():
@@ -993,6 +1017,10 @@ def map_scripts(project_root: Path, project: str) -> list[str]:
             for path in sorted((project_root / folder / sub).glob(f"{project}*{ext}")):
                 found.append(f"{folder}/{sub}{path.name}")
     found.extend(paths.traverse_scripts(project_root))
+    found.extend(p.relative_to(project_root).as_posix() for p in
+                 (project_root / 'aitype').glob('waw_*.gsc'))
+    found.extend(p.relative_to(project_root).as_posix() for p in
+                 (project_root / 'aitype/clientscripts').glob('waw_*.csc'))
     found.extend(gscport.bo2_scripts(project_root))
     found.extend(p.relative_to(project_root).as_posix() for p in
                  (project_root / 'clientscripts/mp/waw').glob('*.csc'))
@@ -1001,7 +1029,8 @@ def map_scripts(project_root: Path, project: str) -> list[str]:
 
 def write_zone(stage: Path, project: str, images: list[str], ipak: bool,
                xmodels: list[str] = (), scripts: list[str] = (), zbarriers: list[str] = (),
-               effects: list[str] = (), materials: list[str] = (), localizations: list[str] = ()) -> Path:
+               effects: list[str] = (), materials: list[str] = (), localizations: list[str] = (),
+               rawfiles: list[str] = ()) -> Path:
     zone_dir = stage / "zone_source"
     zone_dir.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -1022,6 +1051,7 @@ def write_zone(stage: Path, project: str, images: list[str], ipak: bool,
     lines += [f"material,{name}" for name in materials]
     lines += [f"script,{name}" for name in scripts]
     lines += [f"localize,{name}" for name in localizations]
+    lines += [f"rawfile,{name}" for name in rawfiles]
     path = zone_dir / f"{project}.zone"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
@@ -1278,12 +1308,13 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     else:
         report.errors.append(f"path nodes {paths_file.name} missing (dump gameworldsp): zombies cannot path")
     if ents_file.exists():
-        start_zones = None
+        start_zones, zone_names = None, set()
         if waw_map_script is not None and waw_map_script.exists():
-            start_zones = zones.read_waw_zones(waw_map_script.read_text(encoding="utf-8", errors="replace"))[0]
+            start_zones, adjacency = zones.read_waw_zones(waw_map_script.read_text(encoding="utf-8", errors="replace"))
+            zone_names = zones.zone_names(start_zones, adjacency)
         try:
             report.entities, script_models = entities.write_entities(ents_file, project, project_root / "BSP",
-                                                                     clip, start_zones, animscripts)
+                                                                     clip, start_zones, animscripts, zone_names)
         except ValueError as exc:
             raise StageError(f"map entities: {exc}") from exc
         synthesized = report.entities.get("synthesized_zones")
@@ -1313,7 +1344,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 source_waw = None
         script_models |= port_scripts(report, stage, project_root, waw_map_script, bo2_root, waw_script_roots or [],
                                       iwd_dirs or [], waw_stock_scripts, t6_unlinker, roots, clip,
-                                      stock_waw, source_waw, bo2_stock_perks=bo2_stock_perks)
+                                      stock_waw, source_waw, bo2_stock_perks=bo2_stock_perks,
+                                      stock_variant_roots=[r / "raw" for r in (waw_mod_tools, waw_root) if r is not None])
         fx_names = list(report.scripts.get("fx", [])) if report.scripts else []
         # Weapons first: their resolution widens the roots (stock WaW dumps for
         # script models too) and their effects join the map zone's conversion.
@@ -1664,8 +1696,14 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             zone.write('// Opt-in stock BO2 perk dependencies\n')
             zone.write(''.join(line + '\n' for line in stockperks.asset_lines(project_root)))
     staged = {m["name"] for m in report.materials}
+    from . import rumbles
+    rumble_report = rumbles.stage(project_root,
+        [*roots, *[r / 'raw' for r in (waw_mod_tools, waw_root) if r is not None]],
+        bo2_root / 'raw' if bo2_root else None)
+    report.content['rumbles'] = rumble_report
+    report.errors += [f'RUMBLE_DEPENDENCY_MISSING {name}' for name in rumble_report['missing']]
     write_zone(stage, project, images, ipak, sorted(script_models | fx_models | projectile_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
-               [m for m in hud_materials if m in staged], [localization_report['asset']])
+               [m for m in hud_materials if m in staged], [localization_report['asset']], rumble_report['files'])
 
     (project_root / "bridge_stage.report.json").write_text(report.to_json(), encoding="utf-8")
     return report
@@ -2001,6 +2039,10 @@ def stage_fx(report: StageReport, names: list[str], converted: dict[str, str], m
 
 SCRIPT_PRECACHE_MODEL_RE = re.compile(r'\bprecachemodel\s*\(\s*"([^"]+)"', re.IGNORECASE)
 SCRIPT_SHADER_RE = re.compile(r'\b(?:precacheshader|setshader)\s*\(\s*"([^"]+)"', re.IGNORECASE)
+# Builtins whose screen overlay material the engine draws by a hard-coded name
+# (CoDWaW.exe and t6zm.exe both hold the string). BO2 loads it only in the
+# zones of maps that use it (zm_transit), so a converted map stages WaW's.
+ENGINE_BUILTIN_MATERIALS = {"setelectrified": "zombie_electric_shock_overlay"}
 CORE_ANIMTREE_HEADER = "// waw2bo2: WaW animtree"
 ANIM_REF_RE = re.compile(r'(?:[(,=\[]|\breturn|\[\[)\s*%\s*([A-Za-z_]\w*)')
 
@@ -2047,6 +2089,34 @@ def stage_core_animtrees(report: StageReport, sources, roots: list[Path], projec
 
 
 SCRIPT_MODEL_RE = re.compile(r'\b(?:precachemodel|setmodel|setviewmodel|attach)\s*\(\s*"([^"]+)"', re.IGNORECASE)
+SCRIPT_FUNC_RE = re.compile(r'^([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{', re.MULTILINE)
+
+
+def wrapped_model_literals(texts: list[str]) -> set[str]:
+    """Models named through a script helper that hands its parameter to a
+    model call, e.g. WaW _loadout's set_player_viewmodel( "viewmodel_usa_marine_arms" )
+    (the player's arms: without them T6 draws no viewmodel at all)."""
+    wrappers: dict[str, int] = {}
+    for text in texts:
+        for m in SCRIPT_FUNC_RE.finditer(text):
+            depth, end = 0, len(text)
+            for i in range(m.end() - 1, len(text)):
+                depth += {"{": 1, "}": -1}.get(text[i], 0)
+                if depth == 0:
+                    end = i
+                    break
+            body = text[m.end():end]
+            for index, param in enumerate(p.strip() for p in m.group(2).split(",")):
+                if param and re.search(rf'\b(?:precachemodel|setmodel|setviewmodel|attach)\s*\(\s*{re.escape(param)}\s*[,)]',
+                                       body, re.IGNORECASE):
+                    wrappers[m.group(1).lower()] = index
+    found = set()
+    for name, index in wrappers.items():
+        call = re.compile(rf'\b{re.escape(name)}\s*\(\s*' + r'(?:"[^"]*"\s*,\s*)' * index + r'"([^"]+)"',
+                          re.IGNORECASE)
+        for text in texts:
+            found.update(call.findall(text))
+    return found
 
 
 def recover_script_models(report: StageReport, wanted: set[str], roots: list[Path],
@@ -2086,7 +2156,8 @@ def recover_script_models(report: StageReport, wanted: set[str], roots: list[Pat
 def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_script: Path, bo2_root: Path,
                  roots: list[Path], iwd_dirs: list[Path], stock: Path | None,
                  t6_unlinker: Path | None, model_roots: list[Path], clip=None,
-                 stock_waw=None, source_waw=None, *, bo2_stock_perks: bool = False) -> set[str]:
+                 stock_waw=None, source_waw=None, *, bo2_stock_perks: bool = False,
+                 stock_variant_roots: list[Path] | None = None) -> set[str]:
     """Translate the WaW map's gameplay scripts (gscport). Returns the WaW
     models the scripts use that the map zone must carry."""
     map_name = waw_map_script.stem
@@ -2098,7 +2169,11 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
                              "the WaW framework")
         return set()
     api = t6api.build(bo2_root, stage / "t6api_cache.json", t6_unlinker)
-    sources = gscport.Sources(script_roots, iwds, stock)
+    sources = gscport.Sources(script_roots, iwds, stock, stock_variant_roots)
+    actor_types = gscport.zombieappearance.source_actor_types(project_root)
+    actor_template = None
+    if actor_types:
+        actor_template = (bo2_root / 'raw/aitype/zm_nuked_basic_01.gsc').read_text(encoding='utf-8')
     for old in (project_root / "animtrees").glob("*.atr") if (project_root / "animtrees").exists() else ():
         if old.read_text(encoding="utf-8", errors="replace").startswith(CORE_ANIMTREE_HEADER):
             old.unlink()    # staged by an earlier run (stage_core_animtrees)
@@ -2106,7 +2181,10 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
                  for p in d.glob("*.atr")}
     core_trees, xanims = stage_core_animtrees(report, sources, model_roots, project_root, animtrees)
     port = gscport.port_map(sources, api, map_name, project_root, animtrees=animtrees, core_animtrees=core_trees,
-                            bo2_stock_perks=bo2_stock_perks)
+                            bo2_stock_perks=bo2_stock_perks, actor_types=actor_types,
+                            actor_template=actor_template)
+    if actor_types:
+        gscport.zombieappearance.bind_actor_types(project_root, actor_types)
     report.scripts = port.to_json()
     report.scripts["staged_xanims"] = xanims
     report.scripts["staged_animtrees"] = sorted(core_trees)
@@ -2134,7 +2212,12 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     # models the scripts precache / set / attach
     wanted = set()
     for path in port.ported:
-        wanted |= {m for m in SCRIPT_MODEL_RE.findall(sources.text.get(path + ".gsc", ""))}
+        text = sources.text.get(path + '.gsc', sources.stock.get(path + '.gsc', ''))
+        wanted |= set(SCRIPT_MODEL_RE.findall(text))
+        if path.startswith('xmodelalias\\'):
+            wanted |= {t.text[1:-1] for t in gscport.gsc.tokenize(text) if t.kind == gscport.gsc.STRING}
+    wrapped = wrapped_model_literals([sources.text.get(path + ".gsc", "") for path in port.ported])
+    wanted |= wrapped
     stock_models = api.stock_assets.get("xmodel", set())
     models = recover_script_models(report, wanted, model_roots, stock_waw, source_waw)
     missing = {name for name in wanted if name not in models and name.lower() not in stock_models}
@@ -2155,7 +2238,7 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
                  for m in SCRIPT_PRECACHE_MODEL_RE.findall(sources.text.get(path + ".gsc", ""))}
     # T6 also requires models referenced only by setModel/attach to be cached
     # during startup; waiting until a power-on thread runs is too late.
-    precached |= models
+    precached |= models | wrapped
     precached = sorted(m for m in precached if m in models or m.lower() in stock_models)
     (project_root / "maps" / "mp" / "waw" / "_waw2bo2_precache.gsc").write_text(
         gscport.precache_source(precached), encoding="utf-8")
@@ -2167,7 +2250,9 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     shaders = set(SCRIPT_SHADER_RE.findall(
         (gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8")))
     for path in port.ported:
-        shaders |= set(SCRIPT_SHADER_RE.findall(sources.text.get(path + ".gsc", "")))
+        text = sources.text.get(path + ".gsc", "")
+        shaders |= set(SCRIPT_SHADER_RE.findall(text))
+        shaders |= {m for b, m in ENGINE_BUILTIN_MATERIALS.items() if re.search(rf"\b{b}\s*\(", text, re.I)}
     stock_materials = api.stock_assets.get("material", set())
     hud = []
     for name in sorted(shaders):

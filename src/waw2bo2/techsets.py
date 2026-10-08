@@ -213,6 +213,12 @@ def match(source: str, candidates: list[str]) -> Match:
         return Match(source, m.target, m.cost + 20, [note] + m.notes)
     if not src.lit:
         if src.unlit_kind not in UNLIT_MAP:
+            # Special-purpose sets (e.g. the SetElectrified screen distortion
+            # flamethrowerfx_color_distort_overlay_bloom) keep their T4 name in
+            # T6, which only appends a hash: use that same set when donated.
+            same = sorted(c for c in candidates if re.sub(r"_[0-9a-z]{8}$", "", c) == source)
+            if same:
+                return Match(source, same[0], 0, ["same-named T6 technique set"])
             raise TechsetError(f"no T6 mapping rule for unlit technique set '{source}'")
         kind, notes = UNLIT_MAP[src.unlit_kind]
         pool = [c for c in candidates if (p := parse(c)).family == "world" and not p.lit and p.unlit_kind == kind]

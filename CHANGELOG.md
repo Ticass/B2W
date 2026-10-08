@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.13
+
+- Preserve each WaW zombie spawner's original actor, character selection, body/head models and dependencies instead of using Nuketown's characters. Animated models use the T6 dynamic renderer flags and retain every source LOD and distance.
+- Decode WaW's HUD font-scale network encoding. Values such as `8` become the effective WaW display scale `1.6`, fixing oversized health and scoreboard text.
+- Enable solo Quick Revive through BO2's native life/revive controller in source-perk mode, preserving each map's machines and purchase rules.
+- Spawn queued zombies on converted WaW spawners through BO2's force-spawn branch.
+- Read ScoreSolo's WaW session statistics from BO2's live counters, including player names, headshots and gibs.
+- Build Bank Job and Empty Walls with their edited stock damage conditions and zero-damage solo-revive cancellation preludes. Unrecognized damage application remains an explicit error.
+- Resolve script-only models, wrapper model arguments, stock raw actor scripts and techniques outside the BO2 donor zone. Map assets retain priority over stock definitions.
+- Correct melee wall-buy charges, item-weapon melee registration, source zone-volume recognition, single-leaf collision trees, localized weapon hints and startup weapon-table guards.
+- Restore default vectors for WaW script structs, including unrotated game-over camera endpoints. Wall buys without display models receive an unmatched target rather than an undefined native lookup.
+- Include exception types in CLI failure messages so exceptions with empty text remain diagnosable.
+- Carry weapon/script rumble profiles and both graph dependencies, preventing a missing `rumble/flamethrower` runtime drop. Translate DLC powerup registration callbacks with their original parameters and initialize the Plutonium flag used by WaW scorebar libraries.
+
 ## v0.2.12
 
 - Linux: the release no longer bundles Python, Tk or system libraries from the build machine (which tied it to Ubuntu 24.04 / glibc 2.39). It runs on the distribution's own Python; the README and START HERE list the packages for Ubuntu/Debian-based distributions, Fedora and Arch, and the app names anything missing.

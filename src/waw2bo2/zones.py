@@ -33,6 +33,14 @@ def read_waw_zones(waw_gsc: str) -> tuple[list[str], list[str]]:
     return initial, adjacency
 
 
+def zone_names(initial: list[str], adjacency: list[str]) -> set[str]:
+    """Every zone a WaW zone graph names (start zones and both ends of each link)."""
+    names = set(initial)
+    for args in adjacency:
+        names.update(re.findall(r'"([^"]+)"', args)[:2])
+    return names
+
+
 def patch_bo2_script(bo2_gsc: str, project: str, initial: list[str], adjacency: list[str]) -> str:
     """Replace the template's single ``start_zone`` setup with the WaW zones."""
     init_block = "".join(f'    init_zones[{i}] = "{z}";\n' for i, z in enumerate(initial))

@@ -206,6 +206,15 @@ def convert(name: str, source: dict[str, str], t4_schema: dict[str, str], t6_sch
         out.fields["offhandSlot"] = slot
         out.translations["offhandSlot"] = {"source": source["offhandClass"], "target": slot,
             "reason": "T4 offhand class -> T6 required inventory slot"}
+    # T4 has no melee inventory: melee always swings the held weapon. T6 swings
+    # the player's melee weapon (knife) unless the held one is useAsMelee, as
+    # BO2's riotshield_zm is. Held items with their own melee (a rake or axe
+    # trap, a shield) keep their own animation and damage.
+    if source.get("inventoryType") == "item" and source.get("meleeAnim") and \
+            float(source.get("meleeDamage") or 0) > 0 and "useAsMelee" not in source:
+        out.fields["useAsMelee"] = "1"
+        out.translations["useAsMelee"] = {"source": "inventoryType item + meleeAnim", "target": "1",
+            "reason": "T4 held item melee swings itself; T6 needs useAsMelee"}
     return out
 
 
