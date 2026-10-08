@@ -6,3 +6,6 @@
 !services/discord_support/requirements.txt
 !services/discord_support/core.py
 !services/discord_support/bot.py
+!services/discord_support/map_compatibility.py
+!catalog/
+!catalog/codrepo-maps.json

@@ -14,6 +14,15 @@ entries live in `catalog/compatibility.json`, keyed by the map's CodRepo
 WordPress post ID. Update that file in a pull request when a reproducible test
 has been completed:
 
+Community members can also run `/map-report` in the configured Discord server,
+search the live CodRepo map index, select **Playable** or **Broken**, and submit
+the WawConverter version, Windows/Linux platform, gameplay link, notes, and
+optional screenshots/logs/crash dumps. The bot opens a labeled public GitHub
+issue; the Pages workflow rebuilds on issue creation, edits, reopening, or
+closure. Those reports appear in each map card and `maps.json` as **unverified
+community evidence**. They never modify the verified statuses below. Reports,
+attachments, and notes are public on GitHub and the compatibility page.
+
 ```json
 {
   "maps": {

@@ -56,17 +56,30 @@ the [discord.py intent guide](https://discordpy.readthedocs.io/en/stable/intents
 
 Invite the bot with the `bot` OAuth2 scope. Grant it **View Channels**, **Read
 Message History**, **Send Messages**, and **Send Messages in Threads** in
-`error-logs`. It joins active report threads. Administrator permission is not
-required. Moderators must unlock inaccessible/locked archived threads when a
-reply cannot be delivered. The listener retries failed deliveries.
+`error-logs`. Also grant **Use Application Commands** (or invite with the
+`applications.commands` OAuth2 scope), plus **Send Messages**, **Embed Links**,
+and **Attach Files** in the regular channel where map reports are submitted.
+The `/map-report` command is registered to server `1557610224641245245` and
+searches CodRepo's live World at War map catalog. It asks for Playable/Broken,
+tool version, Windows/Linux, optional video, test notes, and up to five
+screenshots/log/crash files (8 MiB each; 24 MiB total). Evidence is posted in
+that channel and a public GitHub issue is created; issue changes automatically
+rebuild the public compatibility page. Do not submit private data. The bot
+joins active error-report threads. Administrator permission is not required.
+Moderators must unlock inaccessible/locked archived threads when a reply
+cannot be delivered. The listener retries failed deliveries.
 
 ## Deploy the listener on your remote host
 
 On the remote Linux host with Docker Compose installed, clone the repository,
-then create `services/discord_support/.env` from `.env.example` and fill in the
-Discord token and GitHub token in the host's secret settings or that private
-file. The server and forum IDs are already filled in. `.env` is ignored by Git
-and excluded from the Docker image. Keep the OpenAI key in GitHub's secret
+then create `services/discord_support/.env` from `.env.example` and inject the
+repository secret `DISCORD_TOKEN` into the host's secret store under the same
+environment variable name. Set `GITHUB_TOKEN` there as well. GitHub repository
+secrets are available to Actions workflows, but do not automatically transfer
+to a separately hosted Docker service; the host's secret manager must receive
+the value through your deployment process. Never commit the token or paste it
+into logs. The server and forum IDs are already filled in. `.env` is ignored by
+Git and excluded from the Docker image. Keep the OpenAI key in GitHub's secret
 settings; it is not needed on the listener host.
 
 ```sh
@@ -88,6 +101,12 @@ up to 100 recently archived threads, supplementing live events after a
 disconnect. `POLL_SECONDS=30` controls catch-up and result polling. GitHub runner
 queue times add to investigation latency. Closing a tracking issue does not
 disable new human replies in its Discord thread.
+
+If Railway logs show Discord HTTP 429 with a Cloudflare 1015 page, the egress
+IP is temporarily rate-limited. Stop the deployment retry loop by setting the
+Railway service restart policy to **Never**, wait before trying again, then
+start one replica once. The bot now backs off exponentially (up to 30 minutes)
+on Discord 429 responses so a temporary block does not cause rapid relaunches.
 
 ## What reports include
 

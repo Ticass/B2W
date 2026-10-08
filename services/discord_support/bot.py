@@ -10,8 +10,12 @@ from pathlib import Path
 
 import aiohttp
 import discord
+from discord import app_commands
+from discord.ext import commands
 
-from core import LABEL, MAX_ATTACHMENT, REPLY_MARKER, State, attachment_text, chunks, format_report, message_marker
+from core import LABEL, MAX_ATTACHMENT, REPLY_MARKER, State, attachment_text, chunks, format_report, message_marker, redact
+from map_compatibility import (CodRepoCatalog, MAX_UPLOAD_TOTAL_BYTES,
+    REPORT_LABEL, encode_report_marker, search_maps, valid_video_url, validate_upload)
 
 log = logging.getLogger('discord_support')
 
@@ -20,6 +24,11 @@ class GitHubError(Exception):
     def __init__(self, status: int):
         self.status = status
         super().__init__(f'GitHub HTTP {status}')
+
+
+def discord_login_retry_delay(attempt: int) -> int:
+    """Back off when Discord/Cloudflare rate-limits a bot login."""
+    return min(60 * (2 ** max(0, attempt - 1)), 30 * 60)
 
 
 class GitHub:
@@ -48,13 +57,44 @@ class GitHub:
             page += 1
 
     async def ensure_label(self):
-        try:
-            await self.request('GET', f'/labels/{LABEL}')
-        except GitHubError as error:
-            if error.status != 404:
-                raise
-            await self.request('POST', '/labels', json={'name': LABEL, 'color': '5865F2',
-                'description': 'Error report forwarded from the configured Discord forum'})
+        for name, color, description in (
+            (LABEL, '5865F2', 'Error report forwarded from the configured Discord forum'),
+            (REPORT_LABEL, '2DA44E', 'Community map compatibility report submitted from Discord'),
+        ):
+            try:
+                await self.request('GET', f'/labels/{name}')
+            except GitHubError as error:
+                if error.status != 404:
+                    raise
+                await self.request('POST', '/labels', json={
+                    'name': name, 'color': color, 'description': description})
+
+    async def map_report_issue(self, report: dict, interaction_id: int):
+        report = {**report, 'interaction_id': str(interaction_id)}
+        marker = encode_report_marker(report)
+        async for issue in self.pages(f'/issues?state=all&labels={REPORT_LABEL}'):
+            if 'pull_request' not in issue and (issue.get('body') or '').splitlines()[:1] == [marker]:
+                return issue
+        title = f"[Map compatibility] {report['map_title']} — {report['outcome']}"[:240]
+        files = report.get('attachments', [])
+        file_lines = '\n'.join(f"- [{item['name']}]({item['url']})" for item in files) or '- None attached'
+        details = report.get('known_issues') or 'No additional issues or notes supplied.'
+        video = report.get('video_url') or 'Not supplied'
+        body = (f'{marker}\n\n'
+            '## Community-submitted map compatibility report\n\n'
+            '> Community evidence is not maintainer verification.\n\n'
+            f"- Map: [{report['map_title']}]({report['map_url']}) (CodRepo ID `{report['map_id']}`)\n"
+            f"- Result: **{report['outcome']}**\n"
+            f"- WawConverter version: `{report['tool_version']}`\n"
+            f"- Platform: **{report['platform']}**\n"
+            f"- Reporter: {report['reporter']} (`{report['reporter_id']}`)\n"
+            f"- Submitted: {report['submitted_at']}\n"
+            f"- Discord report: {report['discord_url']}\n"
+            f"- Gameplay video: {video}\n\n"
+            f'### Known issues and test notes\n\n{details}\n\n'
+            f'### Screenshots, logs, and crash dumps\n\n{file_lines}\n')
+        return await self.request('POST', '/issues', json={
+            'title': title, 'body': body, 'labels': [REPORT_LABEL]})
 
     async def issue_for(self, thread_id: int, title: str, report: str):
         marker = f'<!-- discord-thread:{thread_id} -->'
@@ -76,11 +116,186 @@ class GitHub:
         await self.request('POST', f'/issues/{issue}/comments', json={'body': format_report(payload)})
 
 
-class SupportBot(discord.Client):
+def map_report_embed(map_record: dict, outcome: str, platform: str, version: str,
+                     notes: str, video_url: str) -> discord.Embed:
+    label = 'Playable' if outcome == 'playable' else 'Broken'
+    embed = discord.Embed(
+        title=f'Community map report · {label}',
+        description=f"[{discord.utils.escape_markdown(map_record['title'])}]({map_record['url']})",
+        colour=discord.Colour.green() if outcome == 'playable' else discord.Colour.red())
+    embed.add_field(name='WawConverter', value=discord.utils.escape_markdown(version)[:200], inline=True)
+    embed.add_field(name='Platform', value=platform.title(), inline=True)
+    embed.add_field(name='Known issues / test notes', value=(discord.utils.escape_mentions(notes)[:1000] or 'None supplied'), inline=False)
+    if video_url:
+        embed.add_field(name='Gameplay video', value=video_url[:1000], inline=False)
+    embed.set_footer(text='Community report · details and evidence are public on GitHub')
+    return embed
+
+
+class CompatibilityReportModal(discord.ui.Modal):
+    def __init__(self, bot: 'SupportBot', map_record: dict, outcome: str,
+                 interaction: discord.Interaction):
+        title = f"{map_record['title']} · {'Playable' if outcome == 'playable' else 'Broken'}"
+        super().__init__(title=title[:45], timeout=900,
+                         custom_id=f'map-report:{interaction.id}')
+        self.bot = bot
+        self.map_record = map_record
+        self.outcome = outcome
+        self.channel_id = interaction.channel_id
+        self.reporter = str(interaction.user)
+        self.reporter_id = interaction.user.id
+        self.interaction_id = interaction.id
+
+        self.version = discord.ui.TextInput(
+            placeholder='For example, 0.2.14', max_length=64, required=True)
+        self.add_item(discord.ui.Label(text='WawConverter version', component=self.version,
+            description='Use the version shown in the app or About dialog.'))
+        self.platform = discord.ui.RadioGroup(required=True)
+        self.platform.add_option(label='Windows', value='windows')
+        self.platform.add_option(label='Linux', value='linux')
+        self.add_item(discord.ui.Label(text='Platform', component=self.platform))
+        self.video = discord.ui.TextInput(
+            placeholder='https://… (optional)', max_length=1000, required=False)
+        self.add_item(discord.ui.Label(text='Gameplay video link', component=self.video,
+            description='Share an https link if you have one.'))
+        self.notes = discord.ui.TextInput(
+            style=discord.TextStyle.paragraph, placeholder='What worked or failed?',
+            max_length=1500, required=False)
+        self.add_item(discord.ui.Label(text='Known issues and test notes', component=self.notes))
+        self.files = discord.ui.FileUpload(min_values=0, max_values=5, required=False)
+        self.add_item(discord.ui.Label(text='Screenshots, logs, or crash dump', component=self.files,
+            description='Optional · up to 5 files, 8 MiB each. This report is public on GitHub.'))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        uploaded = list(self.files.values or [])
+        total_size = sum(item.size for item in uploaded)
+        for attachment in uploaded:
+            reason = validate_upload(attachment.filename, attachment.size)
+            if reason:
+                await interaction.edit_original_response(content=f'{attachment.filename}: {reason}')
+                return
+        if total_size > MAX_UPLOAD_TOTAL_BYTES:
+            await interaction.edit_original_response(content='Attachments must total 24 MiB or less.')
+            return
+        try:
+            video_url = valid_video_url(self.video.value or '')
+        except ValueError as error:
+            await interaction.edit_original_response(content=str(error))
+            return
+
+        file_objects = []
+        try:
+            for attachment in uploaded:
+                file_objects.append(await attachment.to_file(use_cached=True))
+            channel = interaction.client.get_channel(self.channel_id) or await interaction.client.fetch_channel(self.channel_id)
+            note_text = redact((self.notes.value or '').strip())
+            version = redact(self.version.value.strip())
+            platform = self.platform.value
+            public_message = await channel.send(
+                embed=map_report_embed(self.map_record, self.outcome, platform, version, note_text, video_url),
+                files=file_objects, allowed_mentions=discord.AllowedMentions.none())
+            report = {
+                'map_id': self.map_record['id'], 'map_title': self.map_record['title'],
+                'map_url': self.map_record['url'], 'outcome': self.outcome,
+                'platform': platform, 'tool_version': version,
+                'video_url': video_url, 'known_issues': note_text[:1500],
+                'attachments': [
+                    {'name': item.filename, 'url': item.url, 'size': item.size,
+                     'content_type': item.content_type or ''}
+                    for item in public_message.attachments
+                ],
+                'discord_url': public_message.jump_url,
+                'reporter': self.reporter[:100], 'reporter_id': self.reporter_id,
+                'submitted_at': discord.utils.utcnow().isoformat(),
+            }
+            issue = await self.bot.github.map_report_issue(report, self.interaction_id)
+            embed = public_message.embeds[0]
+            embed.add_field(name='Compatibility record', value=f"[GitHub issue #{issue['number']}]({issue['html_url']})", inline=False)
+            await public_message.edit(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            await interaction.edit_original_response(content=(
+                f"Thanks — the **{self.outcome}** report for **{self.map_record['title']}** was added to the "
+                f"[public compatibility record]({issue['html_url']}). The map page refreshes automatically."))
+        except (aiohttp.ClientError, discord.HTTPException, GitHubError, OSError, ValueError) as error:
+            log.warning('Map compatibility report submission failed (%s)', type(error).__name__)
+            await interaction.edit_original_response(content=(
+                'I could not finish saving this report to GitHub. Please retry `/map-report`; '
+                'the form contents were not saved as a compatibility record.'))
+        finally:
+            for file in file_objects:
+                file.close()
+
+
+class ReportStartView(discord.ui.View):
+    def __init__(self, bot: 'SupportBot', map_record: dict, owner_id: int):
+        super().__init__(timeout=180)
+        self.bot = bot
+        self.map_record = map_record
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message('Run `/map-report` to start your own report form.', ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label='Playable', style=discord.ButtonStyle.success)
+    async def playable(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.send_modal(CompatibilityReportModal(
+            self.bot, self.map_record, 'playable', interaction))
+
+    @discord.ui.button(label='Broken', style=discord.ButtonStyle.danger)
+    async def broken(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.send_modal(CompatibilityReportModal(
+            self.bot, self.map_record, 'broken', interaction))
+
+
+class CompatibilityReportCommands(commands.Cog):
+    def __init__(self, bot: 'SupportBot'):
+        self.bot = bot
+
+    async def map_autocomplete(self, interaction: discord.Interaction, current: str):
+        if interaction.guild_id != self.bot.guild_id:
+            return []
+        return [app_commands.Choice(name=item['title'][:100], value=str(item['id']))
+                for item in search_maps(self.bot.catalog.maps, current)]
+
+    @app_commands.command(name='map-report', description='Submit a public map compatibility report for the GitHub page.')
+    @app_commands.guild_only()
+    @app_commands.checks.cooldown(1, 60.0, key=lambda interaction: interaction.user.id)
+    @app_commands.autocomplete(map_id=map_autocomplete)
+    @app_commands.rename(map_id='map')
+    @app_commands.describe(map_id='Search CodRepo maps by name')
+    async def map_report(self, interaction: discord.Interaction, map_id: str):
+        if interaction.guild_id != self.bot.guild_id:
+            await interaction.response.send_message('Map reports are enabled in the configured support server only.', ephemeral=True)
+            return
+        if isinstance(interaction.channel, discord.Thread) and interaction.channel.parent_id == self.bot.forum_id:
+            await interaction.response.send_message('Use `/map-report` in a regular text channel, not the error-report forum.', ephemeral=True)
+            return
+        try:
+            wanted = int(map_id)
+        except ValueError:
+            wanted = -1
+        map_record = next((item for item in self.bot.catalog.maps if item['id'] == wanted), None)
+        if map_record is None:
+            await interaction.response.send_message('I could not match that map to the CodRepo index. Search again and select a result.', ephemeral=True)
+            return
+        embed = discord.Embed(
+            title='Choose the map result',
+            description=(f"[{discord.utils.escape_markdown(map_record['title'])}]({map_record['url']})\n\n"
+                'Choose the result you tested. The next form asks for tool version, platform, video, notes, and evidence files. '
+                'Submissions are public GitHub issues and appear on the compatibility page.'),
+            colour=discord.Colour.blurple())
+        await interaction.response.send_message(embed=embed,
+            view=ReportStartView(self.bot, map_record, interaction.user.id), ephemeral=True)
+
+
+class SupportBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
-        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
+        super().__init__(command_prefix='!', intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.guild_id = int(os.environ['DISCORD_GUILD_ID'])
         self.forum_id = int(os.environ['DISCORD_FORUM_CHANNEL_ID'])
         self.state = State(Path(os.getenv('STATE_PATH', '/data/support.sqlite3')))
@@ -95,7 +310,25 @@ class SupportBot(discord.Client):
             timeout=aiohttp.ClientTimeout(total=45))
         self.github = GitHub(self.github_session, os.environ['GITHUB_REPOSITORY'])
         await self.github.ensure_label()
-        self.background = [asyncio.create_task(self.forward_loop()), asyncio.create_task(self.reconcile_loop())]
+        self.codrepo_session = aiohttp.ClientSession(
+            headers={'User-Agent': 'B2W-map-compatibility-bot/1.0 (+https://github.com/Ticass/B2W)',
+                     'Accept': 'application/json'},
+            timeout=aiohttp.ClientTimeout(total=90))
+        self.catalog = CodRepoCatalog(self.codrepo_session, Path('/data/codrepo-maps.json'),
+                                      Path('/app/codrepo-maps.json'))
+        await self.catalog.refresh()
+        await self.add_cog(CompatibilityReportCommands(self))
+        guild = discord.Object(id=self.guild_id)
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+        self.background = [asyncio.create_task(self.forward_loop()),
+            asyncio.create_task(self.reconcile_loop()), asyncio.create_task(self.refresh_catalog_loop())]
+
+    async def refresh_catalog_loop(self):
+        await self.wait_until_ready()
+        while not self.is_closed():
+            await asyncio.sleep(12 * 60 * 60)
+            await self.catalog.refresh()
 
     def in_scope(self, channel) -> bool:
         return isinstance(channel, discord.Thread) and channel.parent_id == self.forum_id and channel.guild.id == self.guild_id
@@ -246,10 +479,37 @@ class SupportBot(discord.Client):
         await asyncio.gather(*self.background, return_exceptions=True)
         if hasattr(self, 'github_session'):
             await self.github_session.close()
+        if hasattr(self, 'codrepo_session'):
+            await self.codrepo_session.close()
         self.state.db.close()
         await super().close()
 
 
+async def run_bot(token: str):
+    attempt = 0
+    while True:
+        bot = SupportBot()
+        try:
+            await bot.start(token)
+            await bot.close()
+            return
+        except discord.HTTPException as error:
+            await bot.close()
+            if error.status != 429:
+                raise
+            attempt += 1
+            delay = discord_login_retry_delay(attempt)
+            log.error('Discord returned HTTP 429; retrying in %s seconds (attempt %s)', delay, attempt)
+            await asyncio.sleep(delay)
+        except BaseException:
+            await bot.close()
+            raise
+
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
-    SupportBot().run(os.environ['DISCORD_BOT_TOKEN'], log_handler=None)
+    token = os.environ.get('DISCORD_TOKEN') or os.environ['DISCORD_BOT_TOKEN']
+    try:
+        asyncio.run(run_bot(token))
+    except KeyboardInterrupt:
+        pass
