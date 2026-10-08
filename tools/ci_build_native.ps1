@@ -44,9 +44,9 @@ foreach ($nativeFolder in @('OpenAssetTools', 'OpenAssetToolsT6')) {
         # Build only packaged tools and their dependencies, with bounded parallelism
         # and the 64-bit compiler host on GitHub's Windows runner.
         $nativeTargets = if ($nativeFolder -eq 'OpenAssetTools') {
-            '/t:Tools\UnlinkerCli:Build'
+            '/t:Tools\UnlinkerCli'
         } else {
-            '/t:Tools\Linker:Build;Tools\Unlinker:Build'
+            '/t:Tools\Linker;Tools\Unlinker'
         }
         Invoke-Checked MSBuild.exe @('build/OpenAssetTools.sln', '/m:2', '/nodeReuse:false',
             '/p:Configuration=Release', '/p:Platform=Win32', '/p:PreferredToolArchitecture=x64',
