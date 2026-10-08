@@ -528,6 +528,38 @@ def verify_lobby_tables(ff: Path, unlinker: Path, work: Path, project: str) -> N
             raise RuntimeError(f"custom lobby registration missing from {name} in {ff}")
 
 
+def recover_ipak_images(log: str, roots: list[Path], output: Path,
+                        stock: Path | None, unlinker: Path) -> list[dict]:
+    """Stage the exact images requested by the native ipak writer as IWI27."""
+    from . import all2raw, iwi, techsets
+    from .weapons import output_name
+    recovered = []
+    for name in sorted(set(re.findall(r'Failed to open file for ipak: images/(.+)\.iwi', log))):
+        output_name('image', name)
+        relative = techsets.oat_image_path(name)
+        destination = output / relative
+        if destination.is_file():
+            continue
+        source = next((root / relative for root in roots if (root / relative).is_file()), None)
+        if source is None:
+            source = next((root / relative.with_suffix('.dds') for root in roots
+                           if (root / relative.with_suffix('.dds')).is_file()), None)
+        if source is None and stock is not None:
+            source = all2raw.required_bo2_image(stock, name, unlinker)
+        if source is None:
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.suffix.lower() == '.dds':
+            iwi.convert_file(source, destination)
+        else:
+            if source.read_bytes()[:4] != b'IWi\x1b':
+                raise ValueError(f'ipak image {name}: expected BO2 IWI27: {source}')
+            shutil.copy2(source, destination)
+        recovered.append({'image': name, 'source': str(source), 'output': str(destination)})
+        print(f'Prepared required ipak image {name} from {source}', flush=True)
+    return recovered
+
+
 def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
              asset_root: Path | None = None, extra_asset_roots: list[Path] = (),
              linker: Path | None = None, stock_dump: Path | None = None) -> tuple[Path, list[str]]:
@@ -554,6 +586,8 @@ def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
     (work / "added_dependencies.txt").write_text("\n".join(closure) + "\n", encoding="utf-8")
     linker = linker.resolve() if linker is not None else bo2 / "bin" / "Linker.exe"
     unavailable: list[str] = []
+    image_root = work / 'ipak_images'
+    recovered_images: list[dict] = []
     protected = {line.strip() for line in extra_lines if line.strip() and not line.lstrip().startswith("//")}
     table_override = work / 'lobby_input'
     if asset_root is not None:
@@ -577,6 +611,7 @@ def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
                             "--add-asset-search-path", str(bo2.resolve() / "raw")]
         for root in extra_asset_roots:
             command += ["--add-asset-search-path", str(Path(root).resolve())]
+        command += ["--add-asset-search-path", str(image_root)]
         command += ["--output-folder", str(work / "out"), "mod"]
         proc = captured(command,
                               cwd=str(linker.parent), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -587,6 +622,13 @@ def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
         ff = work / "out" / "mod.ff"
         if not proc.returncode and not errors and ff.exists():
             break
+        recovered = recover_ipak_images(proc.stdout,
+            [*([asset_root] if asset_root is not None else []), *extra_asset_roots,
+             bo2 / 'mods' / TEMPLATE_MAP, bo2 / 'raw'], image_root, stock_dump, unlinker)
+        if recovered:
+            recovered_images.extend(recovered)
+            (work / 'ipak_images.report.json').write_text(json.dumps(recovered_images, indent=2) + '\n')
+            continue
         failed = FAILED_ENTRY_RE.findall(proc.stdout)
         removed = None
         # the last failure is the top-level zone entry; earlier ones are its dependencies

@@ -41,6 +41,16 @@ def ensure_laa(linker: Path) -> None:
 def build(settings: Settings, *, redump: bool = False, root: Path | None = None,
           cache_paths: all2raw.CachePaths | None = None) -> int:
     caches = cache_paths or all2raw.CachePaths.for_settings(settings)
+    # Prepare only missing/stale caches before acquiring the read locks.
+    # prepare() owns the extraction lock itself and resumes cached zones.
+    for game, tool, cache, engine in (
+            (Path(settings.waw), Path(settings.t4) / 'Unlinker.exe', caches.waw, 'T4'),
+            (Path(settings.bo2), Path(settings.t6) / 'Unlinker.exe', caches.bo2, 'T6')):
+        try:
+            all2raw.ready(game, tool, cache, engine=engine)
+        except RuntimeError:
+            print(f'== 1. preparing {engine} shared game assets automatically', flush=True)
+            all2raw.prepare(game, tool, cache, engine=engine)
     # Extraction may prune old generations. Protect the stock view while a
     # build reads it; dependency extraction locks its own separate folders.
     with ExitStack() as locks:

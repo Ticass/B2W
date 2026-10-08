@@ -383,7 +383,7 @@ class Launcher(ttk.Frame):
         self._button(options, 'Advanced Paths', self._toggle_advanced).pack(side='right')
         cache = self._group(tab, 'Shared Game Assets')
         cache.grid(row=3, column=0, sticky='ew', pady=(0, 6))
-        ttk.Label(cache, text='Extract installed WaW and BO2 zones once. All maps reuse this cache.',
+        ttk.Label(cache, text='Build Map prepares shared assets automatically. Extract All prepares them in advance.',
                   style='Muted.TLabel').pack(side='left')
         self.extract_button = self._button(cache, 'Extract All', self._extract_all)
         self.extract_button.pack(side='right', padx=(8, 0))
@@ -452,7 +452,7 @@ class Launcher(ttk.Frame):
         failures = [c for c in all_checks if c.required and not c.ready]
         if not self.busy:
             self.build_button.configure(state='normal')
-            text = 'Ready to build. Output stays separate until you install it.' if not failures else f'{len(failures)} setup items need attention. Click Build Map to see what is missing.'
+            text = 'Ready to build. Shared game assets prepare automatically.' if not failures else f'{len(failures)} setup items need attention. Click Build Map to see what is missing.'
             self.ready_label.configure(text=text, foreground=COLORS['green'] if not failures else COLORS['muted'])
         try:
             paths = BuildPaths.for_settings(settings)

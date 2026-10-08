@@ -169,7 +169,8 @@ def preflight(settings: Settings, *, include_map: bool = True, cache_paths=None)
         caches = cache_paths or CachePaths.for_settings(settings)
         extracted = all((root / 'all2raw.json').is_file() for root in (caches.waw, caches.bo2))
         checks.append(Check('Shared game assets', extracted,
-                            'Extracted; freshness checked when building' if extracted else 'Run Extract All in Setup'))
+                            'Verified and refreshed automatically when building' if extracted else
+                            'Build Map will prepare the shared game assets automatically', required=False))
         source = Path(settings.fastfile)
         valid_source = bool(settings.fastfile) and source.is_file() and source.suffix.lower() == '.ff'
         checks.append(Check('Source map', valid_source, source.name if valid_source else 'Choose the source map fastfile (.ff).'))

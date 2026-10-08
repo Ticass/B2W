@@ -84,12 +84,23 @@ class BuildDriverTests(unittest.TestCase):
                 builddriver.build(self.settings)
         self.assertEqual(run.call_count, 1)
 
-    def test_missing_stock_cache_stops_before_any_native_build(self):
+    def test_failed_cache_preparation_stops_before_any_native_build(self):
         with patch.object(builddriver.all2raw, 'ready', side_effect=RuntimeError('Run Extract All')), \
+             patch.object(builddriver.all2raw, 'prepare', side_effect=RuntimeError('Extraction failed')), \
              patch.object(builddriver, 'run') as run:
-            with self.assertRaisesRegex(RuntimeError, 'Run Extract All'):
+            with self.assertRaisesRegex(RuntimeError, 'Extraction failed'):
                 builddriver.build(self.settings)
         run.assert_not_called()
+
+    def test_stale_cache_is_prepared_once_and_build_continues(self):
+        # WaW stays reusable; only the initially stale BO2 cache is refreshed.
+        with patch.object(builddriver.all2raw, 'ready', side_effect=[self.stock, RuntimeError('stale')]), \
+             patch.object(builddriver.all2raw, 'prepare', return_value=self.stock) as prepare, \
+             patch.object(builddriver, '_build', return_value=0) as pipeline:
+            self.assertEqual(builddriver.build(self.settings), 0)
+        self.assertEqual(prepare.call_count, 1)
+        self.assertEqual(prepare.call_args.kwargs['engine'], 'T6')
+        pipeline.assert_called_once()
 
     def test_real_failed_process_is_not_treated_as_success(self):
         log = self.root / 'failure.log'

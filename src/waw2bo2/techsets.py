@@ -42,6 +42,7 @@ UNLIT_MAP = {
     # WaW tool surfaces that reach the render world are shadow casters
     # (e.g. wc/caulk_shadow); T6 has a dedicated technique for that.
     "tools": ("shadowcaster", ["tools technique mapped to shadowcaster"]),
+    "shadowcaster": ("shadowcaster", []),
 }
 
 
@@ -145,6 +146,7 @@ LAYERED_VERTEX_DATA = False
 # Self-illuminated model techsets with a native T6 model counterpart. Lighting
 # them by the grid darkens bulbs, signs and glows that WaW draws unlit.
 MODEL_UNLIT_MAP = {
+    "treecanopy": "treecanopy",
     "unlit": "unlit_replace",
     "unlit_blend": "unlit_blend",
     "unlit_add": "unlit_add",

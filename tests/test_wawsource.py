@@ -47,6 +47,19 @@ class WawSourceTest(unittest.TestCase):
         self.assertEqual(src.source('material', 'community/surface'), material)
         self.assertIsNone(src.source('material', 'community/missing'))
 
+    def test_partial_tools_raw_does_not_hide_installed_model_sources(self):
+        (self.tools / 'raw/fx').mkdir(parents=True)
+        model = self.waw / 'raw/xmodel/window_damage'
+        model.parent.mkdir(parents=True)
+        model.write_bytes(b'original model')
+        src = wawsource.WawSourceAssets(self.tools, self.waw, self.tmp / 'unlinker.exe', self.tmp / 'work')
+        self.assertEqual(src.raw, self.tools / 'raw')
+        self.assertEqual(src.source('xmodel', 'window_damage'), model)
+        preferred = self.tools / 'raw/xmodel/window_damage'
+        preferred.parent.mkdir()
+        preferred.write_bytes(b'authored revision')
+        self.assertEqual(src.source('xmodel', 'window_damage'), preferred)
+
     def test_draw_family_material_looks_up_unprefixed_raw_source(self):
         material = self.waw / 'raw/materials/$default3d'
         material.parent.mkdir(parents=True)

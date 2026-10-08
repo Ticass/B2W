@@ -223,7 +223,10 @@ def stage(roots: list[Path], project: Path, iwd_dirs: list[Path], stock=None,
             data, source = payload
             form = data[8:12] if data[:4] == b"RIFF" else b""
             suffix = ".xwma" if form == b"XWMA" else Path(original).suffix
-            relative = Path("sound/waw") / Path(original).with_suffix(suffix)
+            # Loaded assets and streamed IWD files can share a source filename
+            # while containing different audio. They also receive different
+            # rate handling downstream, so keep their staged/PCM paths separate.
+            relative = Path("sound/waw") / f"type_{file['type']}" / Path(original).with_suffix(suffix)
             destination = project / relative
             digest = hashlib.sha256(data).hexdigest()
             if relative in written and written[relative] != digest:

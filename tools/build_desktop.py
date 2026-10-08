@@ -41,8 +41,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--native-source-dir', type=Path,
                         help='reuse corresponding source archives for unchanged native binaries')
+    parser.add_argument('--output-dir', type=Path, default=ROOT / 'work/desktop_dist',
+                        help='destination for the portable folder and Windows ZIP')
     args = parser.parse_args()
-    output = ROOT / 'work/desktop_dist'
+    output = args.output_dir.resolve()
     work = ROOT / 'work/desktop_build'
     subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--distpath', str(output),
                     '--workpath', str(work), str(ROOT / 'tools/desktop.spec')], check=True, cwd=ROOT)

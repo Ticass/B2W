@@ -174,6 +174,39 @@ class ModZoneTests(unittest.TestCase):
                 self.assertIn(str((root / "converted").resolve()), run.call_args.args[0])
             self.assertIn("weapon,custom", (root / "build/zone_source/mod.zone").read_text())
 
+    def test_ipak_failure_recovers_exact_stock_image_and_relinks(self):
+        from waw2bo2 import all2raw, iwi
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            template = root / 'bo2/mods/zm_test/zm_test.zone'
+            template.parent.mkdir(parents=True)
+            template.write_text('>game,T6\nmaterial,custom\n')
+            original = root / 'stock_dependency/images/custom.iwi'
+            original.parent.mkdir(parents=True)
+            payload = iwi.solid_rgba_iwi(2, 2, (1, 2, 3, 255))
+            original.write_bytes(payload)
+            calls = []
+            def link(command, **kwargs):
+                calls.append(command)
+                if len(calls) == 1:
+                    return subprocess.CompletedProcess(command, 0,
+                        'ERROR: Failed to open file for ipak: images/custom.iwi\n')
+                self.assertEqual((root / 'build/ipak_images/images/custom.iwi').read_bytes(), payload)
+                ff = root / 'build/out/mod.ff'
+                ff.parent.mkdir(parents=True)
+                ff.write_bytes(b'linked')
+                return subprocess.CompletedProcess(command, 0, '')
+            with patch.object(modzone, 'stock_scripts', return_value=set()), \
+                 patch.object(modzone, 'captured', side_effect=link), \
+                 patch.object(all2raw, 'required_bo2_image', return_value=original) as extract:
+                ff, unavailable = modzone.link_mod(root / 'bo2', root / 'build', root / 'Unlinker.exe',
+                    stock_dump=root / 'stock')
+            self.assertTrue(ff.is_file())
+            self.assertEqual(unavailable, [])
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(extract.call_args.args[1], 'custom')
+            self.assertIn('material,custom', (root / 'build/zone_source/mod.zone').read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

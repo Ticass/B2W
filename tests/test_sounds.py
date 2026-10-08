@@ -133,13 +133,49 @@ class SoundTests(unittest.TestCase):
             result = sounds.stage([root / "source"], root / "output", [])
             self.assertEqual(result["errors"], [])
             self.assertEqual(len(result["aliases"]), 1)
-            self.assertEqual((root / "output/sound/waw/wpn/fire.wav").read_bytes(), payload)
+            self.assertEqual((root / "output/sound/waw/type_1/wpn/fire.wav").read_bytes(), payload)
             self.assertEqual(result["status"], "partial_audio_and_semantic_stage")
             # A fresh source revision can replace generated output, not another
             # asset in this run. This rule must work regardless of map name.
             audio.write_bytes(payload + b"revision")
             sounds.stage([root / "source"], root / "output", [])
-            self.assertEqual((root / "output/sound/waw/wpn/fire.wav").read_bytes(), payload + b"revision")
+            self.assertEqual((root / "output/sound/waw/type_1/wpn/fire.wav").read_bytes(), payload + b"revision")
+
+    def test_loaded_and_streamed_filename_collision_preserves_both_pcm_bindings(self):
+        from waw2bo2 import audio
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, driver = fixture()
+            aliases = root / 'source/soundaliases'
+            aliases.mkdir(parents=True)
+            source['aliases'][0].update(pitchMin=1.0, pitchMax=1.0)
+            (aliases / 'custom_fire.w2bsnd.json').write_text(json.dumps(source))
+            streamed = json.loads(json.dumps(source))
+            streamed['name'] = 'stream_fire'
+            streamed['aliases'][0]['soundFile']['type'] = 2
+            streamed['aliases'][0]['flags'] = (streamed['aliases'][0]['flags'] & ~(3 << 13)) | (2 << 13)
+            (aliases / 'stream_fire.w2bsnd.json').write_text(json.dumps(streamed))
+            globals_path = root / 'source/soundglobals/singleton.w2bsndglobals.json'
+            globals_path.parent.mkdir(parents=True)
+            globals_path.write_text(json.dumps(driver))
+            loaded = audio.canonical_pcm(b'\x01\x00' * 16, 1, 48000)
+            stream = audio.canonical_pcm(b'\x02\x00' * 16, 1, 48000)
+            payload = root / 'source/sound/wpn/fire.wav'
+            payload.parent.mkdir(parents=True)
+            payload.write_bytes(loaded)
+            archive = root / 'map.iwd'
+            with zipfile.ZipFile(archive, 'w') as z:
+                z.writestr('sound/wpn/fire.wav', stream)
+            project = root / 'output'
+            staged = sounds.stage([root / 'source'], project, [archive])
+            self.assertEqual(staged['errors'], [])
+            self.assertEqual(len({entry['output'] for entry in staged['audio']}), 2)
+            decoded = audio.stage(project, project / 'pcm')
+            self.assertEqual(decoded['errors'], [])
+            self.assertEqual(len({entry['pcm_sha256'] for entry in decoded['audio']}), 2)
+            bound = sounds.bind_pcm(project, project / 'pcm')
+            self.assertEqual(bound['errors'], [])
+            self.assertEqual(bound['bound_variants'], 2)
 
     def test_pcm_binding_preserves_pitch_range_and_rejects_stale_files(self):
         from waw2bo2.audio import canonical_pcm

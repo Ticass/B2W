@@ -1268,6 +1268,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 zone.write("".join(f"xanim,{n}\n" for n in xanims))
     # clipmap static models reference their xmodel (collSurfs) in the map zone
     clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
+    # Entity placements need the same complete lookup as script-only models.
+    recover_script_models(report, script_models | clip_models | {m.name for m in world.static_models},
+                          roots, stock_waw, source_waw)
     model_materials = stage_models(report, world, project, stage, project_root, script_models | clip_models, roots,
                                    entity_box_models)
     projectile_models = projectilecollision.recover(report, world, clip, project_root, roots)

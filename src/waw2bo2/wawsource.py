@@ -85,31 +85,33 @@ class WawSourceAssets:
         return problems
 
     def source(self, kind: str, name: str) -> Path | None:
-        if kind == 'xmodel':
-            p = self.raw / 'xmodel' / name
-            return p if p.is_file() else None
-        if kind == "fx":
-            p = self.raw / "fx" / f"{name}.efx"
-            return p if p.is_file() else None
-        if kind == 'material':
-            p = self.raw / 'materials' / name
+        for raw in dict.fromkeys((self.mod_tools / 'raw', self.waw_root / 'raw')):
+            if kind == 'xmodel':
+                p = raw / 'xmodel' / name
+            elif kind == 'fx':
+                p = raw / 'fx' / f'{name}.efx'
+            elif kind == 'material':
+                p = raw / 'materials' / name
+                if p.is_file():
+                    return p
+                family, _, base = name.partition('/')
+                if family in ('mc', 'wc', 'mlv'):
+                    p = raw / 'materials' / base
+            else:
+                continue
             if p.is_file():
                 return p
-            # The linker adds a draw-family prefix; raw materials do not have it.
-            family, _, base = name.partition('/')
-            if family in ('mc', 'wc', 'mlv'):
-                p = self.raw / 'materials' / base
-                return p if p.is_file() else None
-            return None
         return None
 
-    def _workspace(self) -> Path:
+    def _workspace(self, raw: Path | None = None) -> Path:
         # The linker resolves ../raw, ../zone_source, ../zone and the game
         # files (main/iw_00.iwd holds fileSysCheck.cfg) relative to its cwd.
-        ws = self.work / "linker"
+        raw = raw or self.raw
+        from .all2raw import key
+        ws = self.work / "linker" / key(str(raw.resolve()))
         for d in ("bin", "zone_source", "zone/english"):
             (ws / d).mkdir(parents=True, exist_ok=True)
-        _junction(ws / "raw", self.raw)
+        _junction(ws / "raw", raw)
         _junction(ws / "main", self.waw_root / "main")
         return ws
 
@@ -119,11 +121,13 @@ class WawSourceAssets:
         src = self.source(kind, name)
         if src is None:
             return None
+        raw = next(p for p in (self.mod_tools / 'raw', self.waw_root / 'raw')
+                   if src.is_relative_to(p))
         # Engine $ materials are compiled without a draw-family variant. Models
         # imported from other CoD tools can nevertheless name mc/$default3d.
         family, _, base = name.partition('/')
         if (kind == 'material' and family in ('mc', 'wc', 'mlv') and base.startswith('$')
-                and src == self.raw / 'materials' / base):
+                and src == raw / 'materials' / base):
             recovered = self.compile(kind, base)
             from .techsets import oat_material_path
             original = recovered / oat_material_path(base)
@@ -133,11 +137,11 @@ class WawSourceAssets:
             return recovered
         zone = "w2bsrc_" + re.sub(r"[^A-Za-z0-9_]", "_", f"{kind}_{name}").lower()
         out = self.work / zone
-        stamp = f"{src.stat().st_mtime_ns} {src.stat().st_size}"
+        stamp = f"{src.resolve()} {src.stat().st_mtime_ns} {src.stat().st_size}"
         marker = out / DUMP_MARKER
         if marker.exists() and marker.read_text(encoding="utf-8") == stamp:
             return out
-        ws = self._workspace()
+        ws = self._workspace(raw)
         (ws / "zone_source" / f"{zone}.csv").write_text(f"{kind},{name}\n", encoding="ascii")
         ff = ws / "zone" / "english" / f"{zone}.ff"
         if ff.exists():
