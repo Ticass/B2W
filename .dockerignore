@@ -1,0 +1,8 @@
+# Only the listener's source belongs in this image's build context.
+**
+!services/
+!services/discord_support/
+!services/discord_support/Dockerfile
+!services/discord_support/requirements.txt
+!services/discord_support/core.py
+!services/discord_support/bot.py

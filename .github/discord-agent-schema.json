@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "reply", "summary"],
+  "properties": {
+    "status": {"type": "string", "enum": ["needs_info", "diagnosed", "fix_proposed", "blocked"]},
+    "reply": {"type": "string", "description": "Plain-language reply to the Discord reporter. State evidence and ask for specific missing information."},
+    "summary": {"type": "string", "description": "Concrete description of the issue and any proposed code change for a PR reviewer."}
+  }
+}

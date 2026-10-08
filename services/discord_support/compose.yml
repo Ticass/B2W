@@ -1,0 +1,24 @@
+services:
+  discord-support:
+    build:
+      context: ../..
+      dockerfile: services/discord_support/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - support-state:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+volumes:
+  support-state:

@@ -1,0 +1,191 @@
+name: Investigate Discord error report
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+# A follow-up waits for the current investigation and uses the whole conversation.
+concurrency:
+  group: discord-report-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  investigate:
+    if: >-
+      vars.DISCORD_BOT_GITHUB_LOGIN != '' &&
+      github.actor == vars.DISCORD_BOT_GITHUB_LOGIN &&
+      !github.event.issue.pull_request &&
+      contains(github.event.issue.labels.*.name, 'discord-report') &&
+      (github.event_name == 'issues' || startsWith(github.event.comment.body, '<!-- discord-message:'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      sha: ${{ steps.prepare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install investigation and bot test dependencies
+        run: python -m pip install -e . imageio-ffmpeg==0.6.0 -r services/discord_support/requirements.txt
+      - name: Copy trusted collection helper outside the agent workspace
+        run: sudo install -D -m 0444 tools/discord_agent_pipeline.py /opt/discord-support-trusted/pipeline.py
+      - name: Collect report conversation and screenshots
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/discord_agent_pipeline.py prepare
+      - name: Investigate and propose a regression-tested fix
+        id: codex
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ':workspace'
+          safety-strategy: drop-sudo
+          allow-users: ${{ vars.DISCORD_BOT_GITHUB_LOGIN }}
+          allow-bot-users: ${{ vars.DISCORD_BOT_GITHUB_LOGIN }}
+          prompt-file: .github/discord-agent-prompt.md
+          output-schema-file: .github/discord-agent-schema.json
+          output-file: ${{ runner.temp }}/discord-agent-result.json
+          codex-args: ${{ steps.prepare.outputs.codex_args }}
+      - name: Collect proposed patch and findings
+        run: python /opt/discord-support-trusted/pipeline.py collect --result "$RUNNER_TEMP/discord-agent-result.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: discord-investigation
+          path: work/discord_result/
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    needs: investigate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.patch.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.investigate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: discord-investigation
+          path: work/discord_result
+      - name: Validate patch boundaries and apply
+        id: patch
+        run: |
+          python tools/discord_agent_pipeline.py validate
+          if test -s work/discord_result/fix.patch; then
+            git apply work/discord_result/fix.patch
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Verify proposed fix on the runner
+        if: steps.patch.outputs.changed == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: |
+          python -m pip install Pillow imageio-ffmpeg==0.6.0
+          python -m unittest discover -s tests
+
+  publish:
+    needs: [investigate, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      BRANCH: codex/discord-report-${{ github.event.issue.number }}-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.investigate.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: discord-investigation
+          path: work/discord_result
+      - name: Revalidate immutable investigation artifact before publication
+        run: python tools/discord_agent_pipeline.py validate
+      - name: Create draft PR and dispatch Windows/Linux CI
+        if: needs.verify.outputs.changed == 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git apply work/discord_result/fix.patch
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git add src/waw2bo2 tests tools vendor/OpenAssetToolsT6/src vendor/OpenAssetTools.patch docs
+          git commit -m "Investigate Discord report #$ISSUE_NUMBER"
+          remote_sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          if test -n "$remote_sha"; then
+            git fetch --no-tags origin "refs/heads/$BRANCH"
+            # A publication rerun reuses the branch only if the proposed tree matches.
+            git diff --exit-code HEAD FETCH_HEAD
+          else
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+          python -c 'import json, pathlib; d=json.loads(pathlib.Path("work/discord_result/result.json").read_text()); pathlib.Path("work/discord_result/pr-body.md").write_text(d["summary"] + "\n\nFixes #" + __import__("os").environ["ISSUE_NUMBER"] + "\n\nValidation: Python regression suite passed on Ubuntu. Windows/Linux packaging CI was requested separately.\n")'
+          existing=$(gh pr list --head "$BRANCH" --state all --json url --jq '.[0].url // empty')
+          if test -z "$existing"; then
+            gh pr create --draft --base "$DEFAULT_BRANCH" --head "$BRANCH" --title "Fix Discord report #$ISSUE_NUMBER" --body-file work/discord_result/pr-body.md > work/discord_result/pr-url.txt
+          else
+            printf '%s\n' "$existing" > work/discord_result/pr-url.txt
+          fi
+          gh workflow run ci.yml --ref "$BRANCH"
+      - name: Post findings or follow-up question
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync('work/discord_result/result.json', 'utf8'));
+            let body = '<!-- discord-agent-reply -->\n' + result.reply;
+            if (fs.existsSync('work/discord_result/pr-url.txt')) {
+              body += '\n\nProposed fix (draft PR): ' + fs.readFileSync('work/discord_result/pr-url.txt', 'utf8').trim();
+              body += '\nWindows/Linux build checks are queued. This fix is awaiting review and has not been released.';
+            }
+            await github.rest.issues.createComment({...context.repo,
+              issue_number: context.payload.issue.number, body: body.slice(0, 15000)});
+
+  failure_notice:
+    needs: [investigate, verify, publish]
+    if: >-
+      always() &&
+      (needs.investigate.result == 'failure' || needs.verify.result == 'failure' || needs.publish.result == 'failure')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({...context.repo,
+              issue_number: context.payload.issue.number,
+              body: '<!-- discord-agent-reply -->\nThe automated investigation encountered a service or verification failure. A maintainer needs to inspect this run before I can claim a fix: ' + url});

@@ -1,0 +1,19 @@
+name: Bleeding edge builds
+
+on:
+  push:
+    branches:
+      - '**'
+      - '!release/nightly/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Keep every pushed commit's build; do not cancel an older build on a new push.
+jobs:
+  packages:
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ github.sha }}
