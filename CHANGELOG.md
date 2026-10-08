@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.14
+
+- Recreate the generated owned client bootstrap before script compilation, fixing Linux/Wine builds that retained a partial staging tree and then failed on `clientscripts/mp/waw/_waw2bo2_zm.csc`.
+
 ## v0.2.13
 
 - Preserve each WaW zombie spawner's original actor, character selection, body/head models and dependencies instead of using Nuketown's characters. Animated models use the T6 dynamic renderer flags and retain every source LOD and distance.
