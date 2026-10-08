@@ -215,10 +215,13 @@ namespace BSP
         }
 
         const auto visHex = js.at("pathVis").get<std::string>();
-        const auto expectedVisBytes = static_cast<size_t>(nodeCount) * (nodeCount ? nodeCount - 1 : 0) / 8;
-        if (visHex.size() != expectedVisBytes * 2)
+        const auto visBits = static_cast<size_t>(nodeCount) * (nodeCount ? nodeCount - 1 : 0);
+        const auto floorVisBytes = visBits / 8;
+        const auto ceilVisBytes = (visBits + 7) / 8;
+        const auto expectedVisBytes = visHex.size() / 2;
+        if (visHex.size() % 2 || (expectedVisBytes != floorVisBytes && expectedVisBytes != ceilVisBytes))
         {
-            con::error("pathVis has {} bytes, expected n*(n-1)/8 = {}", visHex.size() / 2, expectedVisBytes);
+            con::error("pathVis has {} bytes, expected {} or {}", expectedVisBytes, floorVisBytes, ceilVisBytes);
             return false;
         }
         path.visBytes = static_cast<int>(expectedVisBytes);

@@ -40,9 +40,12 @@ param(
     [switch]$NoWawSourceFx,
     [string]$XwmaDecoder,
     [string]$PythonExe = 'python',
-    [switch]$NoInstall
+    [switch]$NoInstall,
+    [switch]$Bo2StockPerks
 )
 $fxFallbackArgs = @()
+$perkArgs = @()
+if ($Bo2StockPerks) { $perkArgs = @('--bo2-stock-perks') }
 if ($FxFallback) { $fxFallbackArgs = @('--fx-fallback') }
 $sourceFxArgs = @('--waw-mod-tools', $WawModTools)
 if (-not $NoWawSourceFx) {
@@ -63,7 +66,7 @@ if (-not (Test-Path -LiteralPath $XwmaDecoder)) { throw "Native XWMA bridge miss
 
 Write-Host "== 0. dumping WaW clipmap and companion zones"
 & (Join-Path $OatT4 'Unlinker.exe') --no-color --search-path $wawSearch `
-    --model-format GLTF --include-assets 'clipmap,gfxworld,gameworldsp,comworld,lightdef,fx,weapon,xanim,sound,loadedsound,rawfile,physpreset,snddriverglobals,xmodel' --output-folder $Stage (Join-Path $MapMod "$MapZone.ff") *> (Join-Path $Stage 'clip_dump.log')
+    --model-format GLTF --include-assets 'clipmap,mapents,gfxworld,gameworldsp,comworld,lightdef,fx,weapon,xanim,sound,loadedsound,rawfile,physpreset,snddriverglobals,xmodel' --output-folder $Stage (Join-Path $MapMod "$MapZone.ff") *> (Join-Path $Stage 'clip_dump.log')
 if ($LASTEXITCODE) { throw "clipmap dump failed ($LASTEXITCODE)" }
 # map scripts are plain rawfiles in the WaW map zone (zone graph, etc.)
 & (Join-Path $OatT4 'Unlinker.exe') --no-color --search-path $wawSearch `
@@ -184,7 +187,7 @@ Write-Host "== 2. staging $Project"
     --iwd-dir $MapMod --iwd-dir (Join-Path $Waw 'main') `
     --waw-map-script (Join-Path $WawDumps "map_rawfiles\maps\$MapZone.gsc") `
     --waw-script-root $modRaw --waw-stock-scripts $stockScripts --t6-unlinker (Join-Path $OatT6 'Unlinker.exe') `
-    @fxFallbackArgs @sourceFxArgs `
+    @fxFallbackArgs @sourceFxArgs @perkArgs `
     --waw-root $Waw --t4-unlinker (Join-Path $OatT4 'Unlinker.exe') --waw-stock-dumps (Join-Path $WawDumps 'stock') `
     --xwma-decoder $XwmaDecoder `
     --approximate-sound-curves `

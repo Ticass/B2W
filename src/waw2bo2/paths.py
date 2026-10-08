@@ -175,9 +175,10 @@ def convert_paths(waw: dict, substates: set[str] | None = None) -> tuple[dict, d
     if count > 0xFFFF - 128:
         raise PathError(f"{count} path nodes exceed the uint16 node index range")
     vis_hex = waw.get("pathVis", "")
-    expected = count * (count - 1) // 8 if count else 0
-    if waw.get("visBytes", 0) and waw["visBytes"] != expected:
-        raise PathError(f"visBytes {waw['visBytes']} is not n*(n-1)/8 = {expected}; unknown vis layout")
+    bits = count * (count - 1)
+    sizes = {bits // 8, (bits + 7) // 8}
+    if waw.get("visBytes", 0) and waw["visBytes"] not in sizes:
+        raise PathError(f"visBytes {waw['visBytes']} is outside {sorted(sizes)} for {count} nodes; unknown vis layout")
     if len(vis_hex) != 2 * waw.get("visBytes", 0):
         raise PathError("pathVis hex length does not match visBytes")
 

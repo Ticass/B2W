@@ -31,11 +31,12 @@ from __future__ import annotations
 import json
 import re
 import zipfile
+import copy
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import gsc, oneway
+from . import gsc, oneway, stockperks
 from .t6api import T6Api
 
 COMPAT_DIR = Path(__file__).parent / "compat"
@@ -243,12 +244,18 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
 # level.chests / chest_index: WaW's box triggers vs BO2 _zm_magicbox structs
 # (BO2 powerups such as fire sale iterate level.chests as BO2 structs).
 WAW_LEVEL_FIELDS = {"script": "waw_script", "chests": "waw_chests", "chest_index": "waw_chest_index", "_effect": "waw_effect"}
+WAW_BOX_FLAGS = {'moving_chest_enabled', 'moving_chest_now', 'chest_has_been_used'}
 
 
 def rename_level_fields(tokens: list[gsc.Token]) -> int:
     renamed = 0
     for i in range(2, len(tokens)):
         t = tokens[i]
+        # Both box controllers initialize/use these flags. Source code must
+        # never clear BO2's state (or have BO2 clear a source relocation).
+        if t.kind == gsc.STRING and t.text.startswith('"') and t.text[1:-1] in WAW_BOX_FLAGS:
+            t.text = '"waw_' + t.text[1:-1] + '"'
+            renamed += 1
         if t.kind == gsc.IDENT and t.low in WAW_LEVEL_FIELDS and tokens[i - 1].text == "." and \
                 tokens[i - 2].low == "level" and (i + 1 >= len(tokens) or tokens[i + 1].text != "("):
             t.text = WAW_LEVEL_FIELDS[t.low]
@@ -297,6 +304,29 @@ def bridge_revive_reads(tokens: list[gsc.Token]) -> int:
             t.text = t.pre = ""
         count += 1
     return count
+
+
+def bridge_hud_cleanup(tokens: list[gsc.Token], index: int) -> bool:
+    """Call the idempotent native HUD cleanup by argument, not receiver.
+
+    Called only after resolving destroyElem to BO2's HUD utility. A source
+    implementation with the same name retains its own behavior.
+    """
+    if index < 1 or tokens[index - 1].kind != gsc.IDENT:
+        return False
+    start = index - 1
+    # Support simple variables and dotted fields; more complex receivers
+    # are left intact rather than risking a change to expression ownership.
+    while start >= 2 and tokens[start - 1].text == "." and tokens[start - 2].kind == gsc.IDENT:
+        start -= 2
+    if start and tokens[start - 1].text in (".", "]", ")", "thread"):
+        return False
+    receiver = gsc.emit(tokens[start:index]).strip()
+    tokens[start].text = f"{COMPAT}::waw_destroy_hud_elem( {receiver} )"
+    tokens[start].kind = gsc.PUNCT
+    for token in tokens[start + 1:index + 3]:
+        token.text = token.pre = ""
+    return True
 
 
 def keep_bo2_deathanims(tokens: list[gsc.Token]) -> int:
@@ -515,6 +545,7 @@ class Translator:
         self.core_animtrees: dict[str, set[str]] = {}
         self.level_state_parts: list[str] = []
         self.anim_neutralized = False
+        self.bo2_stock_perks = False
 
     # ---- classification -------------------------------------------------
     def owner(self, script: gsc.Script, name: str) -> str | None:
@@ -628,6 +659,10 @@ class Translator:
             if t.kind != gsc.DIRECTIVE or not t.text.lower().startswith("#include"):
                 continue
             inc = norm(gsc.INCLUDE_RE.match(t.text).group(1))
+            if self.bo2_stock_perks and stockperks.is_perk_framework(inc):
+                t.text = r"#include maps\mp\zombies\_zm_perks;"
+                included_bo2.add(r"maps\mp\zombies\_zm_perks")
+                continue
             if is_core(inc, self.sources):
                 mapped = API["core_scripts"].get(inc)
                 if mapped and mapped not in included_bo2 and mapped not in new_includes:
@@ -678,6 +713,31 @@ class Translator:
             name = ref.name.lower()
             where = f"{where_file}:{tok.line}"
             argc = None if ref.pointer else _argc(tokens, ref.index)
+            perk_owner = norm(ref.qualifier) if ref.qualifier else self.owner(script, name)
+            if self.bo2_stock_perks and stockperks.is_perk_framework(perk_owner):
+                native = r"maps\mp\zombies\_zm_perks"
+                if name == "init":
+                    repl = f"{COMPAT}::stock_perks_noop"
+                elif name in ('perk_hud_create', 'perk_think'):
+                    repl = f"{COMPAT}::stock_perks_owned_by_bo2"
+                elif name == 'regret_purchase':
+                    repl = f"{COMPAT}::stock_perks_no_refund"
+                elif name == 'play_no_money_perk_dialog':
+                    repl = f"{COMPAT}::stock_perks_no_money"
+                elif name == 'perk_vo':
+                    repl = r"maps\mp\zombies\_zm_audio::perk_vox"
+                elif self.api.defines(native, name):
+                    repl = f"{native}::{name}"
+                else:
+                    self.report.errors.append(f"{where}: stock BO2 perks have no equivalent for {perk_owner}::{name}")
+                    repl = self.stub(f"{perk_owner}::{name}", name, argc, where)
+                if ref.qualifier:
+                    tokens[ref.qual_index].text = ""
+                    tokens[ref.qual_index + 1].text = ""
+                elif ref.pointer:
+                    tokens[ref.index - 1].text = ""
+                tok.text = repl
+                continue
             if ref.qualifier is not None:
                 target = norm(ref.qualifier)
                 qual_tok = tokens[ref.qual_index]
@@ -729,6 +789,12 @@ class Translator:
                     self.report.rewrites[f"builtin {name}: {argc - rng[1]} WaW-only argument(s) dropped"] += 1
                     argc = rng[1]
                 repl = self.resolve_builtin(name, argc, where, script, included_bo2, method)
+            if (name == "destroyelem" and ref.method and argc == 0 and
+                    ((owner is not None and API["core_scripts"].get(owner) == r"maps\mp\gametypes_zm\_hud_util") or
+                     repl == r"maps\mp\gametypes_zm\_hud_util::destroyelem")):
+                if bridge_hud_cleanup(tokens, ref.index):
+                    self.report.rewrites["idempotent native HUD cleanup"] += 1
+                    continue
             if repl is not None:
                 if extracting is not None and repl.startswith(f"{CORE}::"):
                     repl = repl.removeprefix(f"{CORE}::")     # same synthetic file
@@ -876,6 +942,8 @@ class Translator:
             if ref.qualifier is None or ref.pointer or ref.method:
                 continue
             target = norm(ref.qualifier)
+            if self.bo2_stock_perks and stockperks.is_perk_framework(target):
+                continue
             if is_core(target, self.sources):
                 continue
             dep = self.sources.get(target)
@@ -941,13 +1009,19 @@ class Translator:
 
 def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
              fx_table: dict[str, str] | None = None, animtrees: set[str] | None = None,
-             core_animtrees: dict[str, set[str]] | None = None) -> PortReport:
+             core_animtrees: dict[str, set[str]] | None = None, bo2_stock_perks: bool = False) -> PortReport:
     """Translate the map main and everything it reaches into out_root/maps/mp/waw.
     ``animtrees``: animtree names BO2 can load (stock + converted).
     ``core_animtrees``: WaW framework-override animtrees staged for BO2 -> their
     animations with WaW xanims (t6bridge.stage_core_animtrees)."""
+    if bo2_stock_perks:
+        sources = copy.copy(sources)
+        sources.text = {key: stockperks.translate_literals(text) for key, text in sources.text.items()}
+        sources.stock = {key: stockperks.translate_literals(text) for key, text in sources.stock.items()}
+        sources._parsed = {}
     report = PortReport(map_main=f"maps\\{map_name}")
     tr = Translator(sources, api, report)
+    tr.bo2_stock_perks = bo2_stock_perks
     tr.animtrees = {a.lower() for a in animtrees or ()}
     tr.core_animtrees = {t.lower(): {a.lower() for a in names} for t, names in (core_animtrees or {}).items()}
     main = f"maps\\{map_name}"
@@ -1264,7 +1338,7 @@ def weapons_source(registration: dict[str, list[str | None]]) -> str:
               '    maps\\mp\\zombies\\_zm_weapons::add_zombie_weapon( "m1911_zm", "m1911_upgraded_zm", '
               '&"ZOMBIE_WEAPON_M1911", 50, "", "", undefined );']
     lines += [f"    {CORE}::{fn}();" for fn in registration.get("add", []) if fn]
-    lines += ["}", "", "// the WaW mystery box, after BO2 _zm_magicbox::init (it re-inits the shared chest flags)",
+    lines += ["}", "", "// The WaW mystery box, after BO2 _zm_magicbox::init, with independent chest flags.",
               "start_box()", "{"]
     lines += [f"    {CORE}::{fn}();" for fn in registration.get("box_state", []) if fn]
     lines += [f"    {CORE}::{fn}();" for fn in registration.get("box", []) if fn]
@@ -1461,7 +1535,7 @@ BO2_PERK_OVERRIDES = (
 )
 
 
-def stage_bo2_perk_support(out_root: Path, bo2_root: Path) -> None:
+def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: bool = False) -> None:
     """Suppress BO2 machine/purchase controllers and HUD in converted WaW maps.
 
     Preserve the stock exports for BO2 framework callers and register its
@@ -1470,6 +1544,10 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path) -> None:
     registration remains intact, but its LUI code callbacks are never bound:
     native setperk must apply effects without drawing a second perk HUD.
     """
+    if not bo2_stock_perks:
+        for prefix, ext in (('maps', 'gsc'), ('clientscripts', 'csc')):
+            for module in stockperks.MODULES:
+                (out_root / f'{prefix}/mp/waw/_waw2bo2_perk_{module}.{ext}').unlink(missing_ok=True)
     for name in BO2_PERK_OVERRIDES:
         source = (bo2_root / "raw" / name).read_text(encoding="utf-8")
         script = gsc.parse(source, name)
@@ -1513,7 +1591,10 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path) -> None:
                 t.text = ""
         dest = out_root / name
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(PERK_OVERRIDE_HEADER + gsc.emit(script.tokens), encoding="utf-8")
+        text = gsc.emit(script.tokens)
+        if bo2_stock_perks:
+            text = stockperks.native_source(source, name, out_root, bo2_root)
+        dest.write_text(PERK_OVERRIDE_HEADER + text, encoding="utf-8")
 
     # Stock CSCs can already be linked by the base zone before a same-name
     # map asset arrives. Use unique script names and an explicit map entry

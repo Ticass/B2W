@@ -87,7 +87,7 @@ class Resolver:
             return path.with_suffix(".xwma")
         return None
 
-    def children(self, kind: str, path: Path) -> set[tuple[str, str]]:
+    def children(self, kind: str, path: Path, name: str | None = None) -> set[tuple[str, str]]:
         children = set()
         if kind == "weapon":
             source = weapons.read_info(path.read_text(encoding="utf-8"))
@@ -115,11 +115,29 @@ class Resolver:
             model = json.loads(path.read_text())
             if model.get("physPreset"):
                 children.add(("physpreset", model["physPreset"]))
-            root = next(r for r in self.roots if path.is_relative_to(r))
+            root = next(r for r in self.roots if path == r / asset_path(kind, name)) if name is not None else \
+                next(r for r in self.roots if path.is_relative_to(r))
+            files = [lod['file'] for lod in model.get('lods', [])]
+            missing = [file for file in files if weapons.model_lod_source(self.roots, root, file) is None]
+            if missing and self.stock is not None and name is not None:
+                # Preserve source metadata; fetch only the exact named WaW
+                # model's exported geometry, never a substitute weapon/model.
+                result = self.stock.root_for('xmodel', name)
+                if result is not None:
+                    zone, stock_root = result
+                    self.stock_roots[zone] = stock_root
             for lod in model.get("lods", []):
                 file = lod["file"]
-                weapons.output_name("model_file", file)
-                gltf = json.loads((root / file).read_text())
+                source = weapons.model_lod_source(self.roots, root, file)
+                if source is None:
+                    node = self.nodes.get((kind, name))
+                    if node is not None:
+                        node['status'] = 'missing_model_geometry'
+                        node.setdefault('missing_files', []).append(file)
+                    continue
+                if source != root / file and name is not None:
+                    self.nodes[kind, name].setdefault('recovered_geometry', []).append(str(source))
+                gltf = json.loads(source.read_text())
                 children.update(("material", m["name"]) for m in gltf.get("materials", []))
         elif kind == "material":
             material = json.loads(path.read_text())
@@ -160,7 +178,7 @@ class Resolver:
                 node.update(provenance="WAW_STOCK_ASSET", zone=zone)
             else:
                 node["provenance"] = "map_or_companion"
-            for child_kind, child_name in self.children(kind, path):
+            for child_kind, child_name in self.children(kind, path, name):
                 asset_path(child_kind, child_name)
                 self.edges.add((kind, name, child_kind, child_name))
                 pending.add((child_kind, child_name))

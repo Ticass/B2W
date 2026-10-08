@@ -265,6 +265,7 @@ def _stage_bridge(args: argparse.Namespace) -> int:
         waw_stock_scripts=args.waw_stock_scripts.resolve() if args.waw_stock_scripts else None,
         t6_unlinker=args.t6_unlinker.resolve() if args.t6_unlinker else None,
         fx_fallback=args.fx_fallback,
+        bo2_stock_perks=args.bo2_stock_perks,
         waw_root=args.waw_root.resolve() if args.waw_root else None,
         t4_unlinker=args.t4_unlinker.resolve() if args.t4_unlinker else None,
         waw_stock_dumps=args.waw_stock_dumps.resolve() if args.waw_stock_dumps else None,
@@ -514,6 +515,8 @@ def parser() -> argparse.ArgumentParser:
     sb_p.add_argument("--approximate-sound-curves", action="store_true",
                       help="compat: bind WaW falloff curves no stock BO2 curve matches to the nearest shape "
                            "(each one reported as APPROXIMATED_SOUND_CURVE)")
+    sb_p.add_argument('--bo2-stock-perks', action='store_true',
+                      help='Opt in to stock BO2 perk gameplay; only for maps whose perks all have BO2 equivalents')
     sb_p.set_defaults(func=_stage_bridge)
     bm_p = sub.add_parser("build-mod", help="link the zombies gameplay mod.ff with the BO2 mod tools linker")
     bm_p.add_argument("stage", type=Path)

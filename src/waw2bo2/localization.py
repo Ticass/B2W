@@ -63,6 +63,31 @@ def source_files(root: Path, language: str) -> list[Path]:
                    *root.glob('localizedstrings/**/*.str')})
 
 
+def price_variant(key: str, sources: dict[str, tuple[str, str]]) -> tuple[str, str] | None:
+    """Extend an authored stock hint family to the map's additional price.
+
+    Only accept a family whose texts differ solely in the encoded cost. This
+    retains button placeholders, language and source wording without guessing.
+    """
+    match = re.fullmatch(r'(ZOMBIE_BUTTON_BUY_(?:OPEN_DOOR|OPEN_AREA|CLEAR_DEBRIS)_)([0-9]+)', key)
+    if match is None:
+        return None
+    family, cost = match.groups()
+    templates = {}
+    for candidate, (value, origin) in sorted(sources.items()):
+        old_cost = candidate.removeprefix(family)
+        if not candidate.startswith(family) or not old_cost.isdigit():
+            continue
+        pattern = rf'(?<![0-9]){re.escape(old_cost)}(?![0-9])'
+        if len(re.findall(pattern, value)) != 1:
+            continue
+        templates.setdefault(re.sub(pattern, '{waw_cost}', value), origin)
+    if len(templates) != 1:
+        return None
+    template, origin = next(iter(templates.items()))
+    return template.replace('{waw_cost}', cost), origin
+
+
 def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
           unlinker: Path | None = None, work: Path | None = None,
           raw_roots: list[Path] = (), bo2_root: Path | None = None,
@@ -169,6 +194,10 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
     for key in sorted(requested):
         hit = sources.get(key)
         origin_kind = 'WaW'
+        if hit is None:
+            hit = price_variant(key, sources)
+            if hit is not None:
+                origin_kind = 'WAW_PRICE_VARIANT'
         if hit is None and key in fallback:
             hit, origin_kind = fallback[key], 'BO2_EXACT_FALLBACK'
         if hit is None and equivalents.get(key) in fallback:

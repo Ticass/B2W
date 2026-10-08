@@ -516,8 +516,11 @@ def stage_source_skybox(report: StageReport, project: str, project_root: Path, r
     model = _load_json(source_file)
     donor = _load_json(bo2_root / "raw/materials" / f"{SKYBOX_MATERIAL}.json")
     material_names = set()
+    source_root = next(root for root in roots if root / 'xmodel' / f'{source_name}.json' == source_file)
     for lod in model["lods"]:
-        original = source_file.parent.parent / lod["file"]
+        original = weapons.model_lod_source(roots, source_root, lod["file"])
+        if original is None:
+            raise StageError(f"source sky model {source_name}: geometry {lod['file']} missing from WaW assets")
         mesh = _load_json(original)
         material_names.update(m["name"] for m in mesh.get("materials", []))
         destination = project_root / lod["file"]
@@ -675,8 +678,8 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
         xm = _load_json(src_root / "xmodel" / f"{src_name}.json")
         lods = []
         for lod in xm.get("lods", []):
-            gltf = src_root / lod["file"]
-            if not gltf.exists():
+            gltf = weapons.model_lod_source(roots or [stage], src_root, lod["file"])
+            if gltf is None:
                 report.errors.append(f"xmodel {src_name}: LOD file {lod['file']} missing")
                 continue
             dst_file = project_root / lod["file"]
@@ -696,7 +699,7 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
         xm["_game"] = "t6"
         xm["lods"] = lods
         if dst_name in entity_box_models and not xm.get("collSurfs"):
-            bounds = _gltf_game_bounds(src_root / lods[0]["file"])
+            bounds = _gltf_game_bounds(weapons.model_lod_source(roots or [stage], src_root, lods[0]["file"]))
             if bounds is None:
                 report.errors.append(f"xmodel {src_name}: no LOD0 positions for its script_model collision box")
             else:
@@ -865,11 +868,29 @@ def write_amb_csc(report: StageReport, project: str, project_root: Path) -> None
     dst.write_text(text, encoding="utf-8")
 
 
+def source_entities(gfx_bin: Path, stage: Path, roots: list[Path]) -> Path:
+    """The world exporter and ordinary mapents dumper use different roots."""
+    name = gfx_bin.name.removesuffix('.gfx.bin') + '.ents'
+    candidates = [gfx_bin.parent / name, stage / 'maps' / name]
+    for root in roots:
+        candidates.extend((root / 'maps' / name, root / 'maps/mp' / name))
+    return next((p for p in candidates if p.is_file()), candidates[0])
+
+
 def stage_scripts(report: StageReport, project: str, project_root: Path,
                   template_root: Path | None, template_name: str | None) -> None:
     for folder, pattern in SCRIPT_FILES:
         dst = project_root / folder / pattern.format(p=project)
         if dst.exists():
+            continue
+        # The shipped BO2 zm_test template has client ambience but no server
+        # _amb script. WaW ambience remains in the imported source scripts.
+        if folder == 'maps/mp' and pattern == '{p}_amb.gsc' and (
+                template_root is None or template_name is None or
+                not (template_root / folder / pattern.format(p=template_name)).is_file()):
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text('// Server ambience runs in the imported WaW scripts.\nmain()\n{\n}\n', encoding='utf-8')
+            report.warnings.append(f'script {dst.name} generated: WaW owns server ambience')
             continue
         if template_root is None or template_name is None:
             report.errors.append(f"script {dst.relative_to(project_root).as_posix()} missing")
@@ -1149,7 +1170,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                  waw_stock_dumps: Path | None = None, waw_mod_tools: Path | None = None,
                  waw_source_dumps: Path | None = None, wavelet_binary: Path | None = None,
                  audio_decoder: Path | None = None, xwma_decoder: Path | None = None,
-                 t6_sound_driver: Path | None = None, approximate_sound_curves: bool = False) -> StageReport:
+                 t6_sound_driver: Path | None = None, approximate_sound_curves: bool = False,
+                 bo2_stock_perks: bool = False) -> StageReport:
     """Stage everything the bridge links. ``extra_roots`` are unlinker dumps of
     the zones WaW loads with the map (mod.ff, common.ff): references the map
     zone does not define resolve there, in that order."""
@@ -1173,9 +1195,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     world = progress.timed('Read map world', read_gfx_world, gfx_bin)
     clip = progress.timed('Read map collision', read_collision, clip_bin)
     sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw)
-    ents_file = gfx_bin.parent / f"{gfx_bin.name.removesuffix('.gfx.bin')}.ents"
-    if not ents_file.exists():
-        ents_file = stage / "maps" / ents_file.name
+    ents_file = source_entities(gfx_bin, stage, roots)
     script_models: set[str] = set()
     # map-placed script_model entities: WaW collides each one (see hulls.SCRIPT_MODEL_CONTENTS)
     entity_box_models: set[str] = set()
@@ -1217,7 +1237,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 source_waw = None
         script_models |= port_scripts(report, stage, project_root, waw_map_script, bo2_root, waw_script_roots or [],
                                       iwd_dirs or [], waw_stock_scripts, t6_unlinker, roots, clip,
-                                      stock_waw, source_waw)
+                                      stock_waw, source_waw, bo2_stock_perks=bo2_stock_perks)
         fx_names = list(report.scripts.get("fx", [])) if report.scripts else []
         # Weapons first: their resolution widens the roots (stock WaW dumps for
         # script models too) and their effects join the map zone's conversion.
@@ -1331,7 +1351,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             gscport.hook_bo2_box(main_gsc)
             if bo2_root is None:
                 raise ValueError("BO2 runtime sources required to stage WaW perk ownership")
-            gscport.stage_bo2_perk_support(project_root, bo2_root)
+            gscport.stage_bo2_perk_support(project_root, bo2_root, bo2_stock_perks=bo2_stock_perks)
+            if bo2_stock_perks:
+                from . import stockperks
+                stockperks.translate_entities(project_root / 'BSP/entities.json')
+                report.warnings.append('BO2_STOCK_PERKS: opted in to native BO2 perk purchases, HUD and last stand')
             gscport.hook_bo2_perk_server(main_gsc)
             gscport.hook_bo2_perk_client(project_root / "clientscripts" / "mp" / f"{project}.csc")
             gscport.hook_bo2_animtrees(main_gsc, project_root / "clientscripts" / "mp" / f"{project}.csc", project_root,
@@ -1529,6 +1553,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         report.errors.append(f"stock T6 zbarrier {entities.ZBARRIER_ASSET} missing from techset dump")
     model_overlay_fx = stage_model_overlay_fx(report, project_root)
     scripts = map_scripts(project_root, project)
+    if report.scripts and bo2_root is not None:
+        # Validate the completed graph, including owned perk/bootstrap modules.
+        # port_scripts runs before these dependencies are generated.
+        api = t6api.build(bo2_root, stage / 't6api_cache.json', t6_unlinker)
+        report.errors += [f'scripts: link: {e}' for e in gscport.link_check(project_root, api)]
     localization_report = progress.timed('Stage localization', localization.stage, project_root, roots, iwd_dirs or [], stock_waw,
         t4_unlinker, stage / 'localization_dumps',
         [root / 'raw' for root in (waw_mod_tools, waw_root) if root is not None], bo2_root,
@@ -1537,6 +1566,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     report.errors += localization_report['errors']
     with (project_root / MOD_EXTRA_ZONE).open('a', encoding='utf-8') as zone:
         zone.write(f"localize,{localization_report['asset']}\n")
+        if bo2_stock_perks:
+            zone.write('// Opt-in stock BO2 perk dependencies\n')
+            zone.write(''.join(line + '\n' for line in stockperks.asset_lines(project_root)))
     staged = {m["name"] for m in report.materials}
     write_zone(stage, project, images, ipak, sorted(script_models | fx_models | projectile_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
                [m for m in hud_materials if m in staged], [localization_report['asset']])
@@ -1787,6 +1819,16 @@ def _stage_weapons(report: StageReport, roots: list[Path], project_root: Path, n
                                f"secondary roots became identity children of the primary (globals unchanged)")
     for name, why in sorted(weapon_report["models"]["unsupported"].items()):
         report.warnings.append(f"UNSUPPORTED_XMODEL {name} (weapon model): {why}")
+    graph_file = project_root / 'content_source/weapons.dependencies.json'
+    if graph_file.is_file():
+        graph = json.loads(graph_file.read_text(encoding='utf-8'))
+        for node in graph['nodes']:
+            for source in node.get('recovered_geometry', []):
+                report.warnings.append(f"WAW_MODEL_GEOMETRY_RECOVERED {node['name']}: {source}")
+            if node['status'] == 'missing_model_geometry':
+                report.errors.append(f"MODEL_GEOMETRY_MISSING {node['name']}: the map and WaW stock assets "
+                                     f"do not contain {', '.join(node['missing_files'])}; "
+                                     'verify the source map and WaW installation files')
     return weapon_report, roots
 
 
@@ -1950,7 +1992,7 @@ def recover_script_models(report: StageReport, wanted: set[str], roots: list[Pat
 def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_script: Path, bo2_root: Path,
                  roots: list[Path], iwd_dirs: list[Path], stock: Path | None,
                  t6_unlinker: Path | None, model_roots: list[Path], clip=None,
-                 stock_waw=None, source_waw=None) -> set[str]:
+                 stock_waw=None, source_waw=None, *, bo2_stock_perks: bool = False) -> set[str]:
     """Translate the WaW map's gameplay scripts (gscport). Returns the WaW
     models the scripts use that the map zone must carry."""
     map_name = waw_map_script.stem
@@ -1969,7 +2011,8 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     animtrees = {p.stem for d in (bo2_root / "raw" / "animtrees", project_root / "animtrees") if d.exists()
                  for p in d.glob("*.atr")}
     core_trees, xanims = stage_core_animtrees(report, sources, model_roots, project_root, animtrees)
-    port = gscport.port_map(sources, api, map_name, project_root, animtrees=animtrees, core_animtrees=core_trees)
+    port = gscport.port_map(sources, api, map_name, project_root, animtrees=animtrees, core_animtrees=core_trees,
+                            bo2_stock_perks=bo2_stock_perks)
     report.scripts = port.to_json()
     report.scripts["staged_xanims"] = xanims
     report.scripts["staged_animtrees"] = sorted(core_trees)
@@ -1982,7 +2025,6 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     # point so older generated map-main hooks cannot run movement emulation.
     (project_root / "maps" / "mp" / "waw" / "_waw2bo2_oneway.gsc").write_text(oneway.oneway_source([]),
                                                                              encoding="utf-8")
-    report.errors += [f"scripts: link: {e}" for e in gscport.link_check(project_root, api)]
     for api_name, where in sorted(port.unsupported.items()):
         report.warnings.append(f"UNSUPPORTED_GSC_API {api_name.removeprefix('GSC ')} ({len(where)} uses, first "
                                f"{where[0]}): stubbed, reports at runtime")

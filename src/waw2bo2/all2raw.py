@@ -15,7 +15,7 @@ import time
 import uuid
 
 SCHEMA = 3
-WAW_ASSETS = ('clipmap,gfxworld,gameworldsp,material,image,fx,xmodel,weapon,xanim,sound,'
+WAW_ASSETS = ('clipmap,mapents,gfxworld,gameworldsp,material,image,fx,xmodel,weapon,xanim,sound,'
               'loadedsound,rawfile,comworld,lightdef,physpreset,snddriverglobals,localize')
 
 

@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -19,6 +20,7 @@ from .menuart import SIZES, read_art
 from .launcher import (BuildPaths, ProcessRunner, Settings, build_command, cli_command,
                        discover, map_fastfiles, perform_build, perform_extract_all, preflight, project_name, user_directory)
 from .resources import resource_root
+from .diagnostics import create_bundle
 
 
 STEPS = ['Extract source map', 'Prepare BO2 references', 'Convert map assets',
@@ -50,6 +52,7 @@ class Launcher(ttk.Frame):
                       'menu_title', 'menu_description', 'menu_blit', 'menu_large', 'menu_blur')}
         self.art_cache = {}
         self.source_fx = tk.BooleanVar(value=self.settings.source_fx)
+        self.bo2_stock_perks = tk.BooleanVar(value=self.settings.bo2_stock_perks)
         self.redump = tk.BooleanVar(value=self.settings.redump)
         self.verbose = tk.BooleanVar(value=self.settings.verbose)
         self.status = tk.StringVar(value='Choose a WaW map to begin.')
@@ -66,6 +69,7 @@ class Launcher(ttk.Frame):
             self.vars[key].trace_add('write', lambda *_: self._art_preview())
         self._art_preview()
         self.source_fx.trace_add('write', lambda *_: self._refresh())
+        self.bo2_stock_perks.trace_add('write', lambda *_: self._refresh())
         self._refresh()
         if self.vars['fastfile'].get():
             self.status.set('Map selected. Click Build Map when setup is ready.')
@@ -224,6 +228,9 @@ class Launcher(ttk.Frame):
         ttk.Label(build, text='Geometry · Scripts · Weapons · FX · Sounds', style='Muted.TLabel').pack(anchor='w')
         check = ttk.Checkbutton(build, text='Refresh source files (slower rebuild)', variable=self.redump)
         check.pack(anchor='w', pady=(8, 4))
+        self.action_widgets.append(check)
+        check = ttk.Checkbutton(build, text='Use BO2 stock perks (maps with BO2 perks only)', variable=self.bo2_stock_perks)
+        check.pack(anchor='w', pady=(0, 4))
         self.action_widgets.append(check)
         self.build_button = self._button(build, 'Build Map', self._build, style='Build.TButton')
         self.build_button.pack(fill='x', pady=(5, 6))
@@ -406,11 +413,32 @@ class Launcher(ttk.Frame):
         row = ttk.Frame(self.reports_tab)
         row.pack(fill='x', pady=(8, 0))
         self._button(row, 'Refresh Report', self._load_report).pack(side='left')
+        self._button(row, 'Save Diagnostics…', self._save_diagnostics).pack(side='left', padx=6)
         self._button(row, 'Open All Reports', self._open_reports).pack(side='right')
+
+    def _save_diagnostics(self):
+        bundle = getattr(self, 'diagnostics_path', None)
+        if bundle is None or not bundle.is_file():
+            try:
+                bundle = create_bundle(self.active_settings or self._snapshot(), self.console.get('1.0', 'end'))
+                self.diagnostics_path = bundle
+            except OSError as error:
+                messagebox.showerror('Diagnostics could not be saved', str(error), parent=self.root)
+                return
+        destination = filedialog.asksaveasfilename(parent=self.root, title='Save build diagnostics',
+            initialfile=bundle.name, defaultextension='.zip', filetypes=[('Diagnostics ZIP', '*.zip')])
+        if destination:
+            try:
+                if Path(destination).resolve() != bundle.resolve():
+                    shutil.copy2(bundle, destination)
+                self._log('Diagnostics saved: ' + destination, 'info')
+            except OSError as error:
+                messagebox.showerror('Diagnostics could not be saved', str(error), parent=self.root)
 
     def _snapshot(self) -> Settings:
         return Settings(**{key: value.get().strip() for key, value in self.vars.items()},
-                        source_fx=self.source_fx.get(), redump=self.redump.get(), verbose=self.verbose.get())
+                        source_fx=self.source_fx.get(), bo2_stock_perks=self.bo2_stock_perks.get(),
+                        redump=self.redump.get(), verbose=self.verbose.get())
 
     def _refresh(self):
         settings = self._snapshot()
@@ -428,7 +456,7 @@ class Launcher(ttk.Frame):
             self.ready_label.configure(text=text, foreground=COLORS['green'] if not failures else COLORS['muted'])
         try:
             paths = BuildPaths.for_settings(settings)
-            complete = paths.complete(settings.project)
+            complete = paths.complete(settings.project, bo2_stock_perks=settings.bo2_stock_perks)
             self.output_text.set('Build files are managed automatically. Use Build Folder to find your package.')
         except ValueError:
             complete = False
@@ -542,6 +570,7 @@ class Launcher(ttk.Frame):
         self.busy = True
         self.started = time.monotonic()
         self.active_settings = replace(settings)
+        self.diagnostics_path = None
         self.runner = ProcessRunner(lambda event, value: self.events.put((event, value)), verbose=settings.verbose)
         runner = self.runner
         for widget in self.action_widgets:
@@ -567,7 +596,7 @@ class Launcher(ttk.Frame):
             return
         settings = self._snapshot()
         paths = BuildPaths.for_settings(settings)
-        if not paths.complete(settings.project):
+        if not paths.complete(settings.project, bo2_stock_perks=settings.bo2_stock_perks):
             return
         # Packaging already checks every required output and skips identical files.
         def install(runner):
@@ -666,6 +695,13 @@ class Launcher(ttk.Frame):
                             'Build failed. Review the console and reports.')
             self._log(error or f'Native tool exited with code {code}.', 'error')
             self._failure_details()
+            if self.active_settings:
+                try:
+                    self.diagnostics_path = create_bundle(self.active_settings, self.console.get('1.0', 'end'), error)
+                    self._log('Diagnostics ZIP ready: ' + str(self.diagnostics_path), 'info')
+                    self._log('Use Reports → Save Diagnostics to share the complete failure report.', 'info')
+                except OSError as bundle_error:
+                    self._log('Could not save diagnostics: ' + str(bundle_error), 'warning')
         else:
             if kind != 'extract':
                 self.status.set('Map built. Install to Plutonium when ready.' if kind == 'build' else 'Installed. Launch Map to playtest.')
@@ -684,7 +720,10 @@ class Launcher(ttk.Frame):
     def _failure_details(self):
         if not self.active_settings:
             return
-        paths = BuildPaths.for_settings(self.active_settings)
+        try:
+            paths = BuildPaths.for_settings(self.active_settings)
+        except ValueError:
+            return  # Extraction can fail before a source map is selected.
         # Native tools redirect verbose output to files; surface the newest tail.
         candidates = list(paths.stage.glob('*.log')) + list(paths.mod.rglob('*.log'))
         candidates = [p for p in candidates if p.stat().st_mtime >= time.time() - (time.monotonic() - self.started) - 2]

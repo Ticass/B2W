@@ -108,6 +108,15 @@ wait_network_frame()
     wait 0.05;
 }
 
+// WaW hide_chest hides every piece, including inactive trigger_use entities.
+// Restoring only their origin leaves T6's use trigger hidden after relocation.
+waw_enable_trigger()
+{
+    self maps\mp\zombies\_zm_utility::enable_trigger();
+    if ( isdefined( self.classname ) && self.classname == "trigger_use" )
+        self show();
+}
+
 // WaW's zombiemode framework turns the power on with flag "electricity_on";
 // BO2's with flag "power_on" (+ "electric_door" / client "power_on" notifies
 // and unpausing the perk machines). Keep both frameworks in step.
@@ -661,6 +670,38 @@ waw_hasweapon( name )
     return isdefined( weapon ) && self hasweapon( weapon );
 }
 
+// Preserve authored equipment slots and user bindings; only map the weapon
+// name and normalize the blank sentinel used to clear a source weapon slot.
+waw_setactionslot( slot, type, name )
+{
+    if ( type == "weapon" )
+    {
+        // Source buildables clear the slot with a blank weapon sentinel.
+        if ( !isdefined( name ) || name == "" || name == " " )
+        {
+            self setactionslot( slot, "" );
+            return;
+        }
+        weapon = waw_weapon( name );
+        if ( isdefined( weapon ) )
+            self setactionslot( slot, type, weapon );
+        return;
+    }
+    if ( isdefined( name ) )
+        self setactionslot( slot, type, name );
+    else
+        self setactionslot( slot, type );
+}
+
+// A repeated source HUD cleanup must not abort the surrounding buildable
+// thread before it restores weapon cycling/offhands. Pass the HUD as an
+// argument: an undefined method receiver cannot safely enter this helper.
+waw_destroy_hud_elem( element )
+{
+    if ( isdefined( element ) )
+        element maps\mp\gametypes_zm\_hud_util::destroyelem();
+}
+
 waw_givemaxammo( name )
 {
     weapon = waw_weapon( name );
@@ -1043,6 +1084,27 @@ waw_precachemodel( name )
 }
 
 // ---- perks ----
+
+// BO2 already initializes its controllers; source framework init calls in
+// the explicit stock-perks mode must not start a second purchase controller.
+stock_perks_noop()
+{
+}
+
+stock_perks_owned_by_bo2( perk )
+{
+    // give_perk starts native perk_think and updates the native HUD once.
+}
+
+stock_perks_no_refund( trigger, perk, cost )
+{
+    // Opting into stock BO2 purchases also opts into its no-refund behavior.
+}
+
+stock_perks_no_money()
+{
+    self maps\mp\zombies\_zm_audio::create_and_play_dialog( "general", "perk_deny", undefined, 0 );
+}
 // A known absent source model must not terminate the rest of the source
 // thread. Keep the current model; the converter reports the missing asset.
 waw_missing_model( name )
@@ -1081,6 +1143,12 @@ waw_perk_emulated( perk )
 
 waw_setperk( perk )
 {
+    if ( isdefined( level.waw2bo2_stock_perks ) && level.waw2bo2_stock_perks )
+    {
+        if ( !self hasperk( perk ) )
+            self maps\mp\waw\_waw2bo2_perks::give_perk( perk, false );
+        return;
+    }
     if ( !waw_perk_emulated( perk ) )
     {
         self setperk( perk );

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.8
+
+- Extract and locate custom map entities, refreshing incomplete caches automatically.
+- Preserve partial final path visibility bytes in conversion and native linking.
+- Check script links after generated perk modules exist and supply the missing server ambient entry.
+- Resolve additional standard door prices and the community Mule Kick localization key.
+- Recover meshes split across WaW zones and save complete desktop failure diagnostics.
+- Add opt-in BO2 stock perks and restore box use triggers after relocation.
+
 ## v0.2.7
 
 - Limit BO2 preparation to Nuketown, prison (basic wooden barrier), and shared Zombies runtime zones. Other BO2 maps are neither exported nor required.

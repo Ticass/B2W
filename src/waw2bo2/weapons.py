@@ -202,6 +202,16 @@ def discover(roots: list[Path]) -> dict[str, Path]:
     return found
 
 
+def model_lod_source(roots: list[Path], owner: Path, file: str) -> Path | None:
+    """Resolve the exact exported mesh, keeping the owning zone first.
+
+    A custom fastfile can carry an XModel definition while its surfaces come
+    from a loaded stock zone. The JSON and its GLTF need not share a dump.
+    """
+    output_name('model_file', file)
+    return next((root / file for root in dict.fromkeys([owner, *roots]) if (root / file).is_file()), None)
+
+
 def stage_models(roots: list[Path], project: Path, names: set[str]) -> dict:
     """Preserve weapon skeletons and LODs; never use the static-prop skin stripper.
 
@@ -231,7 +241,9 @@ def stage_models(roots: list[Path], project: Path, names: set[str]) -> dict:
             for index, lod in enumerate(model.get("lods", [])):
                 file = lod["file"]
                 output_name("model_file", file)
-                source = root / file
+                source = model_lod_source(roots, root, file)
+                if source is None:
+                    raise WeaponError(f'model geometry {file} is absent from the map and resolved WaW stock assets')
                 data = json.loads(source.read_text(encoding="utf-8"))
                 parents = {c: i for i, node in enumerate(data.get("nodes", []))
                            for c in node.get("children", [])}

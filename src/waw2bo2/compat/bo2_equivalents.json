@@ -5,6 +5,9 @@
     "map-specific names. Exact-name BO2 assets are found automatically and need no entry. Every use is reported.",
     "lukkie_bottle_*: the community BO2-perk bottle pack (chugabud = Who's Who in BO2)."
   ],
+  "localize": {
+    "ZOMBIE_PERK_ADDITIONALWEAPONPERK": "ZOMBIE_PERK_ADDITIONALPRIMARYWEAPON"
+  },
   "localize_text": {
     "PATCH_ZOMBIE_MONKEY": "Cymbal Monkey"
   },

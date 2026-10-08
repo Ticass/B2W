@@ -62,6 +62,34 @@ class LocalizationTests(unittest.TestCase):
         self.assertTrue(report['errors'])
         self.assertIn('&"custom_hint_missing"', self.script.read_text())
 
+    def test_custom_door_prices_use_source_wording_and_keep_authored_override(self):
+        self.script.write_text('a() { x = &"ZOMBIE_BUTTON_BUY_OPEN_DOOR_15000"; '
+                              'y = &"ZOMBIE_BUTTON_BUY_OPEN_DOOR_7500"; }')
+        self.strings(self.root, 'zombie', {
+            'BUTTON_BUY_OPEN_DOOR_100': 'Press & hold &&1 to Open Door [Cost: 100]',
+            'BUTTON_BUY_OPEN_DOOR_200': 'Press & hold &&1 to Open Door [Cost: 200]'})
+        first = self.stage()
+        self.assertEqual(first['missing'], [])
+        entries = {e['key']: e for e in first['entries']}
+        self.assertEqual(entries['ZOMBIE_BUTTON_BUY_OPEN_DOOR_15000']['value'],
+                         'Press & hold &&1 to Open Door [Cost: 15000]')
+        self.assertEqual(entries['ZOMBIE_BUTTON_BUY_OPEN_DOOR_7500']['kind'], 'WAW_PRICE_VARIANT')
+        self.strings(self.root, 'map', {'ZOMBIE_BUTTON_BUY_OPEN_DOOR_7500': 'Custom vault prompt'})
+        second = self.stage()
+        entries = {e['key']: e for e in second['entries']}
+        self.assertEqual(entries['ZOMBIE_BUTTON_BUY_OPEN_DOOR_7500']['value'], 'Custom vault prompt')
+
+    def test_mule_kick_shared_key_uses_bo2_only_when_waw_is_absent(self):
+        self.script.write_text('a() { x = &"ZOMBIE_PERK_ADDITIONALWEAPONPERK"; }')
+        bo2 = self.base / 'bo2'
+        self.strings(bo2 / 'raw', 'en_patch_zm', {
+            'ZOMBIE_PERK_ADDITIONALPRIMARYWEAPON': 'Hold &&1 for Mule Kick [Cost: &&2]'})
+        report = self.stage(bo2_root=bo2)
+        self.assertEqual(report['missing'], [])
+        self.assertEqual(report['entries'][0]['kind'], 'BO2_SHARED_FALLBACK')
+        self.strings(self.root, 'source', {'ZOMBIE_PERK_ADDITIONALWEAPONPERK': 'Original custom Mule Kick'})
+        self.assertEqual(self.stage(bo2_root=bo2)['entries'][0]['value'], 'Original custom Mule Kick')
+
     def test_literal_weapon_name_and_repeated_staging_are_stable(self):
         self.script.write_text('a() {}')
         weapon = self.project / 'content_source/weapons/gun'

@@ -50,6 +50,7 @@ class Settings:
     menu_large: str = ''
     menu_blur: str = ''
     source_fx: bool = False
+    bo2_stock_perks: bool = False
     redump: bool = False
     verbose: bool = False
 
@@ -61,7 +62,7 @@ class Settings:
                 return cls()
             allowed = cls.__dataclass_fields__
             return cls(**{k: v for k, v in data.items() if k in allowed and
-                          (isinstance(v, bool) if k in ('source_fx', 'redump', 'verbose') else isinstance(v, str))})
+                          (isinstance(v, bool) if k in ('source_fx', 'bo2_stock_perks', 'redump', 'verbose') else isinstance(v, str))})
         except (OSError, ValueError, TypeError):
             return cls()
 
@@ -212,10 +213,12 @@ class BuildPaths:
         return cls(root, root / 'stage', CachePaths.for_settings(settings).bo2 / 'views',
                    root / 'waw_dumps', root / 'mod_build', root / 'package')
 
-    def complete(self, project: str) -> bool:
+    def complete(self, project: str, *, bo2_stock_perks: bool | None = None) -> bool:
         expected = [self.output / name for name in (project + '.ff', project + '.ipak', 'mod.ff', 'mod_load.ff', 'mod.json')]
         try:
             receipt = json.loads((self.root / 'build.json').read_text(encoding='utf-8'))
+            if bo2_stock_perks is not None and receipt.get('bo2_stock_perks', False) != bo2_stock_perks:
+                return False
             return receipt.get('project') == project and all(p.is_file() for p in expected)
         except (OSError, ValueError):
             return False
@@ -389,7 +392,8 @@ def perform_build(settings: Settings, runner: ProcessRunner) -> int:
         if not all(p.is_file() for p in required):
             raise ValueError('Packaging did not create all required map files. Review package.log.')
         receipt.write_text(json.dumps({'project': settings.project, 'source': settings.fastfile,
-                                      'output': str(paths.output)}, indent=2), encoding='utf-8')
+                                      'output': str(paths.output),
+                                      'bo2_stock_perks': settings.bo2_stock_perks}, indent=2), encoding='utf-8')
         (paths.root / 'cache.json').write_text(json.dumps(input_stamp(settings)), encoding='utf-8')
         (paths.root / 'installed.json').unlink(missing_ok=True)
         return 0

@@ -72,3 +72,25 @@ controllers, unchanged client-field setup/FX, absence of LUI callback binding,
 idempotent staging, and inclusion of both overrides in the compiled script list.
 Runtime checks should cover power, one purchase per use, source perk icons,
 perk loss on downing/death, and Pack-a-Punch.
+
+## Opt-in stock BO2 perks
+
+The Mod Builder checkbox **Use BO2 stock perks (maps with BO2 perks only)**
+selects BO2's native purchases, HUD, perk effects, perk loss and solo Quick
+Revive. It is off by default. Enable it only when every source perk has a BO2
+equivalent. The CLI option is `stage-bridge --bo2-stock-perks`; the PowerShell
+driver accepts `-Bo2StockPerks`. Rebuild the map and install that build to apply it.
+
+The mode suppresses source `_zombiemode_perks*` initializers and translates
+community perk IDs and machine groups to the BO2 names. Native Electric Cherry
+and PhD modules and their client fields are registered together with the stock
+perks. Source free-perk grants use BO2 `give_perk`, which also sets the solo
+revive life, HUD fields and perk-loss controller. Source HUD/perk-think calls
+become no-ops because BO2 already owns these. Stock purchase limits and
+no-refund behavior apply. Unsupported source perk API calls fail staging.
+
+Native perk dependencies are listed explicitly in `mod_extra.zone`; missing
+assets fail the gameplay build. For absent legacy Deadshot/PhD model names,
+the mode uses shipped BO2 prison machine models. Owned server/client entry
+points avoid cached stock-script initialization. Disabling the option restores
+the normal WaW ownership path and removes optional owned client modules.

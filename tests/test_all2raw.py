@@ -318,6 +318,22 @@ class All2RawTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
         self.assertNotEqual(first['map'], second['map'])
 
+    def test_old_custom_cache_without_entities_is_reextracted_automatically(self):
+        folder = self.root / 'custom map'
+        folder.mkdir()
+        (folder / 'map.ff').write_text('map')
+        settings = Settings(waw=str(self.game), t4=str(self.root), work=str(self.root),
+                            fastfile=str(folder / 'map.ff'))
+        paths = all2raw.CachePaths.for_settings(settings)
+        old_assets = all2raw.WAW_ASSETS.replace('mapents,', '')
+        with patch.object(all2raw, 'WAW_ASSETS', old_assets):
+            old = all2raw.source_dumps(settings, paths)
+        self.commands.clear()
+        new = all2raw.source_dumps(settings, paths)
+        self.assertNotEqual(old['map'], new['map'])
+        native = next(c for c in self.commands if '--include-assets' in c)
+        self.assertIn('mapents', native[native.index('--include-assets') + 1].split(','))
+
     def test_failed_listing_does_not_publish_a_successful_extraction(self):
         def fail_list(command, log):
             if '--list' in command:

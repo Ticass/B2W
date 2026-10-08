@@ -100,3 +100,20 @@ proprietary Mod Tools.
 
 This remains a development preview. A successful build is followed by source
 comparison and playtesting; inspect Reports for unsupported map features.
+## Gameplay options
+
+In Mod Builder, **Use BO2 stock perks (maps with BO2 perks only)** opts into
+stock BO2 perk behavior, including solo Quick Revive. It is saved with the
+settings and defaults to off. Enable it for Nuketown, then build and install
+the resulting map. Maps with custom perks should keep it off.
+
+## Build failures
+
+Failed builds automatically create a diagnostics ZIP containing the console,
+native-tool logs and conversion reports. Use **Reports → Save Diagnostics**
+to save one file for support. Extract All failures also produce diagnostics
+when no map is selected. Game fastfiles and source assets are excluded.
+
+Models whose definitions and mesh geometry come from different WaW zones are
+resolved automatically. If required geometry is absent from both the map and
+stock WaW assets, the report identifies the model and missing mesh explicitly.
