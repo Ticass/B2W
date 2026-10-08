@@ -29,14 +29,21 @@ BSP_TYPES = {"clipmap", "clipmap_pvs", "comworld", "gameworldsp", "gameworldmp",
 KNOWN_ABSENT = {("xmodel", "viewmodel_base_viewhands")}
 
 
-@contextmanager
-def baseline_shader_materials(project: Path, stock: Path):
-    """Give the raw mod-tools linker its stock techniques, restoring staging afterward."""
+def staged_materials(project: Path) -> list[tuple[Path, dict]]:
+    """(root, report entry) for every material THIS build staged. The stage
+    folder is reused across builds, so files on disk alone may be stale."""
     report_file = project / 'bridge_stage.report.json'
     entries = [(project, e) for e in json.loads(report_file.read_text())['materials']] if report_file.exists() else []
     weapon_report = project/'content_source/weapons.visuals.json'
     if weapon_report.exists():
         entries += [(project/'content_source', e) for e in json.loads(weapon_report.read_text())['materials']]
+    return entries
+
+
+@contextmanager
+def baseline_shader_materials(project: Path, stock: Path):
+    """Give the raw mod-tools linker its stock techniques, restoring staging afterward."""
+    entries = staged_materials(project)
     originals = {}
     try:
         for root, entry in entries:
@@ -86,8 +93,13 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
         raise RuntimeError('shader baseline material extraction failed')
     overlay = work/'shader_overlay'
     bound = set()
+    current_files = {(root/entry['file']).resolve() for root, entry in staged_materials(project)}
     for root in (project, project/'content_source'):
         for source in (root/'materials').rglob('*.json'):
+            if source.resolve() not in current_files:
+                # left by an earlier build; its runtime technique may name
+                # shaders the current stock dump does not have
+                continue
             current = json.loads(source.read_text())
             if not current.get('techniqueSet', '').startswith('waw/runtime_'):
                 continue
@@ -97,6 +109,12 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
                 # This material belongs to the world zone, not gameplay mod.ff.
                 continue
             material = json.loads(extracted.read_text())
+            slots = lambda m: {t.get('name') for t in m.get('textures', [])}
+            if not slots(current) <= slots(material):
+                # Same name, different asset: mod.ff holds BO2's own material
+                # (e.g. the box's mtl_prop_bear), which lacks the WaW slots
+                # the runtime technique reads. Leave the stock material alone.
+                continue
             material['techniqueSet'] = current['techniqueSet']
             target = overlay/relative
             target.parent.mkdir(parents=True, exist_ok=True)

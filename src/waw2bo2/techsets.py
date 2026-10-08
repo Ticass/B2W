@@ -249,6 +249,24 @@ def match(source: str, candidates: list[str]) -> Match:
     return best
 
 
+def last_resort(source: str) -> list[str]:
+    """Generic WaW technique sets to approximate ``source`` with when no rule
+    maps it (foliage sway, water, tree canopy...): the material keeps its own
+    textures on the nearest plain lit or unlit pass the donors offer. Tried in
+    order; build_material rejects any whose slots the source cannot fill."""
+    src = parse(source)
+    prefix = "wc_" if src.family == "world" else "mc_"
+    kind = src.unlit_kind or ""
+    # keep the source's own blend (ambient_r0c0_... is opaque); water is translucent
+    blend = re.search(r"(?:^|_)([rtb])0c0(?:_|$)", kind)
+    first = blend[1] if blend else ("b" if "water" in kind else "t")
+    lit = [prefix + f"l_sm_{b}0c0" for b in dict.fromkeys([first, "t", "b", "r"])]
+    unlit = [prefix + "unlit_blend", prefix + "unlit"]
+    if src.family not in ("world", "model", "model_vertex") or src.lit:
+        return []
+    return unlit + lit if ("unlit" in kind or "add" in kind) else lit + unlit
+
+
 def world_vert_format(techset_name: str) -> int:
     """MaterialWorldVertexFormat of a WaW world technique set: TEX_<t>_NRM_<n>
     with t = layer count and n = layers with a normal map (at least 1, at most
@@ -311,7 +329,10 @@ def as_reference(image: str) -> str:
 
 def build_material(t4: dict, donor: dict, notes: list[str]) -> dict:
     out = copy.deepcopy(donor)
-    src_tex = {t["name"]: t for t in t4.get("textures", []) if t.get("name") and t.get("image")}
+    # The donor's thermal-vision variant belongs to its own (BO2) model; WaW
+    # has none, and most stock T6 materials omit the field.
+    out.pop("thermalMaterial", None)
+    src_tex ={t["name"]: t for t in t4.get("textures", []) if t.get("name") and t.get("image")}
     used = set()
     textures = []
     for slot in donor.get("textures", []):

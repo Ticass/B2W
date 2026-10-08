@@ -262,14 +262,25 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
         # extra slots the source cannot fill; fall back to the next best.
         remaining = list(candidates)
         rejected: list[str] = []
+        source_ts = techsets.material_techset(t4)
+        approximations = techsets.last_resort(source_ts)
+        approximated, first_error = None, None
         while True:
             try:
-                m = techsets.match(techsets.material_techset(t4), remaining)
+                m = techsets.match(source_ts, remaining)
             except techsets.TechsetError as exc:
-                report.errors.append(f"material {name} ({t4_ts}): {exc}" + (f"; rejected: {'; '.join(rejected)}" if rejected else ""))
+                first_error = first_error or exc
+                if approximations:
+                    # no rule for this WaW technique: keep the material's own
+                    # textures on the nearest generic pass instead of failing
+                    source_ts, remaining = approximations.pop(0), list(candidates)
+                    approximated = source_ts
+                    continue
+                report.errors.append(f"material {name} ({t4_ts}): {first_error}" + (f"; rejected: {'; '.join(rejected)}" if rejected else ""))
                 m = None
                 break
-            attempt = notes + m.notes
+            attempt = notes + m.notes + ([f"APPROXIMATED: no T6 rule for '{t4_ts}', drawn as '{approximated}'"]
+                                         if approximated else [])
             try:
                 out = techsets.build_material(t4, _load_json(donors[m.target]), attempt)
             except techsets.TechsetError as exc:
@@ -280,6 +291,9 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
             break
         if m is None:
             continue
+        if approximated:
+            report.warnings.append(f"APPROXIMATED_MATERIAL {name}: no T6 rule for WaW technique '{t4_ts}'; "
+                                   f"drawn with its own textures as '{approximated}' ({m.target})")
         runtime = shaderruntime.bind_material(t4, out, roots, project_root, techset_root, falloff_placement,
                                                light_shadows) if techset_root else {'active': [], 'unsupported': ['native technique dump absent']}
         if t4_ts == 'wc_unlit_distfalloff' and all(
@@ -1217,8 +1231,20 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         start_zones = None
         if waw_map_script is not None and waw_map_script.exists():
             start_zones = zones.read_waw_zones(waw_map_script.read_text(encoding="utf-8", errors="replace"))[0]
-        report.entities, script_models = entities.write_entities(ents_file, project, project_root / "BSP",
-                                                                 clip, start_zones, animscripts)
+        try:
+            report.entities, script_models = entities.write_entities(ents_file, project, project_root / "BSP",
+                                                                     clip, start_zones, animscripts)
+        except ValueError as exc:
+            raise StageError(f"map entities: {exc}") from exc
+        synthesized = report.entities.get("synthesized_zones")
+        if synthesized:
+            report.warnings.append(
+                f"ZONES_SYNTHESIZED the WaW map has no add_adjacent_zone graph: {len(synthesized['groups'])} spawner "
+                f"group(s) became map-wide zones, opened by the doors that add them in WaW "
+                f"(initial {synthesized['initial']}, {len(synthesized['adjacency'])} door-unlocked)")
+            if synthesized["never_unlocked"]:
+                report.warnings.append(f"ZONE_SPAWNERS_UNREACHED {synthesized['never_unlocked']}: no door or debris "
+                                       f"adds these spawners; they stay inactive unless the map script enables them")
         entity_box_models = set(script_models)
         if (project_root / "BSP" / "paths.json").exists():
             report.warnings += entities.link_barrier_traversals(project_root / "BSP")
@@ -1332,7 +1358,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     main_gsc = project_root / "maps" / "mp" / f"{project}.gsc"
     if waw_map_script is not None and main_gsc.exists():
         try:
-            initial, links = zones.apply(waw_map_script, main_gsc, project)
+            initial, links = zones.apply(waw_map_script, main_gsc, project,
+                                         (report.entities or {}).get("synthesized_zones"))
             report.warnings.append(f"zone graph from {waw_map_script.name}: start zones {initial}, {links} links")
         except zones.ZoneError as exc:
             report.errors.append(f"zones: {exc}")
@@ -1567,6 +1594,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         t6_unlinker=t6_unlinker, t6_stock_dump=techset_dump)
     report.content['localization'] = localization_report
     report.errors += localization_report['errors']
+    report.warnings += localization_report['warnings']
     with (project_root / MOD_EXTRA_ZONE).open('a', encoding='utf-8') as zone:
         zone.write(f"localize,{localization_report['asset']}\n")
         if bo2_stock_perks:
@@ -2145,6 +2173,11 @@ def linker_command(linker: Path, stage: Path, project: str, techset_dump: Path |
         # compiled bytecode must shadow the GSC sources in the project root
         roots.append(compiled_scripts_root(stage, project))
     roots.append(stage / "zone_raw" / project)
+    # OAT keeps search paths in a std::set and opens the first match, so the
+    # order is that of the path STRINGS, not of this list: the stock cache
+    # (".../asset_cache/...") would shadow a same-named map asset under the
+    # build folder. "?base?" (the stage) sorts before any drive letter.
+    roots = ["?base?\\" + str(r.relative_to(stage)) if r.is_relative_to(stage) else r for r in roots]
     if techset_dump is not None:
         roots.append(techset_dump)
     return [

@@ -253,11 +253,90 @@ def add_bo2_initial_spawns(out: list[dict], clip, start_zones: list[str], summar
     return chosen
 
 
+# WaW maps built on the prototype/asylum/sumpf scripts have no zone graph:
+# _zombiemode spawns from every "zombie_spawner_init" actor, and a door or
+# debris pile adds the spawners its pieces target (target or script_string,
+# _zombiemode_blockers::add_new_zombie_spawners) once opened. BO2 spawns only
+# from enabled zones, so each spawner group becomes a zone whose volume spans
+# the whole map (WaW never limits spawners by player position), and a group a
+# door unlocks is connected by a flag that door sets when it opens.
+SYNTH_ZONE = "waw2bo2_zone"
+INIT_SPAWNERS = "zombie_spawner_init"
+DOOR_TRIGGERS = ("zombie_door", "zombie_debris")
+# measured on converted WaW info_volume brushes (contents, surface flags)
+VOLUME_FLAGS = (134217729, 262272)
+
+
+def _box_brush(mins, maxs, flags) -> dict:
+    corners = [[x, y, z] for x in (mins[0], maxs[0]) for y in (mins[1], maxs[1]) for z in (mins[2], maxs[2])]
+    return {"mins": list(mins), "maxs": list(maxs), "contents": flags[0],
+            "axial": [list(flags)] * 6, "sides": [], "verts": corners}
+
+
+def synthesize_zones(out: list[dict], clip, bsp_dir: Path, summary: dict) -> tuple[list[str], list[str]]:
+    """Zones for a WaW map without add_adjacent_zone; returns (initial, adjacency)."""
+    spawners = [e for e in out if e.get("classname") == ZOMBIE_ACTOR_CLASS and e.get("targetname")]
+    groups = sorted({e["targetname"] for e in spawners}, key=lambda g: (g != INIT_SPAWNERS, g))
+    if not groups:
+        raise ValueError("map has no zone graph and no named zombie spawners")
+    subs_path = bsp_dir / "submodels.json"
+    subs = json.loads(subs_path.read_text(encoding="utf-8"))["submodels"]
+    trigger_models = {e["model"] for e in out if e.get("model", "").startswith("*")
+                      and e.get("classname", "").startswith(("info_volume", "trigger_"))}
+    flags = next(((b["contents"], b["axial"][0][1]) for m in sorted(trigger_models)
+                  if int(m[1:]) - 1 < len(subs) for b in subs[int(m[1:]) - 1]["brushes"][:1]), VOLUME_FLAGS)
+    world = clip.submodels[0]
+    mins = [v - 512 for v in world.mins]
+    maxs = [v + 512 for v in world.maxs]
+    by_name: dict[str, list[dict]] = {}
+    for e in out:
+        by_name.setdefault(e.get("targetname", ""), []).append(e)
+    have_struct = {(e.get("targetname"), e.get("origin")) for e in out if e.get("classname") == "script_struct"}
+    initial, adjacency, locked = [], [], []
+    for index, group in enumerate(groups):
+        zone = SYNTH_ZONE if index == 0 else f"{SYNTH_ZONE}_{index}"
+        if index and group != INIT_SPAWNERS:
+            # entities that hand this group to add_new_zombie_spawners, and the
+            # door/debris triggers they belong to (themselves or their owner)
+            pieces = [e for e in out if group in (e.get("target"), e.get("script_string"))
+                      and e.get("classname") != ZOMBIE_ACTOR_CLASS]
+            doors = []
+            for piece in pieces:
+                if piece.get("targetname") in DOOR_TRIGGERS:
+                    doors.append(piece)
+                doors += [t for t in out if t.get("targetname") in DOOR_TRIGGERS and piece.get("targetname")
+                          and t.get("target") == piece["targetname"]]
+            doors = list({id(d): d for d in doors}.values())
+            if not doors:
+                locked.append(group)
+                continue
+            flag = f"{zone}_open"
+            for door in doors:
+                door["script_flag"] = ",".join(filter(None, [door.get("script_flag"), flag]))
+            adjacency.append(f'"{SYNTH_ZONE}", "{zone}", "{flag}"')
+        else:
+            initial.append(zone)
+        subs.append({"mins": mins, "maxs": maxs, "brushes": [_box_brush(mins, maxs, flags)]})
+        out.append({"classname": "info_volume", "targetname": zone, "target": group, "origin": "0 0 0",
+                    "model": f"*{len(subs)}", "script_noteworthy": "player_volume"})
+        for spawner in by_name[group]:
+            if spawner.get("classname") == ZOMBIE_ACTOR_CLASS and (group, spawner.get("origin")) not in have_struct:
+                out.append({"classname": "script_struct", "targetname": group,
+                            "origin": spawner.get("origin", "0 0 0"), "angles": spawner.get("angles", "0 0 0"),
+                            "script_noteworthy": "spawn_location"})
+    subs_path.write_text(json.dumps({"submodels": subs}, separators=(",", ":")) + "\n", encoding="utf-8")
+    summary["synthesized_zones"] = {"initial": initial, "adjacency": adjacency, "groups": groups,
+                                    "never_unlocked": locked}
+    return initial, adjacency
+
+
 def write_entities(ents_file: Path, project: str, bsp_dir: Path, clip=None,
                    start_zones: list[str] | None = None,
                    animscripts: dict[str, str] | None = None) -> tuple[dict, set[str]]:
     ents = parse_entities(ents_file.read_text(encoding="utf-8", errors="replace"))
     out, spawns, summary = convert_entities(ents, project, animscripts)
+    if start_zones == [] and clip is not None and (bsp_dir / "submodels.json").exists():
+        start_zones = synthesize_zones(out, clip, bsp_dir, summary)[0]
     if any(e.get("targetname") == "initial_spawn_points" for e in out):
         chosen = add_bo2_initial_spawns(out, clip, start_zones or [], summary)
         spawns = zombies_spawns([{"origin": e.get("origin", "0 0 0"), "angles": e.get("angles", "0 0 0")}

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.2.11
+
+- Convert WaW maps without an `add_adjacent_zone` graph (prototype/asylum/sumpf-style scripts): spawner groups become map-wide zones, opened by the doors and debris that add them in WaW.
+- Read zone links written as qualified calls (`maps\_zombiemode_zone_manager::add_adjacent_zone`).
+- Resolve localized string references case-insensitively, as WaW does; a reference with no source text is shown as its key and reported as a warning instead of failing the build.
+- Approximate materials whose WaW technique set has no T6 rule (foliage sway, water, additive falloff) with the nearest plain lit or unlit pass using their own textures, reported as `APPROXIMATED_MATERIAL`.
+- Rebuilding a map no longer fails the shader relink on materials left in the stage by an earlier build (`Cant find pixel shader ...`); only materials staged by the current build are bound.
+- The world link now always prefers the map's own assets over same-named BO2 stock assets (the linker orders search paths by name, so the stock cache could shadow them; e.g. `mtl_fx_bullet_chain`).
+- The gameplay-mod shader relink no longer rebinds a BO2 stock material that shares its name with a converted WaW one (`mtl_prop_bear` failed the material audit).
+- Converted materials no longer inherit their BO2 donor's thermal-vision material, which could fail the world link on a missing stock image (`thermal_gradient2`).
+
 ## v0.2.9
 
 - Parse malformed standalone block-comment endings found in stock WaW ambient scripts, and normalize them for the BO2 compiler without enabling commented-out code.
@@ -49,7 +60,7 @@
 - Accept numeric prefixes in vision scalar fields like WaW, including shipped 0.O458 brightness values, and report them.
 - Retain the v0.2.2 rectangular lightmap fix.
 
-## v0.2.2 — Rectangular lightmap hotfix (2026-10-07)
+## v0.2.2 ï¿½ Rectangular lightmap hotfix (2026-10-07)
 
 - Accept rectangular WaW lightmap layers, including 512x2048 secondary textures
   that previously stopped conversion with an expected-size error.

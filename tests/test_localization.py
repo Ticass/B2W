@@ -55,12 +55,22 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(report['entries'][0]['value'], 'Map text &&1')
         self.assertEqual(report['entries'][0]['kind'], 'WaW')
 
-    def test_unknown_key_is_reported_instead_of_inventing_a_hint(self):
+    def test_unknown_key_is_reported_and_shown_as_its_key(self):
         self.script.write_text('a() { self sethintstring(&"custom_hint_missing"); }')
         report = self.stage()
         self.assertEqual(report['missing'], ['custom_hint_missing'])
-        self.assertTrue(report['errors'])
-        self.assertIn('&"custom_hint_missing"', self.script.read_text())
+        self.assertEqual(report['errors'], [])
+        self.assertTrue(report['warnings'])
+        self.assertEqual(report['entries'][0]['value'], 'custom_hint_missing')
+        self.assertEqual(report['entries'][0]['kind'], 'MISSING_SHOWN_AS_KEY')
+
+    def test_reference_lookup_ignores_case_like_waw(self):
+        self.script.write_text('a() { self sethintstring(&"ZOMBIE_WEAPON_Galil_1200"); }')
+        self.strings(self.root, 'zombie', {'WEAPON_GALIL_1200': 'Buy Galil [Cost: 1200]'})
+        report = self.stage()
+        self.assertEqual(report['missing'], [])
+        self.assertEqual(report['entries'][0]['value'], 'Buy Galil [Cost: 1200]')
+        self.assertIn('&"WAW2BO2_ZOMBIE_WEAPON_Galil_1200"', self.script.read_text())
 
     def test_custom_door_prices_use_source_wording_and_keep_authored_override(self):
         self.script.write_text('a() { x = &"ZOMBIE_BUTTON_BUY_OPEN_DOOR_15000"; '

@@ -158,6 +158,68 @@ class ModZoneTests(unittest.TestCase):
                     raise RuntimeError('link failed')
             self.assertEqual(material.read_bytes(), original)
 
+    def test_shader_relink_ignores_materials_left_by_earlier_builds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project, work = root/'project', root/'work'
+            for name in ('current', 'stale'):
+                path = project/'materials/mc'/(name + '.json')
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps({'techniqueSet': 'waw/runtime_' + name}))
+            (project/'bridge_stage.report.json').write_text(json.dumps({'materials': [
+                {'file': 'materials/mc/current.json'}]}))
+            (work/'zone_source').mkdir(parents=True)
+            (work/'zone_source/mod.zone').write_text('material,mc/current\n')
+            ff = root/'mod.ff'
+            ff.write_bytes(b'ff')
+
+            def tool(command, **kwargs):
+                if '--output-folder' in command and 'material' in command:
+                    dump = Path(command[command.index('--output-folder') + 1])
+                    for name in ('current', 'stale'):  # both exist in the gameplay zone
+                        out = dump/'materials/mc'/(name + '.json')
+                        out.parent.mkdir(parents=True, exist_ok=True)
+                        out.write_text(json.dumps({'techniqueSet': 'stock'}))
+                    return subprocess.CompletedProcess(command, 0, '', '')
+                return subprocess.CompletedProcess(command, 1, 'stop after overlay', '')
+
+            with patch.object(modzone, 'captured', side_effect=tool):
+                with self.assertRaisesRegex(RuntimeError, 'relink failed'):
+                    modzone.activate_mod_shaders(ff, project, work, root/'Linker.exe', root/'Unlinker.exe', root/'stock')
+            overlay = work/'shader_overlay/materials/mc'
+            self.assertEqual(json.loads((overlay/'current.json').read_text())['techniqueSet'], 'waw/runtime_current')
+            self.assertFalse((overlay/'stale.json').exists())
+
+    def test_shader_relink_leaves_same_named_stock_material_alone(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project, work = root/'project', root/'work'
+            source = project/'materials/mc/mtl_prop_bear.json'
+            source.parent.mkdir(parents=True)
+            source.write_text(json.dumps({'techniqueSet': 'waw/runtime_bear', 'textures': [
+                {'name': n} for n in ('colorMap', 'normalMap', 'specularMap')]}))
+            (project/'bridge_stage.report.json').write_text(json.dumps({'materials': [
+                {'file': 'materials/mc/mtl_prop_bear.json'}]}))
+            (work/'zone_source').mkdir(parents=True)
+            (work/'zone_source/mod.zone').write_text('material,mc/mtl_prop_bear\n')
+            ff = root/'mod.ff'
+            ff.write_bytes(b'ff')
+
+            def tool(command, **kwargs):
+                if '--output-folder' in command and 'material' in command:
+                    out = Path(command[command.index('--output-folder') + 1])/'materials/mc/mtl_prop_bear.json'
+                    out.parent.mkdir(parents=True)
+                    # BO2's own teddy bear: no specular slot
+                    out.write_text(json.dumps({'techniqueSet': 'mc_lit_sm_r0c0n0', 'textures': [
+                        {'name': 'colorMap'}, {'name': 'normalMap'}]}))
+                    return subprocess.CompletedProcess(command, 0, '', '')
+                return subprocess.CompletedProcess(command, 1, 'stop after overlay', '')
+
+            with patch.object(modzone, 'captured', side_effect=tool):
+                with self.assertRaisesRegex(RuntimeError, 'relink failed'):
+                    modzone.activate_mod_shaders(ff, project, work, root/'Linker.exe', root/'Unlinker.exe', root/'stock')
+            self.assertFalse((work/'shader_overlay/materials/mc/mtl_prop_bear.json').exists())
+
     def test_required_converted_asset_is_not_silently_dropped(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ADJACENT_RE = re.compile(r"^\s*add_adjacent_zone\s*\(([^;]*)\)\s*;", re.MULTILINE)
+ADJACENT_RE = re.compile(r"^\s*(?:[\w\\/]+::)?add_adjacent_zone\s*\(([^;]*)\)\s*;", re.MULTILINE)
 INIT_ZONE_RE = re.compile(r'^\s*(?:zones|init_zones)\s*\[[^\]]*\]\s*=\s*"([^"]+)"\s*;', re.MULTILINE)
 
 
@@ -20,11 +20,14 @@ class ZoneError(ValueError):
 
 
 def read_waw_zones(waw_gsc: str) -> tuple[list[str], list[str]]:
-    """(initial zones, add_adjacent_zone argument lists) from a WaW map script."""
+    """(initial zones, add_adjacent_zone argument lists) from a WaW map script.
+
+    Both are empty for a map without a zone graph (prototype/asylum/sumpf
+    scripts); entities.synthesize_zones builds one from its spawners."""
     adjacency = [m.strip() for m in ADJACENT_RE.findall(waw_gsc)]
     initial = list(dict.fromkeys(INIT_ZONE_RE.findall(waw_gsc)))
     if not adjacency:
-        raise ZoneError("no add_adjacent_zone calls in the WaW map script")
+        return [], []
     if not initial:
         initial = [re.findall(r'"([^"]+)"', adjacency[0])[0]]
     return initial, adjacency
@@ -43,8 +46,13 @@ def patch_bo2_script(bo2_gsc: str, project: str, initial: list[str], adjacency: 
     return func.sub(lambda _: f"{project}_zone_init()\n{{\n    // zone graph from the WaW map script\n{body}}}", out, count=1)
 
 
-def apply(waw_gsc_path: Path, bo2_gsc_path: Path, project: str) -> tuple[list[str], int]:
+def apply(waw_gsc_path: Path, bo2_gsc_path: Path, project: str,
+          synthesized: dict | None = None) -> tuple[list[str], int]:
     initial, adjacency = read_waw_zones(waw_gsc_path.read_text(encoding="utf-8", errors="replace"))
+    if not adjacency and synthesized:
+        initial, adjacency = synthesized["initial"], synthesized["adjacency"]
+    if not initial:
+        raise ZoneError("no add_adjacent_zone calls in the WaW map script and no zombie spawners to build zones from")
     text = bo2_gsc_path.read_text(encoding="utf-8", errors="replace")
     bo2_gsc_path.write_text(patch_bo2_script(text, project, initial, adjacency), encoding="utf-8")
     return initial, len(adjacency)

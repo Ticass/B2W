@@ -191,8 +191,13 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
     entries, mapping, resolved, missing = {}, {}, [], []
     compatibility = json.loads((Path(__file__).parent / 'compat/bo2_equivalents.json').read_text())
     equivalents = compatibility.get('localize', {})
+    # WaW resolves localized references case-insensitively: maps ask for
+    # &"ZOMBIE_WEAPON_Galil_1200" while StringEd writes ZOMBIE_WEAPON_GALIL_1200.
+    folded = {}
+    for candidate, value in sources.items():
+        folded.setdefault(candidate.upper(), value)
     for key in sorted(requested):
-        hit = sources.get(key)
+        hit = sources.get(key) or folded.get(key.upper())
         origin_kind = 'WaW'
         if hit is None:
             hit = price_variant(key, sources)
@@ -207,8 +212,9 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
         if hit is None and not KEY.fullmatch(key):
             hit, origin_kind = (key, 'literal display text'), 'literal'
         if hit is None:
+            # WaW draws an unresolved reference as its key; so does the port.
             missing.append(key)
-            continue
+            hit, origin_kind = (key, 'unresolved WaW reference'), 'MISSING_SHOWN_AS_KEY'
         value, origin = hit
         name = PREFIX + (key if re.fullmatch(r'[A-Za-z0-9_]+', key) else
                          'TEXT_' + hashlib.sha256(key.encode()).hexdigest()[:20].upper())
@@ -241,7 +247,9 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
                            ''.join(f'\nREFERENCE {name}\nLANG_{language.upper()} {quote(value)}\n'
                                    for name, value in sorted(entries.items())) + '\nENDMARKER\n', encoding='utf-8')
     report = {'asset': asset, 'language': language, 'entries': resolved, 'rewritten_scripts': rewritten,
-              'missing': missing, 'errors': [f'missing source localization: {key}' for key in missing]}
+              'missing': missing, 'errors': [],
+              'warnings': [f'LOCALIZATION_MISSING {key}: no source text in the map, its IWDs or stock WaW; '
+                           f'shown as the key, as WaW does' for key in missing]}
     output = project / 'content_source/localization.stage.json'
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
