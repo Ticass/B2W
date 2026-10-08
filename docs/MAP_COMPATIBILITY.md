@@ -40,6 +40,7 @@ evidence first. The site filters by map name and either status, links each
 entry to its CodRepo page, and includes an offline JSON copy of the base list.
 
 Pull requests build a Pages artifact on GitHub for validation but do not
-publish it. Pushes to `main` and daily scheduled runs deploy the site. In the
-repository's **Settings → Pages**, set the build and deployment source to
-**GitHub Actions** once before the first deployment.
+publish it. Pushes to `main` and daily scheduled runs deploy the site. GitHub
+Pages is configured to use GitHub Actions for this repository; if Pages is
+recreated or the repository is moved, set **Settings → Pages → Build and
+deployment source** to **GitHub Actions**.
