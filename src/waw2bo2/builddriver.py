@@ -120,6 +120,8 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
             '--script-template', str(stage / 'zone_raw/bridge'), '--script-template-name', 'bridge']
     if settings.bo2_stock_perks:
         args += ['--bo2-stock-perks']
+    if settings.remaster:
+        args += ['--remaster-bo2-materials']
     if settings.source_fx:
         args += ['--waw-mod-tools', settings.waw_tools, '--waw-source-fx',
                  '--waw-source-dumps', str(caches.waw / 'source')]
