@@ -93,7 +93,7 @@ def make_message(
     testing: dict[str, Any] | None,
     patch_notes: str,
     compare_url: str,
-    next_nightly: str = "06:17 UTC daily (subject to GitHub Actions scheduling and build checks)",
+    next_nightly: str = "midnight Toronto time daily (subject to GitHub Actions scheduling and build checks)",
 ) -> dict[str, Any]:
     releases_url = f"https://github.com/{repo}/releases"
     if stable:

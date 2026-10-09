@@ -3,8 +3,8 @@
 All builds and publication run on GitHub-hosted `windows-2022` and
 `ubuntu-24.04` runners. No local runner or running PC is required.
 
-Every branch push (except generated `release/nightly/**` branches) and every pull
-request runs **Bleeding edge builds**. Native T4/T6 tools and the audio decoder
+Every branch push and every pull request runs **Bleeding edge builds**, except
+for `release/**` branches: a release branch is only ever built as the nightly. Native T4/T6 tools and the audio decoder
 are built from source on a cache miss. Subsequent runs with identical native
 sources and build scripts reuse the verified binaries, the T4 weapon schema,
 and their corresponding source archives. Cache keys include the upstream patch,
@@ -23,13 +23,24 @@ Artifacts remain available for 14 days; downloading them requires GitHub login.
 Each push gets its own run; later pushes do not cancel earlier builds. Pull
 request builds test GitHub's merge commit.
 
-**Nightly and version releases** runs daily at **06:17 UTC** (02:17 in Toronto
-during daylight saving time, 01:17 during standard time). GitHub can delay
-scheduled runs.
+## Daily flow
 
-Daily work is merged into the day's release branch, `release/YYYY-MM-DD`. The
-nightly builds the newest such branch (or `main` when none exists). Its commit
-at the start of the run is the cutoff: the workflow creates
+1. An issue gets its own branch; the fix is made and tested there (its pushes
+   get bleeding edge builds and testing announcements).
+2. Once tested, the fix is merged into that day's release branch,
+   `release/YYYY-MM-DD`. Release branches get no bleeding edge build.
+3. At **midnight Toronto time**, **Nightly and version releases** builds that
+   release branch and publishes it as **Nightly YYYY-MM-DD**, announced on
+   Discord as a nightly.
+4. The release branch is deleted, the nightly is merged into `main`, and
+   `release/<new day>` is created from `main` for the next day's merges.
+
+The schedule has two UTC times, 04:00 and 05:00; a `clock` job keeps the one
+that is midnight in Toronto (daylight saving or standard time) and skips the
+other. GitHub can delay scheduled runs.
+
+The nightly builds the newest `release/YYYY-MM-DD` branch (or `main` when none
+exists). Its commit at the start of the run is the cutoff: the workflow creates
 `release/nightly/YYYY-MM-DD-RUN_ID` at that commit and checks out the exact
 commit for both packages. A rerun reuses the original snapshot branch, commit
 and release name. Manual nightly runs are supported from `main` with **Run
@@ -45,21 +56,19 @@ snapshot branch for diagnosis and publishes no release. Publishing first
 uploads assets to a draft, so an upload failure on the first attempt leaves
 a draft that can be completed by rerunning the workflow.
 
-Once the nightly is published, the workflow rolls the release branch over:
+Once the nightly is published, the `rollover` job:
 
-1. The snapshot commit is merged into `main`. Only what the nightly built
-   reaches `main`.
-2. `release/<Toronto date of the run>` is created from the updated `main`. This
-   is the branch to merge into that day.
-3. Commits pushed to the old release branch after the cutoff were not in the
-   nightly; they are merged into the new branch instead of `main`.
-4. The old release branch is deleted.
+1. Deletes the release branch the nightly was built from.
+2. Merges the nightly's commit into `main`.
+3. Creates `release/<Toronto date of the run>` from `main`.
+4. Merges any commits pushed to the old release branch after the cutoff (not in
+   the nightly, so not merged into `main`) into the new branch.
 
-A failed build publishes nothing and changes no branch, so work keeps going
-into the same release branch and the next nightly picks it up. A merge conflict
-stops the rollover with the old branch kept and no new branch created; resolve
-it by hand, then rerun the failed job. Pushes made with `GITHUB_TOKEN` start no
-other workflows, so the merge into `main` produces no extra build or testing
+A failed build publishes nothing and changes no branch, so the same release
+branch is built again the next night. A merge conflict with `main` restores
+the deleted release branch, creates no new one, and fails the job; resolve it
+by hand, then rerun the failed job. Pushes made with `GITHUB_TOKEN` start no
+other workflows, so the merge into `main` produces no extra build or
 announcement.
 
 For a stable release, update `pyproject.toml` and `CHANGELOG.md`, commit those
