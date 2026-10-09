@@ -4,21 +4,28 @@ on:
   workflow_run:
     workflows: ['Bleeding edge builds']
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful push build run ID to announce again
+        required: true
+        type: string
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: discord-testing-${{ github.event.workflow_run.id }}
+  group: discord-testing-${{ inputs.run_id || github.event.workflow_run.id }}
   cancel-in-progress: false
 
 jobs:
   announce:
     if: >-
+      github.event_name == 'workflow_dispatch' || (
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -33,7 +40,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          TESTING_RUN_ID: ${{ github.event.workflow_run.id }}
+          TESTING_RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
           DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
           DISCORD_RELEASE_CHANNEL_ID: ${{ vars.DISCORD_RELEASE_CHANNEL_ID || '1557862642503254136' }}
           DISCORD_RELEASE_GUILD_ID: ${{ vars.DISCORD_RELEASE_GUILD_ID || '1557610224641245245' }}

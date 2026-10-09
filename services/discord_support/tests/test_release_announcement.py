@@ -1,10 +1,38 @@
 import unittest
+import io
+import json
 from unittest.mock import patch
 
-from services.discord_support.release_announcement import make_message, release_source_sha, testing_message, webhook_metadata
+from services.discord_support.release_announcement import DISCORD_USER_AGENT, make_message, post_message, release_source_sha, testing_message, webhook_metadata
 
 
 class ReleaseAnnouncementTests(unittest.TestCase):
+    @patch('services.discord_support.release_announcement.urllib.request.urlopen')
+    def test_webhook_validation_identifies_client_to_discord(self, urlopen):
+        urlopen.return_value = io.BytesIO(b'{"channel_id": "123"}')
+        metadata = webhook_metadata('https://discord.com/api/webhooks/123/test-token')
+        self.assertEqual(metadata['channel_id'], '123')
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header('User-agent'), DISCORD_USER_AGENT)
+
+    @patch('services.discord_support.release_announcement.urllib.request.urlopen')
+    def test_post_waits_for_message_creation_and_returns_discord_receipt(self, urlopen):
+        urlopen.return_value = io.BytesIO(b'{"id": "456", "channel_id": "123"}')
+        result = post_message('https://discord.com/api/webhooks/123/test-token?wait=false',
+                              {'allowed_mentions': {'parse': []}})
+        self.assertEqual(result['id'], '456')
+        request = urlopen.call_args.args[0]
+        self.assertIn('wait=true', request.full_url)
+        self.assertNotIn('wait=false', request.full_url)
+        self.assertEqual(request.get_header('User-agent'), DISCORD_USER_AGENT)
+        self.assertEqual(json.loads(request.data)['allowed_mentions'], {'parse': []})
+
+    @patch('services.discord_support.release_announcement.urllib.request.urlopen')
+    def test_post_does_not_claim_delivery_without_a_message_receipt(self, urlopen):
+        urlopen.return_value = io.BytesIO(b'{}')
+        with self.assertRaisesRegex(RuntimeError, 'did not confirm'):
+            post_message('https://discord.com/api/webhooks/123/test-token', {})
+
     def completed_run(self, **changes):
         return {"conclusion": "success", "event": "push", "path": ".github/workflows/ci.yml",
                 "head_repository": {"full_name": "owner/repo"}, "head_branch": "main",

@@ -14,6 +14,12 @@ the Railway listener. Merge the workflow and announcement code into the default
 branch to enable the completion trigger. No GitHub Release is created by this
 announcement; testing packages remain Actions artifacts.
 
+If an announcement fails, run **Discord testing build announcement** manually
+with the successful build's numeric Actions run ID. This reposts that exact
+build without rebuilding packages. Webhook requests identify the client using
+Discord's required user-agent format and wait for Discord's message receipt
+before reporting success.
+
 `.github/workflows/release-announcements.yml` runs every day at **15:17 UTC**
 on a GitHub-hosted Ubuntu runner. It posts one Discord embed containing links
 to the latest stable release, the latest published nightly, and the latest
