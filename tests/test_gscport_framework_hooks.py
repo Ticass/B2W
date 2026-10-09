@@ -7,9 +7,10 @@ from waw2bo2.t6api import T6Api
 
 
 def _api() -> T6Api:
-    return T6Api(builtins={"getentarray": (2, 2)},
+    return T6Api(builtins={"getentarray": (2, 2), "getent": (2, 2), "spawn": (2, 5)},
                  scripts={"maps\\mp\\zombies\\_zm": {"init": 0}},
-                 methods={"setperk": (1, 1), "hasperk": (1, 1), "unsetperk": (1, 1)})
+                 methods={"setperk": (1, 1), "hasperk": (1, 1), "unsetperk": (1, 1), "hide": (0, 0),
+                          "linkto": (1, 4)})
 
 
 class FrameworkHookTests(unittest.TestCase):
@@ -95,6 +96,71 @@ class FrameworkHookTests(unittest.TestCase):
     def test_no_override_main_no_hooks(self):
         main, _, _ = self.port({"maps/testmap.gsc": "main()\n{\n\tmaps\\_zombiemode::main();\n}\n"})
         self.assertNotIn("inits of the map's own scripts", main)
+
+
+STOCK_ZM = ("main()\n{\n\tlevel.custom_intermission = ::player_intermission;\n\tlevel thread end_game();\n}\n"
+            "end_game()\n{\n\tlevel waittill ( \"end_game\" );\n\tintermission();\n"
+            "\twait( level.zombie_vars[\"zombie_intermission_time\"] );\n\tlevel notify( \"stop_intermission\" );\n}\n"
+            "player_intermission()\n{\n\torg = Spawn( \"script_origin\", self.origin );\n"
+            "\tself LinkTo( org, \"\", ( 0, 0, -60 ), ( 0, 0, 0 ) );\n}\n")
+
+
+class CustomIntermissionTests(unittest.TestCase):
+    def port(self, override: str) -> tuple[str, str, gscport.PortReport]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = {root / "src/maps/testmap.gsc": "main()\n{\n\tmaps\\_zombiemode::main();\n}\n",
+                     root / "src/maps/_zombiemode.gsc": override,
+                     root / "stock/maps/_zombiemode.gsc": STOCK_ZM}
+            for path, text in files.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            sources = gscport.Sources([root / "src"], [], root / "stock")
+            report = gscport.port_map(sources, _api(), "testmap", root / "out")
+            waw = root / "out/maps/mp/waw"
+            return ((waw / "testmap.gsc").read_text(encoding="utf-8"),
+                    (waw / "_waw2bo2_core.gsc").read_text(encoding="utf-8"), report)
+
+    def test_map_end_game_camera_replaces_bo2_intermission(self):
+        # Nuketown: the view flies down with the nuke (rocket linked to the camera mover)
+        edited = STOCK_ZM.replace("\tself LinkTo(", "\trocket = getEnt( \"rocket\", \"targetname\" );\n"
+                                  "\trocket linkTo( org );\n\tself LinkTo(")
+        edited = edited.replace("\tlevel waittill ( \"end_game\" );",
+                                "\trocket = getEnt( \"rocket\", \"targetname\" );\n\trocket hide();\n"
+                                "\tlevel waittill ( \"end_game\" );")
+        # the cutscene, not BO2's fixed timer, decides when the game exits
+        edited = edited.replace("\twait( level.zombie_vars[\"zombie_intermission_time\"] );",
+                                "\tlevel waittill( \"end_it_pls\" );\n\twait 2;")
+        main, core, report = self.port(edited)
+        post = main[main.index("waw_main_post()"):]
+        self.assertIn(f"level.custom_intermission = {gscport.CORE}::zombiemode__player_intermission;", post)
+        self.assertIn(f"level thread {gscport.CORE}::zombiemode__end_game_prelude();", post)
+        self.assertIn(f"level thread {gscport.CORE}::zombiemode__end_game_intermission_wait();", post)
+        wait = core[core.index("zombiemode__end_game_intermission_wait()"):]
+        wait = wait[:wait.index("\n}\n")]
+        order = ['level waittill( "end_game" );', 'level.zombie_vars["zombie_intermission_time"] = 30;',
+                 'level waittill( "intermission" );', 'level waittill( "end_it_pls" );', "wait 2;",
+                 'level notify( "stop_intermission" );', "maps\\mp\\zombies\\_zm::player_exit_level", "wait 1.5;",
+                 "cameraactivate( 0 );", "exitlevel( 0 );"]
+        self.assertEqual([wait.index(o) for o in order], sorted(wait.index(o) for o in order))
+        self.assertLess(post.index("custom_intermission"), post.index("initial_players_connected"))
+        prelude = core[core.index("zombiemode__end_game_prelude()"):]
+        self.assertIn("rocket hide();", prelude)
+        self.assertNotIn("waittill", prelude[:prelude.index("}")])
+        fn = core[core.index("zombiemode__player_intermission()"):]
+        self.assertIn("rocket linkTo( org );", fn)
+        # BO2 views intermissions through the script camera on a networked model
+        self.assertIn("self.waw_intermission_cam linkto( org );", fn)
+        self.assertIn("self camerasetposition( self.waw_intermission_cam );", fn)
+        self.assertIn("self cameraactivate( 1 );", fn)
+        self.assertEqual(report.rewrites["intermission player link -> T6 script camera"], 1)
+
+    def test_stock_intermission_keeps_bo2s(self):
+        main, core, _ = self.port(STOCK_ZM + "other() {}\n")
+        self.assertNotIn("custom_intermission", main)
+        self.assertNotIn("end_game_prelude", main)
+        self.assertNotIn("intermission_wait", main)
+        self.assertNotIn("zombiemode__player_intermission", core)
 
 
 if __name__ == "__main__":

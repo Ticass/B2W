@@ -53,6 +53,7 @@ class Launcher(ttk.Frame):
         self.art_cache = {}
         self.source_fx = tk.BooleanVar(value=self.settings.source_fx)
         self.bo2_stock_perks = tk.BooleanVar(value=self.settings.bo2_stock_perks)
+        self.remaster = tk.BooleanVar(value=self.settings.remaster)
         self.redump = tk.BooleanVar(value=self.settings.redump)
         self.verbose = tk.BooleanVar(value=self.settings.verbose)
         self.status = tk.StringVar(value='Choose a WaW map to begin.')
@@ -230,6 +231,9 @@ class Launcher(ttk.Frame):
         check.pack(anchor='w', pady=(8, 4))
         self.action_widgets.append(check)
         check = ttk.Checkbutton(build, text='Use BO2 stock perks (maps with BO2 perks only)', variable=self.bo2_stock_perks)
+        check.pack(anchor='w', pady=(0, 4))
+        self.action_widgets.append(check)
+        check = ttk.Checkbutton(build, text='Remaster with BO2 materials (props ported from BO2)', variable=self.remaster)
         check.pack(anchor='w', pady=(0, 4))
         self.action_widgets.append(check)
         self.build_button = self._button(build, 'Build Map', self._build, style='Build.TButton')
@@ -438,7 +442,7 @@ class Launcher(ttk.Frame):
     def _snapshot(self) -> Settings:
         return Settings(**{key: value.get().strip() for key, value in self.vars.items()},
                         source_fx=self.source_fx.get(), bo2_stock_perks=self.bo2_stock_perks.get(),
-                        redump=self.redump.get(), verbose=self.verbose.get())
+                        remaster=self.remaster.get(), redump=self.redump.get(), verbose=self.verbose.get())
 
     def _refresh(self):
         settings = self._snapshot()

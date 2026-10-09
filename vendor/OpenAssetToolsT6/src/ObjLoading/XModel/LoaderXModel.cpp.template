@@ -506,10 +506,32 @@ namespace
             return static_cast<uint16_t>(std::clamp(rounded, 0.0f, 65535.0f));
         }
 
+        // A tree with one leaf node and no triangles: the trace finds nothing.
+        // T6 never checks the pointer (t6zm 0x4BC1B0 reads tree->nodes), so a
+        // vert list without triangles, or one the leaf encoding cannot address,
+        // still gets a tree (host crash in coop, waw2bo2 2026-10-08).
+        XSurfaceCollisionTree* EmptyCollisionTree() const
+        {
+            auto* tree = m_memory.Alloc<XSurfaceCollisionTree>();
+            tree->nodeCount = 1u;
+            tree->nodes = m_memory.Alloc<XSurfaceCollisionNode>(1u);
+            tree->nodes[0].childBeginIndex = 0u;
+            tree->nodes[0].childCount = 0x8000u;
+            tree->leafCount = 0u;
+            tree->leafs = m_memory.Alloc<XSurfaceCollisionLeaf>(1u);
+            return tree;
+        }
+
         XSurfaceCollisionTree* CreateCollisionTree(const XSurface& surface, const unsigned triOffset, const unsigned triCount) const
         {
-            if (triCount == 0 || !surface.verts0 || !surface.triIndices || triOffset + triCount > 0x8000u)
-                return nullptr;
+            if (triCount == 0)
+                return EmptyCollisionTree();
+            if (!surface.verts0 || !surface.triIndices || triOffset + triCount > 0x8000u)
+            {
+                con::warn("xmodel \"{}\": {} triangles from {} have no trace collision (collision tree limit)",
+                          m_collision_model, triCount, triOffset);
+                return EmptyCollisionTree();
+            }
 
             std::vector<CollisionBuildTri> tris(triCount);
             float mins[3]{std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
@@ -623,7 +645,11 @@ namespace
             }
 
             if (nodes.size() > 0xFFFFu || leafs.size() > 0xFFFFu)
-                return nullptr;
+            {
+                con::warn("xmodel \"{}\": {} triangles from {} have no trace collision (collision tree too large)",
+                          m_collision_model, triCount, triOffset);
+                return EmptyCollisionTree();
+            }
             tree->nodeCount = static_cast<unsigned>(nodes.size());
             tree->nodes = m_memory.Alloc<XSurfaceCollisionNode>(nodes.size());
             memcpy(tree->nodes, nodes.data(), sizeof(XSurfaceCollisionNode) * nodes.size());
@@ -973,6 +999,9 @@ namespace
             auto extension = std::filesystem::path(jLod.file).extension().string();
             utils::MakeStringLowerCase(extension);
 
+#if defined(FEATURE_T6)
+            m_collision_model = xmodel.name;
+#endif
             const auto common = LoadModelByExtension(*file.m_stream, extension);
             if (!common)
             {
@@ -1334,6 +1363,9 @@ namespace
         bool m_gltf_bad_rotation_formulas;
 
         std::vector<XSurface> m_surfaces;
+#if defined(FEATURE_T6)
+        std::string m_collision_model; // for collision tree warnings
+#endif
         std::vector<Material*> m_materials;
 
         MemoryManager& m_memory;

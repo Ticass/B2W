@@ -82,6 +82,13 @@ cannot be converted at all) may the converter use a BO2 equivalent instead of le
 - Every use is reported, e.g. `BO2_FALLBACK xmodel a1_fs_vm_usa_cia_camo_arms -> <bo2 model>: absent from WaW`,
   so it can be removed once the WaW asset becomes convertible.
 
+**Opt-in exception: Remaster (user request, 2026-10-08).** With the "Remaster with BO2 materials" option
+(`--remaster-bo2-materials`, off by default) a WaW *model* material that is a port of a BO2 material (same
+name, optionally behind a `bo2_`/`bo1_`/`t6_`/`t5_` prefix, same `mc/` class) is drawn with the native BO2
+material, technique set and images. This is for maps built from BO2 props ported back to WaW. World materials
+keep the WaW lighting path. Every replacement is reported (`REMASTER material ...`), and a material that cannot
+be extracted keeps its WaW translation. See `src/waw2bo2/remaster.py`.
+
 ---
 
 # 3. Prefer Translation Over Emulation, and Preservation Over Approximation

@@ -266,6 +266,7 @@ def _stage_bridge(args: argparse.Namespace) -> int:
         t6_unlinker=args.t6_unlinker.resolve() if args.t6_unlinker else None,
         fx_fallback=args.fx_fallback,
         bo2_stock_perks=args.bo2_stock_perks,
+        remaster_bo2_materials=args.remaster_bo2_materials,
         waw_root=args.waw_root.resolve() if args.waw_root else None,
         t4_unlinker=args.t4_unlinker.resolve() if args.t4_unlinker else None,
         waw_stock_dumps=args.waw_stock_dumps.resolve() if args.waw_stock_dumps else None,
@@ -517,6 +518,9 @@ def parser() -> argparse.ArgumentParser:
                            "(each one reported as APPROXIMATED_SOUND_CURVE)")
     sb_p.add_argument('--bo2-stock-perks', action='store_true',
                       help='Opt in to stock BO2 perk gameplay; only for maps whose perks all have BO2 equivalents')
+    sb_p.add_argument('--remaster-bo2-materials', action='store_true',
+                      help='Draw model materials that are ports of BO2 materials with the original BO2 material '
+                           '(textures, specular/gloss, shaders); each one reported as REMASTER')
     sb_p.set_defaults(func=_stage_bridge)
     bm_p = sub.add_parser("build-mod", help="link the zombies gameplay mod.ff with the BO2 mod tools linker")
     bm_p.add_argument("stage", type=Path)
