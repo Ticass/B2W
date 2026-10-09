@@ -121,6 +121,24 @@ mov o1.xy, v1
                                                 ({'constants': {}},))
         self.assertEqual(native['args'], args)
 
+    def test_reflection_reads_windows_8_1_compiler_binding_slots(self):
+        # d3dcompiler_47 6.3.9600 (winetricks under Wine) prints "Slot" numbers
+        # where Windows 10 SDK compilers print "HLSL Bind" registers.
+        legacy = '''// cbuffer PerObject
+// {
+// float4x4 worldMatrix; // Offset: 0 Size: 64
+// }
+// Name Type Format Dim Slot Elements
+// PerObject cbuffer NA NA 3 1
+// colorMapSampler texture float4 2d 5 1
+ps_5_0
+'''
+        self.assertEqual(runtime.buffers(legacy), {'worldMatrix': (3, 0, 64)})
+        self.assertEqual(runtime.resource_names(legacy), {5: ('colorMapSampler', '2d')})
+        current = legacy.replace('NA NA 3 1', 'NA NA cb3 1').replace('2d 5 1', '2d t5 1')
+        self.assertEqual(runtime.buffers(current), runtime.buffers(legacy))
+        self.assertEqual(runtime.resource_names(current), runtime.resource_names(legacy))
+
     def test_source_sky_keeps_vertex_color_uv_and_cloud_time(self):
         native = '''// cbuffer PerScene
 // {
