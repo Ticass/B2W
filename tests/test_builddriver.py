@@ -65,7 +65,10 @@ class BuildDriverTests(unittest.TestCase):
         self.assertEqual(len(actions), 4)
         self.assertFalse(any('powershell.exe' in command or 'package' in command for command in commands))
         stage = next(command for command in commands if 'stage-bridge' in command)
-        self.assertIn(str(Path(self.settings.fastfile).parent), stage)
+        # Windows temp paths may use an 8.3 alias (RUNNER~1); the driver
+        # resolves the selected fastfile before passing its directory to staging.
+        iwd_dirs = [stage[index + 1] for index, arg in enumerate(stage) if arg == '--iwd-dir']
+        self.assertIn(str(Path(self.settings.fastfile).resolve().parent), iwd_dirs)
         self.assertIn('--approximate-sound-curves', stage)
         self.assertNotIn('--waw-source-fx', stage)
         self.assertEqual(stage.count('--extra-root'), 4)
