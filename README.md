@@ -81,7 +81,7 @@ driver, and stock FX fallback is opt-in. Inspect the reports to assess fidelity.
 
 ## Documentation
 
-- [Automated bleeding edge builds, nightly releases and stable releases](docs/CI_CD.md)
+- [Automated preview builds, nightly releases and stable releases](docs/CI_CD.md)
 - [Map compatibility catalog and test records](docs/MAP_COMPATIBILITY.md)
 - [Live map compatibility page](https://ticass.github.io/B2W/)
 - [Discord error-report bot and automated investigations](docs/DISCORD_SUPPORT.md)

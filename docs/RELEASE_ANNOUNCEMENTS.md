@@ -1,9 +1,9 @@
 # Daily Discord release announcements
 
-New successful push-triggered **Bleeding edge builds** also get an immediate
+New successful push-triggered **Preview builds** also get an immediate
 Discord announcement through `.github/workflows/testing-announcements.yml`.
-This covers testing builds on fix branches. `release/**` branches get no
-bleeding edge build, so they are never announced as testing builds.
+This covers testing builds on fix branches. `main` gets no preview build and is
+never announced as a testing build; it is announced only as a nightly.
 The announcement links to the exact run's Windows and Linux artifacts and
 identifies its branch and commit. Failed builds and pull-request runs are skipped;
 both package artifacts must exist and be unexpired before posting. A successful
@@ -23,10 +23,9 @@ before reporting success.
 
 Each published nightly gets its own Discord announcement from the `announce`
 job of `.github/workflows/release.yml`, titled with the nightly's name (for
-example **New Nightly 2026-10-09** for `release/2026-10-09`) rather than as a
-testing build. It links
+example **New Nightly 2026-10-10**) rather than as a testing build. It links
 the release's Windows and Linux downloads (no GitHub login needed), names the
-release branch and commit it was built from, and lists up to five commits since
+`main` commit it was cut from, and lists up to five commits since
 the previous nightly with a link to the full comparison. It runs only after
 the release is published, so a failed nightly is never announced. Stable
 version releases are not announced by this job.
@@ -52,7 +51,7 @@ The channel and server IDs can be changed with repository Actions variables
 stays private in the secret. Until that secret exists, the daily job records a
 warning and skips posting without exposing a credential or failing the run.
 
-The testing link opens the latest successful push run of **Bleeding edge
+The testing link opens the latest successful push run of **Preview
 builds**; download its `windows-package` and `linux-package` artifacts from that
 run. GitHub keeps these testing artifacts for 14 days and requires a GitHub
 login to download them. A nightly or stable release is linked only after it is
