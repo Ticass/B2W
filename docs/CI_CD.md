@@ -4,8 +4,18 @@ All builds and publication run on GitHub-hosted `windows-2022` and
 `ubuntu-24.04` runners. No local runner or running PC is required.
 
 Every branch push (except generated `release/nightly/**` branches) and every pull
-request runs **Bleeding edge builds**. Each run builds the native T4 extractor,
-vendored T6 tools and audio decoder from source, runs the Windows regression
+request runs **Bleeding edge builds**. Native T4/T6 tools and the audio decoder
+are built from source on a cache miss. Subsequent runs with identical native
+sources and build scripts reuse the verified binaries, the T4 weapon schema,
+and their corresponding source archives. Cache keys include the upstream patch,
+vendored T6 source/build definitions, and decoder/build/archive scripts; partial
+cache matches are not used. Python changes still run the regression suite and
+create fresh Windows and Linux packages. Native compilation uses the runner's
+CPU count with a shared compiler-process budget across concurrent projects;
+`WAW2BO2_BUILD_WORKERS` can limit this budget. GitHub-hosted builds use the
+runner's CPU cores rather than the desktop PC's cores.
+
+Each run executes the Windows regression
 suite, packages Windows, and packages and checks the Linux frontend using that
 same Windows worker. Download `windows-package` and `linux-package` from the
 run's **Artifacts** section on the [Actions page](https://github.com/Ticass/B2W/actions).

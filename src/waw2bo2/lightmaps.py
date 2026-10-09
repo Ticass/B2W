@@ -142,6 +142,28 @@ def build_page(secondary: Path, primary: Path | None) -> tuple[int, int, bytes, 
     return sw, height, waw, t6
 
 
+def _stage_page(task):
+    index, secondary, primary, project_root = task
+    width, height, waw, t6 = build_page(secondary, primary)
+    names = {'waw': f'lightmap{index}_waw_secondary', 't6': f'lightmap{index}_t6_secondary'}
+    for key, data in (('waw', waw), ('t6', t6)):
+        if os.environ.get('WAW2BO2_DIAG_PAGEID'):
+            # Diagnostic build: a 4x4 code in the page's last texels
+            # (red = page index, blue = WaW-encoded, green = T6-encoded).
+            palette = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 255, 255)]
+            code = bytes([*(palette[index % 5] if key == 'waw' else (255, 0, 255)), 255])
+            data = bytearray(data)
+            for y in range(max(0, height * 3 - 4), height * 3):
+                for x in range(max(0, width - 4), width):
+                    o = (y * width + x) * 4
+                    data[o:o + 4] = code
+            data = bytes(data)
+        dst = project_root / 'images' / f'{names[key]}.iwi'
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(_iwi_rgba(width, height * 3, data))
+    return {'index': index, 'width': width, 'height': height, **names}
+
+
 def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set[str]) -> dict:
     """Write both encodings of every lightmap page the world uses.
 
@@ -167,29 +189,16 @@ def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set
     if unlit:
         report['warnings'].append(f'{unlit} surfaces have no lightmap page (WaW index >= {count}: '
                                   f'{sorted(i for i in used if i >= count)})')
+    tasks = []
     for index in range(count):
         secondary, primary = find(index, 'secondary'), find(index, 'primary')
         if primary is None:
             report['warnings'].append(f'lightmap page {index}: primary (sun visibility) absent; fully visible')
-        width, height, waw, t6 = build_page(secondary, primary)
-        names = {'waw': f'lightmap{index}_waw_secondary', 't6': f'lightmap{index}_t6_secondary'}
-        for key, data in (('waw', waw), ('t6', t6)):
-            if os.environ.get('WAW2BO2_DIAG_PAGEID'):
-                # Diagnostic build: a 4x4 code in the page's last texels
-                # (red = page index, blue = WaW-encoded, green = T6-encoded).
-                palette = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 255, 255)]
-                code = bytes([*(palette[index % 5] if key == 'waw' else (255, 0, 255)), 255])
-                data = bytearray(data)
-                for y in range(max(0, height * 3 - 4), height * 3):
-                    for x in range(max(0, width - 4), width):
-                        o = (y * width + x) * 4
-                        data[o:o + 4] = code
-                data = bytes(data)
-            dst = project_root / 'images' / f'{names[key]}.iwi'
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(_iwi_rgba(width, height * 3, data))
-        pages.append(names)
-        report['pages'].append({'index': index, 'width': width, 'height': height, **names})
+        tasks.append((index, secondary, primary, project_root))
+    from .parallel import ordered_map
+    for result in ordered_map(_stage_page, tasks, label='Lightmaps', processes=True):
+        pages.append({key: result[key] for key in ('waw', 't6')})
+        report['pages'].append(result)
     bsp = project_root / 'BSP'
     bsp.mkdir(parents=True, exist_ok=True)
     (bsp / 'lightmaps.json').write_text(json.dumps({'pages': pages, 'wawMaterials': sorted(waw_materials)}, indent=1) + '\n',

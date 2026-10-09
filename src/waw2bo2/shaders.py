@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import re
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -40,6 +41,7 @@ def disassemble(bytecode: bytes) -> str:
     return _blob_bytes(blob).decode('utf-8').rstrip('\0')
 
 
+@lru_cache(maxsize=128)
 def compile_hlsl(source: str, profile: str) -> bytes:
     if profile not in ('ps_5_0', 'vs_5_0', 'ps_3_0', 'vs_3_0'):
         raise ShaderError(f'unsupported target profile {profile}')
@@ -487,28 +489,33 @@ def translate_file(source: Path, output: Path, bindings: dict | None = None, *, 
     return report
 
 
+def _stage_shader(task):
+    name, source, destination = task
+    # T6 donor DXBC is not WaW input. Preserve it through the existing path.
+    if source.read_bytes()[:4] == b'DXBC':
+        return None
+    try:
+        report = translate_file(source, destination / name)
+        return dict(report, name=name, status='translated_unbound')
+    except (ShaderError, OSError, AttributeError) as exc:
+        return {'name': name, 'source': str(source), 'status': 'unsupported', 'error': str(exc)}
+
+
 def stage(roots: list[Path], destination: Path) -> dict:
     """Translate extracted WaW shaders, retaining first-source precedence.
 
     Staging artifacts are intentionally outside shader_bin: without a verified
     T6 pass contract they cannot override a live shader with incompatible ABI.
     """
-    from .progress import items
+    from .parallel import ordered_map
     sources = {}
     for root in roots:
         for folder in (root / 'shader_bin', root / 'content_source/shader_bin'):
             for path in sorted(folder.rglob('*.cso')):
                 sources.setdefault(path.relative_to(folder).as_posix(), path)
-    rows = []
-    for name, source in items('Shaders', list(sources.items()), name=lambda pair: pair[0]):
-        # T6 donor DXBC is not WaW input. Preserve it through the existing path.
-        if source.read_bytes()[:4] == b'DXBC':
-            continue
-        try:
-            report = translate_file(source, destination / name)
-            rows.append(dict(report, name=name, status='translated_unbound'))
-        except (ShaderError, OSError, AttributeError) as exc:
-            rows.append({'name': name, 'source': str(source), 'status': 'unsupported', 'error': str(exc)})
+    rows = [row for row in ordered_map(_stage_shader,
+            [(name, source, destination) for name, source in sources.items()], label='Shaders')
+            if row is not None]
     report = {'status': 'requires_t6_pass_bindings' if rows else 'no_source_bytecode',
               'translated': sum(r['status'] == 'translated_unbound' for r in rows),
               'unsupported': sum(r['status'] == 'unsupported' for r in rows), 'shaders': rows}

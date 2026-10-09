@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from waw2bo2 import shaders
@@ -66,6 +67,11 @@ class ShaderTests(unittest.TestCase):
             self.assertEqual((report['translated'], report['unsupported']), (1, 1))
             self.assertEqual((root/'out/a.cso').read_bytes()[:4], b'DXBC')
             self.assertFalse((root/'out/bad.cso').exists())
+            with patch.dict(os.environ, {'WAW2BO2_WORKERS': '1'}):
+                serial = shaders.stage([root/'first', root/'second'], root/'serial')
+            self.assertEqual(serial, report)
+            self.assertEqual({p.name: p.read_bytes() for p in (root/'out').iterdir()},
+                             {p.name: p.read_bytes() for p in (root/'serial').iterdir()})
 
     def test_flow_must_be_balanced_and_typed(self):
         for instructions in ('if_gt c0.x, c0.y\nmov oC0, c0',
