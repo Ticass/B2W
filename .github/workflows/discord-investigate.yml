@@ -129,23 +129,38 @@ jobs:
         with:
           name: discord-investigation
           path: work/discord_result
-      - name: Validate patch boundaries and apply
+      # The patch may change tools/, so verification runs the unpatched helper.
+      - name: Copy trusted verification helper outside the workspace
+        run: |
+          install -D -m 0444 tools/discord_agent_pipeline.py "$RUNNER_TEMP/trusted/pipeline.py"
+          install -D -m 0444 services/discord_support/core.py "$RUNNER_TEMP/trusted/core.py"
+      - name: Validate patch boundaries
         id: patch
         run: |
-          python tools/discord_agent_pipeline.py validate
+          python "$RUNNER_TEMP/trusted/pipeline.py" validate
           if test -s work/discord_result/fix.patch; then
-            git apply work/discord_result/fix.patch
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           else
             echo 'changed=false' >> "$GITHUB_OUTPUT"
           fi
-      - name: Verify proposed fix on the runner
+      - name: Install test dependencies
+        if: steps.patch.outputs.changed == 'true'
+        run: python -m pip install Pillow imageio-ffmpeg==0.6.0
+      # Ubuntu has no Windows worker, d3dcompiler or native vendor outputs;
+      # tests needing them fail with or without the patch.
+      - name: Record tests that fail on this runner without the patch
         if: steps.patch.outputs.changed == 'true'
         env:
           PYTHONPATH: ${{ github.workspace }}/src
-        run: |
-          python -m pip install Pillow imageio-ffmpeg==0.6.0
-          python -m unittest discover -s tests
+        run: python "$RUNNER_TEMP/trusted/pipeline.py" verify-tests --baseline-output "$RUNNER_TEMP/baseline.json"
+      - name: Apply proposed fix
+        if: steps.patch.outputs.changed == 'true'
+        run: git apply work/discord_result/fix.patch
+      - name: Verify proposed fix introduces no test failures
+        if: steps.patch.outputs.changed == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: python "$RUNNER_TEMP/trusted/pipeline.py" verify-tests --baseline "$RUNNER_TEMP/baseline.json"
 
   publish:
     needs: [investigate, verify, store]
@@ -195,7 +210,7 @@ jobs:
           else
             git push origin "HEAD:refs/heads/$BRANCH"
           fi
-          python -c 'import json, pathlib; d=json.loads(pathlib.Path("work/discord_result/result.json").read_text()); pathlib.Path("work/discord_result/pr-body.md").write_text(d["summary"] + "\n\nFixes #" + __import__("os").environ["ISSUE_NUMBER"] + "\n\nValidation: Python regression suite passed on Ubuntu. Windows/Linux packaging CI was requested separately.\n")'
+          python -c 'import json, pathlib; d=json.loads(pathlib.Path("work/discord_result/result.json").read_text()); pathlib.Path("work/discord_result/pr-body.md").write_text(d["summary"] + "\n\nFixes #" + __import__("os").environ["ISSUE_NUMBER"] + "\n\nValidation: the patch introduced no new Python test failures on Ubuntu (tests needing Windows or native outputs are checked by the Windows CI). Windows/Linux packaging CI was requested separately.\n")'
           existing=$(gh pr list --head "$BRANCH" --state all --json url --jq '.[0].url // empty')
           if test -z "$existing"; then
             gh pr create --draft --base "$DEFAULT_BRANCH" --head "$BRANCH" --title "Fix Discord report #$ISSUE_NUMBER" --body-file work/discord_result/pr-body.md > work/discord_result/pr-url.txt

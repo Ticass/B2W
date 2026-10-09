@@ -33,6 +33,9 @@ USER_AGENT = 'Mozilla/5.0 (compatible; B2W-discord-investigation/1.0; +https://g
 SEEN_RE = re.compile(r'<!-- discord-agent-seen:(\d+) -->')
 LEGACY_RE = re.compile(r'<!-- discord-message:(\d+) -->')
 ATTACHMENTS_DIR = Path('work/discord_attachments')
+BOT_IDENTITY = {name: value for key in ('AUTHOR', 'COMMITTER') for name, value in (
+    (f'GIT_{key}_NAME', 'github-actions[bot]'),
+    (f'GIT_{key}_EMAIL', '41898282+github-actions[bot]@users.noreply.github.com'))}
 
 
 def git(*args: str, input: bytes | None = None) -> bytes:
@@ -220,9 +223,13 @@ def store_attachments(number: int, root: Path = ATTACHMENTS_DIR):
         return
     ref = f'refs/discord-attachments/issue-{number}'
     with tempfile.TemporaryDirectory() as temp:
-        env = {**os.environ, 'GIT_INDEX_FILE': str(Path(temp) / 'index')}
+        # The runner's checkout has no git identity; commit-tree needs one.
+        env = {**BOT_IDENTITY, **os.environ, 'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         def run(*args: str) -> str:
-            return subprocess.run(['git', *args], check=True, capture_output=True, text=True, env=env).stdout.strip()
+            result = subprocess.run(['git', *args], capture_output=True, text=True, env=env)
+            if result.returncode:
+                raise RuntimeError(f'git {args[0]} failed ({result.returncode}): {result.stderr.strip()}')
+            return result.stdout.strip()
         parent = None
         if subprocess.run(['git', 'fetch', '--no-tags', 'origin', f'+{ref}:{ref}'], capture_output=True).returncode == 0:
             parent = run('rev-parse', ref)
@@ -308,13 +315,42 @@ def collect(result: Path, destination: Path):
     (destination / 'result.json').write_text(json.dumps(data), encoding='utf-8')
 
 
+def failing_tests(start: Path = Path('tests')) -> list[str]:
+    """Run the regression suite and return the ids of tests that did not pass."""
+    import unittest
+    suite = unittest.TestLoader().discover(str(start), top_level_dir=str(start))
+    result = unittest.TextTestRunner(stream=sys.stderr, verbosity=1).run(suite)
+    return sorted({test.id() for test, _ in result.errors + result.failures}
+                  | {test.id() for test in result.unexpectedSuccesses})
+
+
+def verify_tests(output: Path | None, baseline: Path | None) -> None:
+    """The Ubuntu runner lacks the Windows worker, d3dcompiler and native
+    vendor outputs, so some tests always fail there. Record those on the
+    unpatched tree, then fail only on tests the patch newly breaks."""
+    failing = failing_tests()
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(failing, indent=2), encoding='utf-8')
+        print(f'Baseline: {len(failing)} test(s) fail without the patch on this runner.')
+        return
+    known = set(json.loads(baseline.read_text(encoding='utf-8')))
+    regressions = [test for test in failing if test not in known]
+    if regressions:
+        raise SystemExit('Tests failing with the patch but not without it:\n  ' + '\n  '.join(regressions))
+    print(f'No regressions; {len(failing)} test(s) also fail on the unpatched tree.')
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['prepare', 'collect', 'validate', 'store-attachments', 'publish'])
+    parser.add_argument('command', choices=['prepare', 'collect', 'validate', 'store-attachments', 'publish',
+                                                'verify-tests'])
     parser.add_argument('--result', type=Path)
     parser.add_argument('--directory', type=Path, default=Path('work/discord_result'))
     parser.add_argument('--issue', type=int)
     parser.add_argument('--seen', type=int)
+    parser.add_argument('--baseline-output', type=Path)
+    parser.add_argument('--baseline', type=Path)
     args = parser.parse_args()
     if args.command == 'prepare':
         prepare()
@@ -324,6 +360,10 @@ def main():
         collect(args.result, args.directory)
     elif args.command == 'store-attachments':
         store_attachments(args.issue)
+    elif args.command == 'verify-tests':
+        if (args.baseline_output is None) == (args.baseline is None):
+            parser.error('verify-tests takes exactly one of --baseline-output or --baseline')
+        verify_tests(args.baseline_output, args.baseline)
     elif args.command == 'publish':
         publish(args.issue, args.seen, args.directory)
     else:

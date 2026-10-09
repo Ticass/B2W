@@ -37,8 +37,8 @@ class PatchBoundaryTests(unittest.TestCase):
                 return subprocess.run(['git', '-C', str(root), *args], input=input,
                     check=True, capture_output=True).stdout
             git('init')
-            git('config', 'user.name', 'Test')
-            git('config', 'user.email', 'test@example.invalid')
+            # Like the Actions checkout: no configured identity, and none guessed.
+            git('config', 'user.useConfigOnly', 'true')
             source = root / 'src/waw2bo2/example.py'
             source.parent.mkdir(parents=True)
             source.write_text('value = 1\n')
@@ -197,8 +197,8 @@ class AttachmentStorageTests(unittest.TestCase):
                 return subprocess.run(['git', *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
             subprocess.run(['git', 'init', '--bare', str(root / 'remote.git')], check=True, capture_output=True)
             subprocess.run(['git', 'init', str(root / 'work')], check=True, capture_output=True)
-            git('config', 'user.name', 'Test')
-            git('config', 'user.email', 'test@example.invalid')
+            # Like the Actions checkout: no configured identity, and none guessed.
+            git('config', 'user.useConfigOnly', 'true')
             git('remote', 'add', 'origin', str(root / 'remote.git'))
             files = root / 'work/work/discord_attachments'
             (files / '100').mkdir(parents=True)
@@ -211,7 +211,9 @@ class AttachmentStorageTests(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(root / 'work')
             try:
-                with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'owner/repo'}), \
+                isolated = {'GITHUB_REPOSITORY': 'owner/repo', 'GIT_CONFIG_NOSYSTEM': '1',
+                            'GIT_CONFIG_GLOBAL': str(root / 'no-global-config')}
+                with patch.dict(os.environ, isolated), \
                      patch.object(pipeline, 'gh_api', github.api):
                     pipeline.store_attachments(12, Path('work/discord_attachments'))
                     pipeline.store_attachments(12, Path('work/discord_attachments'))
@@ -225,6 +227,40 @@ class AttachmentStorageTests(unittest.TestCase):
             self.assertEqual(decode_messages(github.body)[0]['attachments'][0]['stored_url'], stored)
             # The rerun added no second commit.
             self.assertEqual(git('rev-list', '--count', commit, cwd=root / 'remote.git').strip(), '1')
+
+            self.assertEqual(git('log', '-1', '--format=%an', commit, cwd=root / 'remote.git').strip(),
+                             'github-actions[bot]')
+
+
+class VerifyTestsTests(unittest.TestCase):
+    def run_suite(self, root: Path, body: str, **kwargs):
+        (root / 'tests').mkdir(exist_ok=True)
+        (root / 'tests/test_sample.py').write_text(
+            'import unittest\nclass T(unittest.TestCase):\n' + body)
+        cwd = os.getcwd()
+        os.chdir(root)
+        try:
+            # Each run stands for a different tree: import the suite afresh.
+            with patch.dict('sys.modules'), patch('sys.stderr'):
+                pipeline.verify_tests(**kwargs)
+        finally:
+            os.chdir(cwd)
+
+    def test_only_failures_absent_from_the_unpatched_baseline_fail_verification(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            baseline = root / 'baseline.json'
+            environment = '    def test_environment(self): raise OSError("no d3dcompiler")\n'
+            self.run_suite(root, environment + '    def test_ok(self): pass\n',
+                           output=baseline, baseline=None)
+            self.assertEqual(json.loads(baseline.read_text()), ['test_sample.T.test_environment'])
+            # The same environment-only failure passes verification...
+            self.run_suite(root, environment + '    def test_new(self): pass\n', output=None, baseline=baseline)
+            # ...a failure the patch introduced does not.
+            with self.assertRaises(SystemExit) as raised:
+                self.run_suite(root, environment + '    def test_ok(self): self.fail()\n',
+                               output=None, baseline=baseline)
+            self.assertIn('test_sample.T.test_ok', str(raised.exception))
 
 
 if __name__ == '__main__':
