@@ -82,3 +82,26 @@ SHA-256; the rebuilt gameplay fastfile passed its 67,090-argument material
 audit with zero violations. Installation evidence is in
 `work/sound_playback_fix/installed_build.json`. In-game playback remains
 unverified.
+
+## Which aliases are converted
+
+A WaW zone file pulls whole alias CSVs, so a map's fastfile typically defines
+thousands of aliases it never plays: other maps' content, weapons the map does
+not carry, and sounds only WaW's engine requests by name (`step_*`,
+`bullet_*`, `land_*`, `bodyfall_*`), which BO2's engine never asks for. The
+zone's aliases are therefore candidates, not dependencies. An alias is
+converted when something in the port can play it:
+
+- the map's weapons (fields, notetrack maps, grenade bounce surfaces) and FX;
+- a string literal in any ported server or client script (`.gsc`/`.csc`),
+  or a cell of a string table whose path a script names;
+- a map entity key/value (e.g. a perk machine's `script_sound` jingle);
+- a name scripts build at runtime (`"plr_" + index + "_vox_" + category`):
+  a literal joined with `+` occurs in the alias, and every non-numeric word of
+  the alias occurs in some script literal;
+- the secondary and chain aliases of any of the above.
+
+Converted scripts reach WaW aliases only through `waw_sound`, which reports a
+missing alias once (`SOUND <alias>`) instead of playing a substitute. The
+aliases left out are listed in `content_source/sounds.unreferenced.json`, and
+the bridge report gives their count under `unreferenced_sound_aliases`.

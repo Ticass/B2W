@@ -16,7 +16,7 @@ import struct
 import zipfile
 from pathlib import Path
 
-from . import gsc, wawtext
+from . import entities, gsc, wawtext
 from .weapons import output_name
 
 
@@ -48,22 +48,98 @@ def default_reverb_mix(project: Path) -> dict:
             "source": patch, **({"dry": 1, "wet": 0} if silent else {})}
 
 
-def script_aliases(project_root: Path, defined: set[str]) -> set[str]:
+_WORD_SPLIT = re.compile(r"[^a-z0-9]+")
+
+
+def _alias_words(name: str) -> list[str]:
+    return [w for w in _WORD_SPLIT.split(name.lower()) if w]
+
+
+_STRING = re.compile(r'(\+\s*)?"((?:\\.|[^"\\\n])*)"(\s*\+)?')
+
+
+def _string_literals(source: str) -> list[tuple[str, bool, bool]]:
+    """(text, preceded by +, followed by +) for each string literal. A script
+    the tokenizer rejects (e.g. a donor file) still contributes its literals:
+    missing one would drop a sound the map plays."""
+    try:
+        tokens = gsc.tokenize(source)
+    except gsc.GscSyntaxError:
+        return [(m.group(2), bool(m.group(1)), bool(m.group(3))) for m in _STRING.finditer(source)]
+    out = []
+    for i, token in enumerate(tokens):
+        if token.kind == gsc.STRING:
+            out.append((token.text.lstrip("&#")[1:-1], i > 0 and tokens[i - 1].text == "+",
+                        i + 1 < len(tokens) and tokens[i + 1].text == "+"))
+    return out
+
+
+def script_aliases(project_root: Path, defined: set[str], dynamic: set[str] | None = None) -> set[str]:
     """Discover original aliases carried through script variables and arrays.
 
     Looking only at map-zone sound assets misses aliases used by imported
     stock routines, such as weather. Match against actual WaW definitions;
     arbitrary script strings never become invented sound dependencies.
+
+    Server (.gsc) and client (.csc) scripts both play aliases. WaW scripts
+    also build names at runtime ("plr_" + index + "_vox_" + category + "_" +
+    variant), so an alias of ``dynamic`` (the map zone's own aliases) counts
+    when a literal joined with ``+`` occurs in its name (at its start, for a
+    literal that starts the expression) and every non-numeric word of the
+    name occurs in some script literal. Categories no script
+    names (e.g. "killstreak" vox of a donor map's CSV) stay out.
     """
     names = {name.lower(): name for name in sorted(defined)}
     found = set()
-    for path in (project_root/'maps/mp/waw').rglob('*.gsc'):
-        for token in gsc.tokenize(wawtext.read(path)):
-            if token.kind == gsc.STRING:
-                name = names.get(token.text[1:-1].lower())
+    literals: set[str] = set()
+    heads: set[str] = set()      # "plr_" + index: the name starts with it
+    fragments: set[str] = set()  # x + "_vox_" + y: anywhere in the name
+    for pattern in ('*.gsc', '*.csc'):
+        for path in sorted(project_root.rglob(pattern)):
+            for text, preceded, followed in _string_literals(wawtext.read(path)):
+                text = text.lower().removeprefix("waw/")
+                literals.add(text)
+                name = names.get(text)
                 if name is not None:
                     found.add(name)
+                if not (preceded or followed) or len(re.sub(r"[^a-z0-9]", "", text)) < 2:
+                    continue
+                # A leading separator ("_" + n) is a suffix wherever it is joined.
+                if followed and not preceded and text[:1].isalnum():
+                    heads.add(text)
+                else:
+                    fragments.add(text)
+    # String tables a script reads (tablelookup( "mp/vox.csv", ... )) can
+    # hold alias names; only tables a script names are its data.
+    for text in sorted(t for t in literals if t.endswith(".csv")):
+        table = project_root / text.replace("\\", "/")
+        if table.is_file() and table.resolve().is_relative_to(project_root.resolve()):
+            with table.open(encoding="utf-8", errors="replace", newline="") as f:
+                for row in csv.reader(f):
+                    for cell in row:
+                        name = names.get(cell.strip().lower())
+                        if name is not None:
+                            found.add(name)
+                        literals.add(cell.strip().lower())
+    if dynamic and (heads or fragments):
+        words = {w for text in literals for w in _alias_words(text)}
+        for name in sorted(dynamic):
+            low = name.lower()
+            if name in found or not all(w.isdigit() or w in words for w in _alias_words(low)):
+                continue
+            if any(low.startswith(head) for head in heads) or any(fragment in low for fragment in fragments):
+                found.add(name)
     return found
+
+
+def entity_aliases(ents: Path | None, defined: set[str]) -> set[str]:
+    """Aliases named by map entity key/values (e.g. a perk machine's
+    "script_sound" jingle), which ported scripts read and play at runtime."""
+    if ents is None or not ents.is_file():
+        return set()
+    names = {name.lower(): name for name in sorted(defined)}
+    return {names[value.lower()] for entity in entities.parse_entities(wawtext.read(ents))
+            for value in entity.values() if value.lower() in names}
 
 
 def decode_flags(flags: int) -> dict:

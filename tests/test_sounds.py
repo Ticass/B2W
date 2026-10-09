@@ -70,6 +70,65 @@ class SoundTests(unittest.TestCase):
             self.assertEqual(sounds.script_aliases(project, {'thunder_farL', 'thunder_closeL', 'unused'}),
                              {'thunder_farL', 'thunder_closeL'})
 
+    def test_script_aliases_scan_client_scripts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            folder = project/'clientscripts/mp/waw'
+            folder.mkdir(parents=True)
+            (folder/'amb.csc').write_text('main(){ addAmbientElement( "outdoor", "amb_wind_gust" ); }')
+            self.assertEqual(sounds.script_aliases(project, {'amb_wind_gust', 'amb_other'}), {'amb_wind_gust'})
+
+    def test_script_aliases_follow_concatenated_names_whose_words_scripts_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            folder = project/'maps/mp/waw'
+            folder.mkdir(parents=True)
+            (folder/'vox.gsc').write_text(
+                'play(index, num){ cat[0] = "monkey"; cat[1] = "ammo_low";\n'
+                '  self playsound( "plr_" + index + "_vox_" + cat[num] + "_" + randomint(4) ); }')
+            zone = {'plr_0_vox_monkey_2', 'plr_3_vox_ammo_low_0',  # built at runtime
+                    'plr_0_vox_killstreak_1',                      # category no script names
+                    'bullet_small_wood', 'Land_dirt'}              # only WaW's engine asked for these
+            self.assertEqual(sounds.script_aliases(project, zone, zone),
+                             {'plr_0_vox_monkey_2', 'plr_3_vox_ammo_low_0'})
+            # "plr_" starts the expression, so it must start the name.
+            fire = {'weap_fire_plr_0'}
+            (folder/'fire.gsc').write_text('f(){ a = "weap"; b = "fire"; }')
+            self.assertEqual(sounds.script_aliases(project, fire, fire), set())
+            # Without the zone's candidate set, only exact literals count.
+            self.assertEqual(sounds.script_aliases(project, zone), set())
+
+    def test_script_aliases_read_string_tables_scripts_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            (project/'maps/mp/waw').mkdir(parents=True)
+            (project/'maps/mp/waw/vox.gsc').write_text('f(i){ return tablelookup( "mp/vox.csv", 0, i, 1 ); }')
+            (project/'mp').mkdir()
+            (project/'mp/vox.csv').write_text('0,zmb_vox_intro\n')
+            (project/'soundbank').mkdir()
+            (project/'soundbank/bank.aliases.csv').write_text('Name\nzmb_unused\n')  # not read by any script
+            self.assertEqual(sounds.script_aliases(project, {'zmb_vox_intro', 'zmb_unused'}), {'zmb_vox_intro'})
+
+    def test_script_aliases_survive_untokenizable_scripts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            folder = project/'maps/mp'
+            folder.mkdir(parents=True)
+            # The backtick is not GSC: the tokenizer rejects the file.
+            (folder/'donor.gsc').write_text('main(){ x = "zmb_door_" + n; y = "zmb_hit"; z = "open"; ` }')
+            self.assertEqual(sounds.script_aliases(project, {'zmb_hit', 'zmb_door_open', 'zmb_door_shut'},
+                                                   {'zmb_door_open', 'zmb_door_shut'}),
+                             {'zmb_hit', 'zmb_door_open'})
+
+    def test_entity_aliases_read_key_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ents = Path(temp)/'map.ents'
+            ents.write_text('{\n"classname" "zombie_vending"\n"script_sound" "MX_revive_jingle"\n'
+                            '"targetname" "vending_revive"\n}\n')
+            self.assertEqual(sounds.entity_aliases(ents, {'mx_revive_jingle', 'mx_speed_jingle'}),
+                             {'mx_revive_jingle'})
+            self.assertEqual(sounds.entity_aliases(Path(temp)/'missing.ents', {'mx_revive_jingle'}), set())
+
     def test_flags_are_t4_not_t6(self):
         decoded = sounds.decode_flags((63 << 22) | (7 << 28) | (3 << 13) | (1 << 7))
         self.assertTrue(decoded["realDelay"])
