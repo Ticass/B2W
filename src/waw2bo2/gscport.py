@@ -110,7 +110,11 @@ class Sources:
                     if name.lower().endswith((".gsc", ".csc")):
                         key = norm(name) + Path(name).suffix.lower()
                         if key not in self.text:
-                            self.text[key] = z.read(name).decode("utf-8", errors="replace")
+                            # Universal newlines, as read_text gives zone rawfiles:
+                            # CRLF kept here is written back as CR CR LF on Windows,
+                            # doubling every line the T6 compiler reports.
+                            text = z.read(name).decode("utf-8", errors="replace")
+                            self.text[key] = text.replace("\r\n", "\n").replace("\r", "\n")
                             self.origin[key] = f"{iwd.name}:{name}"
         for root in roots:
             if not root.exists():
@@ -237,6 +241,12 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
         # T6 splices a line comment ending in '\' with the next line (WaW does not)
         if "\\" in t.pre:
             fixed = LINE_COMMENT_BACKSLASH.sub(r"\1", t.pre)
+            fixes += fixed != t.pre
+            t.pre = fixed
+        # WaW accepts an indented ``#include``; T6 expects an identifier
+        # after leading whitespace (Project X's forum-pasted IWD scripts).
+        if t.kind == gsc.DIRECTIVE:
+            fixed = t.pre.rstrip(" \t")
             fixes += fixed != t.pre
             t.pre = fixed
     for i, t in enumerate(tokens):
