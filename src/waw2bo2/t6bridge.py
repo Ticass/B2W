@@ -102,6 +102,34 @@ def _star_parts(name: str) -> list[str]:
     return name[1:].split("(")[0].split("_")
 
 
+def stage_remaster(report: StageReport, names: set[str], bo2_root: Path | None, t6_unlinker: Path | None,
+                   techset_dump: Path | None, stage: Path) -> dict[str, Path]:
+    """Opt-in remaster (remaster.py): the WaW model materials ``names`` that
+    are drawn with their native BO2 material. Returns {WaW name: material json}."""
+    from . import remaster
+    if bo2_root is None or t6_unlinker is None:
+        report.errors.append("remaster: needs the BO2 game folder and the T6 unlinker; WaW materials kept")
+        return {}
+    # beside the shared stock dependencies (all2raw.required_bo2_image)
+    cache = (techset_dump.parent.parent / "dependencies" / "remaster" if techset_dump is not None
+             else stage / "remaster_cache")
+    index = progress.timed('Remaster: index BO2 materials', remaster.asset_index, bo2_root, t6_unlinker, cache)
+    matches = remaster.find_matches(names, index["material"])
+    found, problems = remaster.extract(matches, bo2_root, t6_unlinker, cache,
+                                       [techset_dump] if techset_dump is not None else [],
+                                       log=lambda line: print(line, flush=True))
+    report.content['remaster'] = {
+        'model_materials': len(names),
+        'matched': {m.waw: f"{m.bo2} ({m.zone.name})" for m in matches},
+        'replaced': sorted(found),
+        'kept': problems,
+    }
+    report.warnings += [f"REMASTER kept WaW material {p}" for p in problems]
+    print(f"remaster: {len(found)} of {len(names)} model materials drawn with their BO2 material "
+          f"({len(matches)} matched, {len(problems)} not extractable)", flush=True)
+    return found
+
+
 def recover_material_sources(report: StageReport, names: set[str], roots: list[Path],
                              stock_waw, source_waw, stock_materials: Path,
                              bo2_root: Path | None = None) -> tuple[list[Path], dict[str, Path]]:
@@ -185,10 +213,12 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
                     rename: dict[str, str] | None = None, *, image_prefix: str = 'waw_world/',
                     native_fallbacks: dict[str, Path] | None = None,
                     falloff_placement: tuple[float, float, float, float] | None = None,
-                    light_shadows: bool = True) -> set[str]:
+                    light_shadows: bool = True, remaster: dict[str, Path] | None = None) -> set[str]:
     """``rename`` maps a WaW material name to the name it is written under;
     ``falloff_placement`` is the map's WaW lightFalloffPlacement and
-    ``light_shadows`` False when its primary lights are staged unshadowed."""
+    ``light_shadows`` False when its primary lights are staged unshadowed.
+    ``remaster``: WaW materials drawn with their native BO2 material although
+    WaW defines them (remaster.py, opt-in)."""
     rename = rename or {}
     donors = techsets.index_donors(stock_materials)
     if techset_root is not None:
@@ -206,20 +236,26 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
         if name in rename:
             entry["source"] = name
         notes: list[str] = []
-        if src is None and name in (native_fallbacks or {}):
-            native_path = native_fallbacks[name]
+        remastered = name in (remaster or {})
+        if remastered or (src is None and name in (native_fallbacks or {})):
+            native_path = remaster[name] if remastered else native_fallbacks[name]
             out = _load_json(native_path)
+            if remastered and out.pop('thermalMaterial', None):
+                # a second BO2 material (thermal-sight view) the WaW material it
+                # replaces never had; the linker would need it and its images too
+                notes.append('BO2 thermalMaterial dropped (the WaW material has none)')
             native_root = stock_materials.parent
             for texture in out.get('textures', []):
                 image = texture.get('image', '').removeprefix(',')
                 if not image or image.startswith('$'):
                     texture['image'] = techsets.as_reference(image)
                     continue
-                output = (image_prefix or 'waw_image/') + 'bo2_fallback/' + image
+                output = (image_prefix or 'waw_image/') + ('bo2_remaster/' if remastered else 'bo2_fallback/') + image
                 # A definition can be present only in BO2 raw while its packed
                 # image is available in the stock-zone dump.
                 material_folder = next(p for p in native_path.parents if p.name == 'materials')
-                image_roots = [native_root, material_folder.parent]
+                image_roots = ([material_folder.parent, native_root] if remastered
+                               else [native_root, material_folder.parent])
                 image_path = _find(image_roots, techsets.oat_image_path(image))
                 if image_path is None and _find(image_roots, techsets.oat_image_path(image, '.dds')) is None:
                     from .all2raw import required_bo2_image
@@ -240,10 +276,15 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
             dst = project_root / out_rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(json.dumps(out, indent=2) + '\n', encoding='utf-8')
+            why = ('remaster: native BO2 material replaces the WaW one' if remastered
+                   else 'original material absent from WaW lookup')
             entry.update(t4_techset=None, t6_techset=out['techniqueSet'],
-                         native_equivalent=str(native_path), notes=['original material absent from WaW lookup'])
+                         native_equivalent=str(native_path), notes=[why, *notes])
+            if remastered:
+                entry['remastered'] = True
             report.materials.append(entry)
-            report.warnings.append(f'BO2_FALLBACK material {name} -> {native_path}: absent from WaW lookup')
+            report.warnings.append(f'{"REMASTER" if remastered else "BO2_FALLBACK"} material {name} -> '
+                                   f'{native_path}: {why}')
             used_techsets.add(out['techniqueSet'])
             continue
         if src is None:
@@ -874,7 +915,10 @@ def stage_model_overlay_fx(report: StageReport, project_root: Path) -> list[str]
     report.content['model_overlay_fx'] = entries
     return [e['variant'] for e in entries]
 
-def verify_techsets(report: StageReport, used: set[str], techset_root: Path | None, project_root: Path | None = None) -> None:
+def verify_techsets(report: StageReport, used: set[str], techset_root: Path | None, project_root: Path | None = None,
+                    extra_roots: list[Path] = ()) -> None:
+    """``extra_roots`` hold technique sets with their shaders that are not in a
+    stock zone dump the catalog knows (remaster extractions)."""
     report.techsets = sorted(used)
     if techset_root is None:
         report.errors.append("no --techset-dump given; the bridge cannot load technique sets without "
@@ -885,7 +929,8 @@ def verify_techsets(report: StageReport, used: set[str], techset_root: Path | No
         if path is None and project_root is not None:
             # outside the donor view: copy it and its shaders from its own zone
             from .all2raw import required_bo2_techset
-            owner = required_bo2_techset(techset_root, name)
+            owner = next((r for r in extra_roots if (r / "techniquesets" / f"{name}.json").is_file()), None)
+            owner = owner or required_bo2_techset(techset_root, name)
             if owner is not None:
                 source = owner / "techniquesets" / f"{name}.json"
                 for rel in [Path("techniquesets") / f"{name}.json",
@@ -1276,7 +1321,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                  waw_source_dumps: Path | None = None, wavelet_binary: Path | None = None,
                  audio_decoder: Path | None = None, xwma_decoder: Path | None = None,
                  t6_sound_driver: Path | None = None, approximate_sound_curves: bool = False,
-                 bo2_stock_perks: bool = False) -> StageReport:
+                 bo2_stock_perks: bool = False, remaster_bo2_materials: bool = False) -> StageReport:
     """Stage everything the bridge links. ``extra_roots`` are unlinker dumps of
     the zones WaW loads with the map (mod.ff, common.ff): references the map
     zone does not define resolve there, in that order."""
@@ -1419,9 +1464,12 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     primary_lights = Path(str(gfx_bin).removesuffix(".gfx.bin") + ".primarylights.json")
     falloff_placement = shaderruntime.light_falloff_placement(primary_lights, roots)
     report.content['light_falloff_placement'] = falloff_placement
+    remastered = (stage_remaster(report, model_materials - {s.material for s in world.surfaces}, bo2_root,
+                                 t6_unlinker, techset_dump, stage) if remaster_bo2_materials else {})
     used = stage_materials(report, names, roots, stock_materials, project_root, techset_dump,
                            native_fallbacks=native_fallbacks, falloff_placement=falloff_placement,
-                           light_shadows=not primary_lights.exists() or bool(world.shadow_lights))
+                           light_shadows=not primary_lights.exists() or bool(world.shadow_lights),
+                           remaster=remastered)
     used |= effects.techsets
     hud_images = {t["image"] for m in report.materials if m["name"] in set(hud_materials)
                   for t in _load_json(project_root / m["file"]).get("textures", []) if t.get("image")}
@@ -1451,7 +1499,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     images = stage_images(report, [project_root / SKY_SRC_DIR, *[r / "images" for r in roots]], project_root,
                           image_iwds,
                           [sky_image] if sky_image else [], wavelets)
-    verify_techsets(report, used, techset_dump, project_root)
+    verify_techsets(report, used, techset_dump, project_root,
+                    sorted({next(a for a in p.parents if (a / "remaster.json").is_file())
+                            for p in remastered.values()}))
     if bo2_root is not None and (bo2_root / "mods" / "zm_test").exists():
         stage_template_scripts(report, project, project_root, bo2_root / "mods" / "zm_test", "zm_test")
     stage_scripts(report, project, project_root, template_root, template_name)
@@ -2296,6 +2346,21 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     return models
 
 
+BSP_ERROR_RE = re.compile(r'ERROR: Could not open BSP "[^"\n]*" for map "[^"\n]*"\r?\n?')
+
+
+def parse_script_linker_log(log: str) -> tuple[list[str], list[str]]:
+    """(compiled script names, unexpected errors) of a scripts-only link.
+
+    A scripts-only zone has no BSP; that one error is expected. The linker
+    writes it to stderr, which can land inside a buffered stdout line (seen
+    under Wine: 'Compiled GSC scripERROR: ...' then 't "..._waw2bo2_zm.csc"'),
+    so it is removed before the compiled names are read."""
+    clean = BSP_ERROR_RE.sub("", log)
+    compiled = sorted(set(re.findall(r'Compiled GSC script "([^"]+)"', clean)))
+    return compiled, [l for l in clean.splitlines() if "ERROR" in l]
+
+
 def compiled_scripts_root(stage: Path, project: str) -> Path:
     return stage / "script_build" / "compiled"
 
@@ -2326,9 +2391,7 @@ def compile_scripts(stage: Path, project: str, bo2_root: Path, oat_unlinker: Pat
                           errors="replace")
     log = proc.stdout
     (work / "linker.log").write_text(log, encoding="utf-8")
-    compiled = sorted(set(re.findall(r'Compiled GSC script "([^"]+)"', log)))
-    # a scripts-only zone has no BSP; that one error is expected
-    errors = [l for l in log.splitlines() if "ERROR" in l and "Could not open BSP" not in l]
+    compiled, errors = parse_script_linker_log(log)
     missing = sorted(set(scripts) - set(compiled))
     ff = work / "out" / f"{zone}.ff"
     if errors or missing or not ff.exists():

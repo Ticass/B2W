@@ -8,6 +8,7 @@ on:
       - '.github/discord-agent-*'
       - '.github/workflows/discord-*.yml'
       - '.dockerignore'
+      - 'railway.toml'
       - '.github/workflows/testing-announcements.yml'
       - '.github/workflows/release-announcements.yml'
   pull_request:
@@ -17,6 +18,7 @@ on:
       - '.github/discord-agent-*'
       - '.github/workflows/discord-*.yml'
       - '.dockerignore'
+      - 'railway.toml'
       - '.github/workflows/testing-announcements.yml'
       - '.github/workflows/release-announcements.yml'
   workflow_dispatch:

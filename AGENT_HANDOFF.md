@@ -2146,3 +2146,45 @@ Open:
   EXE_MATCHENDED after second down, zero script runtime errors and COM_ERROR.
   Evidence release_empty_runtime.log. All agent-created probes removed and
   agent-started game processes stopped before release.
+- 2026-10-08 INSTALLED full rebuild (all 11 package files) with the blue menu. Blue art sources were
+  gone from work/; recovered the 7 menu materials + 6 IWIs from the installed mod.ff/blue_v3 ipak and
+  staged them as a project-authored menu.json (image_pack zm_nuketown_waw_menu_blue_v3), so the
+  separate lobby photo/atom icon are kept (the GUI 3-image workflow would derive them from Large).
+  All 6 images byte-identical in new mod.ff and mod_load.ff. Previous install backed up in
+  builds/zm_nuketown_waw_75bbf9ff_aa295372/installed_backup_20261008. Sound .sabs is smaller than
+  before (781 MB vs 992 MB): current converter sound output, not tuned by this session. No playtest.
+- 2026-10-08 GAME-OVER NUKE CAMERA. Nuketown's _zombiemode override sets level.custom_intermission to its
+  own player_intermission: links player + nt_camera_rocket to a script_origin and MoveTo's it 9 s down the
+  intermission struct path; its end_game hides the rocket before waiting for "end_game". BO2's _zm::init
+  re-set custom_intermission to BO2's camera path (20 u/s, rocket never moves) -> view sinking inside a
+  still rocket. gscport now: extract_custom_intermission (map-edited target only) sets it in
+  waw_main_post; extract_end_game runs end_game's pre-wait statements there; bridge_intermission_camera
+  adds a networked tag_origin script_model linked to the mover + camerasetposition/cameraactivate (BO2's
+  intermission view API; a script_origin is never sent to clients). Player LinkTo kept. BO2 linker compiles
+  the grafted scripts; NOT rebuilt/installed, NOT playtested. extract_end_game also ports the map's
+  wait between intermission() and stop_intermission (Nuketown: waittill end_it_pls + wait 2) as a thread
+  that then does the shared WaW/BO2 exit (stop_intermission, player_exit_level, 1.5 s, exitlevel);
+  BO2's fixed 15 s zombie_intermission_time is raised to END_GAME_FALLBACK 30 s (fires only if the
+  cutscene never notifies). No more ~7 s black screen; timing now equals WaW's.
+- 2026-10-08 REMASTER OPTION (user request). Measured: Nuketown Remastered's BO2-ported textures already have BO2
+  resolution (259/259), the loss is in materials (WaW shaders, 48/239 lost spec/gloss etc.). New opt-in
+  "Remaster with BO2 materials" (--remaster-bo2-materials, Settings.remaster): remaster.py indexes every
+  zone/all fastfile (materials/techsets/images, ~20 s, cached), matches mc/ model materials by name behind
+  bo2_/bo1_/t6_/t5_ prefixes (same mc/ class only; world wc/ keeps WaW lighting path), extracts each material +
+  images + techset + shaders into asset_cache/bo2_*/dependencies/remaster/sets/<key> (~150 MB, ~5 min first run).
+  OAT opens only base/mp|zm|so + ipak_read packs: DLC map pixels (mp_downhill -> dlc1.ipak, file
+  mp_downhill.ipak absent) are recovered by hard-linking dlc*/dlczm* packs under the pack names OAT failed to
+  open. Short work paths (Windows 260-char limit broke 22 shaders). thermalMaterial dropped from remastered
+  materials (WaW has none; linker needed thermal_gradient2). Nuketown: 268/412 model materials remastered,
+  audit 0 violations, INSTALLED (separate build root builds/zm_nuketown_waw_remaster). Pre-remaster install
+  backed up in builds/zm_nuketown_waw_75bbf9ff_aa295372/installed_backup_pre_remaster. NOT playtested: BO2
+  model shaders under the converted lighting grid/probe (near-black probe 6,6,6) are unverified.
+- 2026-10-08 COOP HOST CRASH (remaster build, 0xC0000005 at 0x4BC1CF, read 0x1C). Use the Plutonium IDB
+  (%LOCALAPPDATA%\Plutonium\games\t6zm.exe.i64; the Steam i64 is a different build). 0x4BC1B0 = model trace per
+  XSurface rigid vert list: vertList[i].collisionTree->nodes, tree NULL. Chain sub_814E30 -> sub_754670 ->
+  sub_754290 -> sub_7538A0 -> sub_7536A0 -> 0x4BC1B0. OAT LoaderXModel CreateCollisionTree returned nullptr for
+  vert lists with vertices but no triangles (302/409 rigid Nuketown primitives, incl. a1_fs_m16_world, zombie
+  heads), past 0x8000 tris, or oversize trees. Fixed: EmptyCollisionTree (1 leaf node, 0 tris) always emitted;
+  limit cases warn with the model name. Linker rebuilt (MSBuild Tools\Linker Release Win32, LAA kept).
+  Nuketown remaster relinked + INSTALLED 23:09-23:10. Pre-existing for all converted maps; coop likely exposes
+  it by tracing the other player's held weapon world model. Not yet re-tested in coop.

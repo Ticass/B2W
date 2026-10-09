@@ -533,6 +533,38 @@ def _argc(tokens: list[gsc.Token], name_index: int) -> int | None:
     return None
 
 
+INTERMISSION_CAMERA = (
+    "\n\tif ( !isdefined( self.waw_intermission_cam ) )\n\t{{"
+    "\n\t\tself.waw_intermission_cam = spawn( \"script_model\", {mover}.origin );"
+    "\n\t\tself.waw_intermission_cam setmodel( \"tag_origin\" );"
+    "\n\t\tself.waw_intermission_cam.angles = {mover}.angles;"
+    "\n\t\tself.waw_intermission_cam linkto( {mover} );"
+    "\n\t\tself camerasetposition( self.waw_intermission_cam );"
+    "\n\t\tself camerasetlookat();"
+    "\n\t\tself cameraactivate( 1 );"
+    "\n\t}}")
+
+
+def bridge_intermission_camera(tokens: list[gsc.Token]) -> int:
+    """WaW intermissions link the player to a mover and steer the view with
+    SetPlayerAngles; BO2's own intermission views through the script camera
+    (CameraSetPosition on a tag_origin script_model + CameraActivate, _zm
+    player_intermission). The camera follows a networked tag_origin model
+    linked to the WaW mover (often a server-only script_origin), so the view
+    keeps the mover's path and rotation. The WaW link is kept."""
+    count = 0
+    for i in range(1, len(tokens) - 4):
+        if tokens[i].low != "linkto" or tokens[i - 1].low != "self" or tokens[i + 1].text != "(":
+            continue
+        close = gsc._match(tokens, i + 1, "(", ")")
+        mover = tokens[i + 2]
+        if mover.kind != gsc.IDENT or tokens[i + 3].text not in (",", ")") or tokens[close + 1].text != ";":
+            continue
+        tokens[close + 1].text += INTERMISSION_CAMERA.format(mover=mover.text)
+        count += 1
+    return count
+
+
 def bridge_launch_triggers(tokens: list[gsc.Token]) -> int:
     """Include the activation pad in chained trigger velocity launchers.
 
@@ -656,6 +688,9 @@ class Translator:
         self.level_state_parts: list[str] = []
         self.anim_neutralized = False
         self.bo2_stock_perks = False
+        # calls waw_main_post makes after BO2's _zm::init (framework overrides)
+        self.post_calls: list[str] = []
+        self.intermission_funcs: set[tuple[str, str]] = set()
 
     # ---- classification -------------------------------------------------
     def owner(self, script: gsc.Script, name: str) -> str | None:
@@ -1180,7 +1215,136 @@ class Translator:
         self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
         self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
+        if (core, name) in self.intermission_funcs:
+            self.report.rewrites["intermission player link -> T6 script camera"] += bridge_intermission_camera(tokens)
         return gsc.emit(tokens)
+
+    def map_framework_function(self, name: str) -> gsc.Function | None:
+        """``name`` in the map's _zombiemode override when the map edited it
+        (its tokens differ from every stock WaW text of the function)."""
+        key = ZOMBIEMODE + ".gsc"
+        variants = self.sources.stock_variants(ZOMBIEMODE)
+        if key not in self.sources.text or not variants or self.sources.text[key] in variants:
+            return None
+        script = self.sources.get(ZOMBIEMODE)
+        fn = script.functions.get(name.lower()) if script is not None else None
+        if fn is None:
+            return None
+        body = [t.low for t in script.tokens[fn.start:fn.body_close + 1]]
+        for variant in variants:
+            stock = gsc.parse(variant, ZOMBIEMODE)
+            base = stock.functions.get(name.lower())
+            if base is not None and [t.low for t in stock.tokens[base.start:base.body_close + 1]] == body:
+                return None
+        return fn
+
+    def extract_custom_intermission(self) -> str | None:
+        """A map's _zombiemode override may set level.custom_intermission to its
+        own end-game camera (e.g. Nuketown flying the view down with a nuke).
+        BO2's _zm::init sets level.custom_intermission to BO2's camera path, so
+        the map's version is extracted and set again after _zm::init.
+        Returns the call that sets it (for waw_main_post)."""
+        script = self.sources.get(ZOMBIEMODE)
+        if script is None:
+            return None
+        toks = script.tokens
+        target = None
+        for i in range(len(toks) - 5):
+            if [t.low for t in toks[i:i + 5]] == ["level", ".", "custom_intermission", "=", "::"]:
+                target = toks[i + 5].low
+                break
+        if target is None or self.map_framework_function(target) is None:
+            return None
+        self.intermission_funcs.add((ZOMBIEMODE, target))
+        name = self.extract_entry(ZOMBIEMODE, target)
+        if name is None:
+            return None
+        self.post_calls.append(f"level.custom_intermission = {CORE}::{name};")
+        self.report.rewrites["map custom_intermission -> set after _zm::init"] += 1
+        return name
+
+    def extract_end_game(self) -> list[str]:
+        """The parts of a map's edited _zombiemode::end_game that BO2's _zm
+        end_game (which replaces it) does not do:
+        - the statements before its "end_game" wait run at level start (e.g.
+          hiding the end-game camera rocket);
+        - the map's own wait between intermission() and the exit (e.g. until
+          its cutscene notifies the end) replaces BO2's fixed
+          zombie_intermission_time wait. BO2's wait is read when intermission()
+          returns, before a cutscene's length is known, so the map's wait runs
+          in its own thread followed by the exit BO2 and WaW both make (stop
+          the intermission, fade to black, 1.5 s, exit level); BO2's timer is
+          raised to a fallback that only ends a cutscene that never finishes.
+        Returns the names of the extracted functions in CORE."""
+        fn = self.map_framework_function("end_game")
+        if fn is None:
+            return []
+        script = self.sources.get(ZOMBIEMODE)
+        toks = script.tokens
+        where = self.sources.origin.get(ZOMBIEMODE + ".gsc", ZOMBIEMODE)
+        prefix = ZOMBIEMODE.split(chr(92))[-1].lstrip('_')
+
+        def find(ts: list[gsc.Token], spans: list[tuple[int, int]], words: list[str], after: int = 0) -> int | None:
+            return next((k for k, (a, b) in enumerate(spans) if k >= after and [t.low for t in ts[a:b]] == words),
+                        None)
+
+        def intermission_wait(ts: list[gsc.Token], spans: list[tuple[int, int]]) -> tuple[int, int] | None:
+            begin = find(ts, spans, ["intermission", "(", ")", ";"])
+            stop = find(ts, spans, ["level", "notify", "(", '"stop_intermission"', ")", ";"],
+                        0 if begin is None else begin)
+            return None if begin is None or stop is None else (begin + 1, stop)
+
+        def function(name: str, comment: str, body: list[gsc.Token], tail: str = "") -> str:
+            tokens = [gsc.Token(gsc.IDENT, name, f"\n// {ZOMBIEMODE}::end_game: {comment}\n"),
+                      gsc.Token(gsc.PUNCT, "("), gsc.Token(gsc.PUNCT, ")"), gsc.Token(gsc.PUNCT, "{", "\n"),
+                      *copy.deepcopy(body), gsc.Token(gsc.PUNCT, "}", "\n"), gsc.Token(gsc.EOF, "")]
+            self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
+            self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+            self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=ZOMBIEMODE)
+            tokens[-2].text = tail + tokens[-2].text
+            self.level_state_parts.append(gsc.emit(tokens))
+            return name
+
+        spans = top_level_statements(toks, fn.body_open, fn.body_close)
+        names = []
+        wait = find(toks, spans, ["level", "waittill", "(", '"end_game"', ")", ";"])
+        if wait:
+            names.append(function(f"{prefix}__end_game_prelude", "the map's statements before the end_game wait",
+                                  toks[spans[0][0]:spans[wait - 1][1]]))
+            self.report.extracted.append(f"{ZOMBIEMODE}::end_game (map prelude)")
+        span = intermission_wait(toks, spans)
+        if span is not None and span[0] < span[1]:
+            body = [t.low for t in toks[spans[span[0]][0]:spans[span[1] - 1][1]]]
+            stock = []
+            for variant in self.sources.stock_variants(ZOMBIEMODE):
+                parsed = gsc.parse(variant, ZOMBIEMODE)
+                base = parsed.functions.get("end_game")
+                if base is None:
+                    continue
+                base_spans = top_level_statements(parsed.tokens, base.body_open, base.body_close)
+                found = intermission_wait(parsed.tokens, base_spans)
+                if found is not None and found[0] < found[1]:
+                    stock.append([t.low for t in parsed.tokens[base_spans[found[0]][0]:base_spans[found[1] - 1][1]]])
+            if body not in stock:
+                head = [gsc.Token(t.kind, t.text, t.pre) for t in gsc.tokenize(
+                    "\n\tlevel waittill( \"end_game\" );"
+                    "\n\t// BO2's end_game waits zombie_intermission_time after intermission(); this map's own"
+                    "\n\t// wait decides instead. BO2's timer only ends a cutscene that never finishes."
+                    f"\n\tlevel.zombie_vars[\"zombie_intermission_time\"] = {END_GAME_FALLBACK};"
+                    "\n\tlevel waittill( \"intermission\" );")[:-1]]
+                tail = ("\tlevel notify( \"stop_intermission\" );"
+                        "\n\tarray_thread( get_players(), maps\\mp\\zombies\\_zm::player_exit_level );"
+                        "\n\twait 1.5;\n\tplayers = get_players();"
+                        "\n\tfor ( i = 0; i < players.size; i++ )\n\t\tplayers[i] cameraactivate( 0 );"
+                        "\n\texitlevel( 0 );\n")
+                names.append(function(f"{prefix}__end_game_intermission_wait",
+                                      "the map's wait after intermission(), then the exit",
+                                      head + toks[spans[span[0]][0]:spans[span[1] - 1][1]], tail))
+                self.report.extracted.append(f"{ZOMBIEMODE}::end_game (intermission wait)")
+                self.report.rewrites["map end_game intermission wait -> replaces BO2's fixed wait"] += 1
+        for name in names:
+            self.post_calls.append(f"level thread {CORE}::{name}();")
+        return names
 
     def framework_hooks(self) -> list[str]:
         """Calls WaW's _zombiemode::main (usually the map's override) makes
@@ -1224,6 +1388,9 @@ class Translator:
         hooks = "".join(f"\n\t{call}" for call in self.framework_hooks())
         if hooks:
             hooks = "\n\t// WaW _zombiemode::main inits of the map's own scripts" + hooks
+        if self.post_calls:
+            hooks += ("\n\t// the map's _zombiemode overrides BO2's _zm::init replaced" +
+                      "".join(f"\n\t{call}" for call in self.post_calls))
         tokens[fn.start].text = "waw_main_pre"
         tokens[fn.body_open].text = ("{\n\t" + f"{COMPAT}::init();\n\t{CORE}::framework_level_state();"
                                      f"\n\t{PRECACHE}::init();\n\t{ONEWAY}::init();")
@@ -1308,6 +1475,9 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         if old.is_file() and old.read_text(encoding='utf-8').startswith('// waw2bo2:'):
             old.unlink()
     tr.queue.append(main)
+    # before the main is translated: waw_main_post makes these calls
+    tr.extract_custom_intermission()
+    tr.extract_end_game()
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")
@@ -1606,6 +1776,8 @@ BOX_STATE_INIT = ("maps\\_zombiemode_weapons", "init")
 # _zombiemode::init_anims); only the fields the ported scripts read are kept
 FRAMEWORK_STATE_INITS = (("maps\\_zombiemode", "init_standard_zombie_anims"),)
 DAMAGE_OVERRIDE = "player_damage_override"
+# s: BO2 end_game's intermission wait while a map's own end_game wait runs
+END_GAME_FALLBACK = 30
 
 
 def top_level_statements(tokens: list[gsc.Token], open_: int, close: int) -> list[tuple[int, int]]:

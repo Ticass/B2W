@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Read the script linker log correctly when its expected "Could not open BSP" error is printed in the middle of a "Compiled GSC script" line (Linux/Wine). The build no longer reports `clientscripts/mp/waw/_waw2bo2_zm.csc` as missing when it compiled.
+
 ## v0.2.14
 
 - Recreate the generated owned client bootstrap before script compilation, fixing Linux/Wine builds that retained a partial staging tree and then failed on `clientscripts/mp/waw/_waw2bo2_zm.csc`.
