@@ -1330,8 +1330,13 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     project_root.mkdir(parents=True, exist_ok=True)
     roots = [stage, *(extra_roots or [])]
     compiled_weapon_names = set(weapons.discover(roots))
-    compiled_sound_names = {p.relative_to(r / "soundaliases").as_posix().removesuffix(".w2bsnd.json")
-                            for r in roots for p in (r / "soundaliases").rglob("*.w2bsnd.json")}
+    # A WaW zone file pulls whole alias CSVs, so the map's fastfiles define
+    # thousands of aliases the map never plays (other maps' content, sounds
+    # only WaW's engine requests by name). Those are candidates, not
+    # dependencies: weapons, FX, entities and scripts select what is staged.
+    zone_sound_names = {p.relative_to(r / "soundaliases").as_posix().removesuffix(".w2bsnd.json")
+                        for r in roots for p in (r / "soundaliases").rglob("*.w2bsnd.json")}
+    compiled_sound_names: set[str] = set()
     stock_waw = None
     if waw_root is not None and t4_unlinker is not None:
         stock_waw = wawassets.StockWawAssets(waw_root, t4_unlinker, waw_stock_dumps or stage / "waw_stock_dumps")
@@ -1613,13 +1618,22 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         client_text = client_text.replace('    start_zombie_stuff();', '    start_zombie_stuff();\n' + hook, 1)
     client_main.write_text(client_text, encoding='utf-8')
     sound_resolver = assetresolve.Resolver(roots, stock_waw)
-    defined_sounds = compiled_sound_names | ({n for kinds in stock_waw.index.values()
+    defined_sounds = zone_sound_names | compiled_sound_names | ({n for kinds in stock_waw.index.values()
         for n in kinds.get('sound', [])} if stock_waw else set())
-    script_sounds = sounds.script_aliases(project_root, defined_sounds)
-    compiled_sound_names.update(script_sounds)
+    script_sounds = sounds.script_aliases(project_root, defined_sounds, zone_sound_names)
+    entity_sounds = sounds.entity_aliases(ents_file, defined_sounds)
+    compiled_sound_names.update(script_sounds, entity_sounds)
     report.content['script_sound_dependencies'] = sorted(script_sounds)
+    report.content['entity_sound_dependencies'] = sorted(entity_sounds)
     sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
     sound_names = {n["name"] for n in sound_graph["nodes"] if n["kind"] == "sound"}
+    unreferenced = sorted(zone_sound_names - sound_names)
+    (project_root / "content_source").mkdir(parents=True, exist_ok=True)
+    (project_root / "content_source/sounds.unreferenced.json").write_text(
+        json.dumps(unreferenced, indent=2) + "\n", encoding="utf-8")
+    report.content['unreferenced_sound_aliases'] = {
+        'count': len(unreferenced), 'defined': len(zone_sound_names),
+        'report': 'content_source/sounds.unreferenced.json'}
     sound_report = progress.timed('Stage sound sources', sounds.stage, sound_resolver.roots, project_root / "content_source", image_iwds,
                                 stock_waw, sound_names)
     audio_report = progress.timed('Decode audio', audio.stage, project_root / "content_source", project_root / "content_source/pcm", audio_decoder, xwma_decoder)
