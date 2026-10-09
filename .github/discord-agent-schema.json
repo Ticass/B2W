@@ -1,10 +1,12 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "reply", "summary"],
+  "required": ["status", "reply", "summary", "issue_title", "issue_body"],
   "properties": {
-    "status": {"type": "string", "enum": ["needs_info", "diagnosed", "fix_proposed", "blocked"]},
-    "reply": {"type": "string", "description": "Plain-language reply to the Discord reporter. State evidence and ask for specific missing information."},
-    "summary": {"type": "string", "description": "Concrete description of the issue and any proposed code change for a PR reviewer."}
+    "status": {"type": "string", "enum": ["needs_info", "diagnosed", "fix_proposed", "blocked", "no_reply"]},
+    "reply": {"type": "string", "description": "Plain-language reply to the Discord reporter. State evidence and ask for specific missing information. Empty only when status is no_reply."},
+    "summary": {"type": "string", "description": "Concrete description of the issue and any proposed code change for a PR reviewer."},
+    "issue_title": {"type": "string", "description": "Bug report title, e.g. 'Error when building Bank Job (zm_bankjob): script compile reports _waw2bo2_zm.csc missing'. At most 120 characters."},
+    "issue_body": {"type": "string", "description": "GitHub issue description written as a bug report in Markdown, following the prompt's sections. No Discord conversation, usernames or HTML comments."}
   }
 }

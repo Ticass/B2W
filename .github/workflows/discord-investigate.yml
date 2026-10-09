@@ -1,15 +1,16 @@
 name: Investigate Discord error report
 
 on:
+  # The bot opens the issue, then edits its hidden report data for each
+  # follow-up Discord message; the thread itself holds only investigation replies.
   issues:
-    types: [opened]
-  issue_comment:
-    types: [created]
+    types: [opened, edited]
 
 permissions:
   contents: read
 
 # A follow-up waits for the current investigation and uses the whole conversation.
+# GitHub keeps one pending run per group, so a burst of messages is answered once.
 concurrency:
   group: discord-report-${{ github.event.issue.number }}
   cancel-in-progress: false
@@ -20,8 +21,7 @@ jobs:
       vars.DISCORD_BOT_GITHUB_LOGIN != '' &&
       github.actor == vars.DISCORD_BOT_GITHUB_LOGIN &&
       !github.event.issue.pull_request &&
-      contains(github.event.issue.labels.*.name, 'discord-report') &&
-      (github.event_name == 'issues' || startsWith(github.event.comment.body, '<!-- discord-message:'))
+      contains(github.event.issue.labels.*.name, 'discord-report')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -29,6 +29,8 @@ jobs:
       issues: read
     outputs:
       sha: ${{ steps.prepare.outputs.sha }}
+      skip: ${{ steps.prepare.outputs.skip }}
+      last_message: ${{ steps.prepare.outputs.last_message }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,16 +38,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install investigation and bot test dependencies
-        run: python -m pip install -e . imageio-ffmpeg==0.6.0 -r services/discord_support/requirements.txt
       - name: Copy trusted collection helper outside the agent workspace
-        run: sudo install -D -m 0444 tools/discord_agent_pipeline.py /opt/discord-support-trusted/pipeline.py
-      - name: Collect report conversation and screenshots
+        run: |
+          sudo install -D -m 0444 tools/discord_agent_pipeline.py /opt/discord-support-trusted/pipeline.py
+          sudo install -D -m 0444 services/discord_support/core.py /opt/discord-support-trusted/core.py
+      - name: Collect the report, its messages and attachments
         id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/discord_agent_pipeline.py prepare
+        run: python /opt/discord-support-trusted/pipeline.py prepare
+      # Uploaded before the agent runs, so the stored attachments are the reporter's files.
+      - uses: actions/upload-artifact@v4
+        if: steps.prepare.outputs.skip != 'true'
+        with:
+          name: discord-attachments
+          path: work/discord_attachments/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Install investigation and bot test dependencies
+        if: steps.prepare.outputs.skip != 'true'
+        run: python -m pip install -e . imageio-ffmpeg==0.6.0 -r services/discord_support/requirements.txt
       - name: Investigate and propose a regression-tested fix
+        if: steps.prepare.outputs.skip != 'true'
         id: codex
         uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
         with:
@@ -59,16 +73,44 @@ jobs:
           output-file: ${{ runner.temp }}/discord-agent-result.json
           codex-args: ${{ steps.prepare.outputs.codex_args }}
       - name: Collect proposed patch and findings
+        if: steps.prepare.outputs.skip != 'true'
         run: python /opt/discord-support-trusted/pipeline.py collect --result "$RUNNER_TEMP/discord-agent-result.json"
       - uses: actions/upload-artifact@v4
+        if: steps.prepare.outputs.skip != 'true'
         with:
           name: discord-investigation
           path: work/discord_result/
           if-no-files-found: error
           retention-days: 7
 
+  store:
+    needs: investigate
+    if: needs.investigate.outputs.skip == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.investigate.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: discord-attachments
+          path: work/discord_attachments
+      - name: Keep the report's attachments in the repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: python tools/discord_agent_pipeline.py store-attachments --issue "$ISSUE_NUMBER"
+
   verify:
     needs: investigate
+    if: needs.investigate.outputs.skip == 'false'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -106,7 +148,9 @@ jobs:
           python -m unittest discover -s tests
 
   publish:
-    needs: [investigate, verify]
+    needs: [investigate, verify, store]
+    # Attachment storage failing must not withhold the findings.
+    if: always() && needs.investigate.result == 'success' && needs.verify.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -117,6 +161,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
+      SEEN_MESSAGE: ${{ needs.investigate.outputs.last_message }}
       BRANCH: codex/discord-report-${{ github.event.issue.number }}-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
@@ -158,19 +203,8 @@ jobs:
             printf '%s\n' "$existing" > work/discord_result/pr-url.txt
           fi
           gh workflow run ci.yml --ref "$BRANCH"
-      - name: Post findings or follow-up question
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const result = JSON.parse(fs.readFileSync('work/discord_result/result.json', 'utf8'));
-            let body = '<!-- discord-agent-reply -->\n' + result.reply;
-            if (fs.existsSync('work/discord_result/pr-url.txt')) {
-              body += '\n\nProposed fix (draft PR): ' + fs.readFileSync('work/discord_result/pr-url.txt', 'utf8').trim();
-              body += '\nWindows/Linux build checks are queued. This fix is awaiting review and has not been released.';
-            }
-            await github.rest.issues.createComment({...context.repo,
-              issue_number: context.payload.issue.number, body: body.slice(0, 15000)});
+      - name: Write the bug report and post findings or a follow-up question
+        run: python tools/discord_agent_pipeline.py publish --issue "$ISSUE_NUMBER" --seen "$SEEN_MESSAGE"
 
   failure_notice:
     needs: [investigate, verify, publish]

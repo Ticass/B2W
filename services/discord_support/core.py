@@ -1,6 +1,7 @@
 """Durable intake and bounded diagnostics parsing; no Discord connection here."""
 from __future__ import annotations
 
+import base64
 import io
 import json
 from pathlib import Path, PurePosixPath
@@ -56,13 +57,164 @@ def message_marker(message_id: int) -> str:
     return f'<!-- discord-message:{message_id} -->'
 
 
-def format_report(payload: dict) -> str:
-    metadata = json.dumps(payload.get('attachments', []), ensure_ascii=True)
-    content = redact(payload['content'])[:MAX_REPORT]
-    return (f"{message_marker(payload['message_id'])}\n"
-            f"Discord report from {payload['author']} ({payload['author_id']})\n"
-            f"Thread: {payload['url']}\n\n{content}\n\n"
-            f'<!-- discord-attachments:{metadata} -->')[:60000]
+def reply_text(body: str) -> str:
+    """The Discord text of an investigation reply comment, without its hidden markers."""
+    return re.sub(r'<!--.*?-->', '', body.removeprefix(REPLY_MARKER), flags=re.DOTALL).strip()
+
+
+def thread_marker(thread_id: int) -> str:
+    return f'<!-- discord-thread:{thread_id} -->'
+
+
+# The Discord messages behind an issue live in one hidden block of the issue
+# body, so the issue reads as a bug report rather than a pasted conversation.
+# The investigation reads them from there; base64 keeps '-->' out of the comment.
+DATA_RE = re.compile(r'<!-- discord-report-data:([A-Za-z0-9+/=]*) -->')
+# The bot's own first draft; the investigation replaces it with its analysis.
+DRAFT_MARKER = '<!-- discord-report-draft -->'
+MAX_MESSAGE = 4000
+MAX_DATA = 40000
+ERROR_RE = re.compile(r'\berror: \S|\bTraceback \(most recent call last\)', re.IGNORECASE)
+IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
+
+
+def _zip_text(archive: zipfile.ZipFile, name: str, limit: int) -> str | None:
+    try:
+        entry = archive.getinfo(name)
+    except KeyError:
+        return None
+    if entry.file_size > 2 * 1024 * 1024 or entry.flag_bits & 1:
+        return None
+    with archive.open(entry) as stream:
+        return stream.read(limit).decode('utf-8', errors='replace')
+
+
+def diagnostics_facts(data: bytes) -> dict:
+    """Map, version, platform, options and the final error lines of a
+    Save Diagnostics ZIP (summary.json and console.log; nothing is extracted)."""
+    if len(data) > MAX_ATTACHMENT:
+        return {}
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            summary = _zip_text(archive, 'summary.json', 256 * 1024)
+            console = _zip_text(archive, 'console.log', 2 * 1024 * 1024) or ''
+    except (zipfile.BadZipFile, RuntimeError, OSError, NotImplementedError):
+        return {}
+    try:
+        info = json.loads(summary) if summary else {}
+    except ValueError:
+        info = {}
+    info = info if isinstance(info, dict) else {}
+    settings = info.get('settings') if isinstance(info.get('settings'), dict) else {}
+    facts = {}
+    for key, value in (('version', info.get('version')), ('platform', info.get('platform')),
+                       ('project', settings.get('project')), ('map', settings.get('menu_title'))):
+        if isinstance(value, str) and value.strip():
+            facts[key] = redact(value.strip())[:200]
+    options = [label for key, label in (('bo2_stock_perks', 'BO2 stock perks'), ('source_fx', 'WaW source FX'),
+                                        ('remaster', 'BO2 remaster materials')) if settings.get(key) is True]
+    if options:
+        facts['options'] = options
+    errors = []
+    if isinstance(info.get('error'), str) and info['error'].strip():
+        errors.append(info['error'].strip())
+    for line in console.splitlines():
+        if ERROR_RE.search(line) and line.strip() not in errors:
+            errors.append(line.strip())
+    if errors:
+        facts['errors'] = [redact(line)[:500] for line in errors[-5:]]
+    return facts
+
+
+def encode_messages(messages: list[dict]) -> str:
+    kept = [dict(message, content=str(message.get('content', ''))[:MAX_MESSAGE]) for message in messages]
+    while True:
+        data = base64.b64encode(json.dumps({'messages': kept}, ensure_ascii=True).encode()).decode()
+        # Keep the original report and the newest replies when a thread grows long.
+        if len(data) <= MAX_DATA or len(kept) <= 2:
+            return f'<!-- discord-report-data:{data} -->'
+        del kept[1]
+
+
+def decode_messages(body: str) -> list[dict]:
+    match = DATA_RE.search(body or '')
+    if not match:
+        return []
+    try:
+        data = json.loads(base64.b64decode(match.group(1)))
+    except ValueError:
+        return []
+    messages = data.get('messages') if isinstance(data, dict) else None
+    return [m for m in messages if isinstance(m, dict)] if isinstance(messages, list) else []
+
+
+def with_messages(body: str, messages: list[dict]) -> str:
+    """``body`` with its hidden data block replaced (or appended)."""
+    block = encode_messages(messages)
+    if DATA_RE.search(body or ''):
+        return DATA_RE.sub(lambda _: block, body, count=1)
+    return f'{(body or "").rstrip()}\n\n{block}'
+
+
+def merged_facts(messages: list[dict]) -> dict:
+    facts = {}
+    for message in messages:
+        facts.update(message.get('facts') or {})
+    return facts
+
+
+def report_title(thread_title: str, messages: list[dict]) -> str:
+    facts = merged_facts(messages)
+    project, name = facts.get('project'), facts.get('map')
+    if project:
+        label = f'{name} ({project})' if name and name != project else project
+        return f'Error when building {label}'[:240]
+    return f'Error report: {thread_title}'[:240]
+
+
+def attachment_lines(messages: list[dict]) -> list[str]:
+    lines = []
+    for message in messages:
+        for item in message.get('attachments') or []:
+            name = str(item.get('name', 'attachment')).replace(']', '').replace('[', '')[:120]
+            url = item.get('stored_url') or item.get('url')
+            if not url:
+                continue
+            size = item.get('size')
+            detail = f' ({size / 1048576:.1f} MiB)' if isinstance(size, int) and size >= 1048576 else ''
+            prefix = '!' if item.get('content_type') in IMAGE_TYPES else ''
+            lines.append(f'- {prefix}[{name}]({url}){detail}')
+    return lines
+
+
+def format_issue(thread_title: str, messages: list[dict]) -> str:
+    """The bot's draft bug report for a Discord thread, before the investigation."""
+    facts = merged_facts(messages)
+    errors = facts.get('errors') or []
+    sections = [DRAFT_MARKER, '### Error']
+    if errors:
+        sections.append('```text\n' + '\n'.join(errors).replace('```', "'''") + '\n```')
+    else:
+        sections.append('No error text was found in the report or its attachments.')
+    environment = [f'- {label}: {facts[key]}' for key, label in
+                   (('version', 'WawConverter'), ('platform', 'Platform')) if facts.get(key)]
+    if facts.get('project'):
+        name = facts.get('map')
+        environment.append(f"- Map: {name} (`{facts['project']}`)" if name and name != facts['project']
+                           else f"- Map: `{facts['project']}`")
+    if facts.get('options'):
+        environment.append('- Options: ' + ', '.join(facts['options']))
+    sections += ['### Environment', '\n'.join(environment) or
+                 'Not provided. A Save Diagnostics ZIP (Reports → Save Diagnostics) includes it.']
+    description = redact(str(messages[0].get('content', '')).strip()) if messages else ''
+    sections += ['### Description', '\n'.join('> ' + line for line in description.splitlines())
+                 if description else 'No description was given.']
+    sections += ['### Attachments', '\n'.join(attachment_lines(messages)) or 'None.']
+    url = messages[0].get('url') if messages else ''
+    source = f'[Discord thread]({url})' if url else 'Discord'
+    sections.append(f'---\n<sub>Reported on {source}. The automated investigation replaces this draft '
+                    'with its analysis.</sub>')
+    return '\n\n'.join(sections)
 
 
 def chunks(text: str, size: int = 1900) -> list[str]:
