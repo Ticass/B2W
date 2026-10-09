@@ -14,6 +14,7 @@ from typing import Any
 
 API = "https://api.github.com"
 DISCORD_HOSTS = {"discord.com", "discordapp.com"}
+DISCORD_USER_AGENT = "DiscordBot (https://github.com/Ticass/B2W, 1.0) WawConverter-release-announcement"
 SOURCE_SHA_RE = re.compile(r"\bat commit `([0-9a-f]{40})`", re.IGNORECASE)
 
 
@@ -196,7 +197,9 @@ def webhook_metadata(webhook_url: str) -> dict[str, Any]:
         raise ValueError("Webhook URL must be an HTTPS Discord webhook")
     if len(parts) < 4 or parts[-3] != "webhooks" or not parts[-2].isdigit():
         raise ValueError("Webhook URL does not have the expected Discord format")
-    request = urllib.request.Request(webhook_url, headers={"Accept": "application/json"})
+    request = urllib.request.Request(webhook_url, headers={
+        "Accept": "application/json", "User-Agent": DISCORD_USER_AGENT,
+    })
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             metadata = json.load(response)
@@ -207,17 +210,25 @@ def webhook_metadata(webhook_url: str) -> dict[str, Any]:
     return metadata
 
 
-def post_message(webhook_url: str, message: dict[str, Any]) -> None:
+def post_message(webhook_url: str, message: dict[str, Any]) -> dict[str, Any]:
+    # wait=true asks Discord to confirm creation and return the posted message.
+    parsed = urllib.parse.urlsplit(webhook_url)
+    query = dict(urllib.parse.parse_qsl(parsed.query))
+    query['wait'] = 'true'
+    confirmed_url = urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(query)))
     data = json.dumps(message, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
-        webhook_url,
+        confirmed_url,
         data=data,
-        headers={"Content-Type": "application/json", "User-Agent": "WawConverter-release-announcement"},
+        headers={"Content-Type": "application/json", "User-Agent": DISCORD_USER_AGENT},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=20):
-            pass
+        with urllib.request.urlopen(request, timeout=20) as response:
+            posted = json.load(response)
+        if not str(posted.get('id', '')).isdigit() or not str(posted.get('channel_id', '')).isdigit():
+            raise RuntimeError('Discord did not confirm creation of the announcement message')
+        return posted
     except urllib.error.HTTPError as error:
         raise RuntimeError(f"Discord webhook post failed with HTTP {error.code}") from None
     except urllib.error.URLError:
@@ -248,8 +259,9 @@ def main() -> int:
     testing_run_id = os.environ.get("TESTING_RUN_ID", "").strip()
     if testing_run_id:
         payload = testing_message(repo, int(testing_run_id), token)
-        post_message(webhook, payload)
-        print(f"Testing build {int(testing_run_id)} announcement posted to Discord.")
+        posted = post_message(webhook, payload)
+        print(f"Testing build {int(testing_run_id)} announcement confirmed: "
+              f"message {posted['id']} in channel {posted['channel_id']}.")
         if summary:
             with open(summary, "a", encoding="utf-8") as stream:
                 stream.write(f"Testing build `{int(testing_run_id)}` announced on Discord.\n")
