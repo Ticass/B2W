@@ -18,8 +18,9 @@ releases are cut from `main` on a schedule.
    from `main`, publishes it as **Nightly YYYY-MM-DD** and announces it on
    Discord. A night with no new commits on `main` since the last nightly
    publishes nothing.
-4. For a stable release, update `pyproject.toml` and `CHANGELOG.md` on `main`,
-   then push a version tag such as `v0.2.15`.
+4. Every **Saturday at 05:00 Toronto time**, **Weekly stable promotion**
+   releases Friday's nightly as the next stable version (`v0.2.14` becomes
+   `v0.2.15`) and opens a pull request recording that version on `main`.
 
 ## Preview builds
 
@@ -69,17 +70,49 @@ rerunning the workflow. Once published, the nightly is announced on Discord
 
 ## Stable releases
 
-Push a version tag such as `v0.2.15` after updating `pyproject.toml` and
-`CHANGELOG.md` on `main`. The same tested packaging pipeline publishes that tag
-as the latest stable release. Nightlies retain the source version and are
-distinguished by their release tag and provenance.
+**Weekly stable promotion** (`stable-promotion.yml`) turns Friday's nightly
+into the next stable release every Saturday at **05:00 Toronto time**. Like
+the nightly, it is scheduled at two UTC times (09:00 and 10:00) and only the
+run that is 05:00 in Toronto proceeds.
+
+It promotes the newest published nightly dated Friday or earlier (a night
+without new commits publishes no nightly, so the latest one is Friday's state
+of `main`). The version is the highest `v*` tag with its patch number
+incremented. On top of the nightly's exact commit it commits the new version
+in `pyproject.toml` and `src/waw2bo2/__init__.py` and turns the `Unreleased`
+changelog section into the version's section; when that section is missing or
+empty, the commit subjects since the previous stable are used
+(`tools/promote_stable.py`). The commit is pushed to
+`release/stable/NIGHTLY_TAG` and tagged `vX.Y.Z`, then built by the same
+packaging pipeline and, after all checks pass, published as the latest stable
+release with that changelog section as its notes. Commits merged after
+Friday's nightly wait for the next week.
+
+Finally it opens a pull request from `release/sync-vX.Y.Z` that records the
+version on `main`, moving only the shipped entries under the version heading
+and keeping later ones under `Unreleased`. Merge it so nightlies carry the new
+version. Pull requests opened by `GITHUB_TOKEN` do not trigger other
+workflows; close and reopen it to run checks.
+
+If no nightly qualifies, the promotion fails and publishes nothing. If the
+nightly is already part of the latest stable, that week is skipped. A rerun
+reuses the existing `release/stable/...` branch and version. **Run workflow**
+on `main` promotes by hand, optionally with a specific nightly tag.
+
+A stable release can still be cut by hand: update `pyproject.toml`,
+`src/waw2bo2/__init__.py` and `CHANGELOG.md` on `main`, then push a version tag
+such as `v0.2.15`; **Nightly and version releases** publishes it. Nightlies
+retain the source version and are distinguished by their release tag and
+provenance.
 
 ## Permissions
 
 No custom secrets are required. The publish job requests `contents: write` on
 `GITHUB_TOKEN`; build jobs have read access and run without persisted Git
 credentials. Repository rules must allow Actions to create release tags and
-releases. Scheduled workflows become active once these files are on the
+releases, and to push `release/stable/**` and `release/sync-v*` branches. The
+weekly promotion also needs **Allow GitHub Actions to create and approve pull
+requests** enabled in the repository's Actions settings. Scheduled workflows become active once these files are on the
 default branch and Actions is enabled. The old **Build Linux release** workflow
 remains available to repair historical releases that already contain a Windows
 ZIP.

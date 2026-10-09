@@ -1,0 +1,207 @@
+name: Weekly stable promotion
+
+on:
+  schedule:
+    # Saturday 05:00 in Toronto. GitHub cron is UTC, so both offsets are
+    # scheduled and the run outside 05:00 local time exits (EDT 09:00, EST 10:00).
+    - cron: '0 9 * * 6'
+    - cron: '0 10 * * 6'
+  workflow_dispatch:
+    inputs:
+      nightly_tag:
+        description: Nightly release to promote (default - the newest nightly dated yesterday or earlier, Toronto time)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      NIGHTLY_INPUT: ${{ inputs.nightly_tag }}
+    outputs:
+      nightly: ${{ steps.nightly.outputs.tag }}
+      nightly_sha: ${{ steps.nightly.outputs.sha }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Run only at 05:00 Toronto time
+        id: gate
+        run: |
+          hour=$(TZ=America/Toronto date +%H)
+          if [[ "$GITHUB_EVENT_NAME" == schedule && "$hour" != 05 ]]; then
+            echo "Toronto time is ${hour}:xx; the other Saturday schedule promotes." >> "$GITHUB_STEP_SUMMARY"
+            echo run=false >> "$GITHUB_OUTPUT"
+          else
+            echo run=true >> "$GITHUB_OUTPUT"
+          fi
+      - name: Find Friday's nightly
+        if: steps.gate.outputs.run == 'true'
+        id: nightly
+        run: |
+          set -euo pipefail
+          tag="$NIGHTLY_INPUT"
+          if [[ -z "$tag" ]]; then
+            friday=$(TZ=America/Toronto date -d yesterday +%F)
+            # Nightly tags carry their Toronto date. A night without new commits
+            # publishes no nightly, so the newest one dated Friday or earlier is
+            # the state of main that Friday's nightly represents.
+            tag=$(gh api --paginate "repos/$GH_REPO/releases" \
+              --jq '.[] | select(.draft == false and (.tag_name | startswith("nightly-"))) | [.tag_name[8:18], .published_at, .tag_name] | @tsv' \
+              | awk -F '\t' -v friday="$friday" '$1 <= friday' | sort -r | head -n1 | cut -f3)
+            if [[ -z "$tag" ]]; then
+              echo "::error::No published nightly dated $friday or earlier; nothing to promote."
+              exit 1
+            fi
+          fi
+          [[ "$tag" == nightly-* ]] || { echo "::error::$tag is not a nightly release"; exit 1; }
+          sha=$(gh api "repos/$GH_REPO/commits/$tag" --jq .sha)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          ref: ${{ steps.nightly.outputs.sha }}
+          fetch-depth: 0
+      - name: Commit and tag the stable version
+        if: steps.gate.outputs.run == 'true'
+        id: release
+        env:
+          NIGHTLY_TAG: ${{ steps.nightly.outputs.tag }}
+        run: |
+          set -euo pipefail
+          branch="release/stable/$NIGHTLY_TAG"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            # Rerun: reuse the version already committed for this nightly.
+            git fetch origin "$branch"
+            git checkout --detach FETCH_HEAD
+            version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/waw2bo2/__init__.py)
+          else
+            latest=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+            if [[ -n "$latest" ]] && git merge-base --is-ancestor HEAD "$latest"; then
+              echo "$NIGHTLY_TAG is already part of $latest; no stable release this week." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            version=$(python3 tools/promote_stable.py next-version $(git tag --list 'v*'))
+            git log --no-merges --format=%s ${latest:+"$latest..HEAD"} > "$RUNNER_TEMP/commits.txt"
+            python3 tools/promote_stable.py release "$version" --fallback-notes "$RUNNER_TEMP/commits.txt"
+            git commit -am "Release v$version from $NIGHTLY_TAG"
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+          sha=$(git rev-parse HEAD)
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            remote=$(git ls-remote origin "refs/tags/v$version^{}" "refs/tags/v$version" | tail -n1 | cut -f1)
+            [[ "$remote" == "$sha" ]] || { echo "::error::Tag v$version already exists at $remote"; exit 1; }
+          else
+            git tag "v$version" "$sha"
+            git push origin "refs/tags/v$version"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  packages:
+    needs: promote
+    if: needs.promote.outputs.sha != ''
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.promote.outputs.sha }}
+
+  publish:
+    needs: [promote, packages]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: v${{ needs.promote.outputs.version }}
+      VERSION: ${{ needs.promote.outputs.version }}
+      SOURCE_SHA: ${{ needs.promote.outputs.sha }}
+      NIGHTLY_TAG: ${{ needs.promote.outputs.nightly }}
+      NIGHTLY_SHA: ${{ needs.promote.outputs.nightly_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.promote.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-package'
+          merge-multiple: true
+          path: assets
+      - name: Verify release assets
+        working-directory: assets
+        run: |
+          sha256sum --check WawConverter-Windows.zip.sha256
+          sha256sum --check WawConverter-Linux-x86_64.tar.gz.sha256
+          test -s build-info.json
+      - name: Publish the stable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'Weekly stable release promoted from [%s](https://github.com/%s/releases/tag/%s) (commit `%s`), built and tested from commit `%s`.\n\n' \
+              "$NIGHTLY_TAG" "$GH_REPO" "$NIGHTLY_TAG" "$NIGHTLY_SHA" "$SOURCE_SHA"
+            python3 -c 'import sys; sys.path.insert(0, "tools"); import promote_stable as p; print("\n".join(p.released_entries(open("CHANGELOG.md", encoding="utf-8").read(), sys.argv[1])))' "$VERSION"
+          } > notes.md
+          existing=$(gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name')
+          if ! grep -Fxq -- "$RELEASE_TAG" <<< "$existing"; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes-file notes.md --draft --latest
+          fi
+          gh release upload "$RELEASE_TAG" assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+          url=$(gh release view "$RELEASE_TAG" --json url --jq .url)
+          printf 'Published [%s](%s) from `%s` (%s).\n' "$RELEASE_TAG" "$url" "$SOURCE_SHA" "$NIGHTLY_TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  sync-main:
+    # Carry the version bump and changelog section back to main for review.
+    needs: [promote, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.promote.outputs.version }}
+      SOURCE_SHA: ${{ needs.promote.outputs.sha }}
+      NIGHTLY_TAG: ${{ needs.promote.outputs.nightly }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Open the version sync pull request
+        run: |
+          set -euo pipefail
+          branch="release/sync-v$VERSION"
+          git show "$SOURCE_SHA:CHANGELOG.md" > "$RUNNER_TEMP/released-CHANGELOG.md"
+          python3 tools/promote_stable.py sync-main "$VERSION" "$RUNNER_TEMP/released-CHANGELOG.md"
+          if git diff --quiet; then
+            echo "main already records v$VERSION." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B "$branch"
+          git commit -am "Record stable v$VERSION on main"
+          git push --force origin "HEAD:refs/heads/$branch"
+          if [[ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]]; then
+            gh pr create --base main --head "$branch" --title "Record stable v$VERSION" \
+              --body "Sets the version to $VERSION and moves the entries shipped in v$VERSION (promoted from $NIGHTLY_TAG) under their changelog heading. Entries merged after that nightly stay under Unreleased."
+          fi
