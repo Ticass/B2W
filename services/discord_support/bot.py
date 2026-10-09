@@ -13,7 +13,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core import LABEL, MAX_ATTACHMENT, REPLY_MARKER, State, attachment_text, chunks, format_report, message_marker, redact
+from core import (DRAFT_MARKER, LABEL, MAX_ATTACHMENT, REPLY_MARKER, State, chunks, decode_messages,
+    diagnostics_facts, encode_messages, format_issue, message_marker, redact, reply_text, report_title,
+    thread_marker, with_messages)
 from map_compatibility import (CodRepoCatalog, MAX_UPLOAD_TOTAL_BYTES,
     REPORT_LABEL, encode_report_marker, search_maps, valid_video_url, validate_upload)
 
@@ -96,24 +98,34 @@ class GitHub:
         return await self.request('POST', '/issues', json={
             'title': title, 'body': body, 'labels': [REPORT_LABEL]})
 
-    async def issue_for(self, thread_id: int, title: str, report: str):
-        marker = f'<!-- discord-thread:{thread_id} -->'
+    async def issue_for(self, thread_id: int, title: str, payload: dict):
+        marker = thread_marker(thread_id)
         # Recover an issue created just before a service crash without duplicating it.
         async for issue in self.pages(f'/issues?state=all&labels={LABEL}'):
             if 'pull_request' not in issue and marker in (issue['body'] or ''):
                 return issue
+        messages = [payload]
+        body = f'{marker}\n{format_issue(title, messages)}\n\n{encode_messages(messages)}'
         return await self.request('POST', '/issues', json={
-            'title': f'[Discord] {title}'[:240], 'body': marker + '\n' + report, 'labels': [LABEL]})
+            'title': report_title(title, messages), 'body': body, 'labels': [LABEL]})
 
-    async def forward(self, issue: int, payload: dict):
-        marker = message_marker(payload['message_id'])
+    async def forward(self, issue: int, payload: dict, title: str):
+        """Add a Discord message to the issue's hidden report data. Editing the
+        body (not commenting) starts the follow-up investigation."""
         existing = await self.request('GET', f'/issues/{issue}')
-        if marker in (existing['body'] or ''):
+        body = existing['body'] or ''
+        messages = decode_messages(body)
+        if (any(str(m.get('message_id')) == str(payload['message_id']) for m in messages)
+                or message_marker(payload['message_id']) in body):
             return
-        async for comment in self.pages(f'/issues/{issue}/comments'):
-            if marker in (comment['body'] or ''):
-                return
-        await self.request('POST', f'/issues/{issue}/comments', json={'body': format_report(payload)})
+        messages.append(payload)
+        update = {'body': with_messages(body, messages)}
+        if DRAFT_MARKER in body:
+            # Not investigated yet: rebuild the draft, e.g. when a reply adds the diagnostics ZIP.
+            head = body[:body.index(DRAFT_MARKER)]
+            update['body'] = with_messages(f'{head}{format_issue(title, messages)}', messages)
+            update['title'] = report_title(title, messages)
+        await self.request('PATCH', f'/issues/{issue}', json=update)
 
 
 def map_report_embed(map_record: dict, outcome: str, platform: str, version: str,
@@ -349,22 +361,18 @@ class SupportBot(commands.Bot):
                 await self.ingest(starter, include_context=True)
             except discord.HTTPException:
                 log.info('Original report context unavailable for thread %s', message.channel.id)
-        text, metadata = [message.content], []
+        metadata, facts = [], {}
         for attachment in message.attachments[:8]:
             metadata.append({'name': attachment.filename, 'url': attachment.url,
                              'content_type': attachment.content_type, 'size': attachment.size})
-            if attachment.size > MAX_ATTACHMENT:
-                text.append(f'{attachment.filename}: skipped; exceeds 8 MiB intake limit.')
-            elif Path(attachment.filename).suffix.lower() in {'.zip', '.txt', '.log', '.json', '.csv'}:
-                try:
-                    data = await attachment.read()
-                    text.append(f'Attachment {attachment.filename}:\n{attachment_text(attachment.filename, data)}')
-                except discord.HTTPException:
-                    # Leave the message unqueued so catch-up can retry the download.
-                    raise
-        payload = {'message_id': message.id, 'content': '\n\n'.join(text),
+            # The investigation downloads every attachment itself; the bot only
+            # reads a diagnostics ZIP's summary for the issue title and error.
+            if attachment.size <= MAX_ATTACHMENT and Path(attachment.filename).suffix.lower() == '.zip':
+                # An HTTP error leaves the message unqueued so catch-up can retry the download.
+                facts.update(diagnostics_facts(await attachment.read()))
+        payload = {'message_id': message.id, 'content': redact(message.content),
                    'author': str(message.author), 'author_id': message.author.id,
-                   'url': message.jump_url, 'attachments': metadata}
+                   'url': message.jump_url, 'attachments': metadata, 'facts': facts}
         self.state.enqueue(message.channel.id, message.channel.name, payload)
 
     async def on_message(self, message):
@@ -396,16 +404,16 @@ class SupportBot(commands.Bot):
                     thread = self.state.thread(row['thread'])
                     payload = json.loads(row['payload'])
                     if not thread['issue']:
-                        issue = await self.github.issue_for(thread['id'], thread['title'], format_report(payload))
+                        issue = await self.github.issue_for(thread['id'], thread['title'], payload)
                         self.state.update(thread['id'], issue=issue['number'])
                         thread = self.state.thread(thread['id'])
-                    await self.github.forward(thread['issue'], payload)
+                    await self.github.forward(thread['issue'], payload, thread['title'])
                     if not thread['acknowledged']:
                         # Recover replies produced before an issue mapping was saved.
                         async for comment in self.github.pages(f"/issues/{thread['issue']}/comments"):
                             body = comment['body'] or ''
                             if comment['user']['login'] == 'github-actions[bot]' and body.startswith(REPLY_MARKER):
-                                self.state.queue_reply(comment['id'], thread['id'], body[len(REPLY_MARKER):].strip())
+                                self.state.queue_reply(comment['id'], thread['id'], reply_text(body))
                         url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/issues/{thread['issue']}"
                         await self.send_text(thread['id'], 'I’ve received your report and queued an investigation. '
                             'I’ll post findings or questions here.\nTracking: ' + url)
@@ -465,7 +473,7 @@ class SupportBot(commands.Bot):
                     body = comment['body'] or ''
                     if (row and comment['id'] > row['reply_cursor'] and
                         comment['user']['login'] == 'github-actions[bot]' and body.startswith(REPLY_MARKER)):
-                        self.state.queue_reply(comment['id'], row['id'], body[len(REPLY_MARKER):].strip())
+                        self.state.queue_reply(comment['id'], row['id'], reply_text(body))
                 # One-second overlap prevents timestamp boundary losses; IDs deduplicate.
                 if last_updated > initial_updated:
                     self.state.set_metadata('reply_since', (last_updated - timedelta(seconds=1)).isoformat())

@@ -1,8 +1,8 @@
 # Discord error-report bot
 
 The bot watches the `error-logs` forum in server `1557610224641245245`, channel
-`1557762745993142343`. New posts and human replies are forwarded to one GitHub
-issue per Discord thread. The **Investigate Discord error report** workflow
+`1557762745993142343`. Each Discord thread becomes one GitHub issue written as
+a bug report (see [Tracking issues](#tracking-issues)). The **Investigate Discord error report** workflow
 starts a Codex investigation on a GitHub-hosted Ubuntu runner. It reads source,
 diagnostic logs and available screenshots, tries to reproduce the failure,
 and either asks a specific question, explains its findings, or proposes a fix.
@@ -13,7 +13,7 @@ the workflow creates a draft PR. It explicitly dispatches the Windows/Linux
 packaging workflow for that branch. Review and merge the PR before the change
 enters a nightly build. The bot does not merge changes or claim an unpublished
 fix is released. Further replies start a new investigation with the complete
-issue conversation and the current repository snapshot.
+conversation and the current repository snapshot.
 
 Investigations, verification and builds run on **GitHub-hosted runners**. The
 small Discord listener runs continuously in Docker on a remote server. It
@@ -32,8 +32,8 @@ not wake this desktop chat or depend on your PC remaining on.
    The listener needs no repository contents write access. A dedicated service
    account makes its report activity easier to distinguish.
 4. Set repository variable **`DISCORD_BOT_GITHUB_LOGIN`** to the GitHub username
-   that owns that token. Only report issues and follow-up comments from this
-   identity, carrying the `discord-report` label/message marker, trigger AI work.
+   that owns that token. Only issues opened or edited by this identity, with
+   the `discord-report` label, trigger AI work.
    The listener creates the label at startup if it does not exist.
 5. In repository **Settings → Actions → General → Workflow permissions**, enable
    **Allow GitHub Actions to create and approve pull requests**. The publisher
@@ -133,17 +133,48 @@ Railway service restart policy to **Never**, wait before trying again, then
 start one replica once. The bot now backs off exponentially (up to 30 minutes)
 on Discord 429 responses so a temporary block does not cause rapid relaunches.
 
+## Tracking issues
+
+The issue reads as a bug report, not a copy of the Discord chat:
+
+- The bot opens it as a draft. The title is **Error when building <map>
+  (<project>)** when a Save Diagnostics ZIP is attached, otherwise
+  **Error report: <thread title>**. The body has the error lines from the
+  ZIP's `console.log`, the environment (converter version, platform, map,
+  options), the reporter's description and the attachments.
+- The investigation then replaces the description with its own report:
+  Summary, Error, Steps to reproduce, Environment, Analysis and Status. Every
+  later investigation rewrites it with what is known by then.
+- Comments hold only the investigation's findings and questions, which are
+  also sent to Discord. No usernames or Discord IDs appear in the visible issue.
+
+The Discord messages themselves are kept in a hidden, base64-encoded block of
+the issue body. A follow-up message updates that block instead of adding a
+comment, which starts the next investigation. Investigations wait 90 seconds
+before reading the thread, answer a burst of messages once, skip messages that
+were already answered, and post nothing when a newer message arrived in the
+meantime. When a message adds nothing to act on, the investigation updates the
+report without replying.
+
+Discord attachment links expire. Each investigation therefore stores the
+report's attachments in the repository under
+`refs/discord-attachments/issue-<number>` and links the issue to those copies.
+That is not a branch, so it starts no build and is not fetched by a normal
+clone. To remove a report's files, delete the ref:
+`git push origin :refs/discord-attachments/issue-<number>`.
+
 ## What reports include
 
-The listener reads text/log/JSON/CSV attachments and diagnostic ZIPs up to
-8 MiB. ZIP entries are inspected in memory with bounded text reads; executable
+The listener reads only `summary.json` and `console.log` from a diagnostics
+ZIP (up to 8 MiB) for the draft's title, environment and error lines. The
+investigation runner downloads screenshots and text/log/JSON/CSV/ZIP attachments
+only from the Discord attachment CDN, with size/type checks and redirects
+disabled. ZIP entries are read in memory with bounded text reads; executable
 files, game assets, traversal paths, encrypted entries and oversized entries
-are skipped. It never runs an attachment or extracts it onto disk. Screenshot
-links are downloaded on the runner only from the Discord attachment CDN, with
-size/type checks and redirects disabled. Expired links lead to a request to
-attach the screenshot again if it is needed.
+are skipped, and nothing is ever run. A file that cannot be downloaded is listed
+with the reason, so the agent can ask for it again.
 
-Report text and diagnostic excerpts are copied to GitHub issues, which are
+Report text, error lines and attachments are published in GitHub issues, which are
 public if the repository is public. Common token/password fields and user-home
 paths are redacted, but automatic redaction cannot cover every sensitive value;
 reporters should inspect diagnostics before posting. Bot-generated Discord
@@ -160,7 +191,8 @@ Use **Run workflow** or push changes to these bot/workflow files to run it.
 
 Once the host and credentials are configured, post one real test report in
 `error-logs`. Confirm that it gets an acknowledgment and tracking issue, the
-investigation workflow starts, a response returns to the same thread, and a
-human follow-up triggers another investigation. The listener logs IDs and
+investigation workflow starts, the issue is rewritten as a bug report, a
+response returns to the same thread, and a human follow-up triggers another
+investigation. The listener logs IDs and
 failure types, not token values or report contents. If a job fails or times out,
 the reporter receives a run link for a maintainer to investigate.
