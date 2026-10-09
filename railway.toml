@@ -1,0 +1,7 @@
+# Build from the repository root: the listener also copies the map catalog.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "services/discord_support/Dockerfile"
+
+[deploy]
+startCommand = "python bot.py"

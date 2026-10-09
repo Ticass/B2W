@@ -102,6 +102,31 @@ disconnect. `POLL_SECONDS=30` controls catch-up and result polling. GitHub runne
 queue times add to investigation latency. Closing a tracking issue does not
 disable new human replies in its Discord thread.
 
+### Railway
+
+Keep the service's **Root Directory** at `/` (the repository root). The root
+`railway.toml` selects `services/discord_support/Dockerfile` and starts
+`python bot.py` inside the image. Do not set the root to the bot directory:
+the Dockerfile copies both the listener and `catalog/codrepo-maps.json` using
+repository-relative paths. Railway supports this explicit Dockerfile path via
+[config as code](https://docs.railway.com/config-as-code/reference).
+
+If an existing service specifies a custom config file, select `/railway.toml`.
+Redeploy the commit containing that file. A Railpack preparation error about
+`main.py` or `app.py` means the Dockerfile configuration was not selected;
+the repository root contains the desktop converter, not the listener entry point.
+
+Set the listener variables from `.env.example` in Railway's **Variables** tab,
+including `DISCORD_TOKEN` and `GITHUB_TOKEN`. Keep one replica running with
+Serverless disabled. The bot uses an outbound Discord Gateway connection and
+does not need a public domain or HTTP healthcheck.
+
+Attach a persistent volume at `/data` and keep
+`STATE_PATH=/data/support.sqlite3`. Ensure the mounted directory is writable
+by the image's `support` user (UID 10001); mounting a volume replaces the
+directory permissions created during the Docker build. Preserve the volume
+across redeployments so delivery checkpoints survive.
+
 If Railway logs show Discord HTTP 429 with a Cloudflare 1015 page, the egress
 IP is temporarily rate-limited. Stop the deployment retry loop by setting the
 Railway service restart policy to **Never**, wait before trying again, then
