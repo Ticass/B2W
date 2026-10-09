@@ -29,6 +29,31 @@ init_loadout()
 '''
         self.assertEqual(t6bridge.wrapped_model_literals([source]), {"viewmodel_usa_marine_arms", "weapon_prop"})
 
+    def test_stock_loadout_arms_come_from_the_map_zones(self):
+        # Rancid ships no _loadout: the stock one sets the arms, and names every
+        # campaign's; only the arms the map's own zones carry are requested
+        loadout = '''set_player_viewmodel( viewmodel )
+{
+    precacheModel( viewmodel );
+}
+init_models_and_variables_loadout()
+{
+    if( level.script == "see1" )
+        set_player_viewmodel( "viewmodel_rus_guard_arms");
+    else
+        set_player_viewmodel( "viewmodel_usa_marine_arms");
+}
+'''
+        sources = Mock(text={"maps\\nazi_zombie_rancid.gsc": "main() {}"},
+                       stock={"maps\\_loadout.gsc": loadout})
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / "xmodel" / "viewmodel_usa_marine_arms.json"
+            model.parent.mkdir()
+            model.write_text("{}", encoding="utf-8")
+            found = t6bridge.stock_wrapped_models(sources, ["maps\\nazi_zombie_rancid", "maps\\_loadout"],
+                                                  [Path(folder)])
+        self.assertEqual(found, {"viewmodel_usa_marine_arms"})
+
     def test_missing_swap_keeps_source_lights_and_notifications(self):
         source = '''main()
 {
