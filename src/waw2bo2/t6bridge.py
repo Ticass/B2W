@@ -2126,6 +2126,16 @@ def wrapped_model_literals(texts: list[str]) -> set[str]:
     return found
 
 
+def stock_wrapped_models(sources, ported: list[str], map_roots: list[Path]) -> set[str]:
+    """Wrapped model literals in stock WaW framework scripts the map does not
+    override. Most maps ship no _loadout, so the stock one sets the player's
+    arms; it names every campaign's arms, but the map's own zones carry the
+    ones it uses (Rancid: viewmodel_usa_marine_arms)."""
+    texts = [sources.text.get(path + ".gsc", sources.stock.get(path + ".gsc", "")) for path in ported]
+    local = assetresolve.Resolver(map_roots)
+    return {name for name in wrapped_model_literals(texts) if local.find("xmodel", name)}
+
+
 def recover_script_models(report: StageReport, wanted: set[str], roots: list[Path],
                           stock_waw=None, source_waw=None) -> set[str]:
     """Resolve runtime model dependencies from WaW before filtering precaches.
@@ -2224,6 +2234,7 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
         if path.startswith('xmodelalias\\'):
             wanted |= {t.text[1:-1] for t in gscport.gsc.tokenize(text) if t.kind == gscport.gsc.STRING}
     wrapped = wrapped_model_literals([sources.text.get(path + ".gsc", "") for path in port.ported])
+    wrapped |= stock_wrapped_models(sources, port.ported, model_roots)
     wanted |= wrapped
     stock_models = api.stock_assets.get("xmodel", set())
     models = recover_script_models(report, wanted, model_roots, stock_waw, source_waw)
