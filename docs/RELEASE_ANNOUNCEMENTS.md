@@ -1,5 +1,19 @@
 # Daily Discord release announcements
 
+New successful push-triggered **Bleeding edge builds** also get an immediate
+Discord announcement through `.github/workflows/testing-announcements.yml`.
+This includes merges to `main` and testing builds on other repository branches.
+The announcement links to the exact run's Windows and Linux artifacts and
+identifies its branch and commit. Failed builds and pull-request runs are skipped;
+both package artifacts must exist and be unexpired before posting. A successful
+rerun can produce another announcement for that run.
+
+The workflow uses the same `DISCORD_RELEASE_WEBHOOK_URL` secret and channel/server
+variables as the daily digest below. It runs on GitHub Actions independently of
+the Railway listener. Merge the workflow and announcement code into the default
+branch to enable the completion trigger. No GitHub Release is created by this
+announcement; testing packages remain Actions artifacts.
+
 `.github/workflows/release-announcements.yml` runs every day at **15:17 UTC**
 on a GitHub-hosted Ubuntu runner. It posts one Discord embed containing links
 to the latest stable release, the latest published nightly, and the latest

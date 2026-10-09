@@ -1,9 +1,50 @@
 import unittest
+from unittest.mock import patch
 
-from services.discord_support.release_announcement import make_message, release_source_sha, webhook_metadata
+from services.discord_support.release_announcement import make_message, release_source_sha, testing_message, webhook_metadata
 
 
 class ReleaseAnnouncementTests(unittest.TestCase):
+    def completed_run(self, **changes):
+        return {"conclusion": "success", "event": "push", "path": ".github/workflows/ci.yml",
+                "head_repository": {"full_name": "owner/repo"}, "head_branch": "main",
+                "head_sha": "a" * 40, "run_number": 42, **changes}
+
+    @patch("services.discord_support.release_announcement.request_json")
+    def test_testing_announcement_links_to_exact_completed_run_artifacts(self, request):
+        request.side_effect = [self.completed_run(), {"artifacts": [
+            {"name": "windows-package", "id": 101, "expired": False},
+            {"name": "linux-package", "id": 102, "expired": False}]}]
+        payload = testing_message("owner/repo", 7, "token")
+        embed = payload["embeds"][0]
+        self.assertEqual(embed["title"], "New testing build #42")
+        self.assertEqual(embed["url"], "https://github.com/owner/repo/actions/runs/7")
+        downloads = embed["fields"][0]["value"]
+        self.assertIn("/runs/7/artifacts/101", downloads)
+        self.assertIn("/runs/7/artifacts/102", downloads)
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        self.assertIn("`main`", embed["description"])
+
+    @patch("services.discord_support.release_announcement.request_json")
+    def test_testing_rejects_failed_pull_request_foreign_and_other_workflow_runs(self, request):
+        for changes in ({"conclusion": "failure"}, {"event": "pull_request"},
+                        {"head_repository": {"full_name": "other/repo"}},
+                        {"path": ".github/workflows/release.yml"}):
+            with self.subTest(changes=changes):
+                request.return_value = self.completed_run(**changes)
+                with self.assertRaises(RuntimeError):
+                    testing_message("owner/repo", 7, "token")
+
+    @patch("services.discord_support.release_announcement.request_json")
+    def test_testing_requires_both_unexpired_packages(self, request):
+        for artifacts in ([{"name": "windows-package", "id": 101, "expired": False}],
+                          [{"name": "windows-package", "id": 101, "expired": False},
+                           {"name": "linux-package", "id": 102, "expired": True}]):
+            with self.subTest(artifacts=artifacts):
+                request.side_effect = [self.completed_run(), {"artifacts": artifacts}]
+                with self.assertRaises(RuntimeError):
+                    testing_message("owner/repo", 7, "token")
+
     def test_message_has_links_to_all_three_tracks_and_patch_notes(self):
         stable = {"name": "v1.2.0", "tag_name": "v1.2.0", "html_url": "https://example.test/stable", "published_at": "2026-10-01T00:00:00Z"}
         nightly = {"name": "Nightly", "tag_name": "nightly-2026-10-08-1", "html_url": "https://example.test/nightly"}

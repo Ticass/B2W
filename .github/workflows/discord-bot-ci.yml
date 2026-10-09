@@ -8,6 +8,8 @@ on:
       - '.github/discord-agent-*'
       - '.github/workflows/discord-*.yml'
       - '.dockerignore'
+      - '.github/workflows/testing-announcements.yml'
+      - '.github/workflows/release-announcements.yml'
   pull_request:
     paths:
       - 'services/discord_support/**'
@@ -15,6 +17,8 @@ on:
       - '.github/discord-agent-*'
       - '.github/workflows/discord-*.yml'
       - '.dockerignore'
+      - '.github/workflows/testing-announcements.yml'
+      - '.github/workflows/release-announcements.yml'
   workflow_dispatch:
 
 permissions:
