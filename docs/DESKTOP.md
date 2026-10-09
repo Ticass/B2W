@@ -109,6 +109,19 @@ the resulting map. Maps with custom perks should keep it off.
 
 ## Build failures
 
+Conversion uses all available logical CPUs for independent asset batches by
+default. Images, shader compilation, and native audio decoding run concurrently;
+CPU-heavy lightmap pages run in separate processes. Source precedence, shared
+reports, and conflicting audio outputs are checked in a fixed order. The console
+shows the worker count for each batch. Repeated identical shader programs reuse
+compiled bytecode within the build.
+
+Set `WAW2BO2_WORKERS` to limit conversion and extraction concurrency (for example,
+`1` for a serial diagnostic build). `WAW2BO2_EXTRACT_WORKERS` overrides it for
+extraction only. Changes apply to the next build; a running packaged executable
+needs the updated tool. Staging dependencies and native zone linking still have
+sequential work, so full CPU utilization is not expected during every phase.
+
 Failed builds automatically create a diagnostics ZIP containing the console,
 native-tool logs and conversion reports. Use **Reports → Save Diagnostics**
 to save one file for support. Extract All failures also produce diagnostics

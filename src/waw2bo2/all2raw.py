@@ -159,7 +159,8 @@ def parallel_zones(zones, extract, *, label: str, workers: int | None = None):
     if not zones:
         return []
     if workers is None:
-        workers = int(os.environ.get('WAW2BO2_EXTRACT_WORKERS') or os.cpu_count() or 1)
+        workers = int(os.environ.get('WAW2BO2_EXTRACT_WORKERS') or
+                      os.environ.get('WAW2BO2_WORKERS') or os.cpu_count() or 1)
     if workers < 1:
         raise ValueError('Extraction worker count must be at least 1')
     workers = min(workers, len(zones))

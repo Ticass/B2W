@@ -354,6 +354,22 @@ def read_iwi_header(blob: bytes) -> dict:
     return {"format": fmt, "flags": flags, "width": w, "height": h, "depth": d, "fileSizeForPicmip": list(sizes)}
 
 
+def convert_tasks(tasks):
+    """Assets sharing an OAT filename must be written in source order."""
+    return [convert_task(task) for task in tasks]
+
+
+def convert_task(task):
+    """Convert one independent texture; return metadata instead of pixel buffers."""
+    asset, src, dst, recovered = task
+    try:
+        header = convert_file(src, dst)
+    except IwiError as exc:
+        return asset, None, f'image {asset}: {exc}'
+    return asset, {'name': asset, 'source': str(src), **header,
+                   **({'wavelet': recovered} if recovered is not None else {})}, None
+
+
 def convert_file(src: Path, dst: Path) -> dict:
     blob = dds_to_iwi(src.read_bytes())
     dst.parent.mkdir(parents=True, exist_ok=True)

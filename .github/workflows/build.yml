@@ -33,12 +33,27 @@ jobs:
         run: |
           python -m pip install -e . pyinstaller==6.16.0 imageio-ffmpeg==0.6.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Restore matching native binaries and corresponding sources
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            vendor/OpenAssetTools/build/bin/Release_x86
+            vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h
+            vendor/OpenAssetToolsT6/build/bin/Release_x86
+            tools/bin/xaudio_wma_decoder.exe
+            work/native_source
+          key: windows-2022-native-v1-${{ hashFiles('vendor/OpenAssetTools.patch', 'vendor/OpenAssetToolsT6/src/**', 'vendor/OpenAssetToolsT6/tools/**', 'vendor/OpenAssetToolsT6/**/*.lua', 'vendor/OpenAssetToolsT6/raw/**', 'tools/ci_build_native.ps1', 'tools/build_audio_decoder.ps1', 'tools/xaudio_wma_decoder.cpp', 'tools/cache_native_sources.py', 'tools/build_desktop.py') }}
       - name: Build patched T4, vendored T6 and audio decoder
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: ./tools/ci_build_native.ps1
+      - name: Archive the corresponding native source snapshots
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        run: python tools/cache_native_sources.py
       - name: Run regression suite
         run: python -m unittest discover -s tests
       - name: Package Windows
-        run: python tools/build_desktop.py
+        run: python tools/build_desktop.py --native-source-dir work/native_source
       - name: Smoke-test packaged GUI and command interfaces
         run: |
           $bundle = 'work/desktop_dist/WawConverter'
@@ -48,6 +63,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$bundle/All2Raw.exe" --help
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Cache verified native binaries and corresponding sources
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vendor/OpenAssetTools/build/bin/Release_x86
+            vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h
+            vendor/OpenAssetToolsT6/build/bin/Release_x86
+            tools/bin/xaudio_wma_decoder.exe
+            work/native_source
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Record provenance and checksum
         env:
           SOURCE_SHA: ${{ inputs.ref }}

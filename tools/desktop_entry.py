@@ -30,6 +30,9 @@ def check_linux_dependencies(gui: bool):
 
 
 def main():
+    # PyInstaller must dispatch spawned conversion workers before GUI/CLI parsing.
+    import multiprocessing
+    multiprocessing.freeze_support()
     for stream in (sys.stdout, sys.stderr):
         if stream is not None and hasattr(stream, 'reconfigure'):
             stream.reconfigure(line_buffering=True, write_through=True)
@@ -55,6 +58,9 @@ def main():
             app._show_reports()
             root.update()
             root.destroy()
+            from waw2bo2.parallel import ordered_map
+            if list(ordered_map(abs, [-2, -3], label='Worker smoke test', processes=True)) != [2, 3]:
+                raise RuntimeError('Spawned conversion workers failed')
             plan, report = weapons.plan([], Path(temp) / 'schema_test')
             native = {c.name: c.ready for c in preflight(settings, include_map=False)
                       if c.name in ('WaW extractor', 'BO2 bridge tools', 'Audio decoder')}

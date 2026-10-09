@@ -390,8 +390,10 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
     for asset, stem in REQUIRED_WORLD_IMAGES.items():
         wanted[asset] = stem
     written = []
+    conversions = []
+    first_image = len(report.images)
     native_images = {e['name'] for e in report.images if e.get('source_kind') == 't6_equivalent'}
-    for asset, stem in progress.items('Images', sorted(wanted.items()), name=lambda pair: pair[0]):
+    for asset, stem in progress.items('Image sources', sorted(wanted.items()), name=lambda pair: pair[0]):
         dst = project_root / techsets.oat_image_path(asset)
         if asset in native_images:
             if not dst.is_file():
@@ -451,15 +453,24 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
         if src is None:
             report.errors.append(f"image {asset}: source {stem}.dds missing from every image root")
             continue
-        try:
-            header = iwi.convert_file(src, dst)
-        except iwi.IwiError as exc:
-            report.errors.append(f"image {asset}: {exc}")
-            continue
-        report.images.append({"name": asset, "source": str(src), **header,
-                              **({"wavelet": wavelets.recovered[stem]}
-                                 if wavelets and stem in wavelets.recovered else {})})
-        written.append(asset)
+        recovered = wavelets.recovered.get(stem) if wavelets else None
+        conversions.append((asset, src, dst, recovered))
+    from .parallel import ordered_map
+    groups = {}
+    for task in conversions:
+        groups.setdefault(task[2].resolve(), []).append(task)
+    for results in ordered_map(iwi.convert_tasks, list(groups.values()), label='Image pixels'):
+        for asset, entry, error in results:
+            if error is not None:
+                report.errors.append(error)
+            else:
+                report.images.append(entry)
+                written.append(asset)
+    # Source discovery and IWD recovery stay ordered; only pixel conversion is
+    # concurrent. Preserve the asset/report order regardless of worker count.
+    order = {name: index for index, name in enumerate(sorted(wanted))}
+    written.sort(key=order.__getitem__)
+    report.images[first_image:] = sorted(report.images[first_image:], key=lambda entry: order[entry['name']])
     return written
 
 
