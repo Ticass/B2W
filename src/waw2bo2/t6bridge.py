@@ -2346,6 +2346,21 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     return models
 
 
+BSP_ERROR_RE = re.compile(r'ERROR: Could not open BSP "[^"\n]*" for map "[^"\n]*"\r?\n?')
+
+
+def parse_script_linker_log(log: str) -> tuple[list[str], list[str]]:
+    """(compiled script names, unexpected errors) of a scripts-only link.
+
+    A scripts-only zone has no BSP; that one error is expected. The linker
+    writes it to stderr, which can land inside a buffered stdout line (seen
+    under Wine: 'Compiled GSC scripERROR: ...' then 't "..._waw2bo2_zm.csc"'),
+    so it is removed before the compiled names are read."""
+    clean = BSP_ERROR_RE.sub("", log)
+    compiled = sorted(set(re.findall(r'Compiled GSC script "([^"]+)"', clean)))
+    return compiled, [l for l in clean.splitlines() if "ERROR" in l]
+
+
 def compiled_scripts_root(stage: Path, project: str) -> Path:
     return stage / "script_build" / "compiled"
 
@@ -2376,9 +2391,7 @@ def compile_scripts(stage: Path, project: str, bo2_root: Path, oat_unlinker: Pat
                           errors="replace")
     log = proc.stdout
     (work / "linker.log").write_text(log, encoding="utf-8")
-    compiled = sorted(set(re.findall(r'Compiled GSC script "([^"]+)"', log)))
-    # a scripts-only zone has no BSP; that one error is expected
-    errors = [l for l in log.splitlines() if "ERROR" in l and "Could not open BSP" not in l]
+    compiled, errors = parse_script_linker_log(log)
     missing = sorted(set(scripts) - set(compiled))
     ff = work / "out" / f"{zone}.ff"
     if errors or missing or not ff.exists():
