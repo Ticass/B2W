@@ -53,7 +53,10 @@ def signature(assembly, kind):
 
 def buffers(assembly):
     """Read D3D compiler reflection, including unused global uniform fields."""
-    resources = {name: int(slot) for name, slot in re.findall(r'^//\s+(\w+)\s+cbuffer\s+NA\s+NA\s+cb(\d+)\s+\d+', assembly, re.M)}
+    # Windows 10 SDK compilers print the binding as "cb3" (HLSL Bind column);
+    # the Windows 8.1 d3dcompiler_47 that winetricks installs under Wine prints
+    # a bare slot number (Slot column). Both name the same register.
+    resources = {name: int(slot) for name, slot in re.findall(r'^//\s+(\w+)\s+cbuffer\s+NA\s+NA\s+(?:cb)?(\d+)\s+\d+', assembly, re.M)}
     result = {}
     for name, body in re.findall(r'// cbuffer (\w+)\s*\n// \{(.*?)// \}', assembly, re.S):
         if name not in resources:
@@ -191,7 +194,7 @@ PACKED_VECTOR_INPUTS = ('NORMAL0', 'TEXCOORD2')
 def resource_names(assembly):
     """T6 reflection: texture slot -> (name, dimension)."""
     return {int(slot): (name, dim) for name, dim, slot in
-            re.findall(r'^//\s+(\w+)\s+texture\s+\w+\s+(\w+)\s+t(\d+)\s+\d+', assembly, re.M)}
+            re.findall(r'^//\s+(\w+)\s+texture\s+\w+\s+(\w+)\s+t?(\d+)\s+\d+', assembly, re.M)}  # see buffers()
 
 
 # T6 composites the scene as sqrt(4 * buffer^2 + bloom) before its shoulder and
