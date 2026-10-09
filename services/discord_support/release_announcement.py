@@ -1,4 +1,4 @@
-"""Build and post the daily WawConverter release digest to a Discord webhook."""
+"""Post daily release digests and completed testing builds to Discord."""
 
 from __future__ import annotations
 
@@ -141,6 +141,54 @@ def make_message(
     }
 
 
+def testing_message(repo: str, run_id: int, token: str) -> dict[str, Any]:
+    run = request_json(f"{API}/repos/{repo}/actions/runs/{run_id}", token)
+    if (not run or run.get("conclusion") != "success" or run.get("event") != "push"
+            or run.get("head_repository", {}).get("full_name") != repo
+            or run.get("path") != ".github/workflows/ci.yml"):
+        raise RuntimeError("Testing announcement requires a successful repository push build of ci.yml")
+
+    artifacts = {}
+    page = 1
+    while True:
+        result = request_json(
+            f"{API}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100&page={page}", token
+        ) or {}
+        batch = result.get("artifacts", [])
+        for artifact in batch:
+            if not artifact.get("expired"):
+                artifacts[artifact["name"]] = artifact
+        if len(batch) < 100:
+            break
+        page += 1
+    if not {"windows-package", "linux-package"}.issubset(artifacts):
+        raise RuntimeError("Testing build is missing unexpired Windows or Linux artifacts")
+
+    build_url = f"https://github.com/{repo}/actions/runs/{run_id}"
+    downloads = []
+    for label, name in (("Windows", "windows-package"), ("Linux", "linux-package")):
+        artifact_id = int(artifacts[name]["id"])
+        downloads.append(f"[{label} download]({build_url}/artifacts/{artifact_id})")
+    branch = str(run.get("head_branch", "testing")).replace("`", "").replace("@", "＠")[:200]
+    sha = str(run.get("head_sha", ""))[:7]
+    return {
+        "username": "WawConverter Releases",
+        "allowed_mentions": {"parse": []},
+        "embeds": [{
+            "title": f"New testing build #{run.get('run_number', run_id)}",
+            "url": build_url,
+            "description": f"Windows and Linux builds passed.\nBranch `{branch}` · commit `{sha}`",
+            "color": 0x5899DA,
+            "fields": [{"name": "Downloads", "value": " · ".join(downloads)},
+                       {"name": "Testing build", "value": "Requires a GitHub login to download. "
+                        "Artifacts are retained for 14 days. This is a testing build; "
+                        "stable and nightly releases are listed separately."}],
+            "footer": {"text": "WawConverter · testing build announcement"},
+            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }],
+    }
+
+
 def webhook_metadata(webhook_url: str) -> dict[str, Any]:
     parsed = urllib.parse.urlsplit(webhook_url)
     parts = parsed.path.strip("/").split("/")
@@ -197,6 +245,16 @@ def main() -> int:
 
     token = os.environ.get("GITHUB_TOKEN", "")
     repo = os.environ["GITHUB_REPOSITORY"]
+    testing_run_id = os.environ.get("TESTING_RUN_ID", "").strip()
+    if testing_run_id:
+        payload = testing_message(repo, int(testing_run_id), token)
+        post_message(webhook, payload)
+        print(f"Testing build {int(testing_run_id)} announcement posted to Discord.")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as stream:
+                stream.write(f"Testing build `{int(testing_run_id)}` announced on Discord.\n")
+        return 0
+
     latest_stable = request_json(f"{API}/repos/{repo}/releases/latest", token)
     releases = request_json(f"{API}/repos/{repo}/releases?per_page=100", token) or []
     nightlies = [
