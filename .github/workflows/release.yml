@@ -2,8 +2,10 @@ name: Nightly and version releases
 
 on:
   schedule:
-    # 02:17 Toronto during daylight saving time; 01:17 during standard time.
-    - cron: '17 6 * * *'
+    # Midnight in Toronto: 04:00 UTC during daylight saving time, 05:00 UTC
+    # during standard time. The clock job skips whichever is not midnight.
+    - cron: '0 4 * * *'
+    - cron: '0 5 * * *'
   workflow_dispatch:
   push:
     tags:
@@ -17,60 +19,98 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  clock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.midnight.outputs.run }}
+    steps:
+      - name: Keep the schedule that is midnight in Toronto
+        id: midnight
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let run = true;
+            if (context.eventName === 'schedule') {
+              const offset = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Toronto', timeZoneName: 'shortOffset'
+              }).formatToParts(new Date()).find(part => part.type === 'timeZoneName').value;
+              const expected = offset === 'GMT-4' ? '0 4 * * *' : '0 5 * * *';
+              run = context.payload.schedule === expected;
+              core.info(`Toronto is ${offset}; ${context.payload.schedule} ${run ? 'runs' : 'is skipped'}.`);
+            }
+            core.setOutput('run', String(run));
+
   snapshot:
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    needs: clock
+    if: >-
+      needs.clock.outputs.run == 'true' &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
       actions: read
     outputs:
-      sha: ${{ steps.commit.outputs.sha }}
+      sha: ${{ steps.snapshot.outputs.sha }}
       tag: ${{ steps.snapshot.outputs.tag }}
+      name: ${{ steps.snapshot.outputs.name }}
       branch: ${{ steps.snapshot.outputs.branch }}
+      source: ${{ steps.snapshot.outputs.source }}
       nightly: ${{ steps.snapshot.outputs.nightly }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - id: commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Freeze the nightly release branch
         id: snapshot
         uses: actions/github-script@v7
-        env:
-          SOURCE_SHA: ${{ steps.commit.outputs.sha }}
         with:
           script: |
             const nightly = context.eventName !== 'push';
             core.setOutput('nightly', String(nightly));
             if (!nightly) {
+              core.setOutput('sha', context.sha);
               core.setOutput('tag', context.ref.replace('refs/tags/', ''));
+              core.setOutput('name', context.ref.replace('refs/tags/', ''));
               core.setOutput('branch', '');
+              core.setOutput('source', '');
               return;
             }
-            // A rerun uses the same name, date and original event commit.
+            // At midnight the nightly builds the day's release branch (the
+            // newest release/YYYY-MM-DD), or main when there is none.
+            const { data: refs } = await github.rest.git.listMatchingRefs({
+              ...context.repo, ref: 'heads/release/'
+            });
+            const dated = refs.map(ref => ref.ref.replace('refs/heads/', ''))
+              .filter(name => /^release\/\d{4}-\d{2}-\d{2}$/.test(name)).sort();
+            const { data: info } = await github.rest.repos.get(context.repo);
+            const source = dated.length ? dated[dated.length - 1] : info.default_branch;
+            // The nightly is named for the release branch's day. A rerun uses
+            // the same name, date and frozen commit.
             const { data: run } = await github.rest.actions.getWorkflowRun({
               ...context.repo, run_id: context.runId
             });
-            const date = run.created_at.slice(0, 10);
+            const date = source.startsWith('release/') ? source.slice('release/'.length) : run.created_at.slice(0, 10);
             const branch = `release/nightly/${date}-${context.runId}`;
-            const sha = process.env.SOURCE_SHA;
+            let sha;
             try {
               const { data: existing } = await github.rest.git.getRef({
                 ...context.repo, ref: `heads/${branch}`
               });
-              if (existing.object.sha !== sha) {
-                throw new Error(`Snapshot branch ${branch} no longer points to ${sha}`);
-              }
+              sha = existing.object.sha;
             } catch (error) {
               if (error.status !== 404) throw error;
+              const { data: head } = await github.rest.git.getRef({
+                ...context.repo, ref: `heads/${source}`
+              });
+              sha = head.object.sha;
               await github.rest.git.createRef({
                 ...context.repo, ref: `refs/heads/${branch}`, sha
               });
             }
+            core.setOutput('sha', sha);
+            core.setOutput('source', source);
             core.setOutput('branch', branch);
             core.setOutput('tag', `nightly-${date}-${context.runId}`);
+            core.setOutput('name', `Nightly ${date}`);
 
   packages:
     needs: snapshot
@@ -88,8 +128,10 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ needs.snapshot.outputs.tag }}
+      RELEASE_NAME: ${{ needs.snapshot.outputs.name }}
       SOURCE_SHA: ${{ needs.snapshot.outputs.sha }}
       RELEASE_BRANCH: ${{ needs.snapshot.outputs.branch }}
+      SOURCE_BRANCH: ${{ needs.snapshot.outputs.source }}
       NIGHTLY: ${{ needs.snapshot.outputs.nightly }}
     steps:
       - uses: actions/download-artifact@v4
@@ -108,8 +150,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY" == true ]]; then
-            title="Nightly ${RELEASE_TAG#nightly-}"
-            printf 'Development preview built from `%s` at commit `%s`.\n\nCommits after this snapshot are included in the next nightly.\n' "$RELEASE_BRANCH" "$SOURCE_SHA" > notes.md
+            title="$RELEASE_NAME"
+            printf 'Development preview built from `%s` (snapshot `%s`) at commit `%s`.\n\nCommits after this snapshot are included in the next nightly.\n' "$SOURCE_BRANCH" "$RELEASE_BRANCH" "$SOURCE_SHA" > notes.md
             flags=(--prerelease --latest=false)
           else
             title="$RELEASE_TAG"
@@ -125,3 +167,119 @@ jobs:
           gh release edit "$RELEASE_TAG" --draft=false "${flags[@]}"
           url=$(gh release view "$RELEASE_TAG" --json url --jq .url)
           printf 'Published [%s](%s) from `%s`.\n' "$RELEASE_TAG" "$url" "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  announce:
+    needs: [snapshot, publish]
+    if: needs.snapshot.outputs.nightly == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Announce the published nightly on Discord
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NIGHTLY_TAG: ${{ needs.snapshot.outputs.tag }}
+          NIGHTLY_SOURCE_BRANCH: ${{ needs.snapshot.outputs.source }}
+          DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+          DISCORD_RELEASE_CHANNEL_ID: ${{ vars.DISCORD_RELEASE_CHANNEL_ID || '1557862642503254136' }}
+          DISCORD_RELEASE_GUILD_ID: ${{ vars.DISCORD_RELEASE_GUILD_ID || '1557610224641245245' }}
+        run: python -m services.discord_support.release_announcement
+
+  rollover:
+    needs: [snapshot, publish]
+    if: needs.snapshot.outputs.nightly == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Merge the nightly into main and open the next release branch
+        uses: actions/github-script@v7
+        env:
+          SOURCE_SHA: ${{ needs.snapshot.outputs.sha }}
+          SOURCE_BRANCH: ${{ needs.snapshot.outputs.source }}
+          RELEASE_TAG: ${{ needs.snapshot.outputs.tag }}
+        with:
+          # GITHUB_TOKEN cannot write commits that change .github/workflows;
+          # RELEASE_BRANCH_TOKEN (contents + workflows) lets those merge too.
+          github-token: ${{ secrets.RELEASE_BRANCH_TOKEN || github.token }}
+          script: |
+            const repo = context.repo;
+            const main = (await github.rest.repos.get(repo)).data.default_branch;
+            const { SOURCE_SHA: sha, SOURCE_BRANCH: source, RELEASE_TAG: tag } = process.env;
+            const summary = [];
+            const head = async name => {
+              try {
+                return (await github.rest.git.getRef({ ...repo, ref: `heads/${name}` })).data.object.sha;
+              } catch (error) {
+                if (error.status === 404) return null;
+                throw error;
+              }
+            };
+            const merge = async (base, from, message) => {
+              try {
+                const result = await github.rest.repos.merge({ ...repo, base, head: from, commit_message: message });
+                return result.status === 204 ? 'up to date' : 'merged';
+              } catch (error) {
+                if (error.status === 409) {
+                  throw new Error(`Merge conflict merging ${from} into ${base}; resolve it by hand. ` +
+                                  `${source} is kept and no new release branch was created.`);
+                }
+                if (error.status === 403 || error.status === 422) {
+                  throw new Error(`Could not merge ${from} into ${base} (${error.message}). If the release ` +
+                                  'changes .github/workflows, add a RELEASE_BRANCH_TOKEN secret with contents ' +
+                                  'and workflows write access.');
+                }
+                throw error;
+              }
+            };
+
+            // 1. The release branch the nightly was built from is deleted.
+            // Commits pushed to it after the snapshot were not in the nightly;
+            // they are kept by commit and carried to the next branch (step 4).
+            const oldSha = source !== main ? await head(source) : null;
+            if (oldSha !== null) {
+              await github.rest.git.deleteRef({ ...repo, ref: `heads/${source}` });
+              summary.push(`Deleted \`${source}\``);
+            }
+            // 2. The nightly is merged into main. On a conflict the release
+            // branch is restored so nothing is lost.
+            if (source !== main) {
+              try {
+                summary.push(`${tag} → \`${main}\`: ${await merge(main, sha, `Merge ${tag} (${source}) into ${main}`)}`);
+              } catch (error) {
+                if (oldSha !== null && await head(source) === null) {
+                  await github.rest.git.createRef({ ...repo, ref: `refs/heads/${source}`, sha: oldSha });
+                }
+                throw error;
+              }
+            }
+            // 3. The next day's release branch starts from main. The run's
+            // Toronto date names it: the nightly runs at midnight, the start
+            // of the day the branch is used.
+            const { data: run } = await github.rest.actions.getWorkflowRun({ ...repo, run_id: context.runId });
+            const day = new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit'
+            }).format(new Date(run.created_at));
+            const next = `release/${day}`;
+            const mainSha = await head(main);
+            if (await head(next) === null) {
+              await github.rest.git.createRef({ ...repo, ref: `refs/heads/${next}`, sha: mainSha });
+              summary.push(`Created \`${next}\` from \`${main}\` at \`${mainSha.slice(0, 7)}\``);
+            } else {
+              summary.push(`\`${main}\` → \`${next}\`: ${await merge(next, main, `Merge ${main} into ${next}`)}`);
+            }
+            // 4. Late commits from the deleted branch go to the new branch.
+            if (oldSha !== null && oldSha !== sha) {
+              summary.push(`Commits made on \`${source}\` after the nightly → \`${next}\`: ` +
+                           await merge(next, oldSha, `Carry ${source} commits made after ${tag} into ${next}`));
+            }
+            await core.summary.addHeading('Release branch rollover', 3).addList(summary).write();
