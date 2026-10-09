@@ -11,7 +11,8 @@ import unittest
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from core import State, attachment_text, chunks, format_report, message_marker, redact
+from core import (DRAFT_MARKER, State, attachment_text, chunks, decode_messages, diagnostics_facts,
+    encode_messages, format_issue, redact, reply_text, report_title, with_messages)
 from bot import GitHub, SupportBot, discord_login_retry_delay
 
 
@@ -47,15 +48,86 @@ class IntakeTests(unittest.TestCase):
         self.assertNotIn('alice', text)
         self.assertNotIn('/home/bob', text)
 
-    def test_issue_metadata_survives_diagnostic_truncation(self):
-        payload = {'message_id': 42, 'author': 'reporter', 'author_id': 8,
-                   'url': 'https://discord.com/channels/1/2/42', 'content': 'x' * 100000,
-                   'attachments': [{'url': 'https://cdn.discordapp.com/attachments/1/2/image.png'}]}
-        body = format_report(payload)
-        self.assertLess(len(body), 65536)
-        self.assertIn(message_marker(42), body)
-        self.assertTrue(body.endswith(' -->'))
+    def test_chunks_fit_discord_messages(self):
         self.assertTrue(all(len(part) <= 1900 for part in chunks('x' * 4100)))
+
+
+def diagnostics_zip(**settings):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('summary.json', json.dumps({
+            'version': '0.2.14', 'platform': 'Linux-7.2.8-x86_64', 'error': '',
+            'settings': {'project': 'zm_bankjob', 'menu_title': 'Bank Job', 'bo2_stock_perks': True,
+                         'source_fx': True, 'work': '/home/humpy/builds', **settings}}))
+        archive.writestr('console.log', '\n'.join([
+            'warning: APPROXIMATED_SOUND_CURVE rcurve2 (max error 0.0628)',
+            "waw2bo2: error: StageError: script compilation failed: [] "
+            "missing=['clientscripts/mp/waw/_waw2bo2_zm.csc']; see /home/humpy/stage/linker.log",
+            'waw2bo2: error: RuntimeError: WawConverter.CLI.exe failed (1)']))
+    return buffer.getvalue()
+
+
+def payload(message_id, content, **changes):
+    return {'message_id': message_id, 'content': content, 'author': 'reporter', 'author_id': 8,
+            'url': f'https://discord.com/channels/1/2/{message_id}', 'attachments': [], 'facts': {}, **changes}
+
+
+class BugReportTests(unittest.TestCase):
+    def test_diagnostics_zip_gives_map_environment_and_error_lines(self):
+        facts = diagnostics_facts(diagnostics_zip())
+        self.assertEqual(facts['project'], 'zm_bankjob')
+        self.assertEqual(facts['map'], 'Bank Job')
+        self.assertEqual(facts['version'], '0.2.14')
+        self.assertEqual(facts['options'], ['BO2 stock perks', 'WaW source FX'])
+        self.assertEqual(len(facts['errors']), 2)
+        self.assertIn('_waw2bo2_zm.csc', facts['errors'][0])
+        self.assertNotIn('humpy', json.dumps(facts))
+        self.assertNotIn('APPROXIMATED_SOUND_CURVE', json.dumps(facts))
+        self.assertEqual(diagnostics_facts(b'not a zip'), {})
+
+    def test_issue_is_a_bug_report_not_a_chat_transcript(self):
+        attachments = [{'name': 'shot.png', 'url': 'https://cdn.discordapp.com/attachments/1/2/shot.png',
+                        'content_type': 'image/png', 'size': 1000},
+                       {'name': 'failure.zip', 'url': 'https://cdn.discordapp.com/attachments/1/2/failure.zip',
+                        'content_type': 'application/zip', 'size': 3 * 1048576}]
+        messages = [payload(42, 'Build fails at the script step', attachments=attachments,
+                            facts=diagnostics_facts(diagnostics_zip()))]
+        self.assertEqual(report_title('Error', messages), 'Error when building Bank Job (zm_bankjob)')
+        body = format_issue('Error', messages)
+        self.assertTrue(body.startswith(DRAFT_MARKER))
+        for heading in ('### Error', '### Environment', '### Description', '### Attachments'):
+            self.assertIn(heading, body)
+        self.assertIn("missing=['clientscripts/mp/waw/_waw2bo2_zm.csc']", body)
+        self.assertIn('- Map: Bank Job (`zm_bankjob`)', body)
+        self.assertIn('> Build fails at the script step', body)
+        self.assertIn('- ![shot.png](https://cdn.discordapp.com/attachments/1/2/shot.png)', body)
+        self.assertIn('- [failure.zip](https://cdn.discordapp.com/attachments/1/2/failure.zip) (3.0 MiB)', body)
+        self.assertNotIn('Discord report from', body)
+        self.assertNotIn('reporter', body)
+        self.assertNotIn('(8)', body)
+
+    def test_report_without_diagnostics_is_titled_from_the_thread(self):
+        messages = [payload(1, 'it crashes')]
+        self.assertEqual(report_title('Crash on load', messages), 'Error report: Crash on load')
+        self.assertIn('Save Diagnostics', format_issue('Crash on load', messages))
+
+    def test_hidden_report_data_round_trips_and_stays_bounded(self):
+        messages = [payload(i, 'x' * 10000 + '-->') for i in range(1, 40)]
+        block = encode_messages(messages)
+        self.assertLess(len(block), 41000)
+        self.assertEqual(block.count('-->'), 1)
+        decoded = decode_messages('report\n\n' + block)
+        self.assertEqual(decoded[0]['message_id'], 1)
+        self.assertEqual(decoded[-1]['message_id'], 39)
+        self.assertLessEqual(len(decoded[0]['content']), 4000)
+        body = with_messages('visible\n\n' + block, [payload(5, 'new')])
+        self.assertTrue(body.startswith('visible'))
+        self.assertEqual([m['message_id'] for m in decode_messages(body)], [5])
+        self.assertEqual(decode_messages('no data'), [])
+
+    def test_reply_text_drops_hidden_markers(self):
+        self.assertEqual(reply_text('<!-- discord-agent-reply -->\nFound it.\n<!-- discord-agent-seen:5 -->'),
+                         'Found it.')
 
 
 class DurableStateTests(unittest.TestCase):
@@ -130,16 +202,63 @@ class GitHubRecoveryTests(unittest.IsolatedAsyncioTestCase):
         async def pages(path):
             yield {'number': 17, 'body': '<!-- discord-thread:99 -->\nreport'}
         github.pages = pages
-        issue = await github.issue_for(99, 'Error', 'report')
+        issue = await github.issue_for(99, 'Error', payload(99, 'report'))
         self.assertEqual(issue['number'], 17)
+
+    async def test_new_issue_holds_the_draft_report_and_hidden_messages(self):
+        github = GitHub(None, 'owner/repo')
+        async def pages(path):
+            return
+            yield
+        created = {}
+        async def request(method, path, **kwargs):
+            created.update(kwargs['json'])
+            return {'number': 3}
+        github.pages, github.request = pages, request
+        await github.issue_for(99, 'Error', payload(99, 'Build fails', facts=diagnostics_facts(diagnostics_zip())))
+        self.assertEqual(created['title'], 'Error when building Bank Job (zm_bankjob)')
+        self.assertTrue(created['body'].startswith('<!-- discord-thread:99 -->\n' + DRAFT_MARKER))
+        self.assertEqual([m['message_id'] for m in decode_messages(created['body'])], [99])
+
+    async def test_follow_up_edits_the_issue_instead_of_commenting(self):
+        github = GitHub(None, 'owner/repo')
+        first = [payload(99, 'Build fails')]
+        body = '<!-- discord-thread:99 -->\n' + format_issue('Error', first) + '\n\n' + encode_messages(first)
+        calls = []
+        async def request(method, path, **kwargs):
+            calls.append((method, path, kwargs.get('json')))
+            return {'body': body}
+        github.request = request
+        await github.forward(17, payload(100, 'here are the logs', facts=diagnostics_facts(diagnostics_zip())), 'Error')
+        method, path, update = calls[-1]
+        self.assertEqual((method, path), ('PATCH', '/issues/17'))
+        self.assertEqual([m['message_id'] for m in decode_messages(update['body'])], [99, 100])
+        # Still a draft: the diagnostics from the reply update the title and error.
+        self.assertEqual(update['title'], 'Error when building Bank Job (zm_bankjob)')
+        self.assertIn('_waw2bo2_zm.csc', update['body'])
+        self.assertTrue(update['body'].startswith('<!-- discord-thread:99 -->'))
+        self.assertNotIn('POST', [c[0] for c in calls])
+
+    async def test_follow_up_keeps_the_investigated_report(self):
+        github = GitHub(None, 'owner/repo')
+        body = '<!-- discord-thread:99 -->\n### Summary\nAnalysed.\n\n' + encode_messages([payload(99, 'a')])
+        calls = []
+        async def request(method, path, **kwargs):
+            calls.append(kwargs.get('json'))
+            return {'body': body}
+        github.request = request
+        await github.forward(17, payload(100, 'b'), 'Error')
+        self.assertNotIn('title', calls[-1])
+        self.assertIn('### Summary\nAnalysed.', calls[-1]['body'])
 
     async def test_retries_do_not_duplicate_a_forwarded_message(self):
         github = GitHub(None, 'owner/repo')
-        async def request(method, path, **kwargs):
-            self.assertEqual(method, 'GET')
-            return {'body': '<!-- discord-message:123 -->\nexisting report'}
-        github.request = request
-        await github.forward(17, {'message_id': 123})
+        for body in ('<!-- discord-message:123 -->\nlegacy report', encode_messages([payload(123, 'x')])):
+            async def request(method, path, **kwargs):
+                self.assertEqual(method, 'GET')
+                return {'body': body}
+            github.request = request
+            await github.forward(17, payload(123, 'x'), 'Error')
 
 
 if __name__ == '__main__':
