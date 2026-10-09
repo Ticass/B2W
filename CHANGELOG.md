@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Read the script linker log correctly when its expected "Could not open BSP" error is printed in the middle of a "Compiled GSC script" line (Linux/Wine). The build no longer reports `clientscripts/mp/waw/_waw2bo2_zm.csc` as missing when it compiled.
+- Start indented `#include` directives at the beginning of their line, as the BO2 compiler requires. Project X's IWD `_zombiemode_perks.gsc` no longer fails with "expected identifier, got '*INTERNAL*'". Scripts read from IWDs now use the same newlines as zone rawfiles, so compiler line numbers match the source.
 
 ## v0.2.14
 

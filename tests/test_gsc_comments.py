@@ -1,4 +1,7 @@
+from pathlib import Path
+import tempfile
 import unittest
+import zipfile
 
 from waw2bo2 import gsc, gscport
 
@@ -58,3 +61,26 @@ class ParenthesisedCallerTests(unittest.TestCase):
         script = gsc.parse(source, 'maps/elevator')
         self.assertEqual(gscport.fix_syntax(script.tokens), 0)
         self.assertEqual(gsc.emit(script.tokens), source)
+
+
+class IndentedDirectiveTests(unittest.TestCase):
+    def test_indented_includes_start_their_line_like_t6_requires(self):
+        # Project X's IWD _zombiemode_perks.gsc: every line indented, includes too.
+        source = ('    #include maps\\_utility;\n\t#include common_scripts\\utility;\n'
+                  '     \n    init()\n    {\n    x = 1;\n    }\n')
+        script = gsc.parse(source, 'maps/_zombiemode_perks')
+        self.assertEqual(script.includes, ['maps\\_utility', 'common_scripts\\utility'])
+        self.assertEqual(gscport.fix_syntax(script.tokens), 2)
+        text = gsc.emit(script.tokens)
+        self.assertTrue(text.startswith('#include maps\\_utility;\n#include common_scripts\\utility;\n'))
+        self.assertIn('    init()', text)      # only directives move
+        self.assertEqual(gscport.fix_syntax(script.tokens), 0)
+
+    def test_iwd_scripts_use_universal_newlines_like_zone_rawfiles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            iwd = Path(temp) / 'map.iwd'
+            with zipfile.ZipFile(iwd, 'w') as z:
+                z.writestr('maps/_zombiemode_perks.gsc', '#include maps\\_utility;\r\ninit()\r\n{\r}\r\n')
+            sources = gscport.Sources([], [iwd], None)
+            self.assertEqual(sources.text['maps\\_zombiemode_perks.gsc'],
+                             '#include maps\\_utility;\ninit()\n{\n}\n')
