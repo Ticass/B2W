@@ -93,6 +93,10 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
     wawraw = all2raw.ready(waw, t4, caches.waw, engine='T4')
     stock = all2raw.ready(bo2, t6, caches.bo2, engine='T6')
     stage, mod = paths.stage, paths.mod
+    # Stage in the worker as well: standalone CLI and Wine builds do not
+    # necessarily share the launcher's filesystem or its pre-staged metadata.
+    from .menuart import stage_art
+    stage_art(settings, stage / 'zone_raw' / settings.project)
     for folder in (stage, mod):
         folder.mkdir(parents=True, exist_ok=True)
     shutil.copy2(stock / 't6api_cache.json', stage / 't6api_cache.json')

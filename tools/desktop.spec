@@ -6,6 +6,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 root = Path(SPECPATH).parent
 sys.path.insert(0, str(root / 'src'))
 datas = collect_data_files('waw2bo2')
+datas += collect_data_files('imageio_ffmpeg')
 datas += [(str(root / 'tools/run_bridge.ps1'), 'tools'),
           (str(root / 'tools/audit_material_args.py'), 'tools'),
           (str(root / 'tools/bin/xaudio_wma_decoder.exe'), 'tools/bin'),

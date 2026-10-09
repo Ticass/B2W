@@ -49,7 +49,8 @@ class Launcher(ttk.Frame):
         self.action_widgets: list = []
         self.vars = {key: tk.StringVar(value=getattr(self.settings, key)) for key in
                      ('waw', 'bo2', 'waw_tools', 't4', 't6', 'decoder', 'work', 'fastfile', 'project',
-                      'menu_title', 'menu_description', 'menu_blit', 'menu_large', 'menu_blur')}
+                      'menu_title', 'menu_description', 'menu_blit', 'menu_large', 'menu_blur',
+                      'menu_longitude', 'menu_latitude', 'loading_song')}
         self.art_cache = {}
         self.source_fx = tk.BooleanVar(value=self.settings.source_fx)
         self.bo2_stock_perks = tk.BooleanVar(value=self.settings.bo2_stock_perks)
@@ -269,6 +270,27 @@ class Launcher(ttk.Frame):
             self.action_widgets.append(entry)
         ttk.Label(details, text='Shown in map selection, the lobby, and the mod list.\nBlank fields use the BO2 map name.',
                   style='Muted.TLabel', wraplength=330).pack(anchor='w')
+        position = ttk.Frame(details)
+        position.pack(fill='x', pady=(8, 4))
+        for key, label in [('menu_longitude', 'Longitude (−180 to 180)'), ('menu_latitude', 'Latitude (−90 to 90)')]:
+            column = ttk.Frame(position)
+            column.pack(side='left', fill='x', expand=True, padx=(0, 6))
+            ttk.Label(column, text=label).pack(anchor='w')
+            entry = ttk.Entry(column, textvariable=self.vars[key], width=16)
+            entry.pack(fill='x')
+            self.action_widgets.append(entry)
+        ttk.Label(details, text='Load the mod, then use Custom Games → Change Map to select it on the globe.',
+                  style='Muted.TLabel', wraplength=330).pack(anchor='w', pady=(2, 6))
+        ttk.Label(details, text='Loading song — your audio file').pack(anchor='w')
+        entry = ttk.Entry(details, textvariable=self.vars['loading_song'])
+        entry.pack(fill='x', pady=3)
+        self.action_widgets.append(entry)
+        buttons = ttk.Frame(details)
+        buttons.pack(fill='x')
+        self._button(buttons, 'Upload song…', self._choose_song).pack(side='left')
+        self._button(buttons, 'Clear song', lambda: self.vars['loading_song'].set('')).pack(side='left', padx=5)
+        ttk.Label(details, text='MP3, WAV, FLAC, OGG or M4A. Packaged with the map and played while loading solo or co-op.',
+                  style='Muted.TLabel', wraplength=330).pack(anchor='w', pady=(4, 0))
         uploads = self._group(tab, 'Upload map images')
         uploads.grid(row=1, column=0, sticky='nsew', padx=(0, 10), pady=(8, 0))
         self.upload_labels = {}
@@ -297,6 +319,13 @@ class Launcher(ttk.Frame):
         self.art_status.pack(anchor='w')
         ttk.Label(preview, text='Approximate stock layout. Verify final framing in game.',
                   style='Muted.TLabel', wraplength=410, font=('Segoe UI', 9)).pack(anchor='w', pady=(4, 0))
+
+    def _choose_song(self):
+        path = filedialog.askopenfilename(parent=self.root, title='Upload loading song',
+            filetypes=[('Audio files', '*.mp3 *.wav *.flac *.ogg *.m4a'), ('All files', '*.*')])
+        if path:
+            self.vars['loading_song'].set(path)
+            self._save()
 
     def _clear_art(self):
         for role in SIZES:

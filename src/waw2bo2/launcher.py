@@ -49,6 +49,9 @@ class Settings:
     menu_blit: str = ''
     menu_large: str = ''
     menu_blur: str = ''
+    menu_longitude: str = '0'
+    menu_latitude: str = '0'
+    loading_song: str = ''
     source_fx: bool = False
     bo2_stock_perks: bool = False
     remaster: bool = False
@@ -191,6 +194,8 @@ def preflight(settings: Settings, *, include_map: bool = True, cache_paths=None)
         from .menuart import validate_art
         try:
             validate_art(settings)
+            from .mapmenu import validate_settings
+            validate_settings(settings)
             checks.append(Check('Map artwork', True, 'Ready'))
         except (OSError, ValueError) as error:
             checks.append(Check('Map artwork', False, str(error)))
@@ -373,8 +378,6 @@ def perform_build(settings: Settings, runner: ProcessRunner) -> int:
                 raise ValueError('This map is already building in another launcher.') from error
         receipt = paths.root / 'build.json'
         receipt.unlink(missing_ok=True)
-        from .menuart import stage_art
-        stage_art(settings, paths.stage / 'zone_raw' / settings.project)
         code = runner.run(build_command(settings), paths.root / 'build.log')
         if code or runner.cancelled.is_set():
             return code or -1
