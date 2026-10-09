@@ -116,7 +116,7 @@ def make_message(
         testing_value = f"[Successful Actions build #{testing.get('run_number', testing.get('id'))}]({testing['html_url']})"
         testing_value += f"\nBranch `{branch}` · commit `{sha}` · artifacts on the run page"
     else:
-        testing_value = f"[Bleeding-edge workflow]({run_url(repo)})\nNo successful testing build is available yet."
+        testing_value = f"[Preview builds]({run_url(repo)})\nNo successful testing build is available yet."
 
     notes_value = patch_notes or "No patch notes are available for this snapshot."
     if compare_url:

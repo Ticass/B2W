@@ -1,23 +1,22 @@
-name: Bleeding edge builds
+name: Preview builds
 
+# Every push to a fix branch gets a preview (testing) build and a Discord
+# testing announcement. main never does: it is only built by the midnight
+# nightly (release.yml), after tested fixes are merged into it.
 on:
   push:
-    branches:
-      - '**'
-      # Release branches only produce the midnight nightly (release.yml).
-      - '!release/**'
-  pull_request:
+    branches-ignore:
+      - main
+  # Draft fix PRs opened by the Discord investigation dispatch their branch here.
   workflow_dispatch:
 
 permissions:
   contents: read
 
 # Keep every pushed commit's build; do not cancel an older build on a new push.
-# A release/** branch never gets a bleeding edge build, whether pushed, opened as
-# a pull request, or run by hand; it is built only as the nightly.
 jobs:
   map-catalog:
-    if: ${{ !startsWith(github.head_ref, 'release/') && !startsWith(github.ref_name, 'release/') }}
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -31,7 +30,7 @@ jobs:
         run: python tools/build_map_compatibility_site.py --output _site
 
   packages:
-    if: ${{ !startsWith(github.head_ref, 'release/') && !startsWith(github.ref_name, 'release/') }}
+    if: github.ref != 'refs/heads/main'
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ github.sha }}
