@@ -24,6 +24,10 @@ def wine_environment() -> dict[str, str]:
     # The native frontend keeps a Unix LOCALAPPDATA path. The Windows worker
     # must receive Wine's own Windows value, not that frontend convenience.
     environment.pop('LOCALAPPDATA', None)
+    # Wine's default fixme chatter can swamp conversion progress, especially
+    # with parallel audio workers. Keep warnings/errors and explicit debug
+    # settings available for diagnosing actual native failures.
+    environment.setdefault('WINEDEBUG', '-fixme')
     return environment
 
 

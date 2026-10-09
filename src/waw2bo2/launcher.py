@@ -281,12 +281,13 @@ class ProcessRunner:
             return -1
         log.parent.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
+        if os.name != 'nt' and ('build-map' in command or 'all2raw' in command):
+            from .linuxruntime import wine_environment
+            env = wine_environment()
         env['PYTHONPATH'] = str(resource_root() / 'src')
         env['PYTHONUNBUFFERED'] = '1'
         env['PYTHONIOENCODING'] = 'utf-8'
         env['WAW2BO2_VERBOSE'] = '1' if self.verbose else '0'
-        if os.name != 'nt' and ('build-map' in command or 'all2raw' in command):
-            env.pop('LOCALAPPDATA', None)
         with log.open('w', encoding='utf-8') as output:
             self.process = subprocess.Popen(command, cwd=cwd or resource_root(), env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',

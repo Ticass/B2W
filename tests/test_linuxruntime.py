@@ -53,6 +53,14 @@ class LinuxRuntimeTests(unittest.TestCase):
         self.assertEqual(command, ['wine', '/prefix/boot.exe', 't6zm', 'Z:\\games\\BO2',
                                    '+set', 'fs_game', 'mods/zm_bankjob'])
 
+    def test_wine_defaults_disable_only_fixme_and_preserve_debug_overrides(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(linuxruntime.wine_environment()['WINEDEBUG'], '-fixme')
+            self.assertNotIn('WINEDEBUG', os.environ)
+        for value in ('+file', '', '-all'):
+            with self.subTest(value=value), patch.dict(os.environ, {'WINEDEBUG': value}):
+                self.assertEqual(linuxruntime.wine_environment()['WINEDEBUG'], value)
+
 
 if __name__ == '__main__':
     unittest.main()

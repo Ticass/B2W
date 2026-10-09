@@ -126,6 +126,22 @@ class LauncherTests(unittest.TestCase):
         runner.cancel()
         self.assertEqual(runner.run(['nonexistent-tool'], self.root / 'run.log'), -1)
 
+    @unittest.skipIf(os.name == 'nt', 'Linux Wine worker environment')
+    def test_conversion_children_inherit_wine_logging_defaults_and_overrides(self):
+        script = "import os; print(os.environ.get('WINEDEBUG')); print(os.environ.get('LOCALAPPDATA'))"
+        for action in ('build-map', 'all2raw'):
+            for override in (None, '+file'):
+                with self.subTest(action=action, override=override):
+                    events = []
+                    runner = ProcessRunner(lambda event, text: events.append(text))
+                    with patch.dict(os.environ, {'LOCALAPPDATA': '/unix/appdata'}):
+                        os.environ.pop('WINEDEBUG', None)
+                        if override is not None:
+                            os.environ['WINEDEBUG'] = override
+                        code = runner.run([sys.executable, '-c', script, action], self.root / 'wine.log')
+                    self.assertEqual(code, 0)
+                    self.assertEqual(events, [override or '-fixme', 'None'])
+
     def test_quiet_process_reports_activity_and_stops_monitor_when_done(self):
         events = []
         runner = ProcessRunner(lambda event, text: events.append(text), heartbeat_interval=0.05)
