@@ -4,6 +4,7 @@
 
 - Read the script linker log correctly when its expected "Could not open BSP" error is printed in the middle of a "Compiled GSC script" line (Linux/Wine). The build no longer reports `clientscripts/mp/waw/_waw2bo2_zm.csc` as missing when it compiled.
 - Start indented `#include` directives at the beginning of their line, as the BO2 compiler requires. Project X's IWD `_zombiemode_perks.gsc` no longer fails with "expected identifier, got '*INTERNAL*'". Scripts read from IWDs now use the same newlines as zone rawfiles, so compiler line numbers match the source.
+- Convert only the sound aliases a map can play: weapon and FX dependencies, aliases named by server/client scripts, script-read string tables and map entities, and names scripts build at runtime, plus their chains. Previously every alias in the map's fastfiles was converted (3,773 on Bank Job, of which 1,720 remain), so dead sounds filled the loaded-bank budget and pushed used sounds to streaming. Omitted aliases are listed in `content_source/sounds.unreferenced.json`.
 
 ## v0.2.14
 
