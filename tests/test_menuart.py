@@ -2,8 +2,10 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
+import wave
 from PIL import Image
 from waw2bo2.launcher import Settings
+from waw2bo2.mapmenu import validate_settings
 from waw2bo2.menuart import SIZES, read_art, stage_art, validate_art
 from waw2bo2.modzone import stage_menu_assets
 from waw2bo2.iwi import read_iwi_header
@@ -54,7 +56,7 @@ class MenuArtworkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'all three'):
             validate_art(self.settings)
 
-    def test_text_only_and_clear_remove_previous_generated_art(self):
+    def test_text_only_and_clear_keep_default_branding_without_art(self):
         self.artwork()
         project = self.root / 'project'
         stage_art(self.settings, project)
@@ -65,4 +67,39 @@ class MenuArtworkTests(unittest.TestCase):
         self.assertFalse((project / 'materials/menu_zm_example_map.json').exists())
         self.settings.menu_title = self.settings.menu_description = ''
         stage_art(self.settings, project)
-        self.assertFalse((project / 'menu.json').exists())
+        data = json.loads((project / 'menu.json').read_text())
+        self.assertEqual((data['title'], data['description']), ('zm_example', 'zm_example: World at War custom map'))
+        self.assertNotIn('icon', data)
+        self.assertEqual(stage_menu_assets(project, 'zm_example'), ['localize,menu_zm_example'])
+
+    def test_globe_coordinates_reach_menu_metadata_and_are_range_checked(self):
+        project = self.root / 'project'
+        self.settings.menu_longitude, self.settings.menu_latitude = '-73.5', '45.5'
+        stage_art(self.settings, project)
+        data = json.loads((project / 'menu.json').read_text())
+        self.assertEqual((data['longitude'], data['latitude']), (-73.5, 45.5))
+        self.settings.menu_latitude = '91'
+        with self.assertRaisesRegex(ValueError, 'Latitude'):
+            validate_settings(self.settings)
+        self.settings.menu_latitude = 'nan'
+        with self.assertRaisesRegex(ValueError, 'Latitude'):
+            validate_settings(self.settings)
+
+    def test_loading_song_stages_streamed_music_bank_and_clears_it(self):
+        source = self.root / 'song.wav'
+        with wave.open(str(source), 'wb') as stream:
+            stream.setnchannels(2)
+            stream.setsampwidth(2)
+            stream.setframerate(48000)
+            stream.writeframes(b'\x01\x00\x02\x00' * 480)
+        project = self.root / 'project'
+        self.settings.loading_song = str(source)
+        stage_art(self.settings, project)
+        bank = json.loads((project / 'menu.json').read_text())['loading_song']['bank']
+        self.assertIn('soundbank,' + bank, stage_menu_assets(project, 'zm_example'))
+        aliases = (project / 'soundbank' / (bank + '.aliases.csv')).read_text()
+        self.assertIn('mus_load_zm_example_patch', aliases)
+        self.settings.loading_song = ''
+        stage_art(self.settings, project)
+        self.assertNotIn('loading_song', json.loads((project / 'menu.json').read_text()))
+        self.assertFalse((project / 'soundbank' / (bank + '.aliases.csv')).exists())

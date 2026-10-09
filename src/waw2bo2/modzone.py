@@ -331,6 +331,10 @@ def menu_metadata(project_root: Path) -> dict:
         for field in ('icon', 'blit'):
             if not isinstance(data.get(field), str) or not data[field].strip():
                 raise ValueError(f'menu.json requires {field}')
+    from .mapmenu import coordinate
+    for field, limit in (('longitude', 180), ('latitude', 90)):
+        if field in data:
+            coordinate(data[field], field.title(), limit)
     return data
 
 
@@ -345,11 +349,27 @@ def stage_menu_assets(project_root: Path, project: str) -> list[str]:
     path = project_root / 'english/localizedstrings' / (asset + '.str')
     path.parent.mkdir(parents=True, exist_ok=True)
     values = {'TITLE': data['title'], 'CAPS': data['title'].upper(), 'DESC': data['description']}
+    # Native loading labels append _LOC to the map-table name. Classic's
+    # start-location menu and scoreboard construct their own mode/map keys.
+    entries = {prefix + '_' + key: value for key, value in values.items()}
+    entries.update({prefix + '_TITLE_LOC': data['title'],
+                    prefix + '_TITLE_LOC_CAPS': data['title'].upper(),
+                    'ZMUI_ZCLASSIC_' + project.upper() + '_CAPS': data['title'].upper(),
+                    'ZMUI_ZCLASSIC_' + prefix + '_TITLE_LOC_CAPS': data['title'].upper(),
+                    'ZMUI_ZCLASSIC_DESC_default': data['description']})
     path.write_text('VERSION "1"\nCONFIG ""\nFILENOTES "Authored map menu"\n\n' +
-                    ''.join(f'REFERENCE {prefix}_{key}\nLANG_ENGLISH {quote(value)}\n\n'
-                            for key, value in values.items()) + 'ENDMARKER\n', encoding='utf-8')
+                    ''.join(f'REFERENCE {key}\nLANG_ENGLISH {quote(value)}\n\n'
+                            for key, value in entries.items()) + 'ENDMARKER\n', encoding='utf-8')
+    assets = [f'localize,{asset}']
+    if data.get('loading_song'):
+        bank = data['loading_song']['bank']
+        from .weapons import output_name
+        output_name('loading sound bank', bank)
+        if not (project_root / 'soundbank' / (bank + '.aliases.csv')).is_file():
+            raise FileNotFoundError(f'loading song bank missing: {bank}')
+        assets.append(f'soundbank,{bank}')
     if not data.get('icon'):
-        return [f'localize,{asset}']
+        return assets
     names = list(dict.fromkeys([data['icon'], data['blit'],
         f'menu_{project}_map', f'menu_{project}_map_blur', f'menu_{project}_zclassic_default',
         f'loadscreen_{project}_zclassic_default', f'loadscreen_{project}_zclassic_', *data.get('materials', [])]))
@@ -365,7 +385,7 @@ def stage_menu_assets(project_root: Path, project: str) -> list[str]:
             streaming['streamingMode'][texture['image']] = 2
     streaming_file.write_text(json.dumps(streaming, indent=2) + '\n', encoding='utf-8')
     pack = data.get('image_pack', project + '_menu')
-    return [f'>level.ipak_read,{pack}', f'>ipak,{pack}', f'localize,{asset}'] + [f'material,{name}' for name in names]
+    return [f'>level.ipak_read,{pack}', f'>ipak,{pack}', *assets] + [f'material,{name}' for name in names]
 
 
 def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path:
@@ -420,6 +440,9 @@ def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path
         existing[5] = str(maps.index(existing))
     metadata = menu_metadata(project_root)
     if metadata:
+        for column, field in ((16, 'longitude'), (17, 'latitude')):
+            if field in metadata:
+                existing[column] = str(metadata[field])
         existing[3] = 'WAW_MENU_' + project.upper() + '_TITLE'
         existing[4] = metadata.get('icon', existing[4])
         existing[6] = 'WAW_MENU_' + project.upper() + '_DESC'

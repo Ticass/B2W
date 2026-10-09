@@ -57,6 +57,8 @@ def material(image: str) -> dict:
 
 def stage_art(settings, root: Path) -> None:
     validate_art(settings)
+    from .mapmenu import validate_settings, stage_song
+    coordinates = validate_settings(settings)
     metadata = root / 'menu.json'
     previous = json.loads(metadata.read_text(encoding='utf-8')) if metadata.is_file() else {}
     if previous.get('desktop_authored'):
@@ -65,14 +67,14 @@ def stage_art(settings, root: Path) -> None:
             relative = Path(name)
             if len(relative.parts) == 2 and relative.parts[0] in ('images', 'materials') and relative.suffix in ('.iwi', '.json'):
                 (root / relative).unlink(missing_ok=True)
-    if not any((settings.menu_title, settings.menu_description, settings.menu_blit)):
-        # Remove only metadata previously created by this launcher.
-        if previous.get('desktop_authored'):
-            metadata.unlink()
-        return
     root.mkdir(parents=True, exist_ok=True)
-    data = {'title': settings.menu_title or settings.project,
-            'description': settings.menu_description or f'{settings.project}: World at War custom map',
+    # Always emit branding, including text-only/default builds. The stock UI
+    # synthesizes location/mode keys even when no artwork was uploaded.
+    data = {**{k: v for k, v in previous.items() if k not in
+               ('icon', 'blit', 'desktop_files', 'loading_song')},
+            'title': settings.menu_title.strip() or settings.project,
+            'description': settings.menu_description.strip() or f'{settings.project}: World at War custom map',
+            'longitude': coordinates[0], 'latitude': coordinates[1],
             'desktop_authored': True}
     generated = []
     if settings.menu_blit:
@@ -97,4 +99,7 @@ def stage_art(settings, root: Path) -> None:
             generated.append(f'materials/{name}.json')
         data.update(icon=f'menu_{settings.project}_icon', blit=f'menu_{settings.project}_blit')
     data['desktop_files'] = generated
+    song = stage_song(settings, root)
+    if song:
+        data['loading_song'] = song
     metadata.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
