@@ -3,7 +3,7 @@ import io
 import json
 from unittest.mock import patch
 
-from services.discord_support.release_announcement import DISCORD_USER_AGENT, make_message, post_message, release_source_sha, testing_message, webhook_metadata
+from services.discord_support.release_announcement import DISCORD_USER_AGENT, make_message, nightly_message, post_message, release_source_sha, testing_message, webhook_metadata
 
 
 class ReleaseAnnouncementTests(unittest.TestCase):
@@ -103,6 +103,46 @@ class ReleaseAnnouncementTests(unittest.TestCase):
     def test_webhook_metadata_rejects_non_discord_urls(self):
         with self.assertRaises(ValueError):
             webhook_metadata("https://example.com/webhooks/123/token")
+
+    def nightly(self, tag, sha, published, **changes):
+        return {"tag_name": tag, "name": "Nightly " + tag.removeprefix("nightly-"), "prerelease": True,
+                "draft": False, "published_at": published,
+                "html_url": f"https://github.com/owner/repo/releases/tag/{tag}",
+                "body": f"Development preview built from `release/2026-10-09` (snapshot `x`) at commit `{sha}`.",
+                "assets": [{"name": "WawConverter-Windows.zip", "browser_download_url": "https://dl/win.zip"},
+                           {"name": "WawConverter-Linux-x86_64.tar.gz", "browser_download_url": "https://dl/linux.tgz"}],
+                **changes}
+
+    @patch("services.discord_support.release_announcement.request_json")
+    def test_nightly_announcement_is_not_a_testing_build(self, request):
+        current = self.nightly("nightly-2026-10-10-2", "b" * 40, "2026-10-10T07:00:00Z")
+        previous = self.nightly("nightly-2026-10-09-1", "a" * 40, "2026-10-09T07:00:00Z")
+        request.side_effect = [current, [previous, current], {
+            "html_url": "https://github.com/owner/repo/compare/a...b",
+            "commits": [{"sha": "c" * 40, "commit": {"message": "Fix the bootstrap\n\nbody"}}]}]
+        payload = nightly_message("owner/repo", "nightly-2026-10-10-2", "release/2026-10-09", "token")
+        embed = payload["embeds"][0]
+        self.assertEqual(embed["title"], "New Nightly 2026-10-10-2")
+        self.assertNotIn("testing", json.dumps(embed).lower())
+        self.assertIn("`release/2026-10-09`", embed["description"])
+        self.assertIn("`bbbbbbb`", embed["description"])
+        fields = {field["name"]: field["value"] for field in embed["fields"]}
+        self.assertIn("https://dl/win.zip", fields["Downloads"])
+        self.assertIn("https://dl/linux.tgz", fields["Downloads"])
+        self.assertIn("Fix the bootstrap", fields["Changes since the previous nightly"])
+        self.assertIn("compare/a...b", fields["Changes since the previous nightly"])
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        self.assertIn("/compare/" + "a" * 40 + "..." + "b" * 40, request.call_args_list[2].args[0])
+
+    @patch("services.discord_support.release_announcement.request_json")
+    def test_nightly_announcement_requires_published_release_with_both_packages(self, request):
+        cases = [None, self.nightly("nightly-1", "a" * 40, "x", draft=True),
+                 self.nightly("nightly-1", "a" * 40, "x", prerelease=False),
+                 self.nightly("nightly-1", "a" * 40, "x", assets=[])]
+        for release in cases:
+            request.side_effect = [release]
+            with self.assertRaises(RuntimeError):
+                nightly_message("owner/repo", "nightly-1", "main", "token")
 
 
 if __name__ == "__main__":

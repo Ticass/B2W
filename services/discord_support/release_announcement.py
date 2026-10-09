@@ -190,6 +190,58 @@ def testing_message(repo: str, run_id: int, token: str) -> dict[str, Any]:
     }
 
 
+def published_nightlies(repo: str, token: str) -> list[dict[str, Any]]:
+    """Published nightly prereleases, newest first."""
+    releases = request_json(f"{API}/repos/{repo}/releases?per_page=100", token) or []
+    nightlies = [
+        release for release in releases
+        if not release.get("draft") and release.get("prerelease") and release.get("tag_name", "").startswith("nightly-")
+    ]
+    nightlies.sort(key=lambda release: release.get("published_at") or "", reverse=True)
+    return nightlies
+
+
+def nightly_message(repo: str, tag: str, source_branch: str, token: str) -> dict[str, Any]:
+    """Announcement for one published nightly: its release downloads, the
+    release branch it was built from, and the commits since the previous nightly."""
+    release = request_json(f"{API}/repos/{repo}/releases/tags/{urllib.parse.quote(tag, safe='')}", token)
+    if not release or release.get("draft") or not release.get("prerelease") or not tag.startswith("nightly-"):
+        raise RuntimeError(f"Nightly announcement requires the published nightly prerelease {tag}")
+    assets = {asset.get("name"): asset for asset in release.get("assets", [])}
+    downloads = []
+    for label, name in (("Windows", "WawConverter-Windows.zip"), ("Linux", "WawConverter-Linux-x86_64.tar.gz")):
+        if name not in assets:
+            raise RuntimeError(f"Nightly {tag} is missing {name}")
+        downloads.append(f"[{label} download]({assets[name]['browser_download_url']})")
+
+    nightlies = published_nightlies(repo, token)
+    tags = [item.get("tag_name") for item in nightlies]
+    previous = nightlies[tags.index(tag) + 1] if tag in tags and tags.index(tag) + 1 < len(nightlies) else None
+    notes, compare_url = commit_patch_notes(repo, release, previous, token)
+    if compare_url and compare_url != release["html_url"]:
+        notes += f"\n[Full comparison]({compare_url})"
+
+    sha = (release_source_sha(release) or "")[:7]
+    branch = source_branch.replace("`", "").replace("@", "＠")[:200] or "main"
+    title = release.get("name") or tag
+    return {
+        "username": "WawConverter Releases",
+        "allowed_mentions": {"parse": []},
+        "embeds": [{
+            "title": f"New {title}" if title.lower().startswith("nightly") else f"New nightly {title}",
+            "url": release["html_url"],
+            "description": f"Tonight's nightly release is published.\nBuilt from `{branch}` · commit `{sha}`",
+            "color": 0x9B6BD6,
+            "fields": [{"name": "Downloads", "value": " · ".join(downloads)},
+                       {"name": "Changes since the previous nightly", "value": notes[:1024]},
+                       {"name": "Nightly release", "value": "No GitHub login required. Nightlies are development "
+                        "previews; the latest stable release stays the recommended download."}],
+            "footer": {"text": "WawConverter · nightly release announcement"},
+            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }],
+    }
+
+
 def webhook_metadata(webhook_url: str) -> dict[str, Any]:
     parsed = urllib.parse.urlsplit(webhook_url)
     parts = parsed.path.strip("/").split("/")
@@ -267,13 +319,19 @@ def main() -> int:
                 stream.write(f"Testing build `{int(testing_run_id)}` announced on Discord.\n")
         return 0
 
+    nightly_tag = os.environ.get("NIGHTLY_TAG", "").strip()
+    if nightly_tag:
+        payload = nightly_message(repo, nightly_tag, os.environ.get("NIGHTLY_SOURCE_BRANCH", "").strip(), token)
+        posted = post_message(webhook, payload)
+        print(f"Nightly {nightly_tag} announcement confirmed: "
+              f"message {posted['id']} in channel {posted['channel_id']}.")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as stream:
+                stream.write(f"Nightly `{nightly_tag}` announced on Discord.\n")
+        return 0
+
     latest_stable = request_json(f"{API}/repos/{repo}/releases/latest", token)
-    releases = request_json(f"{API}/repos/{repo}/releases?per_page=100", token) or []
-    nightlies = [
-        release for release in releases
-        if not release.get("draft") and release.get("prerelease") and release.get("tag_name", "").startswith("nightly-")
-    ]
-    nightlies.sort(key=lambda release: release.get("published_at") or "", reverse=True)
+    nightlies = published_nightlies(repo, token)
     nightly = nightlies[0] if nightlies else None
     previous_nightly = nightlies[1] if len(nightlies) > 1 else None
     notes, compare_url = commit_patch_notes(repo, nightly, previous_nightly, token)

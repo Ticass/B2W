@@ -20,6 +20,15 @@ build without rebuilding packages. Webhook requests identify the client using
 Discord's required user-agent format and wait for Discord's message receipt
 before reporting success.
 
+Each published nightly gets its own Discord announcement from the `announce`
+job of `.github/workflows/release.yml`, titled with the nightly's name (for
+example **New Nightly 2026-10-10-…**) rather than as a testing build. It links
+the release's Windows and Linux downloads (no GitHub login needed), names the
+release branch and commit it was built from, and lists up to five commits since
+the previous nightly with a link to the full comparison. It runs only after
+the release is published, so a failed nightly is never announced. Stable
+version releases are not announced by this job.
+
 `.github/workflows/release-announcements.yml` runs every day at **15:17 UTC**
 on a GitHub-hosted Ubuntu runner. It posts one Discord embed containing links
 to the latest stable release, the latest published nightly, and the latest
