@@ -1,0 +1,125 @@
+#include common_scripts\utility; 
+#include maps\_utility;
+#include maps\_dead_sand_elite_utility;
+
+main()
+{
+	level thread maps\_callbacksetup::SetupCallbacks();	
+
+		
+	include_weapons();
+	include_powerups();
+	include_perks();
+	
+	maps\_interactive_objects::main();
+	//maps\_tiger::main( "vehicle_ger_tracked_king_tiger" );
+	maps\dead_sand_elite_fx::main();
+	//maps\dead_sand_elite_amb::main();
+	maps\dead_sand_elite_zombiemode::main();
+		
+	init_sounds();	
+	dead_sand_elite_init();
+
+}
+
+init_sounds()
+{
+	maps\_zombiemode_utility::add_sound( "break_stone", "break_stone" );
+	maps\_zombiemode_utility::add_sound( "break_sand", "break_sand" );
+	maps\_zombiemode_utility::add_sound( "break_metal", "break_metal" );
+	maps\_zombiemode_utility::add_sound( "break_can", "break_can" );
+
+}
+
+// Include the weapons that are only in your level so that the cost/hints are accurate
+// Also adds these weapons to the random treasure chest.
+include_weapons()
+{
+	// Pistols
+	maps\_zombiemode_weapons::include_zombie_weapon( "zombie_colt" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "walther" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "sw_357" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "kilroys_colt" );
+	
+	// Semi Auto
+	maps\_zombiemode_weapons::include_zombie_weapon( "m1carbine" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "m1garand" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "gewehr43" );
+
+	// Full Auto
+	maps\_zombiemode_weapons::include_zombie_weapon( "stg44" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "thompson" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "mp40" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "ppsh" );
+	
+	// Bolt Action
+	maps\_zombiemode_weapons::include_zombie_weapon( "kar98k" );
+
+	// Scoped
+	maps\_zombiemode_weapons::include_zombie_weapon( "ptrs41_zombie" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "kar98k_scoped_zombie" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "fg42_scoped" );
+		
+	// Grenade
+	maps\_zombiemode_weapons::include_zombie_weapon( "molotov" );
+	//maps\_zombiemode_weapons::include_zombie_weapon( "fraggrenade" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "stielhandgranate" );
+
+	// Grenade Launcher
+	maps\_zombiemode_weapons::include_zombie_weapon( "m1garand_gl" );
+	
+	// Flamethrower
+	//maps\_zombiemode_weapons::include_zombie_weapon( "m2_flamethrower_zombie" );
+	
+	// Shotgun
+	maps\_zombiemode_weapons::include_zombie_weapon( "doublebarrel" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "doublebarrel_sawed_grip" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "shotgun" );
+	
+	// Bipod
+	maps\_zombiemode_weapons::include_zombie_weapon( "dp28_bipod" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "bar_bipod" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "fg42_bipod" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "mg42_bipod" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "30cal_bipod" );
+
+	// Rocket Launcher
+	maps\_zombiemode_weapons::include_zombie_weapon( "panzerschrek" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "bazooka" );
+
+	// Special
+	maps\_zombiemode_weapons::include_zombie_weapon( "ray_gun" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "bouncing_betty" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "projekt_335" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "bfg_1944" );
+	//maps\_zombiemode_weapons::include_zombie_weapon( "satchel_charge" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "60mm" );
+	maps\_zombiemode_weapons::include_zombie_weapon( "heavy_barrel" );
+
+}
+
+include_powerups()
+{
+	maps\_zombiemode_powerups::include_zombie_powerup( "nuke" );
+	maps\_zombiemode_powerups::include_zombie_powerup( "insta_kill" );
+	maps\_zombiemode_powerups::include_zombie_powerup( "double_points" );
+	maps\_zombiemode_powerups::include_zombie_powerup( "full_ammo" );
+	maps\_zombiemode_powerups::include_zombie_powerup( "speed_boost" );
+	maps\_zombiemode_powerups::include_zombie_powerup( "commisars" );
+	maps\_zombiemode_powerups::include_zombie_powerup( "marines_left" );
+	maps\_zombiemode_powerups::include_zombie_powerup( "marines_right" );	
+}
+
+include_perks()
+{
+	maps\_zombiemode_perks::include_zombie_perk( "sleight_of_hand" );
+	maps\_zombiemode_perks::include_zombie_perk( "doubletap" );
+	maps\_zombiemode_perks::include_zombie_perk( "juggernaut" );
+	maps\_zombiemode_perks::include_zombie_perk( "revive" );
+	maps\_zombiemode_perks::include_zombie_perk( "extra_weapon" );
+	maps\_zombiemode_perks::include_zombie_perk( "endless_grenades" );
+}
+
+
+
+
