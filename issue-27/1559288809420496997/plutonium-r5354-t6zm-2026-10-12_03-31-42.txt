@@ -1,0 +1,9 @@
+Exception Code: 0xC0000005
+Exception Address: 0x0041A535
+g_mem.buf 0x1eae0000
+last com error message ''
+last gsc error message ''
+last gsc pos 0x1efc5447 maps/mp/zombies/_zm_utility::spawn_zombie
+gsc callstack: maps/mp/zombies/_zm_utility::spawn_zombie
+  maps/mp/zombies/_zm::round_spawning
+  maps/mp/zombies/_zm::round_think
