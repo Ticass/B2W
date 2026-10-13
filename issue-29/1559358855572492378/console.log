@@ -1,0 +1,1946 @@
+Bound DW addr to 26.11.43.118:3074
+Bound DW port to 3074
+--- Cmd Initialization Complete ---
+Loading fastfile code_pre_gfx_zm
+Built adjacency info for IPaks 0ms
+[STEAM] 1 calls ready, running...
+[STEAM] running call 1
+----- FS_Startup -----
+Searching for iwds in D:\Games\pluto_t6_full_game/players
+Searching for iwds in D:\Games\pluto_t6_full_game/main_shared
+Searching for iwds in D:\Games\pluto_t6_full_game/main
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/main
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/players
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6//
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/raw
+Searching for files required to download mod: "" map: ""
+Build r5354
+logfile opened on Mon Oct 12 19:36:05 2026
+no files required for mod download.
+Current language: english
+Current search path:
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/raw
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6//
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/players
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/main
+D:\Games\pluto_t6_full_game/main
+D:\Games\pluto_t6_full_game/main_shared
+D:\Games\pluto_t6_full_game/players
+execing default_mp.cfg
+execing default_statversion.cfg
+completed execing default_statversion.cfg
+execing thumbstick_default.cfg
+completed execing thumbstick_default.cfg
+execing buttons_default.cfg
+completed execing buttons_default.cfg
+completed execing default_mp.cfg
+execing plutonium_zm.cfg
+con_gameMsgWindow0Filter will be changed upon restarting.
+con_gameMsgWindow1Filter will be changed upon restarting.
+con_gameMsgWindow2Filter will be changed upon restarting.
+con_gameMsgWindow3Filter will be changed upon restarting.
+g_redCrosshairs will be changed upon restarting.
+loc_forceEnglish will be changed upon restarting.
+r_aaSamples will be changed upon restarting.
+r_aspectRatio will be changed upon restarting.
+r_customMode will be changed upon restarting.
+r_fullscreen will be changed upon restarting.
+r_ignorehwgamma will be changed upon restarting.
+r_monitor will be changed upon restarting.
+r_texFilterQuality will be changed upon restarting.
+completed execing plutonium_zm.cfg
+execing default_mp_controls_english.cfg
+completed execing default_mp_controls_english.cfg
+^1ai_corpseCount is cheat protected
+r_aaSamples will be changed upon restarting.
+r_fullscreen will be changed upon restarting.
+r_monitor will be changed upon restarting.
+r_texFilterQuality will be changed upon restarting.
+execing ragdoll.cfg
+completed execing ragdoll.cfg
+^1'0' is not a valid value for dvar 'r_brightness'
+  Domain is any number from 0.5 to 1.5
+Loading fastfile patch_zm
+Loading fastfile plutonium_zm
+Loading fastfile en_patch_zm
+Loading fastfile en_plutonium_zm
+Loading fastfile code_post_gfx_zm
+Loading fastfile en_code_post_gfx_zm
+Attempting to load soundbank zmb_patch.all
+Soundbank zmb_patch.all has stream asset bank zmb_patch.all.sabs
+Soundbank zmb_patch.all has load asset bank zmb_patch.all.sabl
+Zone patch_zm is trying to find ipak patch_zm in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: patch_zm
+Zone patch_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: base
+Zone patch_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: zm
+Zone patch_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+Added ipak file: en_base
+Zone patch_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone patch_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone patch_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: code_post_gfx_zm
+Zone patch_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: code_post_gfx_zm
+Zone patch_zm is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: common_zm
+Zone patch_zm is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: common_zm
+Zone patch_zm is trying to find ipak patch_all in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: patch_all
+Zone patch_zm is trying to find ipak patch_all in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: patch_all
+Zone patch_zm is trying to find ipak patch_loc_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: patch_loc_zm
+Zone patch_zm is trying to find ipak patch_loc_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: patch_loc_zm
+Zone plutonium_zm is trying to find ipak mp in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: mp
+Attempting to load soundbank zmb_patch.english
+Soundbank zmb_patch.english has no asset bank
+Attempting to load soundbank cmn_root.all
+Soundbank cmn_root.all has stream asset bank cmn_root.all.sabs
+Soundbank cmn_root.all has load asset bank cmn_root.all.sabl
+Attempting to load soundbank zmb_code_post_gfx.all
+Soundbank zmb_code_post_gfx.all has stream asset bank zmb_code_post_gfx.all.sabs
+Zone code_post_gfx_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: code_post_gfx_zm
+Zone code_post_gfx_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: code_post_gfx_zm
+Zone code_post_gfx_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone code_post_gfx_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone code_post_gfx_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone code_post_gfx_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone code_post_gfx_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Attempting to load soundbank cmn_root.english
+Soundbank cmn_root.english has stream asset bank cmn_root.english.sabs
+Attempting to load soundbank zmb_code_post_gfx.english
+Soundbank zmb_code_post_gfx.english has no asset bank
+Built adjacency info for IPaks 62ms
+^1Could not load image "streaming_temp_image_0".
+^1Could not load image "streaming_temp_image_1".
+^1Could not load image "streaming_temp_image_2".
+^1Could not load image "streaming_temp_image_3".
+^1Could not load image "streaming_temp_image_4".
+^1Could not load image "streaming_temp_image_5".
+^1Could not load image "streaming_temp_image_6".
+^1Could not load image "streaming_temp_image_7".
+^1Could not load image "streaming_temp_image_8".
+^1Could not load image "streaming_temp_image_9".
+^1Could not load image "streaming_temp_image_10".
+^1Could not load image "streaming_temp_image_11".
+^1Could not load image "streaming_temp_image_12".
+^1Could not load image "streaming_temp_image_13".
+^1Could not load image "streaming_temp_image_14".
+^1Could not load image "streaming_temp_image_15".
+^1Could not load image "streaming_temp_image_16".
+^1Could not load image "streaming_temp_image_17".
+^1Could not load image "streaming_temp_image_18".
+^1Could not load image "streaming_temp_image_19".
+^1Could not load image "streaming_temp_image_20".
+^1Could not load image "streaming_temp_image_21".
+^1Could not load image "streaming_temp_image_22".
+^1Could not load image "streaming_temp_image_23".
+^1Could not load image "streaming_temp_image_24".
+^1Could not load image "streaming_temp_image_25".
+^1Could not load image "streaming_temp_image_26".
+^1Could not load image "streaming_temp_image_27".
+^1Could not load image "streaming_temp_image_28".
+^1Could not load image "streaming_temp_image_29".
+^1Could not load image "streaming_temp_image_30".
+^1Could not load image "streaming_temp_image_31".
+^1Could not load image "$lineargray".
+^1Could not load image "$blacktransparent".
+^1Could not load material "debug_sphere_exterior".
+^1Could not load material "debug_sphere_interior".
+^1Could not load material "$floatz_donotremove".
+^1Could not load material "$processed_floatz_donotremove".
+^1Could not load material "$ps3_aadownsample_donotremove".
+^1Could not load material "zombie_darkness".
+^1Could not load material "mc/rope".
+^1Could not load material "bloom_apply_thermal".
+^1Could not load material "$ps3_reload_zcull_donotremove".
+^1Could not load material "mc/mtl_predator".
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_patch.all.sabs : 3b6fe89eaf4a833802a6a7c4edcb7d3b
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_patch.all.sabl : 2d8d1e8c7bd852746351d0ee6b4b4f52
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\cmn_root.all.sabs : 8f009a81af5a463f5f59e7436df20956
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\cmn_root.all.sabl : d6970e932b2bef5b4ded5948bcdc31fe
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_code_post_gfx.all.sabs : 96e90661591e9b621437c8f369cda49c
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\cmn_root.english.sabs : 928a30a77986e6193280316d5abbd430
+^1Could not load stringtable "mp/gunlevels.csv".
+^1Could not load stringtable "mp/unlockmapping.csv".
+execing default_720p.cfg
+completed execing default_720p.cfg
+execing default_zm_gamesettings.cfg
+execing default_mp_gamesettings.cfg
+execing zm/gamesettings_default.cfg
+completed execing zm/gamesettings_default.cfg
+execing zm/gamesettings_tdm.cfg
+completed execing zm/gamesettings_tdm.cfg
+^1cg_hudGrenadeIconMaxRangeFrag is cheat protected
+^1cg_drawCrosshair is cheat protected
+^1cg_drawCrosshairNames is cheat protected
+^1revive_time_taken is cheat protected
+execing default_mp_gametypes.cfg
+^3Unknown command "resetCustomGametype"
+completed execing default_mp_gametypes.cfg
+completed execing default_mp_gamesettings.cfg
+execing zm/gamesettings_default.cfg
+completed execing zm/gamesettings_default.cfg
+execing zm/gamesettings_zclassic.cfg
+completed execing zm/gamesettings_zclassic.cfg
+completed execing default_zm_gamesettings.cfg
+bound socket to localhost:4976
+execing buttons_default.cfg
+completed execing buttons_default.cfg
+execing buttons_default.cfg
+completed execing buttons_default.cfg
+execing thumbstick_default.cfg
+completed execing thumbstick_default.cfg
+execing buttons_default.cfg
+completed execing buttons_default.cfg
+execing buttons_default.cfg
+completed execing buttons_default.cfg
+execing thumbstick_default.cfg
+completed execing thumbstick_default.cfg
+^1Could not load stringtable "mp/emblemSwatchColors.csv".
+execing mp/default_emblems.cfg
+completed execing mp/default_emblems.cfg
+PMem_Init: Allocated 0x30000000 bytes at 0x1EEF0000
+--- Common Initialization Complete ---
+^3Unknown command "t6zm"
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+^1Could not load material "lui_leftshadow".
+^1Could not load material "lui_rightshadow".
+^1Could not load material "lui_topshadow".
+^1Could not load material "lui_bottomshadow".
+^1Could not load material "zm_hud_icon_battery".
+^1Could not load material "zm_hud_icon_dolly".
+^1Could not load material "zm_hud_icon_cardoor".
+^1Could not load material "zm_hud_icon_arm".
+^1Could not load material "zm_hud_icon_panel".
+^1Could not load material "zm_hud_icon_lever".
+^1Could not load material "zm_hud_icon_papbody".
+^1Could not load material "zm_hud_icon_chairleg".
+^1Could not load material "zm_hud_icon_fan".
+^1Could not load material "zm_hud_icon_rudder".
+^1Could not load material "zm_hud_icon_mannequin".
+^1Could not load material "zm_hud_icon_turrethead".
+^1Could not load material "zm_hud_icon_lawnmower".
+^1Could not load material "zm_hud_icon_ammobox".
+^1Could not load material "zm_hud_icon_coil".
+^1Could not load material "zm_hud_icon_tvtube".
+^1Could not load material "zm_hud_icon_jetgun_wires".
+^1Could not load material "zm_hud_icon_jetgun_engine".
+^1Could not load material "zm_hud_icon_jetgun_gauges".
+^1Could not load material "zm_hud_icon_jetgun_handles".
+^1Could not load material "zm_hud_icon_plow".
+^1Could not load material "zm_hud_icon_hatch".
+^1Could not load material "zm_hud_icon_ladder".
+^1Could not load material "zm_hud_icon_sq_powerbox".
+^1Could not load material "zm_hud_icon_sq_meteor".
+^1Could not load material "zm_hud_icon_sq_scafold".
+^1Could not load material "zm_hud_icon_sq_tranceiver".
+^1Could not load material "zom_hud_trample_steam_screen".
+^1Could not load material "zom_hud_trample_steam_bellow".
+^1Could not load material "zom_hud_trample_steam_compressor".
+^1Could not load material "zom_hud_trample_steam_whistle".
+^1Could not load material "zom_hud_icon_buildable_slip_ext".
+^1Could not load material "zom_hud_icon_buildable_slip_cooker".
+^1Could not load material "zom_hud_icon_buildable_slip_foot".
+^1Could not load material "zom_hud_icon_buildable_slip_handle".
+^1Could not load material "zom_hud_icon_epod_key".
+^1Could not load material "zom_hud_icon_buildable_woof_speaker".
+^1Could not load material "zom_hud_icon_buildable_woof_motor".
+^1Could not load material "zom_hud_icon_buildable_woof_frame".
+^1Could not load material "zom_hud_icon_buildable_woof_chains".
+^1Could not load material "zom_hud_icon_buildable_chop_a".
+^1Could not load material "zom_hud_icon_buildable_chop_b".
+^1Could not load material "zom_hud_icon_buildable_chop_c".
+^1Could not load material "zom_hud_icon_buildable_chop_d".
+^1Could not load material "zom_hud_icon_buildable_sloth_booze".
+^1Could not load material "zom_hud_icon_buildable_sloth_candy".
+^1Could not load material "zom_hud_icon_buildable_sloth_key".
+^1Could not load material "zom_hud_icon_buildable_weap_chalk".
+^1Could not load material "zom_hud_icon_buildable_gen_lamp".
+^1Could not load material "zom_hud_icon_buildable_tower_vacuum".
+^1Could not load material "zom_hud_icon_buildable_tower_crystal".
+^1Could not load material "zom_hud_icon_buildable_tower_satellite".
+^1Could not load material "zom_hud_icon_buildable_tower_antenna".
+^1Could not load material "zm_hud_icon_spool".
+^1Could not load material "zm_hud_icon_sq_keycard".
+^1Could not load material "hud_dpad_blood".
+^1Could not load material "hud_lui_dpad_circle".
+^1Could not load material "hud_lui_arrow_global".
+^1Could not load material "hud_dpad_xenon".
+^1Could not load material "specialty_additionalprimaryweapon_zombies".
+^1Could not load material "specialty_ads_zombies".
+^1Could not load material "specialty_divetonuke_zombies".
+^1Could not load material "specialty_doubletap_zombies".
+^1Could not load material "specialty_juggernaut_zombies".
+^1Could not load material "specialty_marathon_zombies".
+^1Could not load material "specialty_quickrevive_zombies".
+^1Could not load material "specialty_fastreload_zombies".
+^1Could not load material "specialty_tombstone_zombies".
+^1Could not load material "specialty_chugabud_zombies".
+^1Could not load material "specialty_electric_cherry_zombie".
+^1Could not load material "specialty_vulture_zombies".
+^1Could not load material "zm_hud_stink_perk_glow".
+^1Could not load material "specialty_instakill_zombies".
+^1Could not load material "specialty_doublepoints_zombies".
+^1Could not load material "specialty_doublepoints_zombies_blue".
+^1Could not load material "specialty_firesale_zombies".
+^1Could not load material "zom_icon_bonfire".
+^1Could not load material "zom_icon_minigun".
+^1Could not load material "specialty_zomblood_zombies".
+Loading fastfile patch_ui_zm
+Loading fastfile en_ui_zm
+Loading fastfile ui_zm
+Attempting to load soundbank zmb_patch_ui.all
+Soundbank zmb_patch_ui.all has stream asset bank zmb_patch_ui.all.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_patch_ui.all.sabs : 044e644e671cd6ea3cdbe1d5bc374344
+Zone ui_zm is trying to find ipak ui_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: ui_zm
+Zone ui_zm is trying to find ipak ui_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: ui_zm
+Zone ui_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone ui_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone ui_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone ui_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone ui_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone ui_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: code_post_gfx_zm
+Zone ui_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: code_post_gfx_zm
+Zone ui_zm is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: common_zm
+Zone ui_zm is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: common_zm
+Built adjacency info for IPaks 13ms
+^1Waited 3604 msec for missing asset "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zrace.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zdeadpool.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zmeat.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/znml.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zturned.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zpitted.txt".
+Bound DW addr to 26.11.43.118:3074
+Bound DW port to 3074
+Loading fastfile ffotd_tu17_zm_147
+Built adjacency info for IPaks 11ms
+execing zm/ffotd_settings.cfg
+^3Unknown command "maxNumAvatarOffers"
+execing dvar_defaults.cfg
+^1cg_hudGrenadeIconMaxRangeFrag is cheat protected
+^1ragdoll_explode_force is cheat protected
+^1ragdoll_explode_upbias is cheat protected
+^1jump_height is cheat protected
+^1jump_slowdownEnable is cheat protected
+^1bg_fallDamageMinHeight is cheat protected
+^1bg_fallDamageMaxHeight is cheat protected
+completed execing dvar_defaults.cfg
+execing blackbox.cfg
+^3Unknown command "bbdisable"
+^3Unknown command "bbenable"
+^3Unknown command "bbenable"
+^3Unknown command "bbenable"
+^3Unknown command "bbenable"
+^3Unknown command "bbenable"
+completed execing blackbox.cfg
+completed execing zm/ffotd_settings.cfg
+Loading fastfile common_zm
+Loading fastfile en_common_zm
+Attempting to load soundbank zmb_common.all
+Soundbank zmb_common.all has stream asset bank zmb_common.all.sabs
+Soundbank zmb_common.all has load asset bank zmb_common.all.sabl
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_common.all.sabs : 827b79a2bc098651b6f4721d95290178
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_common.all.sabl : 1a92e9207873f3a37a1183a4eb187f01
+Attempting to load soundbank zmb_common.english
+Soundbank zmb_common.english has stream asset bank zmb_common.english.sabs
+Soundbank zmb_common.english has load asset bank zmb_common.english.sabl
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_common.english.sabs : dced37a1eda41a462f5d6b26128627fe
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_common.english.sabl : 55b08aa62808135cc85563ddcf0027b2
+Built adjacency info for IPaks 10ms
+Loading fastfile dlc0_load_zm
+Loading fastfile dlczm0_load_zm
+Loading fastfile dlc1_load_zm
+Loading fastfile dlc2_load_zm
+Loading fastfile dlc3_load_zm
+Loading fastfile dlc4_load_zm
+Loading fastfile dlc0dd_load_zm
+Loading fastfile seasonpass_load_zm
+Loading fastfile en_dlc0_load_zm
+Loading fastfile en_dlczm0_load_zm
+Loading fastfile en_dlc1_load_zm
+Loading fastfile en_dlc2_load_zm
+Loading fastfile en_dlc3_load_zm
+Loading fastfile en_dlc4_load_zm
+Loading fastfile en_dlc0dd_load_zm
+Loading fastfile en_seasonpass_load_zm
+Attempting to load soundbank zmb_nuked_real_intro.all
+Soundbank zmb_nuked_real_intro.all has stream asset bank zmb_nuked_real_intro.all.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_nuked_real_intro.all.sabs : 72e3f90fcf17c0379c6ac03a9eef3bd2
+Zone dlczm0_load_zm is trying to find ipak dlczm0_load_zm in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: dlczm0_load_zm
+Zone dlczm0_load_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone dlczm0_load_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone dlczm0_load_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone dlczm0_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone dlczm0_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone dlczm0_load_zm is trying to find ipak dlczm0 in D:\Games\pluto_t6_full_game\zone\all\
+^3Unknown command "checkForPS3Invites"
+^3Unknown command "session_rejoinsession"
+Added ipak file: dlczm0
+Attempting to load soundbank zmb_rt_load.all
+Soundbank zmb_rt_load.all has stream asset bank zmb_rt_load.all.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_rt_load.all.sabs : 0931bb26a99853ccc1cd5d21b8a6a262
+Zone dlc1_load_zm is trying to find ipak dlc1_load_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: dlc1_load_zm
+Zone dlc1_load_zm is trying to find ipak dlc1_load_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: dlc1_load_zm
+Zone dlc1_load_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone dlc1_load_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone dlc1_load_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone dlc1_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone dlc1_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone dlc1_load_zm is trying to find ipak dlczm1 in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: dlczm1
+Attempting to load soundbank zmb_alcatraz_load.all
+Soundbank zmb_alcatraz_load.all has stream asset bank zmb_alcatraz_load.all.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_alcatraz_load.all.sabs : 9b103e7e7a54a08d0d6707db739fc983
+Zone dlc2_load_zm is trying to find ipak dlc2_load_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: dlc2_load_zm
+Zone dlc2_load_zm is trying to find ipak dlc2_load_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: dlc2_load_zm
+Zone dlc2_load_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone dlc2_load_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone dlc2_load_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone dlc2_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone dlc2_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone dlc2_load_zm is trying to find ipak dlczm2 in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: dlczm2
+Attempting to load soundbank zmb_buried_load.all
+Soundbank zmb_buried_load.all has stream asset bank zmb_buried_load.all.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_buried_load.all.sabs : e9886412821a5af7a998d020d7e893c6
+Zone dlc3_load_zm is trying to find ipak dlc3_load_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: dlc3_load_zm
+Zone dlc3_load_zm is trying to find ipak dlc3_load_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: dlc3_load_zm
+Zone dlc3_load_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone dlc3_load_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone dlc3_load_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone dlc3_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone dlc3_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone dlc3_load_zm is trying to find ipak dlczm3 in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: dlczm3
+Attempting to load soundbank zmb_tomb_load.all
+Soundbank zmb_tomb_load.all has stream asset bank zmb_tomb_load.all.sabs
+Zone dlc4_load_zm is trying to find ipak dlc4_load_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: dlc4_load_zm
+Zone dlc4_load_zm is trying to find ipak dlc4_load_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: dlc4_load_zm
+Zone dlc4_load_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone dlc4_load_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_tomb_load.all.sabs : 0abbe6d69f51da808bfd32da472e5295
+ipak zm already loaded
+Zone dlc4_load_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone dlc4_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone dlc4_load_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone dlc4_load_zm is trying to find ipak dlczm4 in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: dlczm4
+Attempting to load soundbank zmb_rt_load.english
+Soundbank zmb_rt_load.english has stream asset bank zmb_rt_load.english.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_rt_load.english.sabs : 524b04b6860f703870e5aab3e5c1b939
+Attempting to load soundbank zmb_alcatraz_load.english
+Soundbank zmb_alcatraz_load.english has stream asset bank zmb_alcatraz_load.english.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_alcatraz_load.english.sabs : 07df5e998e4363921196adc4a3f771e5
+Attempting to load soundbank zmb_buried_load.english
+Soundbank zmb_buried_load.english has stream asset bank zmb_buried_load.english.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_buried_load.english.sabs : 3aca5a93e2aaeabdab8db1ddca66fc48
+Attempting to load soundbank zmb_tomb_load.english
+Soundbank zmb_tomb_load.english has stream asset bank zmb_tomb_load.english.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_tomb_load.english.sabs : 0e467100441a6430a5b96df29f8b62ac
+Built adjacency info for IPaks 86ms
+execing default_xboxlive.cfg
+^1cg_drawCrosshair is cheat protected
+^1cg_drawCrosshairNames is cheat protected
+^1ragdoll_explode_force is cheat protected
+^1ragdoll_explode_upbias is cheat protected
+^1jump_height is cheat protected
+^1jump_slowdownEnable is cheat protected
+^1bg_fallDamageMinHeight is cheat protected
+^1bg_fallDamageMaxHeight is cheat protected
+^1party_dedicatedOnly cannot be modified
+^1party_restartMatchmakingTimer cannot be modified
+^1migration_soak cannot be modified
+^1migration_minclientcount cannot be modified
+^1party_maxlocalplayers_theater cannot be modified
+^1scr_xpscale cannot be modified
+^1scr_codpointsxpscale is read only
+^1scr_codpointsmatchscale is read only
+^1scr_codpointsperchallenge is read only
+^1scr_disableChallenges cannot be modified
+^1scr_disableStatTracking cannot be modified
+^1scr_disableSetDStat cannot be modified
+^1cg_hudGrenadeIconMaxRangeFrag is cheat protected
+^1ui_hud_hardcore is cheat protected
+execing default_mp_gametypes.cfg
+^3Unknown command "resetCustomGametype"
+completed execing default_mp_gametypes.cfg
+completed execing default_xboxlive.cfg
+execing default_private.cfg
+completed execing default_private.cfg
+execing zm/gamesettings_default.cfg
+completed execing zm/gamesettings_default.cfg
+execing zm/gamesettings_zstandard.cfg
+completed execing zm/gamesettings_zstandard.cfg
+execing default_xboxlive.cfg
+^1cg_drawCrosshair is cheat protected
+^1cg_drawCrosshairNames is cheat protected
+^1ragdoll_explode_force is cheat protected
+^1ragdoll_explode_upbias is cheat protected
+^1jump_height is cheat protected
+^1jump_slowdownEnable is cheat protected
+^1bg_fallDamageMinHeight is cheat protected
+^1bg_fallDamageMaxHeight is cheat protected
+^1party_dedicatedOnly cannot be modified
+^1party_restartMatchmakingTimer cannot be modified
+^1migration_soak cannot be modified
+^1migration_minclientcount cannot be modified
+^1party_maxlocalplayers_theater cannot be modified
+^1scr_xpscale cannot be modified
+^1scr_codpointsxpscale is read only
+^1scr_codpointsmatchscale is read only
+^1scr_codpointsperchallenge is read only
+^1scr_disableChallenges cannot be modified
+^1scr_disableStatTracking cannot be modified
+^1scr_disableSetDStat cannot be modified
+^1cg_hudGrenadeIconMaxRangeFrag is cheat protected
+^1ui_hud_hardcore is cheat protected
+execing default_mp_gametypes.cfg
+^3Unknown command "resetCustomGametype"
+completed execing default_mp_gametypes.cfg
+completed execing default_xboxlive.cfg
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+SV_Shutdown: EXE_LOADMOD
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+Unloading fastfile ui_zm
+Unloading fastfile en_ui_zm
+Unloading fastfile patch_ui_zm
+Loaded menu file: ui/t6/dvarleftrightselector.lua
+^1Could not load material "lui_leftshadow".
+^1Could not load material "lui_rightshadow".
+^1Could not load material "lui_topshadow".
+^1Could not load material "lui_bottomshadow".
+Loaded menu file: ui_mp/t6/hud/team_marinesopfor.lua
+Loaded menu file: ui_mp/t6/hud/class.lua
+Loaded menu file: ui/t6/menus/optionscontrols.lua
+Loaded menu file: ui/t6/menus/optionssettings.lua
+Loaded menu file: ui/t6/menus/safeareamenu.lua
+Loaded menu file: ui_mp/t6/hud/scoreboard.lua
+Loaded menu file: ui_mp/t6/hud/spectateplayercard.lua
+Loaded menu file: ui_mp/t6/hud/loading.lua
+^1Could not load material "zm_hud_icon_battery".
+^1Could not load material "zm_hud_icon_dolly".
+^1Could not load material "zm_hud_icon_cardoor".
+^1Could not load material "zm_hud_icon_arm".
+^1Could not load material "zm_hud_icon_panel".
+^1Could not load material "zm_hud_icon_lever".
+^1Could not load material "zm_hud_icon_papbody".
+^1Could not load material "zm_hud_icon_chairleg".
+^1Could not load material "zm_hud_icon_fan".
+^1Could not load material "zm_hud_icon_rudder".
+^1Could not load material "zm_hud_icon_mannequin".
+^1Could not load material "zm_hud_icon_turrethead".
+^1Could not load material "zm_hud_icon_lawnmower".
+^1Could not load material "zm_hud_icon_ammobox".
+^1Could not load material "zm_hud_icon_coil".
+^1Could not load material "zm_hud_icon_tvtube".
+^1Could not load material "zm_hud_icon_jetgun_wires".
+^1Could not load material "zm_hud_icon_jetgun_engine".
+^1Could not load material "zm_hud_icon_jetgun_gauges".
+^1Could not load material "zm_hud_icon_jetgun_handles".
+^1Could not load material "zm_hud_icon_plow".
+^1Could not load material "zm_hud_icon_hatch".
+^1Could not load material "zm_hud_icon_ladder".
+^1Could not load material "zm_hud_icon_sq_powerbox".
+^1Could not load material "zm_hud_icon_sq_meteor".
+^1Could not load material "zm_hud_icon_sq_scafold".
+^1Could not load material "zm_hud_icon_sq_tranceiver".
+^1Could not load material "zom_hud_trample_steam_screen".
+^1Could not load material "zom_hud_trample_steam_bellow".
+^1Could not load material "zom_hud_trample_steam_compressor".
+^1Could not load material "zom_hud_trample_steam_whistle".
+^1Could not load material "zom_hud_icon_buildable_slip_ext".
+^1Could not load material "zom_hud_icon_buildable_slip_cooker".
+^1Could not load material "zom_hud_icon_buildable_slip_foot".
+^1Could not load material "zom_hud_icon_buildable_slip_handle".
+^1Could not load material "zom_hud_icon_epod_key".
+^1Could not load material "zom_hud_icon_buildable_woof_speaker".
+^1Could not load material "zom_hud_icon_buildable_woof_motor".
+^1Could not load material "zom_hud_icon_buildable_woof_frame".
+^1Could not load material "zom_hud_icon_buildable_woof_chains".
+^1Could not load material "zom_hud_icon_buildable_chop_a".
+^1Could not load material "zom_hud_icon_buildable_chop_b".
+Loaded menu file: ui_mp/t6/zombie/hudcompetitivescoreboardzombie.lua
+Loaded menu file: ui_mp/t6/zombie/hudcompetitivescoreboardzombieog.lua
+^1Could not load material "hud_dpad_xenon".
+^1Could not load material "specialty_additionalprimaryweapon_zombies".
+^1Could not load material "specialty_ads_zombies".
+^1Could not load material "specialty_divetonuke_zombies".
+^1Could not load material "specialty_doubletap_zombies".
+^1Could not load material "specialty_juggernaut_zombies".
+^1Could not load material "specialty_marathon_zombies".
+^1Could not load material "specialty_quickrevive_zombies".
+^1Could not load material "specialty_fastreload_zombies".
+^1Could not load material "specialty_tombstone_zombies".
+^1Could not load material "specialty_chugabud_zombies".
+^1Could not load material "specialty_electric_cherry_zombie".
+^1Could not load material "specialty_vulture_zombies".
+^1Could not load material "zm_hud_stink_perk_glow".
+^1Could not load material "specialty_doublepoints_zombies_blue".
+^1Could not load material "specialty_firesale_zombies".
+^1Could not load material "zom_icon_bonfire".
+^1Could not load material "zom_icon_minigun".
+^1Could not load material "specialty_zomblood_zombies".
+----- FS_Startup -----
+Searching for iwds in D:\Games\pluto_t6_full_game/players
+Searching for iwds in D:\Games\pluto_t6_full_game/main_shared
+Searching for iwds in D:\Games\pluto_t6_full_game/main
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/main
+Searching for iwds in D:\Games\pluto_t6_full_game/usermaps
+Searching for iwds in D:\Games\pluto_t6_full_game/mods/zm_ccube_u_waw
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/players
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6//
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/raw
+Searching for iwds in C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/mods/zm_ccube_u_waw
+Searching for files required to download mod: "mods/zm_ccube_u_waw" map: ""
+found 10 files required for mod download!
+Current language: english
+Current search path:
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/mods/zm_ccube_u_waw
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/raw
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6//
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/players
+D:\Games\pluto_t6_full_game/mods/zm_ccube_u_waw
+D:\Games\pluto_t6_full_game/usermaps
+C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6/main
+D:\Games\pluto_t6_full_game/main
+D:\Games\pluto_t6_full_game/main_shared
+D:\Games\pluto_t6_full_game/players
+^1'0' is not a valid value for dvar 'r_brightness'
+  Domain is any number from 0.5 to 1.5
+^1Could not load image "$lineargray".
+^1Could not load image "$blacktransparent".
+^1Could not load material "debug_sphere_exterior".
+^1Could not load material "debug_sphere_interior".
+^1Could not load material "$floatz_donotremove".
+^1Could not load material "$processed_floatz_donotremove".
+^1Could not load material "$ps3_aadownsample_donotremove".
+^1Could not load material "zombie_darkness".
+^1Could not load material "mc/rope".
+^1Could not load material "bloom_apply_thermal".
+^1Could not load material "$ps3_reload_zcull_donotremove".
+^1Could not load material "mc/mtl_predator".
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+Loading fastfile patch_ui_zm
+Loading fastfile en_ui_zm
+Loading fastfile ui_zm
+Attempting to load soundbank zmb_patch_ui.all
+Soundbank zmb_patch_ui.all has stream asset bank zmb_patch_ui.all.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_patch_ui.all.sabs : 044e644e671cd6ea3cdbe1d5bc374344
+Zone ui_zm is trying to find ipak ui_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: ui_zm
+Zone ui_zm is trying to find ipak ui_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: ui_zm
+Zone ui_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone ui_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone ui_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone ui_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone ui_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone ui_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: code_post_gfx_zm
+Zone ui_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: code_post_gfx_zm
+Zone ui_zm is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: common_zm
+Zone ui_zm is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: common_zm
+Built adjacency info for IPaks 17ms
+^1Waited 2311 msec for missing asset "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zrace.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zdeadpool.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zmeat.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/znml.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zturned.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zpitted.txt".
+Loaded menu file: ui/t6/mainlobby.lua
+Loaded menu file: ui/t6/menus/partyprivacypopup.lua
+Loaded menu file: ui/t6/mods.lua
+Loaded menu file: ui_mp/t6/menus/editgameoptionspopup.lua
+Loaded menu file: ui_mp/t6/menus/privategamelobby_project.lua
+Loaded menu file: ui_mp/t6/menus/theaterlobby.lua
+Loaded menu file: ui/t6/partylobby.lua
+loadmod: loaded mods/zm_ccube_u_waw
+execing plutonium_zm.cfg
+con_gameMsgWindow0Filter will be changed upon restarting.
+con_gameMsgWindow1Filter will be changed upon restarting.
+con_gameMsgWindow2Filter will be changed upon restarting.
+con_gameMsgWindow3Filter will be changed upon restarting.
+g_redCrosshairs will be changed upon restarting.
+loc_forceEnglish will be changed upon restarting.
+net_noudp will be changed upon restarting.
+net_socksEnabled will be changed upon restarting.
+net_socksPassword will be changed upon restarting.
+net_socksPort will be changed upon restarting.
+net_socksServer will be changed upon restarting.
+net_socksUsername will be changed upon restarting.
+r_aaSamples will be changed upon restarting.
+r_aspectRatio will be changed upon restarting.
+r_customMode will be changed upon restarting.
+r_fullscreen will be changed upon restarting.
+r_ignorehwgamma will be changed upon restarting.
+r_mode will be changed upon restarting.
+r_monitor will be changed upon restarting.
+r_texFilterQuality will be changed upon restarting.
+^1sys_configSum is write protected
+^1sys_configureGHz is write protected
+^1sys_gpu is write protected
+^1sys_sysMB is write protected
+completed execing plutonium_zm.cfg
+Loading fastfile mod
+Loading fastfile mod_load
+Loading fastfile mod_patch
+Adding prioritized sound bank "zmb_test.all" from zone "mod"
+Attempting to load soundbank zmb_test.all
+Soundbank zmb_test.all has stream asset bank zmb_test.all.sabs
+Soundbank zmb_test.all has load asset bank zmb_test.all.sabl
+Adding prioritized sound bank "waw_zm_ccube_u_waw.all" from zone "mod"
+Attempting to load soundbank waw_zm_ccube_u_waw.all
+Soundbank waw_zm_ccube_u_waw.all has stream asset bank waw_zm_ccube_u_waw.all.sabs
+Soundbank waw_zm_ccube_u_waw.all has load asset bank waw_zm_ccube_u_waw.all.sabl
+SOUND Header load success for C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6\mods/zm_ccube_u_waw\zmb_test.all.sabs : cccccccccccccccccccccccccccccccc
+SOUND Header load success for C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6\mods/zm_ccube_u_waw\zmb_test.all.sabl : cccccccccccccccccccccccccccccccc
+^3Too many sound entries, reduce them!
+^3Too many sound entries, reduce them!
+^3Too many sound entries, reduce them!
+SOUND Header load success for C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6\mods/zm_ccube_u_waw\waw_zm_ccube_u_waw.all.sabs : cccccccccccccccccccccccccccccccc
+SOUND Header load success for C:\Users\Rizuli\AppData\Local\Plutonium\storage\t6\mods/zm_ccube_u_waw\waw_zm_ccube_u_waw.all.sabl : cccccccccccccccccccccccccccccccc
+Zone mod is trying to find ipak zm_ccube_u_waw_mod in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: zm_ccube_u_waw_mod
+Zone mod is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone mod is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone mod is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone mod is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone mod is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone mod is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: code_post_gfx_zm
+Zone mod is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: code_post_gfx_zm
+Zone mod is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: common_zm
+Zone mod is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: common_zm
+Zone mod is trying to find ipak zm_ccube_u_waw_mod in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm_ccube_u_waw_mod already loaded
+Built adjacency info for IPaks 1966ms
+^1Could not load stringtable "mp/gunlevels.csv".
+^1Could not load stringtable "mp/unlockmapping.csv".
+execing default_zm_gamesettings.cfg
+execing default_mp_gamesettings.cfg
+execing zm/gamesettings_default.cfg
+completed execing zm/gamesettings_default.cfg
+execing zm/gamesettings_tdm.cfg
+completed execing zm/gamesettings_tdm.cfg
+^1cg_hudGrenadeIconMaxRangeFrag is cheat protected
+^1cg_drawCrosshair is cheat protected
+^1cg_drawCrosshairNames is cheat protected
+^1ui_hud_hardcore is cheat protected
+^1'24' is not a valid value for dvar 'sv_maxclients'
+  Domain is any integer from 1 to 18
+^1scr_xpscale cannot be modified
+^1revive_time_taken is cheat protected
+execing default_mp_gametypes.cfg
+^3Unknown command "resetCustomGametype"
+completed execing default_mp_gametypes.cfg
+completed execing default_mp_gamesettings.cfg
+execing zm/gamesettings_default.cfg
+completed execing zm/gamesettings_default.cfg
+execing zm/gamesettings_zclassic.cfg
+completed execing zm/gamesettings_zclassic.cfg
+completed execing default_zm_gamesettings.cfg
+^1Could not load rawfile "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zrace.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zdeadpool.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zmeat.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/znml.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zturned.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zpitted.txt".
+execing buttons_default.cfg
+completed execing buttons_default.cfg
+execing buttons_default.cfg
+completed execing buttons_default.cfg
+execing thumbstick_default.cfg
+completed execing thumbstick_default.cfg
+^1ai_corpseCount is cheat protected
+r_aaSamples will be changed upon restarting.
+r_fullscreen will be changed upon restarting.
+r_mode will be changed upon restarting.
+r_monitor will be changed upon restarting.
+r_texFilterQuality will be changed upon restarting.
+Loaded menu file: ui/t6/dvarleftrightselector.lua
+Loaded menu file: ui/t6/mainlobby.lua
+Loaded menu file: ui/t6/menus/partyprivacypopup.lua
+Loaded menu file: ui/t6/mods.lua
+Loaded menu file: ui/t6/menus/optionscontrols.lua
+Loaded menu file: ui/t6/menus/optionssettings.lua
+Loaded menu file: ui/t6/menus/safeareamenu.lua
+Loaded menu file: ui_mp/t6/menus/editgameoptionspopup.lua
+Loaded menu file: ui_mp/t6/menus/privategamelobby_project.lua
+Loaded menu file: ui_mp/t6/menus/theaterlobby.lua
+Loaded menu file: ui/t6/partylobby.lua
+^1
+====================== COM_ERROR (1) ===============
+^1XBOXLIVE_GENERICDISCONNECT
+^1=======================================================
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+SV_Shutdown: XBOXLIVE_GENERICDISCONNECT
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+Unloading fastfile ui_zm
+Unloading fastfile en_ui_zm
+Unloading fastfile patch_ui_zm
+^1Could not load material "lui_leftshadow".
+^1Could not load material "lui_rightshadow".
+^1Could not load material "lui_topshadow".
+^1Could not load material "lui_bottomshadow".
+Loaded menu file: ui_mp/t6/hud/team_marinesopfor.lua
+Loaded menu file: ui_mp/t6/hud/class.lua
+Loaded menu file: ui_mp/t6/hud/scoreboard.lua
+Loaded menu file: ui_mp/t6/hud/spectateplayercard.lua
+Loaded menu file: ui_mp/t6/hud/loading.lua
+^1Could not load material "zm_hud_icon_battery".
+^1Could not load material "zm_hud_icon_dolly".
+^1Could not load material "zm_hud_icon_cardoor".
+^1Could not load material "zm_hud_icon_arm".
+^1Could not load material "zm_hud_icon_panel".
+^1Could not load material "zm_hud_icon_lever".
+^1Could not load material "zm_hud_icon_papbody".
+^1Could not load material "zm_hud_icon_chairleg".
+^1Could not load material "zm_hud_icon_fan".
+^1Could not load material "zm_hud_icon_rudder".
+^1Could not load material "zm_hud_icon_mannequin".
+^1Could not load material "zm_hud_icon_turrethead".
+^1Could not load material "zm_hud_icon_lawnmower".
+^1Could not load material "zm_hud_icon_ammobox".
+^1Could not load material "zm_hud_icon_coil".
+^1Could not load material "zm_hud_icon_tvtube".
+^1Could not load material "zm_hud_icon_jetgun_wires".
+^1Could not load material "zm_hud_icon_jetgun_engine".
+^1Could not load material "zm_hud_icon_jetgun_gauges".
+^1Could not load material "zm_hud_icon_jetgun_handles".
+^1Could not load material "zm_hud_icon_plow".
+^1Could not load material "zm_hud_icon_hatch".
+^1Could not load material "zm_hud_icon_ladder".
+^1Could not load material "zm_hud_icon_sq_powerbox".
+^1Could not load material "zm_hud_icon_sq_meteor".
+^1Could not load material "zm_hud_icon_sq_scafold".
+^1Could not load material "zm_hud_icon_sq_tranceiver".
+^1Could not load material "zom_hud_trample_steam_screen".
+^1Could not load material "zom_hud_trample_steam_bellow".
+^1Could not load material "zom_hud_trample_steam_compressor".
+^1Could not load material "zom_hud_trample_steam_whistle".
+^1Could not load material "zom_hud_icon_buildable_slip_ext".
+^1Could not load material "zom_hud_icon_buildable_slip_cooker".
+^1Could not load material "zom_hud_icon_buildable_slip_foot".
+^1Could not load material "zom_hud_icon_buildable_slip_handle".
+^1Could not load material "zom_hud_icon_epod_key".
+^1Could not load material "zom_hud_icon_buildable_woof_speaker".
+^1Could not load material "zom_hud_icon_buildable_woof_motor".
+^1Could not load material "zom_hud_icon_buildable_woof_frame".
+^1Could not load material "zom_hud_icon_buildable_woof_chains".
+^1Could not load material "zom_hud_icon_buildable_chop_a".
+^1Could not load material "zom_hud_icon_buildable_chop_b".
+^1Could not load material "zom_hud_icon_buildable_chop_c".
+^1Could not load material "zom_hud_icon_buildable_chop_d".
+^1Could not load material "zom_hud_icon_buildable_sloth_booze".
+^1Could not load material "zom_hud_icon_buildable_sloth_candy".
+^1Could not load material "zom_hud_icon_buildable_sloth_key".
+^1Could not load material "zom_hud_icon_buildable_weap_chalk".
+^1Could not load material "zom_hud_icon_buildable_gen_lamp".
+^1Could not load material "zom_hud_icon_buildable_tower_vacuum".
+^1Could not load material "zom_hud_icon_buildable_tower_crystal".
+^1Could not load material "zom_hud_icon_buildable_tower_satellite".
+^1Could not load material "zom_hud_icon_buildable_tower_antenna".
+^1Could not load material "zm_hud_icon_spool".
+Loaded menu file: ui_mp/t6/zombie/hudcompetitivescoreboardzombie.lua
+Loaded menu file: ui_mp/t6/zombie/hudcompetitivescoreboardzombieog.lua
+^1Could not load material "hud_dpad_xenon".
+^1Could not load material "specialty_additionalprimaryweapon_zombies".
+^1Could not load material "specialty_ads_zombies".
+^1Could not load material "specialty_divetonuke_zombies".
+^1Could not load material "specialty_marathon_zombies".
+^1Could not load material "specialty_tombstone_zombies".
+^1Could not load material "specialty_chugabud_zombies".
+^1Could not load material "specialty_electric_cherry_zombie".
+^1Could not load material "specialty_vulture_zombies".
+^1Could not load material "zm_hud_stink_perk_glow".
+^1Could not load material "specialty_doublepoints_zombies_blue".
+^1Could not load material "zom_icon_bonfire".
+^1Could not load material "zom_icon_minigun".
+^1Could not load material "specialty_zomblood_zombies".
+^1'0' is not a valid value for dvar 'r_brightness'
+  Domain is any number from 0.5 to 1.5
+^1Could not load image "$lineargray".
+^1Could not load image "$blacktransparent".
+^1Could not load material "debug_sphere_exterior".
+^1Could not load material "debug_sphere_interior".
+^1Could not load material "$floatz_donotremove".
+^1Could not load material "$processed_floatz_donotremove".
+^1Could not load material "$ps3_aadownsample_donotremove".
+^1Could not load material "zombie_darkness".
+^1Could not load material "mc/rope".
+^1Could not load material "bloom_apply_thermal".
+^1Could not load material "$ps3_reload_zcull_donotremove".
+^1Could not load material "mc/mtl_predator".
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+Loading fastfile patch_ui_zm
+Loading fastfile en_ui_zm
+Loading fastfile ui_zm
+Attempting to load soundbank zmb_patch_ui.all
+Soundbank zmb_patch_ui.all has stream asset bank zmb_patch_ui.all.sabs
+SOUND Header load success for D:\Games\pluto_t6_full_game\sound\zmb_patch_ui.all.sabs : 044e644e671cd6ea3cdbe1d5bc374344
+Zone ui_zm is trying to find ipak ui_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: ui_zm
+Zone ui_zm is trying to find ipak ui_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: ui_zm
+Zone ui_zm is trying to find ipak base in D:\Games\pluto_t6_full_game\zone\all\
+ipak base already loaded
+Zone ui_zm is trying to find ipak zm in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm already loaded
+Zone ui_zm is trying to find ipak en_base in D:\Games\pluto_t6_full_game\zone\english\
+ipak en_base already loaded
+Zone ui_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: lowmip
+Zone ui_zm is trying to find ipak lowmip in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: lowmip
+Zone ui_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: code_post_gfx_zm
+Zone ui_zm is trying to find ipak code_post_gfx_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: code_post_gfx_zm
+Zone ui_zm is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\all\
+^3ipak file not found: common_zm
+Zone ui_zm is trying to find ipak common_zm in D:\Games\pluto_t6_full_game\zone\english\
+^3ipak file not found: common_zm
+Built adjacency info for IPaks 24ms
+^1Waited 1518 msec for missing asset "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zrace.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zdeadpool.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zmeat.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/znml.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zturned.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zpitted.txt".
+[STEAM] 1 calls ready, running...
+[STEAM] running call 2
+Reading stats...
+Reading backup stats...
+^3Unknown command "checkForPS3Invites"
+^3Unknown command "session_rejoinsession"
+Writing stats...
+execing default_xboxlive.cfg
+^1cg_drawCrosshair is cheat protected
+^1cg_drawCrosshairNames is cheat protected
+^1ragdoll_explode_force is cheat protected
+^1ragdoll_explode_upbias is cheat protected
+^1jump_height is cheat protected
+^1jump_slowdownEnable is cheat protected
+^1bg_fallDamageMinHeight is cheat protected
+^1bg_fallDamageMaxHeight is cheat protected
+^1party_dedicatedOnly cannot be modified
+^1party_restartMatchmakingTimer cannot be modified
+^1migration_soak cannot be modified
+^1migration_minclientcount cannot be modified
+^1party_maxlocalplayers_theater cannot be modified
+^1scr_xpscale cannot be modified
+^1scr_codpointsxpscale is read only
+^1scr_codpointsmatchscale is read only
+^1scr_codpointsperchallenge is read only
+^1scr_disableChallenges cannot be modified
+^1scr_disableStatTracking cannot be modified
+^1scr_disableSetDStat cannot be modified
+^1cg_hudGrenadeIconMaxRangeFrag is cheat protected
+^1ui_hud_hardcore is cheat protected
+execing default_mp_gametypes.cfg
+^3Unknown command "resetCustomGametype"
+completed execing default_mp_gametypes.cfg
+completed execing default_xboxlive.cfg
+execing default_private.cfg
+completed execing default_private.cfg
+execing zm/gamesettings_default.cfg
+completed execing zm/gamesettings_default.cfg
+execing zm/gamesettings_zclassic.cfg
+completed execing zm/gamesettings_zclassic.cfg
+^1Could not load material "playlist_ffa".
+^1Could not load material "playlist_tdm".
+execing zm/gamesettings_default.cfg
+completed execing zm/gamesettings_default.cfg
+execing zm/gamesettings_zclassic.cfg
+completed execing zm/gamesettings_zclassic.cfg
+execing zm/gamesettings_default.cfg
+completed execing zm/gamesettings_default.cfg
+execing zm/gamesettings_zclassic.cfg
+completed execing zm/gamesettings_zclassic.cfg
+^1Could not load material "livestream_cam".
+^1'2' is not a valid value for dvar 'party_maxlocalplayers_privatematch'
+  Domain is any integer from 1 to 1
+^3Unknown command "resetCustomGametype"
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+Unloading fastfile ui_zm
+Unloading fastfile en_ui_zm
+Unloading fastfile patch_ui_zm
+^1Could not load material "lui_leftshadow".
+^1Could not load material "lui_rightshadow".
+^1Could not load material "lui_topshadow".
+^1Could not load material "lui_bottomshadow".
+^1Could not load material "zm_hud_icon_battery".
+^1Could not load material "zm_hud_icon_dolly".
+^1Could not load material "zm_hud_icon_cardoor".
+^1Could not load material "zm_hud_icon_arm".
+^1Could not load material "zm_hud_icon_panel".
+^1Could not load material "zm_hud_icon_lever".
+^1Could not load material "zm_hud_icon_papbody".
+^1Could not load material "zm_hud_icon_chairleg".
+^1Could not load material "zm_hud_icon_fan".
+^1Could not load material "zm_hud_icon_rudder".
+^1Could not load material "zm_hud_icon_mannequin".
+^1Could not load material "zm_hud_icon_turrethead".
+^1Could not load material "zm_hud_icon_lawnmower".
+^1Could not load material "zm_hud_icon_ammobox".
+^1Could not load material "zm_hud_icon_coil".
+^1Could not load material "zm_hud_icon_tvtube".
+^1Could not load material "zm_hud_icon_jetgun_wires".
+^1Could not load material "zm_hud_icon_jetgun_engine".
+^1Could not load material "zm_hud_icon_jetgun_gauges".
+^1Could not load material "zm_hud_icon_jetgun_handles".
+^1Could not load material "zm_hud_icon_plow".
+^1Could not load material "zm_hud_icon_hatch".
+^1Could not load material "zm_hud_icon_ladder".
+^1Could not load material "zm_hud_icon_sq_powerbox".
+^1Could not load material "zm_hud_icon_sq_meteor".
+^1Could not load material "zm_hud_icon_sq_scafold".
+^1Could not load material "zm_hud_icon_sq_tranceiver".
+^1Could not load material "zom_hud_trample_steam_screen".
+^1Could not load material "zom_hud_trample_steam_bellow".
+^1Could not load material "zom_hud_trample_steam_compressor".
+^1Could not load material "zom_hud_trample_steam_whistle".
+^1Could not load material "zom_hud_icon_buildable_slip_ext".
+^1Could not load material "zom_hud_icon_buildable_slip_cooker".
+^1Could not load material "zom_hud_icon_buildable_slip_foot".
+^1Could not load material "zom_hud_icon_buildable_slip_handle".
+^1Could not load material "zom_hud_icon_epod_key".
+^1Could not load material "zom_hud_icon_buildable_woof_speaker".
+^1Could not load material "zom_hud_icon_buildable_woof_motor".
+^1Could not load material "zom_hud_icon_buildable_woof_frame".
+^1Could not load material "zom_hud_icon_buildable_woof_chains".
+^1Could not load material "zom_hud_icon_buildable_chop_a".
+^1Could not load material "zom_hud_icon_buildable_chop_b".
+^1Could not load material "zom_hud_icon_buildable_chop_c".
+^1Could not load material "zom_hud_icon_buildable_chop_d".
+^1Could not load material "zom_hud_icon_buildable_sloth_booze".
+^1Could not load material "zom_hud_icon_buildable_sloth_candy".
+^1Could not load material "zom_hud_icon_buildable_sloth_key".
+^1Could not load material "zom_hud_icon_buildable_weap_chalk".
+^1Could not load material "zom_hud_icon_buildable_gen_lamp".
+^1Could not load material "zom_hud_icon_buildable_tower_vacuum".
+^1Could not load material "zom_hud_icon_buildable_tower_crystal".
+^1Could not load material "zom_hud_icon_buildable_tower_satellite".
+^1Could not load material "zom_hud_icon_buildable_tower_antenna".
+^1Could not load material "zm_hud_icon_spool".
+^1Could not load material "hud_dpad_xenon".
+^1Could not load material "specialty_additionalprimaryweapon_zombies".
+^1Could not load material "specialty_ads_zombies".
+^1Could not load material "specialty_divetonuke_zombies".
+^1Could not load material "specialty_marathon_zombies".
+^1Could not load material "specialty_tombstone_zombies".
+^1Could not load material "specialty_chugabud_zombies".
+^1Could not load material "specialty_electric_cherry_zombie".
+^1Could not load material "specialty_vulture_zombies".
+^1Could not load material "zm_hud_stink_perk_glow".
+^1Could not load material "specialty_doublepoints_zombies_blue".
+^1Could not load material "zom_icon_bonfire".
+^1Could not load material "zom_icon_minigun".
+^1Could not load material "specialty_zomblood_zombies".
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 0
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 1
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 2
+Sys_GumpFlushed set gumpFlushedEvent
+DB_FlushGump 3
+Sys_GumpFlushed set gumpFlushedEvent
+^1Could not load image "$lineargray".
+^1Could not load image "$blacktransparent".
+^1Could not load material "debug_sphere_exterior".
+^1Could not load material "debug_sphere_interior".
+^1Could not load material "$floatz_donotremove".
+^1Could not load material "$processed_floatz_donotremove".
+^1Could not load material "$ps3_aadownsample_donotremove".
+^1Could not load material "zombie_darkness".
+^1Could not load material "mc/rope".
+^1Could not load material "bloom_apply_thermal".
+^1Could not load material "$ps3_reload_zcull_donotremove".
+^1Could not load material "mc/mtl_predator".
+^1Could not load rawfile "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zrace.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zdeadpool.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zmeat.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/znml.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zturned.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zpitted.txt".
+Loading fastfile zm_ccube_u_waw
+Loading fastfile en_zm_ccube_u_waw
+Zone zm_ccube_u_waw is trying to find ipak zm_ccube_u_waw in D:\Games\pluto_t6_full_game\zone\all\
+Added ipak file: zm_ccube_u_waw
+Zone zm_ccube_u_waw is trying to find ipak zm_ccube_u_waw in D:\Games\pluto_t6_full_game\zone\all\
+ipak zm_ccube_u_waw already loaded
+Built adjacency info for IPaks 36ms
+^1Could not load rawfile "maps/mp/gametypes_zm/zcontainment.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zrace.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zdeadpool.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zmeat.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/znml.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zturned.txt".
+^1Could not load rawfile "maps/mp/gametypes_zm/zpitted.txt".
+^1Could not load stringtable "mp/configStrings/configStrings_zm_ccube_u_waw.csv".
+Initializing game at 10/12/26 19:40:57 -0400
+Current uptime: 00:05:17
+Level time: 0
+Restart: 0
+------- Game Initialization -------
+gamename: PT6ZM
+gamedate: Sep 21 2026
+^1Could not load weapon "uzi_zm".
+^1Could not load weapon "thompson_zm".
+^1Could not load weapon "uzi_upgraded_zm".
+^1Could not load weapon "thompson_upgraded_zm".
+^1Could not load weapon "mp40_zm".
+^1Could not load weapon "mp40_stalker_zm".
+^1Could not load weapon "evoskorpion_zm".
+^1Could not load weapon "mp40_upgraded_zm".
+^1Could not load weapon "mp40_stalker_upgraded_zm".
+^1Could not load weapon "evoskorpion_upgraded_zm".
+^1Could not load weapon "m16_upgraded_zm".
+^1Could not load weapon "hk416_zm".
+^1Could not load weapon "lsat_zm".
+^1Could not load weapon "hk416_upgraded_zm".
+^1Could not load weapon "lsat_upgraded_zm".
+^1Could not load weapon "ak47_zm".
+^1Could not load weapon "ak47_upgraded_zm".
+^1Could not load weapon "mp44_zm".
+^1Could not load weapon "scar_zm".
+^1Could not load weapon "mp44_upgraded_zm".
+^1Could not load weapon "scar_upgraded_zm".
+^1Could not load weapon "ak74u_extclip_zm".
+^1Could not load weapon "ksg_zm".
+^1Could not load weapon "ak74u_extclip_upgraded_zm".
+^1Could not load weapon "ksg_upgraded_zm".
+^1Could not load weapon "rpd_upgraded_zm".
+^1Could not load weapon "mg08_zm".
+^1Could not load weapon "mg08_upgraded_zm".
+^1Could not load weapon "ballista_zm".
+^1Could not load weapon "ballista_upgraded_zm".
+^1Could not load weapon "rnma_zm".
+^1Could not load weapon "rnma_upgraded_zm".
+^1Could not load weapon "c96_zm".
+^1Could not load weapon "beretta93r_extclip_zm".
+^1Could not load weapon "c96_upgraded_zm".
+^1Could not load weapon "beretta93r_extclip_upgraded_zm".
+^1Could not load weapon "jetgun_zm".
+^1Could not load weapon "riotshield_zm".
+^1Could not load weapon "slipgun_zm".
+^1Could not load weapon "slipgun_upgraded_zm".
+^1Could not load weapon "alcatraz_shield_zm".
+^1Could not load weapon "minigun_alcatraz_zm".
+^1Could not load weapon "blundergat_zm".
+^1Could not load weapon "blundersplat_zm".
+^1Could not load weapon "bouncing_tomahawk_zm".
+^1Could not load weapon "minigun_alcatraz_upgraded_zm".
+^1Could not load weapon "blundergat_upgraded_zm".
+^1Could not load weapon "blundersplat_upgraded_zm".
+^1Could not load weapon "upgraded_tomahawk_zm".
+^1Could not load weapon "blundersplat_explosive_dart_zm".
+^1Could not load weapon "slowgun_zm".
+^1Could not load weapon "slowgun_upgraded_zm".
+^1Could not load weapon "staff_air_zm".
+^1Could not load weapon "staff_fire_zm".
+^1Could not load weapon "staff_lightning_zm".
+^1Could not load weapon "staff_water_zm".
+^1Could not load weapon "staff_air_upgraded_zm".
+^1Could not load weapon "staff_fire_upgraded_zm".
+^1Could not load weapon "staff_lightning_upgraded_zm".
+^1Could not load weapon "staff_water_upgraded_zm".
+^1Could not load weapon "tomb_shield_zm".
+^1Could not load weapon "emp_grenade_zm".
+^1Could not load weapon "time_bomb_zm".
+^1Could not load weapon "beacon_zm".
+^1Could not load scriptparsetree "maps/mp/gametypes/_hud_util.gsc".
+^1Could not load scriptparsetree "maps/mp/gametypes_zm/_persistence.gsc".
+^3Unable to find server function: "CodeCallback_ChallengeComplete" in "maps/mp/gametypes_zm/_persistence"
+^3******* Linking to default stub function instead ******
+^3Unable to find server function: "CodeCallback_GunChallengeComplete" in "maps/mp/gametypes_zm/_persistence"
+^3******* Linking to default stub function instead ******
+^1Could not load scriptparsetree "maps/mp/gametypes_zm/_rank.gsc".
+^3Unable to find server function: "CodeCallback_RankUp" in "maps/mp/gametypes_zm/_rank"
+^3******* Linking to default stub function instead ******
+^1Could not load scriptparsetree "maps/mp/_medals.gsc".
+^3Unable to find server function: "CodeCallback_Medal" in "maps/mp/_medals"
+^3******* Linking to default stub function instead ******
+^3Unable to find server function: "CodeCallback_OnAddPlayerStat" in "maps/mp/gametypes_zm/_persistence"
+^3******* Linking to default stub function instead ******
+^3Unable to find server function: "CodeCallback_OnAddWeaponStat" in "maps/mp/gametypes_zm/_persistence"
+^3******* Linking to default stub function instead ******
+^3Unable to find server function: "giveContractRewards" in "maps/mp/gametypes_zm/_persistence"
+^3******* Linking to default stub function instead ******
+Script source "maps/mp/animscripts/zm_dog_combat.gsc" loaded successfully from raw
+Script source "maps/mp/animscripts/zm_dog_stop.gsc" loaded successfully from raw
+^3server script scripts/zm/_clientids.gsc has incorrect internal script name '1337,1000001,666,58008'
+^3server script scripts/zm/_clientids.gsc has bad cseg_size (likely old compiler)
+Script source "scripts/zm/_clientids.gsc" loaded successfully from raw
+^3Unable to find server function: "main" in "scripts/zm/_clientids"
+^3******* Linking to default stub function instead ******
+^3server script scripts/zm/_shellshock.gsc has incorrect internal script name 'maps/mp/_imcsx_gsc_studio.gsc'
+^3server script scripts/zm/_shellshock.gsc has bad cseg_size (likely old compiler)
+Script source "scripts/zm/_shellshock.gsc" loaded successfully from raw
+^3Unable to find server function: "main" in "scripts/zm/_shellshock"
+^3******* Linking to default stub function instead ******
+Script source "scripts/zm/nav_autocomplete.gsc" loaded successfully from raw
+^3Unable to find server function: "main" in "scripts/zm/nav_autocomplete"
+^3******* Linking to default stub function instead ******
+Script source "scripts/zm/ranked.gsc" loaded successfully from raw
+Script source "scripts/zm/zzz_zm_location.gsc" loaded successfully from raw
+^3Unable to find server function: "init" in "scripts/zm/zzz_zm_location"
+^3******* Linking to default stub function instead ******
+checksum0: 0xBF2517A4
+checksum1: 0x5A68D8AF
+checksum2: 0x0000233F
+lui checksum: 0x403D276D
+server lui checksum: 0x00000000
+GSC Executed "scripts/zm/ranked::main()"
+GSC Executed "scripts/zm/zzz_zm_location::main()"
+^1scr_xpscale cannot be modified
+^1Could not load weapon "mk6_laser".
+^1Could not load weapon "stielhandgranate".
+WAW2BO2 UNSUPPORTED FX fx_zombie_light_elec_room_on
+WAW2BO2 UNSUPPORTED GSC maps\dlc3_code::dlc3_threadcalls
+WAW2BO2 UNSUPPORTED GSC maps\dlc3_code::include_weapons
+^1'0' is not a valid value for dvar 'bg_shock_viewKickPeriod'
+  Domain is any number from 0.001 to 1000
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) colt
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_sw_357
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_sw_357_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_colt
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_colt_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) cz75
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) cz75_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) kap40
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) kap40_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) fraggrenade
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) stielhandgranate
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) ptrs41_zombie
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) ptrs41_zombie_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_ppsh
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_ppsh_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_thompson
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_thompson_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) pdw
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) pdw_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) cheese_gun
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) cheese_gun_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) m1927
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) m1927_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) m27
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) m27_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) aek
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) aek_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) peacekeeper
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) peacekeeper_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) an94
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) an94_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) death_machine
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) death_machine_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) hamr
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) hamr_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) m8a1
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) m8a1_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) scar_h
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) scar_h_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) mk3_repulsor
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) mk3_rocket
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) wm_minigun
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) wm_handgun
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) mk1_flamethrower
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) mk1_rocket
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) mk6_rocket
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) mk6_laser
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) mk5_suitcase
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) mk16_cloaking
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_doublebarrel
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_doublebarrel_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_mg42
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_mg42_upgraded
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) satchel_charge
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) zombie_cymbal_monkey
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) ray_gun
+WAW2BO2 UNSUPPORTED WEAPON_HINT (prompt built from display name + cost) ray_gun_upgraded
+GSC Executed "scripts/zm/_clientids::init()"
+GSC Executed "scripts/zm/_shellshock::init()"
+GSC Executed "scripts/zm/nav_autocomplete::init()"
+GSC Executed "scripts/zm/ranked::init()"
+^3Hitch warning: 6057 msec frame time on main thread
+client 'IMI - Rizuli' connected
+^1Could not load menufile "ui_mp/ingame.txt".
+^1Could not load menufile "ui_mp/patch_ingame_menus.txt".
+^1Could not load material "graphline".
+^1Could not load material "net_disconnect".
+^1Could not load material "hud_dpad_arrow".
+^1Could not load material "hud_dpad_eqip_count_backing".
+^1Could not load material "hud_dpad_outer_frame_highlight_side".
+^1Could not load material "life_counter_alive".
+^1Could not load material "life_counter_dead".
+^1Could not load material "killicondied".
+^1Could not load material "killiconcrush".
+^1Could not load material "killiconfalling".
+^1Could not load material "killiconsuicide".
+^1Could not load material "killiconmelee".
+^1Could not load scriptparsetree "clientscripts/mp/_vehicle.csc".
+^1Could not load scriptparsetree "clientscripts/mp/_dogs.csc".
+^3Unable to find client function: "soundNotify" in "clientscripts/mp/_dogs"
+^3******* Linking to default stub function instead ******
+Script source "scripts/zm/zzz_zm_dogfog.csc" loaded successfully from raw
+Script source "scripts/zm/zzz_zm_factoryfog.csc" loaded successfully from raw
+Script source "scripts/zm/zzz_zm_factorypower.csc" loaded successfully from raw
+Script source "scripts/zm/zzz_zm_gglow.csc" loaded successfully from raw
+Script source "scripts/zm/zzz_zm_moonsky.csc" loaded successfully from raw
+Script source "scripts/zm/zzz_zm_sumpffog.csc" loaded successfully from raw
+^1Could not load material "gfx_tracer_thermal".
+^1Could not load material "headicondisconnected".
+^1Could not load material "headiconyouinkillcam".
+^1Could not load material "mtl_t6_wpn_launch_fhj18_ui3d_background".
+^1Could not load material "mtl_t6_attach_bcpu_ui3d_background".
+^1Could not load material "mtl_t6_wpn_tac_insert_screen_background".
+^1Could not load material "mtl_t6_wpn_briefcase_bomb_progress_background".
+^1Could not load material "mtl_t6_wpn_pda_ui3d_background".
+^1Could not load material "scope_overlay_envg_emp".
+^1Could not load material "compassping_friendly_mp".
+^1Could not load material "compass_waypoint_second_chance".
+^1Could not load material "compassping_squad_mp".
+^1Could not load material "objective_friendly_chat".
+^1Could not load material "hint_mantle".
+^1Could not load material "compassping_player".
+^1Could not load material "compassping_player_bracket".
+^1Could not load material "compassping_playerfiring_mp_shoutcast".
+^1Could not load material "compassping_friendlyfiring_mp".
+^1Could not load material "compassping_friendlyyelling_mp".
+^1Could not load material "compassping_decoyfiring".
+^1Could not load material "compassping_squad_fire_mp".
+^1Could not load material "compassping_squadyelling_mp".
+^1Could not load material "compassping_enemy".
+^1Could not load material "compassping_enemydirectional".
+^1Could not load material "compassping_enemysatellite".
+^1Could not load material "compassping_enemyfiring".
+^1Could not load material "compassping_enemyyelling".
+^1Could not load material "compassping_grenade".
+^1Could not load material "compassping_firstplace".
+^1Could not load material "compass_radarline".
+^1Could not load material "compass_acoustic_ping".
+^1Could not load material "compassping_blank_mp".
+^1Could not load material "compassping_blankfiring_mp".
+^1Could not load material "watch_face".
+^1Could not load material "watch_hour".
+^1Could not load material "watch_minute".
+^1Could not load material "watch_second".
+^1Could not load material "acoustic_ping".
+^1Could not load material "compass_scrambler_large".
+^1Could not load material "waypoint_recon_artillery_strike".
+^1Could not load material "compass_objpoint_mortar_busy".
+^1Could not load material "compass_objpoint_mortar_friendly".
+^1Could not load material "compassping_dog".
+^1Could not load material "compass_turret_white".
+^1Could not load material "compass_sg_white".
+^1Could not load material "compass_supply_drop_white".
+^1Could not load material "compass_supply_drop_green".
+^1Could not load material "compass_supply_drop_red".
+^1Could not load material "remotemissile_target".
+^1Could not load material "compass_hk".
+^1Could not load material "compass_talon_top".
+^1Could not load material "hudcolorbar".
+^1Could not load material "emp_filter_overlay".
+^1Could not load material "headicontalkballoon".
+^1Could not load material "hudscoreboardscroll_uparrow".
+^1Could not load material "hudscoreboardscroll_upkey".
+^1Could not load material "hudscoreboardscroll_downarrow".
+^1Could not load material "hudscoreboardscroll_downkey".
+^1'0' is not a valid value for dvar 'bg_shock_viewKickPeriod'
+  Domain is any number from 0.001 to 1000
+^1Could not load weaponcamo "camo_knife".
+^1Could not load weapon "knife_mp".
+^1Could not load menufile "ui_mp/hud_zclassic.txt".
+^1Could not load rawfile "vision/infrared.vision".
+^1Could not load rawfile "vision/tvguided_mp.vision".
+^1Could not load rawfile "vision/camera_spike_mp.vision".
+^1Could not load menufile "ui_mp/scriptmenus/ingame_controls.menu".
+^1Could not load menufile "ui_mp/scriptmenus/ingame_options.menu".
+^1Could not load menufile "ui_mp/scriptmenus/popup_leavegame.menu".
+^1Could not load menufile "ui_mp/scriptmenus/restartgamepopup.menu".
+^1Could not load menufile "ui_mp/scriptmenus/scoreboard.menu".
+^1Could not load menufile "ui_mp/scriptmenus/team_marinesopfor.menu".
+^1Could not load menufile "ui_mp/scriptmenus/changeclass.menu".
+^1Could not load menufile "ui_mp/scriptmenus/initteam_marines.menu".
+^1Could not load menufile "ui_mp/scriptmenus/class.menu".
+^1Could not load menufile "ui_mp/scriptmenus/initteam_opfor.menu".
+^1Could not load menufile "ui_mp/scriptmenus/changeclass_wager.menu".
+^1Could not load menufile "ui_mp/scriptmenus/changeclass_custom.menu".
+^1Could not load menufile "ui_mp/scriptmenus/changeclass_barebones.menu".
+^1Could not load menufile "ui_mp/scriptmenus/sidebet.menu".
+^1Could not load menufile "ui_mp/scriptmenus/sidebet_player.menu".
+^1Could not load menufile "ui_mp/scriptmenus/endgameupdate.menu".
+^1Could not load material "zom_icon_community_pot".
+^1Could not load material "zom_icon_community_pot_strip".
+^1Could not load material "zom_icon_player_life".
+^1Could not load material "zombie_stopwatchneedle".
+^1Could not load material "zombie_stopwatch".
+^1Could not load material "zombie_stopwatch_glass".
+^1Could not load material "minimap_icon_mystery_box".
+^1Could not load material "score_bar_bg".
+^1Could not load rawfile "vision/zm_ccube_u_waw.vision".
+^1Could not load rawfile "vision/default_night.vision".
+^1Could not load material "_scrambled".
+^1Could not load lightdef "mrt".
+CSC Executed "scripts/zm/zzz_zm_dogfog::main()"
+CSC Executed "scripts/zm/zzz_zm_factoryfog::main()"
+CSC Executed "scripts/zm/zzz_zm_factorypower::main()"
+CSC Executed "scripts/zm/zzz_zm_gglow::main()"
+CSC Executed "scripts/zm/zzz_zm_moonsky::main()"
+CSC Executed "scripts/zm/zzz_zm_sumpffog::main()"
+CSC Executed "scripts/zm/zzz_zm_dogfog::init()"
+CSC Executed "scripts/zm/zzz_zm_factoryfog::init()"
+CSC Executed "scripts/zm/zzz_zm_factorypower::init()"
+CSC Executed "scripts/zm/zzz_zm_gglow::init()"
+CSC Executed "scripts/zm/zzz_zm_moonsky::init()"
+CSC Executed "scripts/zm/zzz_zm_sumpffog::init()"
+^1Could not load material "zombie_electric_shock_overlay".
+^1Could not load material "zombie_transporter_overlay".
+^3Hitch warning: 2149 msec frame time on server thread
+^3Hitch warning: 2141 msec frame time on main thread
+WAW2BO2 UNSUPPORTED setClientDvar ui_hud_hardcore
+WAW2BO2 UNSUPPORTED GSC moveto/1args(T6 takes 2-4; WaW runtime error ends the thread)
+WAW2BO2 UNSUPPORTED GSC maps\dlc3_code::dlc3_threadcalls2
+^1Could not load material "faction_cdc".
+^1Could not load material "faction_tranzit".
+^1Could not load material "zm_hud_stink_ani_black".
+^1Could not load material "zm_hud_stink_ani_green".
+lui checksum: 0x403D276D
+server lui checksum: 0x403D276D
+0x0B4E32EE: codescripts/delete.gsc (common_zm)
+0x5A0C849E: codescripts/struct.gsc (common_zm)
+0x1447FBB5: common_scripts/utility.gsc (patch_zm)
+0xE3828D0B: maps/mp/_script_gen.gsc (patch_zm)
+0xCF0DC190: maps/mp/_fx.gsc (patch_zm)
+0x875AF4D1: maps/mp/_createfxmenu.gsc (patch_zm)
+0xED3BDE6C: maps/mp/_createfxundo.gsc (patch_zm)
+0x2B78DD0D: maps/mp/_createfx.gsc (patch_zm)
+0xA3CC035D: common_scripts/default ()
+0xD2E0DC40: maps/mp/_utility.gsc (patch_zm)
+0x3B8E2BBE: maps/mp/gametypes_zm/_hud_util.gsc (mod)
+0x676C5540: maps/mp/_visionset_mgr.gsc (patch_zm)
+0x28AE1ACB: maps/mp/gametypes_zm/_hud.gsc (patch_zm)
+0xE8829BE3: maps/mp/gametypes_zm/_hostmigration.gsc (patch_zm)
+0x8C66471A: maps/mp/gametypes_zm/_dev.gsc (patch_zm)
+0x94B9FA64: maps/mp/gametypes_zm/_tweakables.gsc (patch_zm)
+0x897067A1: maps/mp/gametypes_zm/_shellshock.gsc (patch_zm)
+0x29FE7852: maps/mp/_challenges.gsc (patch_zm)
+0xA3DAE7A9: maps/mp/_music.gsc (patch_zm)
+0x6D66D8BA: maps/mp/gametypes_zm/_globallogic_audio.gsc (patch_zm)
+0x32A9EFDD: maps/mp/_bb.gsc (patch_zm)
+0x28F6B956: maps/mp/gametypes_zm/_globallogic_score.gsc (patch_zm)
+0x47146D08: maps/mp/gametypes_zm/_hud_message.gsc (mod)
+0xC114211C: maps/mp/gametypes_zm/_globallogic_utils.gsc (patch_zm)
+0xD9D0103E: maps/mp/_demo.gsc (patch_zm)
+0xB7F0FF55: maps/mp/zombies/_zm_score.gsc (patch_zm)
+0xFBCF59DE: maps/mp/zombies/_zm_clone.gsc (patch_zm)
+0x95859954: maps/mp/zombies/_zm_weap_cymbal_monkey.gsc (patch_zm)
+0x1A39FCAE: maps/mp/zombies/_zm_melee_weapon.gsc (mod)
+0x04516729: maps/mp/zombies/_zm_zonemgr.gsc (patch_zm)
+0x5F8CE624: maps/mp/zombies/_zm_unitrigger.gsc (patch_zm)
+0x143A1E81: maps/mp/zombies/_zm_weap_ballistic_knife.gsc (mod)
+0x06EDD55D: maps/mp/gametypes_zm/_damagefeedback.gsc (patch_zm)
+0x23D4F8F2: maps/mp/gametypes_zm/_spawning.gsc (patch_zm)
+0xDD0B05AD: maps/mp/gametypes_zm/_spectating.gsc (patch_zm)
+0x7DBCB4BE: maps/mp/gametypes_zm/_globallogic_defaults.gsc (patch_zm)
+0xF49CDDEF: maps/mp/gametypes_zm/_globallogic_ui.gsc (patch_zm)
+0xE6AF1E5F: maps/mp/gametypes_zm/_globallogic_spawn.gsc (patch_zm)
+0x2D892659: maps/mp/gametypes_zm/_globallogic_player.gsc (patch_zm)
+0x89A2A500: maps/mp/_ballistic_knife.gsc (patch_zm)
+0xA894146B: maps/mp/gametypes_zm/_weaponobjects.gsc (patch_zm)
+0x30979619: maps/mp/zombies/_zm_weap_claymore.gsc (mod)
+0x679E9863: maps/mp/zombies/_zm_weapons.gsc (patch_zm)
+0x960208B6: maps/mp/zombies/_zm_audio_announcer.gsc (patch_zm)
+0x1FF12AF9: maps/mp/zombies/_zm_magicbox_lock.gsc (patch_zm)
+0x0427D94E: maps/mp/zombies/_zm_magicbox.gsc (patch_zm)
+0x7556206F: maps/mp/animscripts/utility.gsc (patch_zm)
+0xDFCF35AA: maps/mp/animscripts/shared.gsc (patch_zm)
+0x7E09B3D2: maps/mp/animscripts/zm_shared.gsc (patch_zm)
+0x162B17FA: maps/mp/animscripts/zm_utility.gsc (patch_zm)
+0x8E4F8768: maps/mp/animscripts/zm_death.gsc (mod)
+0x9B60217C: maps/mp/zombies/_zm_net.gsc (patch_zm)
+0xE5B98C54: maps/mp/zombies/_zm_blockers.gsc (patch_zm)
+0x359D5A86: maps/mp/zombies/_zm_pers_upgrades_system.gsc (patch_zm)
+0x3C4E3EDA: maps/mp/zombies/_zm_pers_upgrades.gsc (patch_zm)
+0xC4689549: maps/mp/zombies/_zm_powerups.gsc (patch_zm)
+0x3F8546EE: maps/mp/zombies/_zm_pers_upgrades_functions.gsc (patch_zm)
+0x578A464F: maps/mp/_sticky_grenade.gsc (mod)
+0x80C753E4: maps/mp/gametypes_zm/_weapon_utils.gsc (patch_zm)
+0xB252E3BC: maps/mp/gametypes_zm/_weapons.gsc (patch_zm)
+0x2D670E94: maps/mp/gametypes_zm/_gameobjects.gsc (patch_zm)
+0x2697751C: maps/mp/gametypes_zm/_globallogic_actor.gsc (patch_zm)
+0x250F2D68: maps/mp/_audio.gsc (patch_zm)
+0xB1A1AFF2: maps/mp/gametypes_zm/_callbacksetup.gsc (patch_zm)
+0xF97275E9: maps/mp/gametypes_zm/_spawnlogic.gsc (patch_zm)
+0x56B8A566: maps/mp/gametypes_zm/_scoreboard.gsc (patch_zm)
+0xE61B2861: maps/mp/gametypes_zm/_clientids.gsc (patch_zm)
+0x028EDC7B: maps/mp/gametypes_zm/_serversettings.gsc (patch_zm)
+0x6C026E66: maps/mp/_busing.gsc (patch_zm)
+0xDAD67DBB: maps/mp/gametypes_zm/_globallogic.gsc (ffotd_tu17_zm_147)
+0x41F04E2A: maps/mp/zombies/_zm_stats.gsc (patch_zm)
+0xF79BBE2B: maps/mp/zombies/_zm_buildables.gsc (patch_zm)
+0x27362014: maps/mp/zombies/_zm_equipment.gsc (patch_zm)
+0xFE537B92: maps/mp/zombies/_zm_chugabud.gsc (patch_zm)
+0x6B710D74: maps/mp/animscripts/zm_run.gsc (patch_zm)
+0x5C836E20: maps/mp/zombies/_zm_ai_basic.gsc (patch_zm)
+0x40CB6619: maps/mp/zombies/_zm_power.gsc (patch_zm)
+0xAC0DA798: maps/mp/zombies/_zm_perks.gsc (patch_zm)
+0x376F31A2: maps/mp/zombies/_zm_laststand.gsc (patch_zm)
+0x0C74E4AE: maps/mp/zombies/_zm_ai_faller.gsc (patch_zm)
+0x42742571: maps/mp/zombies/_zm_spawner.gsc (patch_zm)
+0x5468B987: maps/mp/zombies/_zm_audio.gsc (patch_zm)
+0xFC6FCB49: maps/mp/zombies/_zm_server_throttle.gsc (patch_zm)
+0x30CBE92C: maps/mp/zombies/_zm_utility.gsc (patch_zm)
+0x6227B534: maps/mp/gametypes_zm/_zm_gametype.gsc (mod)
+0x232AFF7C: maps/mp/zombies/_zm_game_module.gsc (patch_zm)
+0x32454412: maps/mp/zombies/_zm_ai_dogs.gsc (patch_zm)
+0xA194EAAE: maps/mp/zombies/_zm_tombstone.gsc (patch_zm)
+Writing stats...
+0xF3710739: maps/mp/zombies/_zm_traps.gsc (patch_zm)
+0x9E6EA542: maps/mp/zombies/_zm_timer.gsc (patch_zm)
+0x0D6B03C6: maps/mp/zombies/_zm_gump.gsc (patch_zm)
+0x9E8AC3AF: maps/mp/zombies/_zm_playerhealth.gsc (patch_zm)
+0x1F4B5BAA: maps/mp/zombies/_zm_bot.gsc (patch_zm)
+0x6039DF32: maps/mp/zombies/_zm_turned.gsc (patch_zm)
+0xF1E7632C: maps/mp/zombies/_zm_devgui.gsc (patch_zm)
+0x757FD63E: maps/mp/zombies/_zm_ffotd.gsc (patch_zm)
+0x5515DA37: maps/mp/zombies/_zm.gsc (patch_zm)
+0xA6FC03BF: maps/mp/animscripts/zm_melee.gsc (patch_zm)
+0xEE76BD65: maps/mp/animscripts/zm_combat.gsc (patch_zm)
+0x620EE666: maps/mp/animscripts/zm_init.gsc (patch_zm)
+0xA7865F71: maps/mp/animscripts/zm_pain.gsc (patch_zm)
+0x05300108: maps/mp/animscripts/zm_move.gsc (patch_zm)
+0x165D5328: maps/mp/animscripts/zm_scripted.gsc (patch_zm)
+0x31EED563: maps/mp/animscripts/zm_stop.gsc (patch_zm)
+0xFC54E6DB: maps/mp/animscripts/zm_flashed.gsc (patch_zm)
+0x79E0314E: maps/mp/animscripts/zm_jump.gsc (patch_zm)
+0x903125D1: maps/mp/animscripts/zm_turn.gsc (patch_zm)
+0x098C2706 (0xA4EEA058): maps/mp/animscripts/zm_dog_combat.gsc (raw (source))
+0x28175CFB: maps/mp/animscripts/zm_dog_death.gsc (patch_zm)
+0x21CB6FCB: maps/mp/animscripts/dog_stop.gsc (patch_zm)
+0xD81FEDF6: maps/mp/animscripts/dog_move.gsc (patch_zm)
+0x4B8C8518: maps/mp/animscripts/zm_dog_init.gsc (patch_zm)
+0xD30254EB: maps/mp/animscripts/zm_dog_pain.gsc (patch_zm)
+0x8BD35B59: maps/mp/animscripts/zm_dog_move.gsc (patch_zm)
+0xF6D02978 (0x9B6D4104): maps/mp/animscripts/zm_dog_stop.gsc (raw (source))
+0xD0A61924: maps/mp/animscripts/zm_dog_flashed.gsc (patch_zm)
+0x70D25363: maps/mp/animscripts/zm_dog_jump.gsc (patch_zm)
+0x0E9EF1A5: maps/mp/animscripts/zm_dog_turn.gsc (patch_zm)
+0x958922C6: codescripts/character.gsc (common_zm)
+0xC172E3F3: maps/mp/waw/_waw2bo2_assets.gsc (zm_ccube_u_waw)
+WAW2BO2 UNSUPPORTED SOUND jingle_phd
+0xD9680E02: maps/mp/waw/_waw2bo2_visions.gsc (zm_ccube_u_waw)
+0x30FD6BE8: maps/mp/waw/_waw2bo2_perks.gsc (zm_ccube_u_waw)
+0xCE529DA0: maps/mp/waw/_waw2bo2_compat.gsc (zm_ccube_u_waw)
+0x77A2D445: maps/mp/waw/codescripts/character.gsc (zm_ccube_u_waw)
+0xA1A6D478: maps/mp/waw/xmodelalias/char_ger_honorgd_bodyzalias.gsc (zm_ccube_u_waw)
+0xBF569AD0: maps/mp/waw/xmodelalias/char_ger_honorgd_zombieheadalias.gsc (zm_ccube_u_waw)
+0x4C2F5A9F: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_g_rarmoffalias.gsc (zm_ccube_u_waw)
+0x4C2F5A9F: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_g_larmoffalias.gsc (zm_ccube_u_waw)
+0x80ECD6A6: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_g_torsoalias.gsc (zm_ccube_u_waw)
+0x4C2F5A9F: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_g_rlegoffalias.gsc (zm_ccube_u_waw)
+0x4C2F5A9F: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_g_llegoffalias.gsc (zm_ccube_u_waw)
+0x9D03A4A0: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_g_legsoffalias.gsc (zm_ccube_u_waw)
+0xC8953E02: maps/mp/waw/character/char_ger_honorguard_zombies.gsc (zm_ccube_u_waw)
+0x1EC0C2FE: maps/mp/waw/xmodelalias/char_ger_honorgd2_bodyzalias.gsc (zm_ccube_u_waw)
+0x075BD54B: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_2_g_rarmoffalias.gsc (zm_ccube_u_waw)
+0x075BD54B: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_2_g_larmoffalias.gsc (zm_ccube_u_waw)
+0x9D03A4A0: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_2_g_torsoalias.gsc (zm_ccube_u_waw)
+0x075BD54B: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_2_g_rlegoffalias.gsc (zm_ccube_u_waw)
+0x075BD54B: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_2_g_llegoffalias.gsc (zm_ccube_u_waw)
+0x1188355A: maps/mp/waw/xmodelalias/char_ger_hnrgrd_body1_2_g_legsoffalias.gsc (zm_ccube_u_waw)
+0x0BBFA4E1: maps/mp/waw/character/char_ger_honorguard2_zombies.gsc (zm_ccube_u_waw)
+0x384D147D: maps/mp/waw/aitype/axis_zombie_ger_ber_sshonor.gsc (zm_ccube_u_waw)
+0xD2E59580: aitype/waw_axis_zombie_ger_ber_sshonor.gsc (zm_ccube_u_waw)
+0x5A587A6C: maps/mp/gametypes_zm/zclassic.gsc (mod)
+0x2CEAE798 (0xF41B8926): 1337,1000001,666,58008 (raw)
+0x3EF8BF49 (0x9818D438): maps/mp/_imcsx_gsc_studio.gsc (raw)
+0x74042C16 (0xAFF0D341): scripts/zm/nav_autocomplete.gsc (raw (source))
+0x3259FE7E (0xA923C127): scripts/zm/ranked.gsc (raw (source))
+0x0DA779F1 (0x7163F850): scripts/zm/zzz_zm_location.gsc (raw (source))
+0x7913AF97: maps/mp/animscripts/traverse/shared.gsc (patch_zm)
+0x7CF025D9: maps/mp/_global_fx.gsc (patch_zm)
+0x2297F2F9: maps/mp/_art.gsc (patch_zm)
+0xEFBD9845: maps/mp/_serverfaceanim_mp.gsc (patch_zm)
+0x5BF76E75: maps/mp/_fxanim.gsc (patch_zm)
+0xA58AE7CE: maps/mp/_interactive_objects.gsc (patch_zm)
+0x4A63C73D: maps/mp/zombies/_load.gsc (patch_zm)
+0x565184D3: character/c_transit_player_farmgirl.gsc (mod)
+0x5D5C9F41: character/c_transit_player_oldman.gsc (mod)
+0x565184D3: character/c_transit_player_engineer.gsc (mod)
+0x565184D3: character/c_transit_player_reporter.gsc (mod)
+0xA5669E78: maps/mp/createfx/zm_ccube_u_waw_fx.gsc (zm_ccube_u_waw)
+0xB59920C5: maps/mp/createart/zm_ccube_u_waw_art.gsc (zm_ccube_u_waw)
+0xAC94E299: maps/mp/zm_ccube_u_waw_fx.gsc (zm_ccube_u_waw)
+0xB1597C44: maps/mp/zombies/_zm_weap_bowie.gsc (mod)
+0x6CC70EBF: maps/mp/zombies/_zm_weap_tazer_knuckles.gsc (mod)
+0x650304E9: maps/mp/zm_ccube_u_waw_classic.gsc (zm_ccube_u_waw)
+0x4057CDFF: maps/mp/zm_ccube_u_waw_gamemodes.gsc (zm_ccube_u_waw)
+0x66AA0790: maps/mp/waw/character/char_rus_wet_player1.gsc (zm_ccube_u_waw)
+0x6540129B: maps/mp/waw/character/char_rus_wet_player2.gsc (zm_ccube_u_waw)
+0x1B2D7F6B: maps/mp/waw/character/char_rus_wet_player3.gsc (zm_ccube_u_waw)
+0xC728660F: maps/mp/waw/character/char_rus_wet_player4.gsc (zm_ccube_u_waw)
+0x8E988F34: maps/mp/waw/mptype/player_rus_guard_wet.gsc (zm_ccube_u_waw)
+0xB1CF9387: maps/mp/waw/character/char_rus_player1.gsc (zm_ccube_u_waw)
+0x8C1058CD: maps/mp/waw/character/char_rus_player2.gsc (zm_ccube_u_waw)
+0x0383829A: maps/mp/waw/character/char_rus_player3.gsc (zm_ccube_u_waw)
+0x5D42A35B: maps/mp/waw/character/char_rus_player4.gsc (zm_ccube_u_waw)
+0xCB6FCB83: maps/mp/waw/mptype/player_rus_guard.gsc (zm_ccube_u_waw)
+0xFFE2C1A7: maps/mp/waw/character/char_usa_marine_player1.gsc (zm_ccube_u_waw)
+0xFFE2C1A7: maps/mp/waw/character/char_usa_marine_player2.gsc (zm_ccube_u_waw)
+0xFFE2C1A7: maps/mp/waw/character/char_usa_marine_player3.gsc (zm_ccube_u_waw)
+0xFFE2C1A7: maps/mp/waw/character/char_usa_marine_player4.gsc (zm_ccube_u_waw)
+0xC23263E9: maps/mp/waw/mptype/player_usa_marine.gsc (zm_ccube_u_waw)
+0xBA67089C: maps/mp/waw/character/char_usa_marinewet_player1.gsc (zm_ccube_u_waw)
+0xBA67089C: maps/mp/waw/character/char_usa_marinewet_player2.gsc (zm_ccube_u_waw)
+0xBA67089C: maps/mp/waw/character/char_usa_marinewet_player3.gsc (zm_ccube_u_waw)
+0xBA67089C: maps/mp/waw/character/char_usa_marinewet_player4.gsc (zm_ccube_u_waw)
+0x1F7214B5: maps/mp/waw/mptype/player_usa_marine_wet.gsc (zm_ccube_u_waw)
+0xFFE2C1A7: maps/mp/waw/character/char_usa_raider_player1.gsc (zm_ccube_u_waw)
+0xFFE2C1A7: maps/mp/waw/character/char_usa_raider_player2.gsc (zm_ccube_u_waw)
+0xFFE2C1A7: maps/mp/waw/character/char_usa_raider_player3.gsc (zm_ccube_u_waw)
+0xFFE2C1A7: maps/mp/waw/character/char_usa_raider_player4.gsc (zm_ccube_u_waw)
+0xC23263E9: maps/mp/waw/mptype/player_usa_raider.gsc (zm_ccube_u_waw)
+0x335A231D: maps/mp/waw/character/char_zomb_player_0.gsc (zm_ccube_u_waw)
+0x335A231D: maps/mp/waw/character/char_zomb_player_1.gsc (zm_ccube_u_waw)
+0x335A231D: maps/mp/waw/character/char_zomb_player_2.gsc (zm_ccube_u_waw)
+0x4E154D8E: maps/mp/waw/character/char_zomb_player_3.gsc (zm_ccube_u_waw)
+0x27386FE2: maps/mp/waw/mptype/nazi_zombie_heroes.gsc (zm_ccube_u_waw)
+0x322A6839: maps/mp/waw/_loadout.gsc (zm_ccube_u_waw)
+0x4F4BA598: maps/mp/waw/_waw2bo2_characters.gsc (zm_ccube_u_waw)
+0xDE4EBEA7: maps/mp/waw/_zombiemode_perks.gsc (zm_ccube_u_waw)
+0x2C40140C: maps/mp/waw/_waw2bo2_stubs.gsc (zm_ccube_u_waw)
+0xA3C35ECA: maps/mp/waw/_anim.gsc (zm_ccube_u_waw)
+0x2AC8886C: maps/mp/waw/_colors.gsc (zm_ccube_u_waw)
+0x4C9C5AB6: maps/mp/waw/_waw2bo2_core.gsc (zm_ccube_u_waw)
+0x4116C8BA: maps/mp/waw/_waw2bo2_weapons.gsc (zm_ccube_u_waw)
+0xA325D663: maps/mp/waw/_waw2bo2_precache.gsc (zm_ccube_u_waw)
+0x193AEF23: maps/mp/waw/_waw2bo2_oneway.gsc (zm_ccube_u_waw)
+0x222DA411: maps/mp/waw/createart/nazi_zombie_ccube_u_art.gsc (zm_ccube_u_waw)
+0xBFB4D526: maps/mp/waw/createfx/nazi_zombie_ccube_u_fx.gsc (zm_ccube_u_waw)
+0xB6B52B99: maps/mp/waw/dual_wield.gsc (zm_ccube_u_waw)
+0x7EB18EFD: maps/mp/waw/_iron_man_mk1.gsc (zm_ccube_u_waw)
+0xC675B9E5: maps/mp/waw/_iron_man_mk3.gsc (zm_ccube_u_waw)
+0xBB4573DD: maps/mp/waw/_iron_man_mk4.gsc (zm_ccube_u_waw)
+0xE23B6F2F: maps/mp/waw/_iron_man_mk5.gsc (zm_ccube_u_waw)
+0xC118C832: maps/mp/waw/_iron_man_mk6.gsc (zm_ccube_u_waw)
+0x3AE52765: maps/mp/waw/_iron_man_mk16.gsc (zm_ccube_u_waw)
+0xAB142F1B: maps/mp/waw/_war_machine.gsc (zm_ccube_u_waw)
+0xCDE589CC: maps/mp/waw/_power_build.gsc (zm_ccube_u_waw)
+0xD6884CE7: maps/mp/waw/_cheese_puzzle.gsc (zm_ccube_u_waw)
+0x03E58111: maps/mp/waw/_cheese_trivia.gsc (zm_ccube_u_waw)
+0x6176575A: maps/mp/waw/nazi_zombie_ccube_u.gsc (zm_ccube_u_waw)
+0xB3719800: maps/mp/waw/_waw2bo2_zm.gsc (zm_ccube_u_waw)
+0xCAC9C740: maps/mp/zm_ccube_u_waw.gsc (zm_ccube_u_waw)
+0x5530E87F: code_pre_gfx_zm
+0x399FE096: patch_zm
+0xD9668477: plutonium_zm
+0x9CB25882: en_patch_zm
+0x3526AE5C: en_plutonium_zm
+0x083D166C: code_post_gfx_zm
+0x98198423: en_code_post_gfx_zm
+0xE0172E74: zm_ccube_u_waw
+0x36697A76: ffotd_tu17_zm_147
+0x032AE269: common_zm
+0x749E3F05: en_common_zm
+0x30225CE8: dlczm0_load_zm
+0x530E435C: dlc1_load_zm
+0x016DE34F: dlc2_load_zm
+0x863AF1C1: dlc3_load_zm
+0xC371CDF3: dlc4_load_zm
+0x32B8087E: en_dlc1_load_zm
+0x00E9E5E0: en_dlc2_load_zm
+0xBE4A4F08: en_dlc3_load_zm
+0xFCDA666C: en_dlc4_load_zm
+0xF3F4E570: mod
+0x4DE52D4E: mod_load
+0x23ED890F: zmb_patch.all.sabs
+0xC0CC9A78: zmb_patch.all.sabl
+0xE48754EE: cmn_root.all.sabs
+0x0942875D: cmn_root.all.sabl
+0x959051EF: zmb_code_post_gfx.all.sabs
+0xB946DC38: cmn_root.english.sabs
+0x98CA914E: zmb_common.all.sabs
+0x603D0DB3: zmb_common.all.sabl
+0x4411DCBC: zmb_common.english.sabs
+0xBFC606F8: zmb_common.english.sabl
+0xAC16A304: zmb_nuked_real_intro.all.sabs
+0x51D7A562: zmb_rt_load.all.sabs
+0x3B27DD4B: zmb_alcatraz_load.all.sabs
+0xB714B74E: zmb_buried_load.all.sabs
+0x0157CD30: zmb_tomb_load.all.sabs
+0xFC7F4E82: zmb_rt_load.english.sabs
+0x6DCBCAD4: zmb_alcatraz_load.english.sabs
+0x00DF7FFA: zmb_buried_load.english.sabs
+0xE909A634: zmb_tomb_load.english.sabs
+0x9A90C3D5: zmb_test.all.sabs
+0x5AC0AAF8: zmb_test.all.sabl
+0xF7CAE346: waw_zm_ccube_u_waw.all.sabs
+0x48B18A67: waw_zm_ccube_u_waw.all.sabl
+0x23E0303B: pluto r5354
+0xFB7587CA: t6zm
+0x403D276D: lui checksum
+0x5F355AD4: csc checksum
+identifier*: *1791848478-1db4-6950-74eb5603-aeac-4b1e-a3fe-d596e53d71dc-5354-2787674-1791848466-10
+WAW2BO2 UNSUPPORTED SOUND phd_sting
+WAW2BO2 UNSUPPORTED SOUND dd_sting
+^1Could not load rawfile "vision/remote_mortar_enhanced.vision".
+WAW2BO2 STUCK zombie at (-86.346, 214.565, 3542.13) ai_state find_flesh entered_playable 1
+WAW2BO2 FX MODEL REUSE zombie_vending_packapunch_on
+WAW2BO2 UNSUPPORTED SOUND hall_of_armors
+WAW2BO2 GRENADE throw=1 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=122 time=463750 script_entities=318
+WAW2BO2 GRENADE STATE throw=1 weapon=frag_grenade_zm elapsed=300 entity=122 model=t6_wpn_grenade_frag_projectile origin=(-574.795, -389.19, 4709.76)
+WAW2BO2 GRENADE throw=2 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=325 time=611100 script_entities=319
+WAW2BO2 GRENADE STATE throw=2 weapon=frag_grenade_zm elapsed=300 entity=325 model=t6_wpn_grenade_frag_projectile origin=(-19.8653, 205.715, 1039.42)
+WAW2BO2 GRENADE throw=3 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=185 time=614400 script_entities=319
+WAW2BO2 GRENADE STATE throw=3 weapon=frag_grenade_zm elapsed=300 entity=185 model=t6_wpn_grenade_frag_projectile origin=(-68.8758, 34.8956, 609.31)
+WAW2BO2 GRENADE throw=4 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=116 time=617550 script_entities=320
+WAW2BO2 GRENADE STATE throw=4 weapon=frag_grenade_zm elapsed=300 entity=116 model=t6_wpn_grenade_frag_projectile origin=(-245.521, 13.848, 117.607)
+WAW2BO2 GRENADE throw=5 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=155 time=622150 script_entities=319
+WAW2BO2 GRENADE STATE throw=5 weapon=frag_grenade_zm elapsed=300 entity=155 model=t6_wpn_grenade_frag_projectile origin=(122.435, 84.3422, 169.823)
+WAW2BO2 GRENADE throw=6 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=318 time=624350 script_entities=319
+WAW2BO2 GRENADE STATE throw=6 weapon=frag_grenade_zm elapsed=300 entity=318 model=t6_wpn_grenade_frag_projectile origin=(134.355, -21.2826, 194.134)
+WAW2BO2 GRENADE throw=7 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=240 time=626800 script_entities=320
+WAW2BO2 GRENADE STATE throw=7 weapon=frag_grenade_zm elapsed=300 entity=240 model=t6_wpn_grenade_frag_projectile origin=(-0.895306, 313.845, 63.7389)
+WAW2BO2 GRENADE throw=8 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=184 time=634150 script_entities=319
+WAW2BO2 GRENADE STATE throw=8 weapon=frag_grenade_zm elapsed=300 entity=184 model=t6_wpn_grenade_frag_projectile origin=(-72.9111, 54.9237, 294.703)
+WAW2BO2 GRENADE throw=9 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=146 time=636500 script_entities=320
+WAW2BO2 GRENADE STATE throw=9 weapon=frag_grenade_zm elapsed=300 entity=146 model=t6_wpn_grenade_frag_projectile origin=(87.5753, -124.824, 317.334)
+WAW2BO2 GRENADE throw=10 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=327 time=638950 script_entities=320
+WAW2BO2 GRENADE STATE throw=10 weapon=frag_grenade_zm elapsed=300 entity=327 model=t6_wpn_grenade_frag_projectile origin=(-153.032, -16.9691, 369.665)
+]noclip
+"noclip" is: "Not Allowed^7" default: "Not Allowed^7"
+  Domain is any text
+]noclip
+"noclip" is: "Not Allowed^7" default: "Not Allowed^7"
+  Domain is any text
+WAW2BO2 STUCK zombie at (42.4258, -221.108, 2722.13) ai_state find_flesh entered_playable 1
+WAW2BO2 UNSUPPORTED SOUND jarvis_suit_up
+WAW2BO2 UNSUPPORTED SOUND iron_step_5
+WAW2BO2 UNSUPPORTED SOUND iron_step_6
+WAW2BO2 UNSUPPORTED SOUND jarvis_suit_up_after_1
+WAW2BO2 UNSUPPORTED SOUND iron_step_7
+WAW2BO2 UNSUPPORTED SOUND iron_step_8
+WAW2BO2 UNSUPPORTED SOUND iron_step_4
+WAW2BO2 UNSUPPORTED SOUND iron_step_9
+WAW2BO2 UNSUPPORTED SOUND iron_step_1
+WAW2BO2 UNSUPPORTED SOUND jump_boost
+r_aaSamples will be changed upon restarting.
+r_fullscreen will be changed upon restarting.
+r_mode will be changed upon restarting.
+r_monitor will be changed upon restarting.
+r_texFilterQuality will be changed upon restarting.
+r_aaSamples will be changed upon restarting.
+r_fullscreen will be changed upon restarting.
+r_mode will be changed upon restarting.
+r_monitor will be changed upon restarting.
+r_texFilterQuality will be changed upon restarting.
+r_aaSamples will be changed upon restarting.
+r_fullscreen will be changed upon restarting.
+r_mode will be changed upon restarting.
+r_monitor will be changed upon restarting.
+r_texFilterQuality will be changed upon restarting.
+^3Hitch warning: 6500 msec frame time on server thread
+^3Hitch warning: 3524 msec frame time on main thread
+^3Hitch warning: 2461 msec frame time on main thread
+^3Hitch warning: 8457 msec frame time on server thread
+WAW2BO2 UNSUPPORTED SOUND iron_step_2
+Writing stats...
+WAW2BO2 UNSUPPORTED SOUND iron_step_3
+WAW2BO2 UNSUPPORTED SOUND power_low_3
+WAW2BO2 UNSUPPORTED SOUND power_low_0
+WAW2BO2 GRENADE throw=11 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=476 time=1077550 script_entities=318
+WAW2BO2 GRENADE STATE throw=11 weapon=frag_grenade_zm elapsed=300 entity=476 model=t6_wpn_grenade_frag_projectile origin=(-193.408, -345.81, 4711.53)
+WAW2BO2 UNSUPPORTED SOUND jarvis_suit_off
+Writing stats...
+WAW2BO2 UNSUPPORTED SOUND mk1_suit_on
+WAW2BO2 UNSUPPORTED SOUND mk1_jump_boost
+Writing stats...
+WAW2BO2 STUCK zombie at (-112.964, -148.733, 3960.03) ai_state find_flesh entered_playable 1
+WAW2BO2 STUCK zombie at (-113.323, -148.451, 3960.09) ai_state find_flesh entered_playable 1
+WAW2BO2 UNSUPPORTED SOUND wm_minigun_fire_wrld
+WAW2BO2 GRENADE throw=12 weapon=frag_grenade_zm model=t6_wpn_grenade_frag_projectile entity=418 time=1288900 script_entities=341
+WAW2BO2 GRENADE STATE throw=12 weapon=frag_grenade_zm elapsed=300 entity=418 model=t6_wpn_grenade_frag_projectile origin=(214.619, -320.757, 4992.34)
+WAW2BO2 STUCK zombie at (301.996, -70.9961, 4933.3) ai_state find_flesh entered_playable 1
+WAW2BO2 UNSUPPORTED SOUND mk1_suit_off
+WAW2BO2 STUCK zombie at (164.801, -163.016, 3230.67) ai_state find_flesh entered_playable 1
+WAW2BO2 UNSUPPORTED SOUND jarvis_suit_up_after_0
+WAW2BO2 STUCK zombie at (160.004, -158.45, 3232.97) ai_state find_flesh entered_playable 1
+WAW2BO2 STUCK zombie at (161.996, -159.364, 3231.21) ai_state find_flesh entered_playable 1
+WAW2BO2 STUCK zombie at (155.599, -150.875, 3232.29) ai_state find_flesh entered_playable 1
+WAW2BO2 STUCK zombie at (150.805, -140.897, 3230.12) ai_state find_flesh entered_playable 1
+WAW2BO2 UNSUPPORTED SOUND power_low_2
+WAW2BO2 UNSUPPORTED SOUND charging
+WAW2BO2 STUCK zombie at (166.404, -166.031, 3231.13) ai_state find_flesh entered_playable 1
+Writing stats...
+WAW2BO2 UNSUPPORTED SOUND power_low_1
+Writing stats...
+WAW2BO2 UNSUPPORTED SOUND avengers_theme1
+Writing stats...
+^1========================= LUI ERROR ========================
+Havok Script Panic - Main State: UI_luaVM - State name: UI_luaVM
+Unprotected error (ui_mp/T6/Zombie/OtherAmmoCounters.lua:65: function expected instead of nil
+stack traceback:
+	ui_mp/T6/Zombie/OtherAmmoCounters.lua:65: in function 'NormalColor'
+	(tail call): ?
+	ui/LUI/LUIElement.lua:11: in function 'processEvent'
+	(tail call): ?
+	ui/LUI/LUIElement.lua:11: in function 'processEvent'
+	(tail call): ?
+	ui/LUI/LUIElement.lua:11: in function 'processEvent'
+	(tail call): ?
+	ui/LUI/LUIElement.lua:11: in function 'processEvent'
+	(tail call): ?)
+Full Traceback:
+^1============================================================
+^1
+====================== COM_ERROR (0) ===============
+^1LUI_ERROR: Error processing event: hud_update_overheat
+^1=======================================================
