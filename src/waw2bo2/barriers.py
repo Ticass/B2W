@@ -54,28 +54,34 @@ class Floor:
     """Highest walkable collision at or below a height: world triangles and
     solid world brushes of the WaW clip map."""
 
+    # Plain Python: the packaged converter ships no numpy (the nightly's
+    # Windows package tests failed on its import), and a map asks only a few
+    # dozen floor heights.
     def __init__(self, clip):
-        import numpy as np
-        self.np = np
-        tris = np.asarray(clip.vertices, dtype=np.float64)[np.asarray(clip.indices, dtype=np.int64)]
-        self.tris = tris.reshape(-1, 3, 3)
-        self.lo, self.hi = self.tris.min(axis=1), self.tris.max(axis=1)
+        v, ix = clip.vertices, clip.indices
+        self.tris = []
+        for k in range(0, len(ix) - 2, 3):
+            a, b, c = (tuple(float(n) for n in v[i]) for i in ix[k:k + 3])
+            self.tris.append((min(a[0], b[0], c[0]), max(a[0], b[0], c[0]),
+                              min(a[1], b[1], c[1]), max(a[1], b[1], c[1]), a, b, c))
         owned = {b for model in clip.submodels[1:] for b in model.brushes}
         self.brushes = [b for i, b in enumerate(clip.brushes) if i not in owned and b.contents & 1]
 
     def below(self, x: float, y: float, ceiling: float) -> float | None:
-        np, t = self.np, self.tris
-        hit = (self.lo[:, 0] <= x) & (x <= self.hi[:, 0]) & (self.lo[:, 1] <= y) & (y <= self.hi[:, 1])
-        a, b, c = t[hit, 0], t[hit, 1], t[hit, 2]
-        det = (b[:, 1] - c[:, 1]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 1] - c[:, 1])
-        ok = np.abs(det) > 1e-9
-        a, b, c, det = a[ok], b[ok], c[ok], det[ok]
-        l1 = ((b[:, 1] - c[:, 1]) * (x - c[:, 0]) + (c[:, 0] - b[:, 0]) * (y - c[:, 1])) / det
-        l2 = ((c[:, 1] - a[:, 1]) * (x - c[:, 0]) + (a[:, 0] - c[:, 0]) * (y - c[:, 1])) / det
-        l3 = 1 - l1 - l2
-        z = l1 * a[:, 2] + l2 * b[:, 2] + l3 * c[:, 2]
-        z = z[(np.minimum(np.minimum(l1, l2), l3) >= -1e-6) & (z <= ceiling)]
-        heights = [float(z.max())] if z.size else []
+        best = None
+        for x0, x1, y0, y1, a, b, c in self.tris:
+            if not (x0 <= x <= x1 and y0 <= y <= y1):
+                continue
+            det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+            if abs(det) <= 1e-9:
+                continue
+            l1 = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / det
+            l2 = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / det
+            l3 = 1 - l1 - l2
+            z = l1 * a[2] + l2 * b[2] + l3 * c[2]
+            if min(l1, l2, l3) >= -1e-6 and z <= ceiling and (best is None or z > best):
+                best = z
+        heights = [best] if best is not None else []
         for brush in self.brushes:
             if not (brush.mins[0] <= x <= brush.maxs[0] and brush.mins[1] <= y <= brush.maxs[1]):
                 continue
