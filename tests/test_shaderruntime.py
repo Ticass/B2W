@@ -365,6 +365,9 @@ class DisplayScaleTests(unittest.TestCase):
         self.assertTrue(runtime.scales_output(blend))
         self.assertFalse(runtime.scales_output(multiply))
         self.assertFalse(runtime.scales_output(double_multiply))
+        # screen blend (Verruckt godrays): halved is exact over dark backgrounds
+        screen = {'blendOpRgb': 'add', 'srcBlendRgb': 'invdestcolor', 'dstBlendRgb': 'one'}
+        self.assertTrue(runtime.scales_output(screen))
         material = {'stateBitsEntry': [-1] * 4 + [0], 'stateBits': [blend]}
         self.assertEqual(runtime._output_scale(material, 'wc_unlit', 2), {'output_rgb_scale': 0.5})
         self.assertEqual(runtime._output_scale(material, '2d', 2), {})

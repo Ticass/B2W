@@ -211,8 +211,17 @@ def hdr_display(row):
 
 def scales_output(state):
     """Halving the source colour is exact unless the blend uses it as a
-    multiplier of the destination (multiply / 2x multiply decals)."""
+    multiplier of the destination (multiply / 2x multiply decals).
+
+    A screen blend (invdestcolor, one: WaW's wc_unlit_falloff_add godrays)
+    shows S(1-D)+D in WaW. With the buffer at half the display (b = D/2) no
+    fixed factors reproduce it (that needs 1-2b); the halved source shows
+    S(1-D/2)+D, exact on dark backgrounds and at most S/2 over white, where
+    the unhalved one showed S(2-D)+D: Verruckt's courtyard shafts drew as
+    solid boxes."""
     if not state or state.get('blendOpRgb', 'disabled') == 'disabled':
+        return True
+    if state.get('srcBlendRgb') == 'invdestcolor' and state.get('dstBlendRgb') == 'one':
         return True
     return (state.get('srcBlendRgb') not in ('destcolor', 'invdestcolor')
             and state.get('dstBlendRgb') not in ('srccolor', 'invsrccolor'))

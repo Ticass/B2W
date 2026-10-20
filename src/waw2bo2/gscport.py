@@ -50,6 +50,7 @@ ONEWAY = "maps\\mp\\waw\\_waw2bo2_oneway"
 WATER_BULLETS = "maps\\mp\\waw\\_waw2bo2_water_bullets"
 ZOMBIEMODE = "maps\\_zombiemode"
 PERKS = "maps\\_zombiemode_perks"
+GAMESKILL = "maps\\_gameskill"
 # the owned copy of BO2's _zm (stage_bo2_perk_support)
 OWNED_ZM = "maps\\mp\\waw\\_waw2bo2_zm"
 CORE_INCLUDES = ("common_scripts\\utility", "maps\\mp\\_utility", "maps\\mp\\zombies\\_zm_utility")
@@ -1990,6 +1991,48 @@ class Translator:
             self.report.rewrites["WaW check_for_jugg_perk regen -> started after _zm::init"] += 1
         return calls
 
+    def player_damage_scale_hook(self) -> list[str]:
+        """WaW's player_damageMultiplier, which the engine applies to every
+        non-melee hit on a player (scripted DoDamage and radiusdamage too: stock
+        _zombiemode divides a DoDamage by it to land an exact 60). _gameskill
+        sets it once all players spawned: 100 / (playerDifficultyHealth at the
+        "normal" starting fraction, g_gameskill 1, * coopPlayerDifficultyHealth
+        for the player count). Unported, Verruckt's electric trap (50 per touch)
+        hit three times as hard and downed a Juggernog player at once."""
+        text = self.sources.text.get(GAMESKILL + ".gsc", "")
+        if not text:
+            return []   # no WaW framework skill script (synthetic sources)
+        start = re.search(r'difficulty_starting_frac\s*\[\s*"normal"\s*\]\s*=\s*([\d.]+)\s*;', text)
+        points = sorted((float(f), float(v)) for f, v in re.findall(
+            r'add_fractional_data_point\(\s*"playerDifficultyHealth"\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)', text))
+        coop = dict((int(i), float(v)) for i, v in re.findall(
+            r'level\.difficultySettings\s*\[\s*"coopPlayerDifficultyHealth"\s*\]\s*\[\s*"normal"\s*\]\s*'
+            r'\[\s*(\d)\s*\]\s*=\s*([\d.]+)\s*;', text))
+        if not start or len(points) < 2 or sorted(coop) != [0, 1, 2, 3]:
+            self.report.errors.append(f"{GAMESKILL}: playerDifficultyHealth data not found; "
+                                      "player damage keeps BO2's scale (1)")
+            return []
+        frac = float(start[1])
+        health = points[-1][1]
+        for (f0, v0), (f1, v1) in zip(points, points[1:]):
+            if f0 <= frac <= f1:
+                health = v0 + (v1 - v0) * ((frac - f0) / (f1 - f0) if f1 > f0 else 0)
+                break
+        scales = [100 / (health * coop[i]) for i in range(4)]
+        body = "".join(f"    scales[{i}] = {s!r};\n" for i, s in enumerate(scales))
+        self.level_state_parts.append(
+            f"\n// maps\\_gameskill: player_damageMultiplier (normal: playerDifficultyHealth {health:g}, "
+            f"coop scalars {[coop[i] for i in range(4)]})\n"
+            "waw2bo2_player_damage_scale()\n{\n"
+            '    common_scripts\\utility::flag_wait( "initial_players_connected" );\n'
+            f"    scales = [];\n{body}"
+            "    count = get_players().size;\n"
+            "    if ( count < 1 )\n        count = 1;\n"
+            "    if ( count > 4 )\n        count = 4;\n"
+            "    level.waw2bo2_player_damage_scale = scales[count - 1];\n}\n")
+        self.report.rewrites["WaW player_damageMultiplier -> scaled non-melee player damage"] += 1
+        return [f"level thread {CORE}::waw2bo2_player_damage_scale();"]
+
     def dog_rounds_hook(self) -> str | None:
         """WaW _zombiemode::main starts dog rounds through _zombiemode_dogs::init,
         which returns unless the map set level.dogs_enabled. BO2's _zm::init does
@@ -2497,6 +2540,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.extract_custom_intermission()
     tr.extract_end_game()
     tr.post_calls += tr.juggernog_hooks()
+    tr.post_calls += tr.player_damage_scale_hook()
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")
@@ -2523,6 +2567,9 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         tr.want(zombiebehavior.SPEED_STATE)
         speed_state_function = ported_path(zombiebehavior.SPEED_STATE)
         report.rewrites['source WaW speed round inputs -> shared runtime'] += 1
+    last_zombie = zombiebehavior.source_last_zombie(sources, API['zombie_runtime'])
+    report.rewrites['source last-zombie speed rule -> native zombie_speed_up' if last_zombie
+                    else 'no source last-zombie speed rule: native zombie_speed_up disabled'] += 1
     selection_source = zombiebehavior.source_selection(sources, API['zombie_runtime'])
     chase_source = zombiebehavior.source_chase_policy(sources, API['zombie_runtime'])
     chase_function = None
@@ -2692,7 +2739,8 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     (out_dir / '_waw2bo2_zombie_behavior.gsc').write_text(
         zombiebehavior.runtime_source(API['zombie_runtime'], f'{CORE}::{speed_function}' if speed_function else None,
                                       selection_function, speed_state_function, source_membership,
-                                      f'{CORE}::{respawn_function}' if respawn_function else None, chase_function),
+                                      f'{CORE}::{respawn_function}' if respawn_function else None, chase_function,
+                                      last_zombie),
         encoding='utf-8')
     report.weapon_registration = {role: [f for f in fns if f] for role, fns in registration.items()}
     report.characters = appearance
@@ -3034,10 +3082,20 @@ def waw_pack_a_punch_source(source: str, path: str) -> tuple[str, set[str]] | No
 
 def top_level_statements(tokens: list[gsc.Token], open_: int, close: int) -> list[tuple[int, int]]:
     """[start, end) token spans of the statements directly inside the block
-    whose braces are at ``open_`` / ``close`` (an if/else chain is one)."""
+    whose braces are at ``open_`` / ``close`` (an if/else chain is one).
+    A /# ... #/ developer block between statements is skipped, as a release
+    WaW build does (else the next statement's span starts at #/: Verruckt's
+    round_start lost level.chalk_hud1)."""
     spans, start, depth = [], open_ + 1, 0
+    skip_to = 0
     for i in range(open_ + 1, close):
+        if i < skip_to:
+            continue
         t = tokens[i].text
+        if t == "/#" and depth == 0 and start == i:
+            skip_to = next((j for j in range(i + 1, close) if tokens[j].text == "#/"), close) + 1
+            start = skip_to
+            continue
         depth += t in ("(", "[", "{")
         depth -= t in (")", "]", "}")
         if depth or t not in (";", "}") or tokens[i + 1].low == "else":
@@ -3378,6 +3436,16 @@ WAW_SELF_DAMAGE_CAP = (
     "        if ( self.health > 75 && !( isdefined( self.is_zombie ) && self.is_zombie ) )\n"
     "            return 75;\n",
     "        // waw2bo2: WaW applies the player's own explosive damage in full.\n")
+# WaW scales non-melee damage to players by player_damageMultiplier
+# (Translator.player_damage_scale_hook). Zombie and dog hits are WaW's measured
+# melee values already (see WAW_SELF_DAMAGE_CAP); falling damage keeps BO2's.
+WAW_PLAYER_DAMAGE_SCALE = (
+    "\n    finaldamage = idamage;\n",
+    "\n    // waw2bo2: WaW's player_damageMultiplier on non-melee hits\n"
+    "    if ( isdefined( level.waw2bo2_player_damage_scale ) && idamage > 0 && smeansofdeath != \"MOD_MELEE\"\n"
+    "        && smeansofdeath != \"MOD_FALLING\" && !( isdefined( eattacker ) && isdefined( eattacker.is_zombie ) && eattacker.is_zombie ) )\n"
+    "        idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );\n\n"
+    "    finaldamage = idamage;\n")
 # A map started directly (devmap, no lobby) leaves ui_zm_mapstartlocation
 # empty. The scripts read "" as "default", but the lobby the game returns to
 # after the match falls back to "transit" and asks Engine.GetGamemodesZombie
@@ -3568,6 +3636,9 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: b
     if bootstrap.count(WAW_SELF_DAMAGE_CAP[0]) != 1:
         raise ValueError("BO2 server bootstrap explosive self-damage cap changed")
     bootstrap = bootstrap.replace(*WAW_SELF_DAMAGE_CAP)
+    if bootstrap.count(WAW_PLAYER_DAMAGE_SCALE[0]) != 1:
+        raise ValueError("BO2 server bootstrap player damage result changed")
+    bootstrap = bootstrap.replace(*WAW_PLAYER_DAMAGE_SCALE)
     if bootstrap.count(WAW_START_LOCATION[0]) != 1:
         raise ValueError("BO2 server bootstrap start location read changed")
     bootstrap = bootstrap.replace(*WAW_START_LOCATION)

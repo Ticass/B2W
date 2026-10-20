@@ -131,6 +131,9 @@ class SynthesizedZoneTests(unittest.TestCase):
         self.assertEqual(len(subs), 3)
         self.assertEqual(subs[1]["brushes"][0]["contents"], 7)  # copied from the map's own trigger brush
         self.assertEqual(subs[1]["mins"], [-612, -612, -522])
+        # a door zone activates by adjacency; a map-wide box would claim the
+        # start zone's static unitriggers (Verruckt barricade repair)
+        self.assertEqual((subs[2]["mins"], subs[2]["maxs"]), ([-100, -100, -10], [-84, -84, 6]))
 
     def test_missing_entity_models_are_stripped_but_entities_kept(self):
         path = self.bsp / "entities.json"

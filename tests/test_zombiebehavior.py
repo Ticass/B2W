@@ -107,6 +107,45 @@ class ZombieBehaviorTests(unittest.TestCase):
             self.assertEqual(tree, 'human')
             self.assertEqual(sets, {'sprint': ['fast', 'fast'], 'run': ['jog']})
 
+    def _write(self, root, files):
+        for name, text in files.items():
+            path = root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
+        return gscport.Sources([root], [], None)
+
+    def test_movement_sets_keep_only_variants_the_source_picks(self):
+        # Verruckt defines sprint4 (ai_zombie_sprint_v5) but picks randomintrange( 1, 4 )
+        with tempfile.TemporaryDirectory() as temp:
+            sources = self._write(Path(temp), {
+                'maps/_zombiemode.gsc': '#using_animtree("human");\ninit_standard_zombie_anims(){ '
+                    'level.scr_anim["zombie"]["sprint1"]=%a; level.scr_anim["zombie"]["sprint2"]=%b; '
+                    'level.scr_anim["zombie"]["sprint3"]=%c; level.scr_anim["zombie"]["sprint4"]=%d; }',
+                'maps/_zombiemode_spawner.gsc': 'f(){ switch(self.zombie_move_speed){ case "sprint": '
+                    'var = randomintrange(1, 4); self set_run_anim( "sprint" + var ); break; } }'})
+            _, sets = zombiebehavior.movement_sets(sources, gscport.API['zombie_runtime'])
+            self.assertEqual(sets, {'sprint': ['a', 'b', 'c']})
+
+    def test_last_zombie_rule_follows_the_source_round_loop(self):
+        api = gscport.API['zombie_runtime']
+        with tempfile.TemporaryDirectory() as temp:
+            sumpf = self._write(Path(temp) / 'sumpf', {'maps/_zombiemode.gsc':
+                'round_spawning(){ while(count < max){ spawn(); } if( level.round_number > 3 ) { '
+                'zombies = getaiarray("axis"); while( zombies.size > 0 ) { if( zombies.size == 1 && '
+                'zombies[0].has_legs == true ) { var = randomintrange(1, 4); '
+                'zombies[0] set_run_anim( "sprint" + var ); } wait(0.5); } } }'})
+            rule = zombiebehavior.source_last_zombie(sumpf, api)
+            self.assertEqual(rule, {'after_round': 3, 'speed': 'sprint'})
+            runtime = zombiebehavior.runtime_source(api, None, last_zombie=rule)
+            self.assertIn('level.zombie_speed_up = ::source_last_zombie;', runtime)
+            self.assertIn('if ( level.round_number <= 3 || level.zombie_total > 0 )', runtime)
+            self.assertIn('self.waw_zombie_move_speed = "sprint";', runtime)
+            asylum = self._write(Path(temp) / 'asylum', {'maps/_zombiemode.gsc':
+                'round_spawning(){ while(count < max){ spawn(); } }'})
+            self.assertIsNone(zombiebehavior.source_last_zombie(asylum, api))
+            runtime = zombiebehavior.runtime_source(api, None)
+            # BO2's own sprint is disabled too: the map keeps the last zombie's speed
+            self.assertIn('level.zombie_speed_up = ::source_last_zombie;', runtime)
+            self.assertNotIn('self.waw_zombie_move_speed = "sprint";', runtime)
+
     def test_movement_initializer_role_is_detected_from_table_assignments(self):
         with tempfile.TemporaryDirectory() as temp:
             sources = self.make_sources(Path(temp), '#using_animtree("human");\n'

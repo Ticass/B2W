@@ -387,6 +387,13 @@ def synthesize_zones(out: list[dict], clip, bsp_dir: Path, summary: dict) -> tup
     world = clip.submodels[0]
     mins = [v - 512 for v in world.mins]
     maxs = [v + 512 for v in world.maxs]
+    # A door-unlocked zone turns active through its adjacency to the always
+    # occupied start zone (_zm_zonemgr), so its volume only has to exist (BO2
+    # finds the zone's spawners through the volume's target). A map-wide box
+    # there would claim static unitriggers instead: register_static_unitrigger
+    # files a stub under the first zone whose volume holds it and offers it only
+    # while that zone is active, so Verruckt's barricades could not be repaired.
+    corner = [list(world.mins), [v + 16 for v in world.mins]]
     by_name: dict[str, list[dict]] = {}
     for e in out:
         by_name.setdefault(e.get("targetname", ""), []).append(e)
@@ -413,9 +420,11 @@ def synthesize_zones(out: list[dict], clip, bsp_dir: Path, summary: dict) -> tup
             for door in doors:
                 door["script_flag"] = ",".join(filter(None, [door.get("script_flag"), flag]))
             adjacency.append(f'"{SYNTH_ZONE}", "{zone}", "{flag}"')
+            lo, hi = corner
         else:
             initial.append(zone)
-        subs.append({"mins": mins, "maxs": maxs, "brushes": [_box_brush(mins, maxs, flags)]})
+            lo, hi = mins, maxs
+        subs.append({"mins": lo, "maxs": hi, "brushes": [_box_brush(lo, hi, flags)]})
         out.append({"classname": "info_volume", "targetname": zone, "target": group, "origin": "0 0 0",
                     "model": f"*{len(subs)}", "script_noteworthy": "player_volume"})
         for spawner in by_name[group]:
