@@ -229,6 +229,69 @@ def source_selection(sources, definition: dict) -> str | None:
             f'\nreturn {c["candidate"]};\n}}\n')
 
 
+def reachable_variants(sources, definition: dict) -> dict[str, set[int] | None]:
+    """Movement variants the source actually selects: set_run_anim( "walk" + var )
+    after var = randomintrange( a, b ) picks a..b-1. A table can define more
+    (Verruckt: walk8 and sprint4 are never chosen). None: the variant is not a
+    plain randomintrange, so every authored entry stays reachable."""
+    contract = definition['source_movement']
+    script = sources.get(contract.get('variant_script', ''))
+    if script is None:
+        return {}
+    toks, result = script.tokens, {}
+    for i in range(len(toks) - 6):
+        words = [t.low for t in toks[i:i + 7]]
+        if words[:2] != [contract['variant_function'], '('] or words[3] != '+' or words[5] != ')':
+            continue
+        match = re.fullmatch(r'"(walk|run|sprint)"', words[2])
+        if not match or toks[i + 4].kind != gsc.IDENT:
+            continue
+        var, picked = words[4], None
+        for j in range(i - 1, 9, -1):
+            if toks[j].text in ('{', '}'):
+                break
+            span = [t.low for t in toks[j:j + 9]]
+            if span[:4] == [var, '=', 'randomintrange', '('] and span[5] == ',' and span[7:9] == [')', ';'] \
+                    and toks[j + 4].kind == gsc.NUMBER and toks[j + 6].kind == gsc.NUMBER:
+                picked = set(range(int(float(span[4])), int(float(span[6]))))
+                break
+        speed = match[1]
+        if picked is None or result.get(speed, set()) is None:
+            result[speed] = None
+        else:
+            result[speed] = result.get(speed, set()) | picked
+    return result
+
+
+def source_last_zombie(sources, definition: dict) -> dict | None:
+    """The source's last-zombie speed rule from its round spawning loop, e.g.
+    Shi No Numa: if ( level.round_number > 3 ) ... if ( zombies.size == 1 &&
+    zombies[0].has_legs ) zombies[0] set_run_anim( "sprint" + var ).
+    None when the map has no such rule (Verruckt: the last zombie keeps its
+    speed); BO2's own zombie_speed_up then must not apply either."""
+    contract = definition['source_last_zombie']
+    script = sources.get(contract['script'])
+    fn = script.functions.get(contract['function']) if script else None
+    if fn is None:
+        return None
+    toks = script.tokens
+    for i in range(fn.body_open, fn.body_close):
+        words = [t.low for t in toks[i:i + 8]]
+        if len(words) < 8 or words[:5] != ['if', '(', 'level', '.', 'round_number'] or words[5] not in ('>', '>=') \
+                or toks[i + 6].kind != gsc.NUMBER or words[7] != ')' or toks[i + 8].text != '{':
+            continue
+        close = gsc._match(toks, i + 8, '{', '}')
+        body = [t.low for t in toks[i + 8:close]]
+        last = any(body[k:k + 4] == ['.', 'size', '==', '1'] for k in range(len(body)))
+        speeds = [re.fullmatch(r'"(walk|run|sprint)"', body[k + 2])
+                  for k in range(len(body) - 3) if body[k:k + 2] == [contract['anim_function'], '(']]
+        speeds = {m[1] for m in speeds if m}
+        if last and len(speeds) == 1:
+            threshold = int(float(words[6]))
+            return {'after_round': threshold if words[5] == '>' else threshold - 1, 'speed': speeds.pop()}
+    return None
+
+
 def movement_sets(sources, definition: dict, map_name: str | None = None) -> tuple[str | None, dict[str, list[str]]]:
     """Read flat, authored movement table assignments, retaining variant weights."""
     contract = definition['source_movement']
@@ -308,6 +371,11 @@ def movement_sets(sources, definition: dict, map_name: str | None = None) -> tup
         if depth:
             raise ValueError(f'{contract["script"]}:{tokens[i].line}: conditional movement table requires runtime translation')
         found.setdefault(match[1], {})[int(match[2])] = words[11]
+    reachable = reachable_variants(sources, definition)
+    for speed, entries in found.items():
+        picked = reachable.get(speed)
+        if picked and picked & set(entries):
+            found[speed] = {i: entries[i] for i in entries if i in picked}
     return fn.animtree, {speed: [entries[i] for i in sorted(entries)] for speed, entries in found.items()}
 
 
@@ -366,7 +434,8 @@ def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: di
 
 def runtime_source(definition: dict, speed_function: str | None, selection_function: str | None = None,
                    speed_state_function: str | None = None, source_membership: bool = False,
-                   respawn_function: str | None = None, chase_function: str | None = None) -> str:
+                   respawn_function: str | None = None, chase_function: str | None = None,
+                   last_zombie: dict | None = None) -> str:
     native = definition['native_spawner']
     owned = definition['owned_spawner']
     native_round = definition['native_round_runtime']
@@ -404,10 +473,25 @@ def runtime_source(definition: dict, speed_function: str | None, selection_funct
     state_round = f'{speed_state_function}::prepare_round();' if speed_state_function else ''
     selection = (f'{selection_function}( candidates, level.waw_previous_spawner )'
                  if selection_function else 'common_scripts\\utility::random( candidates )')
+    speed_up = definition['source_last_zombie']['native_callback']
+    if last_zombie:
+        # WaW repeats set_run_anim every 0.5 s with a new variant; one change
+        # keeps the chosen clip, as the native callback is also polled.
+        last_rule = (f'''    if ( level.round_number <= {last_zombie['after_round']} || level.zombie_total > 0 )
+        return;
+    if ( isdefined( self.{result_field} ) && self.{result_field} == "{last_zombie['speed']}" )
+        return;
+    self.{result_field} = "{last_zombie['speed']}";
+    self refresh_speed();''')
+    else:
+        last_rule = '    // the source keeps the last zombie at its own speed'
     return f'''// waw2bo2: source WaW speed rules and plain spawner origin ownership.
 init()
 {{
     level.waw_source_spawn_membership = {int(source_membership)};
+    // BO2's {speed_up} sprints the last zombie every round past 3, then the
+    // source speed state restores it: its clip re-rolled every 0.5 s.
+    level.{speed_up} = ::source_last_zombie;
     {respawn_init}
     {state_init}
     // Native initialization can register a cached stock round-spawn pointer.
@@ -514,6 +598,11 @@ select_speed()
         level.waw_speed_round = level.round_number;
     }}
     {speed}
+}}
+
+source_last_zombie()
+{{
+{last_rule}
 }}
 
 refresh_speed( native_request )

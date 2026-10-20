@@ -182,6 +182,33 @@ class DamagePreludeTests(unittest.TestCase):
         tokens = gscport.gsc.tokenize("{ if ( a ) { b(); } else c(); d = 1; for ( i = 0; i < 2; i++ ) e(); }")
         self.assertEqual(len(gscport.top_level_statements(tokens, 0, len(tokens) - 2)), 3)
 
+    def test_player_damage_multiplier_comes_from_source_gameskill(self):
+        # Verruckt's trap DoDamage( 50 ) lands as 16 in WaW solo (100 / 310)
+        import tempfile
+        from pathlib import Path
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_gameskill.gsc').write_text(
+                'setskill(){ add_fractional_data_point( "playerDifficultyHealth", 0.25, 475 ); '
+                'add_fractional_data_point( "playerDifficultyHealth", 0.75, 310 ); '
+                'add_fractional_data_point( "playerDifficultyHealth", 1.0, 210 ); '
+                + ''.join(f'level.difficultySettings[ "coopPlayerDifficultyHealth" ][ "normal" ][{i}] = {v}; '
+                          for i, v in enumerate((1.0, 0.9, 0.8, 0.7)))
+                + 'difficulty_starting_frac[ "normal" ] = 0.75; }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.player_damage_scale_hook(),
+                             ['level thread maps\\mp\\waw\\_waw2bo2_core::waw2bo2_player_damage_scale();'])
+            self.assertIn('scales[0] = 0.3225806451612903;', tr.level_state_parts[-1])
+            self.assertIn('scales[3] = 0.4608294930875576;', tr.level_state_parts[-1])
+
+    def test_statement_split_skips_developer_blocks(self):
+        # Verruckt round_start: level.chalk_hud1 follows a /# #/ block
+        tokens = gscport.gsc.tokenize("{ a = 1; /# b(); #/ level.x = c(); }")
+        spans = gscport.top_level_statements(tokens, 0, len(tokens) - 2)
+        self.assertEqual([tokens[s].text for s, _ in spans], ["a", "level"])
+
     def test_zero_damage_finish_then_return_becomes_callback_cancellation(self):
         body = STOCK_DAMAGE.split("{\n", 1)
         prelude = '''if (self.second_chance) {

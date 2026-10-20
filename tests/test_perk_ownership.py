@@ -90,7 +90,7 @@ class PerkOwnershipTests(unittest.TestCase):
                 '        if ( 255 < level.round_number )\n            level.round_number = 255;\n\n'
                 '        setroundsplayed( level.round_number );\n    }\n}\n'
                 'player_damage_override()\n{\n    if ( smeansofdeath == "MOD_PROJECTILE" )\n    {\n'
-                + gscport.WAW_SELF_DAMAGE_CAP[0] + '    }\n}\n'
+                + gscport.WAW_SELF_DAMAGE_CAP[0] + '    }\n' + gscport.WAW_PLAYER_DAMAGE_SCALE[0] + '}\n'
                 'init_levelvars()\n{\n    set_zombie_var( "zombie_spawn_delay", 2.0, 1, column );\n}\n'
                 'callback_playerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint )\n'
                 '{\n    finish();\n}\n')
@@ -100,6 +100,7 @@ class PerkOwnershipTests(unittest.TestCase):
             text = (out / name).read_text()
             owned_zm = (out / 'maps/mp/waw/_waw2bo2_zm.gsc').read_text()
             self.assertNotIn('return 75;', owned_zm)
+            self.assertIn('idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );', owned_zm)
             self.assertIn('waw2bo2_set_zombie_var( "zombie_spawn_delay", 2.0, 1, column );', owned_zm)
             self.assertIn('waw2bo2_set_zombie_var( var, value, is_float, column, is_team_based )', owned_zm)
             self.assertIn('self notify( "weapon_pvp_attack", eattacker, maps\\mp\\waw\\_waw2bo2_compat::'
