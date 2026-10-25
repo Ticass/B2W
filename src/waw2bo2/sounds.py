@@ -1145,12 +1145,78 @@ def snd_hash(name: str) -> int:
     return result or 1
 
 
-# Loaded map-bank bytes measured beside the 157.6 MB zm_test template bank:
-# 34 MB loads; 88 MB (template + map = 257.2 MB, just under stock Shi No
-# Numa's single 257.7 MB bank) froze the mount on both Der Riese and Shi No
-# Numa (2026-10-25): the converted zones take more memory than the stock
-# map's, so the stock bank size is no ceiling for ours.
-LOADED_BYTES_MEASURED = 34 * 2**20
+# Loaded sound data measured on the converted zones (2026-10-25): the 157.6 MB
+# zm_test template bank plus 34 MB of map sounds loads; plus 88 MB (257.2 MB
+# of banks, just under stock Shi No Numa's single 257.7 MB bank) froze the
+# mount on Der Riese and Shi No Numa. The converted zones take more memory
+# than the stock map's, so the stock bank size is no ceiling for ours.
+LOADED_BYTES_MEASURED = int(157.6 * 2**20) + 34 * 2**20
+
+# The template map's own bank. BO2's sounds are not used (every sound comes
+# from WaW): mod.ff drops it, and the names T6's engine plays from it
+# (footsteps, landings, impacts by surface) are WaW copies in the map bank.
+TEMPLATE_SOUNDBANK = "zmb_test.all"
+
+# BO2 engine sound families -> WaW's for the same event, by surface. T6 plays
+# fly_step_run_npc_dirt where T4 played step_run_dirt; the surface names are
+# shared (WaW adds water). First WaW name the map's bank defines wins.
+ENGINE_SOUND_FAMILIES = (
+    (r"fly_step_(walk|run|sprint)_plr_(?P<s>[a-z]+)(_swt)?", (r"step_\1_plr_\g<s>", r"step_\1_\g<s>")),
+    (r"fly_step_(walk|run|sprint)(_npc)?_(?P<s>[a-z]+)", (r"step_\1_\g<s>",)),
+    (r"fly_step_crouch_(walk|run)_plr_(?P<s>[a-z]+)", (r"step_\1_plr_\g<s>", r"step_\1_\g<s>")),
+    (r"fly_step_crouch_(walk|run)(_npc)?_(?P<s>[a-z]+)", (r"step_\1_\g<s>",)),
+    (r"fly_step_prone_plr_(?P<s>[a-z]+)", (r"step_prone_plr_\g<s>", r"step_prone_\g<s>")),
+    (r"fly_step_prone_npc_(?P<s>[a-z]+)", (r"step_prone_\g<s>",)),
+    (r"fly_land_plr_(?P<s>[a-z]+)(_big)?(_sec)?", (r"land_plr_\g<s>", r"land_\g<s>")),
+    (r"fly_land_npc_(?P<s>[a-z]+)(_big)?", (r"land_\g<s>",)),
+    (r"fly_bodyfall_(large|small)_(?P<s>[a-z]+)", (r"bodyfall_\g<s>_\1",)),
+    (r"prj_bullet_impact_(small|large|ap)_(?P<s>[a-z]+)", (r"bullet_\1_\g<s>",)),
+    (r"prj_bullet_impact_xtreme_(?P<s>[a-z]+)", (r"bullet_large_\g<s>",)),
+    (r"prj_bullet_impact_(small|large)_exit_(?P<s>[a-z]+)", (r"bullet_\1_exit_\g<s>",)),
+    (r"prj_bullet_impact_(ap|xtreme)_exit_(?P<s>[a-z]+)", (r"bullet_large_exit_\g<s>",)),
+    (r"prj_bulletspray_small_exit_(?P<s>[a-z]+)", (r"bulletspray_small_exit_\g<s>",)),
+    (r"wpn_grenade_bounce_(?P<s>[a-z]+)", (r"grenade_bounce_\g<s>",)),
+    (r"wpn_grenade_explode_(?P<s>[a-z]+)", (r"grenade_explode_\g<s>",)),
+    (r"wpn_sticky_gren_bounce_(?P<s>[a-z]+)", (r"sticky_gren_bounce_\g<s>",)),
+    (r"zmb_monkey_land_(?P<s>[a-z]+)", (r"monkey_land_\g<s>",)),
+    (r"wpn_melee_hit", ("melee_hit",)),
+    (r"wpn_knife_pull_plr", ("knife_pull_plr",)),
+)
+
+
+def template_alias_names(template_csv: Path | None) -> list[str]:
+    """Alias names of the template's bank (what BO2's engine and template
+    assets can play by name)."""
+    if template_csv is None or not template_csv.is_file():
+        return []
+    with template_csv.open(encoding="utf-8", errors="replace", newline="") as f:
+        return sorted({r["Name"] for r in csv.DictReader(f) if r.get("Name")})
+
+
+def engine_name_copies(rows: list[dict], names: list[str]) -> dict:
+    """Rows under each BO2 engine name, copied from WaW's alias for the same
+    event (ENGINE_SOUND_FAMILIES); the copy shares WaW's file, so no new bank
+    entry. Returns {"copies": {bo2: waw}, "unmatched": [bo2 names with no
+    WaW sound]} and appends the rows."""
+    by_name: dict[str, list[dict]] = {}
+    for row in rows:
+        by_name.setdefault(row["Name"].lower().removeprefix("waw/"), []).append(row)
+    copies, unmatched, added = {}, [], []
+    for name in names:
+        low = name.lower()
+        source = None
+        for pattern, targets in ENGINE_SOUND_FAMILIES:
+            m = re.fullmatch(pattern, low)
+            if m:
+                source = next((t for t in (m.expand(t) for t in targets) if t in by_name), None)
+                break
+        if source is None:
+            unmatched.append(name)
+            continue
+        copies[name] = source
+        added += [dict(row, Name=name) for row in by_name[source]]
+    rows += added
+    return {"copies": copies, "unmatched": unmatched}
 
 
 # T6 keeps every loaded bank's entries (loaded and streamed tables alike) in
@@ -1203,7 +1269,7 @@ def loaded_budget(bo2_root: Path, template_csv: Path | None) -> dict:
             "entries": max(T6_SND_ENTRY_POOL - always - template_entries, 0),
             "entry_pool": {"size": T6_SND_ENTRY_POOL, "always_loaded": always, "template": template_entries},
             "stock_headroom_bytes": max(size - template_bytes, 0),
-            "bytes": min(max(size - template_bytes, 0), LOADED_BYTES_MEASURED)}
+            "bytes": max(min(size, LOADED_BYTES_MEASURED) - template_bytes, 0)}
 
 
 def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
@@ -1250,7 +1316,8 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
 
 
 def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | None = None,
-                  reverb_send: dict | None = None, remaster: dict | None = None) -> dict:
+                  reverb_send: dict | None = None, remaster: dict | None = None,
+                  engine_names: list[str] | None = None) -> dict:
     """Official BO2 alias CSV for every PCM- and curve-bound alias.
 
     Plays the original WaW audio through BO2's own sound engine. Categories,
@@ -1299,6 +1366,11 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
                                                 remaster.get("announcer_prefix", "waw_"))
         report["remaster"] = audioremaster.remaster(rows, roles, remaster["profiles"])
         report["remaster"]["announcer_copies"] = copies
+    if engine_names:
+        report["engine_names"] = engine_name_copies(rows, engine_names)
+        if budget is not None:
+            # the engine plays these for every step and shot: load them
+            budget["played"] = sorted(set(budget.get("played", [])) | set(report["engine_names"]["copies"].values()))
     report["clamped"] = clamp_t6_ranges(rows)
     if budget is not None:
         report["loaded_to_streamed"] = fit_loaded_budget(rows, project / "pcm", budget, weapon_aliases)

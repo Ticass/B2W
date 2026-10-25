@@ -28,7 +28,14 @@ def package(project: str, map_out: Path, mod_out: Path, dest: Path | None = None
     dest = dest or plutonium_mods_dir() / project
     files = [map_out / f"{project}.ff", map_out / f"{project}.ipak", mod_out / "mod.ff",
              mod_out / "mod_load.ff"]
-    files += sorted((mod_out / "sound").glob("*.sab?")) if (mod_out / "sound").exists() else []
+    # the template's BO2 bank is not shipped (modzone.TEMPLATE_SOUNDBANK); an
+    # earlier build's copy, in the output or installed, goes
+    from .modzone import TEMPLATE_SOUNDBANK
+    template_banks = {f"{TEMPLATE_SOUNDBANK}.sabl", f"{TEMPLATE_SOUNDBANK}.sabs"}
+    files += sorted(f for f in (mod_out / "sound").glob("*.sab?") if f.name not in template_banks) \
+        if (mod_out / "sound").exists() else []
+    for name in template_banks:
+        (dest / name).unlink(missing_ok=True)
     # mod.ff's own image pack (converted weapon textures), when it has one
     files += sorted(mod_out.glob("*.ipak"))
     missing = [f for f in files if not f.exists()]

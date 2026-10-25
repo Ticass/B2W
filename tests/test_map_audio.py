@@ -95,6 +95,48 @@ class LoadedBudgetTests(unittest.TestCase):
             self.assertEqual((budget["reference_bytes"], budget["template_bytes"], budget["stock_headroom_bytes"]), (1000, 300, 700))
             # entries are one pool over every bank, not a map budget
             self.assertEqual(budget["entries"], sounds.T6_SND_ENTRY_POOL - 1 - 2)
+            # without the template bank its measured memory goes to the map
+            self.assertEqual(sounds.loaded_budget(root, None)["bytes"], 1000)
+
+
+class EngineNameTests(unittest.TestCase):
+    def test_bo2_engine_names_play_waws_sound_for_the_same_event(self):
+        rows = [{"Name": "waw/step_run_dirt", "FileSource": "a.wav"},
+                {"Name": "waw/step_run_plr_dirt", "FileSource": "b.wav"},
+                {"Name": "waw/bodyfall_wood_large", "FileSource": "c.wav"},
+                {"Name": "waw/bullet_large_metal", "FileSource": "d.wav"}]
+        report = sounds.engine_name_copies(rows, [
+            "fly_step_run_npc_dirt", "fly_step_run_plr_dirt", "fly_step_crouch_run_dirt",
+            "fly_bodyfall_large_wood", "prj_bullet_impact_xtreme_metal", "prj_brass_impact_small_dirt",
+            "wpn_an94_fire"])
+        self.assertEqual(report["copies"], {
+            "fly_step_run_npc_dirt": "step_run_dirt", "fly_step_run_plr_dirt": "step_run_plr_dirt",
+            "fly_step_crouch_run_dirt": "step_run_dirt", "fly_bodyfall_large_wood": "bodyfall_wood_large",
+            "prj_bullet_impact_xtreme_metal": "bullet_large_metal"})
+        # WaW has no brass impact; BO2's weapon is not WaW's: silent, not BO2's
+        self.assertEqual(report["unmatched"], ["prj_brass_impact_small_dirt", "wpn_an94_fire"])
+        copy = next(r for r in rows if r["Name"] == "fly_step_run_npc_dirt")
+        self.assertEqual(copy["FileSource"], "a.wav")    # WaW's file, no new bank entry
+
+    def test_the_template_bank_is_neither_linked_nor_shipped(self):
+        from waw2bo2 import modzone, package
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            zone = root / "zm_test.zone"
+            zone.write_text("soundbank,zmb_test.all\nweapon,knife_zm\n")
+            dropped = []
+            self.assertNotIn("soundbank", modzone.build_mod_zone(zone, dropped))
+            self.assertIn("soundbank,zmb_test.all", dropped)
+            map_out, mod_out, dest = root / "map", root / "mod", root / "dest"
+            for d in (map_out, mod_out / "sound", dest):
+                d.mkdir(parents=True)
+            for f in (map_out / "zm_x.ff", map_out / "zm_x.ipak", mod_out / "mod.ff", mod_out / "mod_load.ff",
+                      mod_out / "sound/waw_zm_x.all.sabl", mod_out / "sound/zmb_test.all.sabl", dest / "zmb_test.all.sabs"):
+                f.write_bytes(b"x")
+            package.package("zm_x", map_out, mod_out, dest)
+            self.assertTrue((dest / "waw_zm_x.all.sabl").is_file())
+            self.assertFalse((dest / "zmb_test.all.sabl").exists())
+            self.assertFalse((dest / "zmb_test.all.sabs").exists())
 
 
 if __name__ == "__main__":

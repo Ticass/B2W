@@ -1885,8 +1885,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         t6_sound_driver = techset_dump / "sounddriverglobals/singleton.w2bsdg"
     curve_report = sounds.bind_curves(project_root / "content_source", t6_sound_driver, approximate_sound_curves)
     bank = f"waw_{project}.all"
-    budget = sounds.loaded_budget(bo2_root, bo2_root / "mods" / "zm_test" / "soundbank" / "zmb_test.all.aliases.csv") \
+    # mod.ff drops the template's bank (sounds.TEMPLATE_SOUNDBANK): no BO2
+    # sound is loaded beside the map's, and its engine names get WaW copies
+    template_bank_csv = bo2_root / "mods" / "zm_test" / "soundbank" / f"{sounds.TEMPLATE_SOUNDBANK}.aliases.csv" \
         if bo2_root is not None else None
+    budget = sounds.loaded_budget(bo2_root, None) if bo2_root is not None else None
     if budget is not None:
         # what the map plays: its scripts, entities and ambient packages, and
         # the zombie voices BO2's events play (gsc_api zombie_vocals)
@@ -1910,7 +1913,14 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                     "announcer_events": json.loads(events_file.read_text()) if events_file.is_file() else {},
                     "announcer_prefix": gscport.API["audio_remaster"]["announcer_alias_prefix"]}
     bank_report = progress.timed('Build sound bank', sounds.write_t6_bank, project_root / "content_source", bank,
-                                 project_root / "soundbank", budget, reverb_send, remaster)
+                                 project_root / "soundbank", budget, reverb_send, remaster,
+                                 sounds.template_alias_names(template_bank_csv))
+    if bank_report.get("engine_names"):
+        engine = bank_report["engine_names"]
+        report.content["engine_sound_names"] = {"copies": len(engine["copies"]), "unmatched": engine["unmatched"]}
+        report.warnings.append(f"SOUND_ENGINE_NAMES {len(engine['copies'])} BO2 engine sound names play WaW's "
+                               f"sound; {len(engine['unmatched'])} template names have no WaW sound and are "
+                               f"silent (BO2's bank is not shipped). List: content_source/sounds.bank.json")
     if bank_report.get("remaster"):
         report.content["audio_remaster"] = bank_report["remaster"]
         for r, info in sorted(bank_report["remaster"]["roles"].items()):
