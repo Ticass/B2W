@@ -62,7 +62,18 @@
         "player_damage_override": "T6 damage callback",
         "main": "the map entry; BO2's gametype starts the game"
       }
+    },
+    "maps\\_zombiemode_utility": {
+      "doc": "only: the map's calls into these run WaW's function; BO2's same-named _zm_audio one plays BO2's lines (the map threads the kill-streak quote timer on every player)",
+      "only": ["player_killstreak_timer"]
     }
+  },
+  "quote_triggers": {
+    "doc": "WaW player quotes started from framework code BO2 replaces, ported where BO2 raises the same event (docs/MAP_CONTENT_AUDIT.md)",
+    "death": {"script": "maps\\_zombiemode_spawner", "function": "play_death_vo"},
+    "kill": {"script": "maps\\_zombiemode_spawner", "function": "zombie_death_event", "close_damage": "play_closeDamage_dialog"},
+    "powerup": {"script": "maps\\_zombiemode_powerups", "function": "powerup_vo", "native_hook": "custom_powerup_vo_response"},
+    "ammo": {"script": "maps\\_zombiemode", "function": "track_players_ammo_count"}
   },
   "audio_remaster": {
     "doc": "BO2's power-up grab calls leaderdialog( powerup_name ); the map's power-up script names WaW's line per power-up (gscport.Translator.announcer_hook, audioremaster)",

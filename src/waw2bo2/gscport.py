@@ -63,6 +63,16 @@ def norm(path: str) -> str:
     return path.replace("/", "\\").lower().removesuffix(".gsc").removesuffix(".csc")
 
 
+def source_drives(core: str, name: str) -> bool:
+    """The map's own function runs for a call into this WaW framework script
+    (gsc_api source_driven): every function but the script's glue, or only the
+    listed ones where the script names them."""
+    driven = API.get("source_driven", {}).get(core)
+    if driven is None or name in driven.get("glue", {}):
+        return False
+    return "only" not in driven or name in driven["only"]
+
+
 def ported_path(path: str) -> str:
     p = norm(path)
     if p.startswith("clientscripts\\"):
@@ -1172,8 +1182,7 @@ class Translator:
         # script runs the map's own function, not BO2's of the same name; only
         # its engine glue (gsc_api source_driven glue, each with its reason)
         # stays BO2's.
-        driven = API.get("source_driven", {}).get(core)
-        if driven is not None and name not in driven.get("glue", {}):
+        if source_drives(core, name):
             extracted = self.extract(core, name)
             if extracted:
                 self.report.rewrites[f"{core}::{name} -> source (WaW drives)"] += 1
@@ -1486,8 +1495,7 @@ class Translator:
         """Port one WaW framework function BO2 has no counterpart for."""
         if (core, name) in self.core_funcs:   # deliberately extracted entry (extract_entry)
             return f"{CORE}::{self.core_funcs[(core, name)]}"
-        driven = API.get("source_driven", {}).get(core)
-        if core in API["no_extract"] and not (driven is not None and name not in driven.get("glue", {})) and \
+        if core in API["no_extract"] and not source_drives(core, name) and \
                 not any(name.endswith(s) for s in API["extract_exceptions"].get(core, ())):
             return None
         script = self.sources.get(core)
@@ -2306,6 +2314,54 @@ class Translator:
         self.report.rewrites["WaW power-up models -> BO2 power-up registry"] += len(models)
         return [f"{CORE}::waw2bo2_powerup_models();"]
 
+    def quote_hooks(self) -> list[str]:
+        """WaW's player quotes start in framework code BO2 replaces: a kill
+        (play_death_vo from zombie_death_points, the close-call line and the
+        kill count from zombie_death_event), a power-up grab (powerup_vo) and
+        _zombiemode::main's ammo watcher. The map's functions run where BO2
+        raises the same event: the owned spawner's death points and death
+        event call the wrappers below (zombiebehavior), BO2's power-up grab
+        calls its custom response hook, and the watcher starts with the map."""
+        contract = API["quote_triggers"]
+        parts, calls = [], []
+        death = contract["death"]
+        name = self.extract_entry(death["script"], death["function"])
+        if name:
+            parts.append(f"// {death['script']}::zombie_death_points: the killer's quote\n"
+                         "waw2bo2_death_vo( hit_location, attacker, mod, zombie )\n{\n"
+                         f"    level thread {CORE}::{name}( hit_location, attacker, mod, zombie );\n}}\n")
+        kill = contract["kill"]
+        script = self.sources.get(kill["script"])
+        fn = script.functions.get(kill["function"].lower()) if script else None
+        words = {t.low for t in script.tokens[fn.body_open:fn.body_close]} if fn else set()
+        close = self.extract_entry(kill["script"], kill["close_damage"].lower()) \
+            if {"killcounter", kill["close_damage"].lower()} <= words else None
+        if close:
+            parts.append(f"// {kill['script']}::{kill['function']}: the killer's kill count (its kill-streak quote)\n"
+                         "// and close-call line\nwaw2bo2_kill_vo( zombie )\n{\n"
+                         "    if ( !isdefined( self.killcounter ) )\n        self.killcounter = 1;\n"
+                         "    else\n        self.killcounter++;\n\n"
+                         "    if ( isdefined( zombie.sound_damage_player ) && zombie.sound_damage_player == self )\n"
+                         f"        self thread {CORE}::{close}();\n}}\n")
+        powerup = contract["powerup"]
+        name = self.extract_entry(powerup["script"], powerup["function"])
+        if name:
+            parts.append(f"// {powerup['script']}::powerup_grab: the grabber's quote\n"
+                         "waw2bo2_powerup_vo( player, type )\n{\n"
+                         f"    player thread {CORE}::{name}( type );\n}}\n")
+            calls.append(f"    level.{powerup['native_hook']} = ::waw2bo2_powerup_vo;\n")
+        ammo = contract["ammo"]
+        name = self.extract_entry(ammo["script"], ammo["function"])
+        if name:
+            calls.append(f"    level thread {CORE}::{name}();\n")
+        if not parts and not calls:
+            return []
+        self.level_state_parts.append(
+            "\n" + "\n".join(parts) + "\n// the map's quote triggers on BO2's events\n"
+            "waw2bo2_quote_triggers()\n{\n" + "".join(calls) + "}\n")
+        self.report.rewrites["WaW quote triggers -> BO2 events"] += len(parts) + len(calls)
+        return [f"{CORE}::waw2bo2_quote_triggers();"]
+
     def sound_table_hook(self) -> list[str]:
         """BO2's init_sounds fills level.zombie_sounds with BO2 aliases
         (music_chest -> zmb_music_box); the map's framework fills it with its
@@ -2944,6 +3000,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.post_calls += tr.announcer_hook(out_root)
     tr.post_calls += tr.powerup_models_hook()
     tr.post_calls += tr.sound_table_hook()
+    tr.post_calls += tr.quote_hooks()
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")

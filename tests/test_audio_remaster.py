@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from waw2bo2 import gscport
+from waw2bo2 import gscport, zombiebehavior
 from waw2bo2.t6api import T6Api
 
 
@@ -130,6 +130,40 @@ class SoundTableTests(unittest.TestCase):
             # the map's own registration wins over the framework's
             self.assertIn('level.zombie_sounds["open_chest"] = "waw/map_lid";', body)
             self.assertNotIn('lid_open', body)
+
+
+class QuoteTriggerTests(unittest.TestCase):
+    def test_map_quotes_bind_to_bo2_events(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode_spawner.gsc').write_text(
+                'zombie_death_event( zombie ) { zombie.attacker.killcounter ++; zombie.attacker thread play_closeDamage_dialog(); }\n'
+                'play_closeDamage_dialog() { }\nplay_death_vo( hit_location, player, mod, zombie ) { }\n')
+            (root / 'maps/_zombiemode_powerups.gsc').write_text('powerup_vo( type ) { }\n')
+            (root / 'maps/_zombiemode.gsc').write_text('track_players_ammo_count() { }\n')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.quote_hooks(), ['maps\\mp\\waw\\_waw2bo2_core::waw2bo2_quote_triggers();'])
+            body = tr.level_state_parts[-1]
+            self.assertIn('level thread maps\\mp\\waw\\_waw2bo2_core::zombiemode_spawner__play_death_vo( hit_location, attacker, mod, zombie );', body)
+            self.assertIn('self thread maps\\mp\\waw\\_waw2bo2_core::zombiemode_spawner__play_closedamage_dialog();', body)
+            self.assertIn('level.custom_powerup_vo_response = ::waw2bo2_powerup_vo;', body)
+            self.assertIn('level thread maps\\mp\\waw\\_waw2bo2_core::zombiemode__track_players_ammo_count();', body)
+
+    def test_spawner_kill_quotes_call_the_maps(self):
+        text = zombiebehavior._KILL_VOX + '\n' + zombiebehavior._CLOSE_DAMAGE_VOX
+        core = 'waw2bo2_death_vo( a, b, c, d )\nwaw2bo2_kill_vo( zombie )\n'
+        out = zombiebehavior.waw_quote_rules(text, 'spawner', core)
+        self.assertIn('_waw2bo2_core::waw2bo2_death_vo( hit_location, attacker, mod, zombie );', out)
+        self.assertIn('zombie.attacker maps\\mp\\waw\\_waw2bo2_core::waw2bo2_kill_vo( zombie );', out)
+        self.assertNotIn('create_and_play_dialog', out)
+        self.assertEqual(zombiebehavior.waw_quote_rules(text, 'spawner', ''), text)
+
+    def test_killstreak_timer_runs_the_maps(self):
+        self.assertTrue(gscport.source_drives('maps\\_zombiemode_utility', 'player_killstreak_timer'))
+        self.assertFalse(gscport.source_drives('maps\\_zombiemode_utility', 'get_players'))
+        self.assertTrue(gscport.source_drives('maps\\_zombiemode', 'round_think'))
+        self.assertFalse(gscport.source_drives('maps\\_zombiemode', 'end_game'))
 
 
 if __name__ == '__main__':

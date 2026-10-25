@@ -969,7 +969,14 @@ waw_playsound( alias, notifyname, stoppable )
 {
     name = waw_sound( alias );
     if ( !isdefined( name ) )
+    {
+        // Nothing plays, so nothing ends: still end it, or a waiter holds its
+        // lock for good (one missing quote line silenced every later quote
+        // behind level.player_is_speaking).
+        if ( isdefined( notifyname ) )
+            self thread waw_sound_missing( notifyname );
         return;
+    }
     if ( isdefined( notifyname ) )
     {
         self playsoundwithnotify( name, notifyname );
@@ -977,6 +984,13 @@ waw_playsound( alias, notifyname, stoppable )
     }
     else
         self playsound( name );
+}
+
+waw_sound_missing( notifyname )
+{
+    self endon( "death" );
+    waittillframeend;
+    self notify( notifyname );
 }
 
 // WaW's IsWaitingOnSound: the entity still has a sound playing whose notify

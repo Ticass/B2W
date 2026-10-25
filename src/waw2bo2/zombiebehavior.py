@@ -727,6 +727,36 @@ waw_zombie_can_drop_powerups( zombie )
 '''
 
 
+# BO2's kill quotes (its own vox categories, which a WaW map's bank lacks).
+# gscport quote_hooks ports the map's own to these call sites.
+_CLOSE_DAMAGE_VOX = '''        if ( isdefined( zombie.sound_damage_player ) && zombie.sound_damage_player == zombie.attacker )
+        {
+            chance = get_response_chance( "damage" );
+
+            if ( chance != 0 )
+            {
+                if ( chance > randomintrange( 1, 100 ) )
+                    zombie.attacker maps\\mp\\zombies\\_zm_audio::create_and_play_dialog( "kill", "damage" );
+            }
+            else
+                zombie.attacker maps\\mp\\zombies\\_zm_audio::create_and_play_dialog( "kill", "damage" );
+        }
+'''
+
+
+def waw_quote_rules(text: str, native: str, core_text: str) -> str:
+    """The map's kill quotes replace BO2's where core defines the ported ones."""
+    if 'waw2bo2_death_vo(' in core_text:
+        text = text.replace(_KILL_VOX, _KILL_VOX.replace(
+            'maps\\mp\\zombies\\_zm_audio::player_zombie_kill_vox', 'maps\\mp\\waw\\_waw2bo2_core::waw2bo2_death_vo'))
+    if 'waw2bo2_kill_vo(' in core_text:
+        if text.count(_CLOSE_DAMAGE_VOX) != 1:
+            raise ValueError(f'{native}: kill quote contract changed near the close-damage line')
+        text = text.replace(_CLOSE_DAMAGE_VOX,
+                            '        zombie.attacker maps\\mp\\waw\\_waw2bo2_core::waw2bo2_kill_vo( zombie );\n')
+    return text
+
+
 def waw_drop_rules(text: str, native: str) -> str:
     for anchor in (_DROP_GATE, _KILL_VOX, _DROP_CALL):
         if text.count(anchor) != 1:
@@ -846,6 +876,8 @@ def stage_native_support(out_root: Path, bo2_root: Path, definition: dict) -> No
         if match and match[1] == native:
             token.text = f'#include {owned};'
     text = waw_drop_rules(gsc.emit(script.tokens), native)
+    if core.is_file():
+        text = waw_quote_rules(text, native, core.read_text(encoding='utf-8'))
     dest = out_root / (owned.replace('\\', '/') + '.gsc')
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text('// waw2bo2: native AI with source spawn/speed adapters.\n' + text, encoding='utf-8')
