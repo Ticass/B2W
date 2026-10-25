@@ -3877,6 +3877,29 @@ waw2bo2_dog_actor_glue()
     // per-hit player points through BO2's actor damage plumbing
     self thread maps\\mp\\zombies\\_zm_spawner::enemy_death_detection();
     self thread waw2bo2_dog_keep_enemy();
+    self thread waw2bo2_dog_combat_signal();
+}
+
+waw2bo2_dog_combat_signal()
+{
+    // WaW's dog animscripts notify "dog_combat" on entering combat
+    // (dog_combat.gsc main, dog_stop.gsc); T6's zm_dog scripts only send
+    // "dog_running". Source dog scripts wait for either (Der Riese's
+    // dog_run_think drops the spawn health and lights the eyes then).
+    self endon( "death" );
+    fighting = 0;
+
+    while ( true )
+    {
+        state = self getanimstatefromasd();
+        now = isdefined( state ) && issubstr( state, "zm_combat" );
+
+        if ( now && !fighting )
+            self notify( "dog_combat" );
+
+        fighting = now;
+        wait 0.1;
+    }
 }
 
 waw2bo2_dog_keep_enemy()
