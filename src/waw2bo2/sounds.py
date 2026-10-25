@@ -99,7 +99,12 @@ AMBIENT_CALLS = {"declareambientpackage", "addambientelement", "declareambientro
                  "setambientroomtone", "activateambientpackage", "activateambientroom"}
 
 
-def ambient_calls(source: str) -> list[tuple[str, list]]:
+# WaW's client music state table (clientscripts\_music); BO2's has the same API.
+MUSIC_CALLS = {"declaremusicstate", "musicalias", "musicaliasloop", "musicwaittilldone",
+               "musicwaittillstingerdone", "musicstinger"}
+
+
+def ambient_calls(source: str, names: set[str] = AMBIENT_CALLS) -> list[tuple[str, list]]:
     """Literal-argument ambient package/room calls of a WaW _amb main(), in order.
     Strings keep their text, numbers become floats; other arguments are None."""
     script = gsc.parse(source, "<source amb>")
@@ -110,7 +115,7 @@ def ambient_calls(source: str) -> list[tuple[str, list]]:
     i = main.body_open
     while i < main.body_close:
         token = tokens[i]
-        if token.kind == gsc.IDENT and token.low in AMBIENT_CALLS and tokens[i + 1].text == "(" \
+        if token.kind == gsc.IDENT and token.low in names and tokens[i + 1].text == "(" \
                 and tokens[i - 1].text not in (".", "::"):
             args, current, depth, j = [], [], 0, i + 2
             while depth or tokens[j].text != ")":
@@ -153,6 +158,42 @@ def ambient_aliases(source: str) -> set[str]:
         elif name == "setambientroomtone" and len(args) > 1 and isinstance(args[1], str):
             out.add(args[1])
     return out
+
+
+def port_music(source: str, aliases: set[str]) -> dict:
+    """BO2 _amb main() statements for the source music state table, in order.
+
+    The table names what each state the server requests plays: Shi No Numa's
+    round_begin plays "chalk" then loops "mx_zombie_wave_1". An alias the map
+    never defined (mx_last_zombie) plays nothing in WaW; it becomes BO2's
+    "null" alias here, never an unknown name."""
+    report = {"states": [], "silent": [], "dropped": [], "lines": []}
+    state = None
+    for name, args in ambient_calls(source, MUSIC_CALLS):
+        if name == "declaremusicstate":
+            if not args or not isinstance(args[0], str):
+                report["dropped"].append({"call": name, "reason": "non-literal state"})
+                state = None
+                continue
+            state = args[0]
+            report["states"].append(state)
+            report["lines"].append(f'declaremusicstate( "{state}" );')
+        elif state is None:
+            report["dropped"].append({"call": name, "reason": "before any declared state"})
+        elif name in ("musicwaittilldone", "musicwaittillstingerdone"):
+            report["lines"].append(f"{name}();")
+        else:
+            if not args or not isinstance(args[0], str) or None in args[1:]:
+                report["dropped"].append({"call": name, "state": state, "reason": "non-literal arguments"})
+                continue
+            alias = args[0]
+            if alias in aliases:
+                alias = "waw/" + alias
+            else:
+                report["silent"].append({"state": state, "alias": alias})
+                alias = "null"
+            report["lines"].append(f"{name}( {_csc_args([alias, *args[1:]])} );")
+    return report
 
 
 def _csc_args(values: list) -> str:

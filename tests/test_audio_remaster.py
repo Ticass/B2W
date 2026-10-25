@@ -54,6 +54,20 @@ class AnnouncerTests(unittest.TestCase):
             self.assertIn('game["zmbdialog"]["insta_kill"] = "waw_insta_vox";', code)
 
 
+class MusicTableTests(unittest.TestCase):
+    def test_map_music_states_are_ported_with_bank_names(self):
+        # Shi No Numa's round start/end music lived only in its music table
+        from waw2bo2 import sounds
+        source = ('main()\n{\n declareMusicState("round_begin");\n musicAlias("chalk", 2);\n'
+                  ' musicAliasloop("mx_zombie_wave_1", 0, 0.5);\n musicwaittilldone();\n'
+                  ' declareMusicState("last_zombie");\n musicAliasloop("mx_last_zombie", 0, 0.5);\n}\n')
+        music = sounds.port_music(source, {"chalk", "mx_zombie_wave_1"})
+        self.assertEqual(music["lines"], ['declaremusicstate( "round_begin" );', 'musicalias( "waw/chalk", 2 );',
+                                          'musicaliasloop( "waw/mx_zombie_wave_1", 0, 0.5 );', 'musicwaittilldone();',
+                                          'declaremusicstate( "last_zombie" );', 'musicaliasloop( "null", 0, 0.5 );'])
+        self.assertEqual(music["silent"], [{"state": "last_zombie", "alias": "mx_last_zombie"}])
+
+
 class RemasterMixTests(unittest.TestCase):
     def test_roles_take_the_stock_mix_and_announcer_lines_get_bo2_names(self):
         from waw2bo2 import audioremaster
