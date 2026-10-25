@@ -1,6 +1,7 @@
 import json
 import hashlib
 import math
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -632,6 +633,22 @@ class PlaybackBankTests(unittest.TestCase):
         samples = array.array("h", (int(8000 * math.sin(2 * math.pi * 1000 * i / 44100)) for i in range(4410)))
         out = audio.resample(samples.tobytes(), 1, 44100, 48000, tool)
         self.assertLessEqual(abs(len(out) // 2 - 4800), 2)
+
+    def test_streamed_audio_is_resampled_to_48k_too(self):
+        # T6 played 44.1 kHz streamed voice and music ~1.5 semitones sharp
+        from waw2bo2 import audio
+        if audio.find_decoder(None) is None:
+            self.skipTest("no FFmpeg for resampling")
+        import array
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            samples = array.array("h", (int(8000 * math.sin(2 * math.pi * 440 * i / 44100)) for i in range(4410)))
+            (project / "vox.wav").write_bytes(audio.canonical_pcm(samples.tobytes(), 1, 44100))
+            entry, pcm, info, error = audio._convert_audio(
+                (project, {"name": "vox.wav", "output": "vox.wav", "loadType": 2}, None, None))
+            self.assertIsNone(error)
+            self.assertEqual((info["bank_sample_rate"], info["alias_pitch_scale"]), (48000, 1.0))
+            self.assertEqual(struct.unpack_from("<I", pcm, 24)[0], 48000)
 
 
 if __name__ == "__main__":

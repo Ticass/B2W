@@ -133,7 +133,11 @@ def convert(source: Path, decoder: Path | None = None,
     return wav, report
 
 
-LOADED_RATE = 48000  # every stock BO2 .sabl/.sabs entry (measured); the linker warns otherwise
+# Every stock BO2 .sabl/.sabs entry is 48 kHz, streamed ones included
+# (measured); the linker warns for loaded ones. A streamed entry left at its own
+# rate declares that rate, yet T6 played Shi No Numa's 44.1 kHz voice and music
+# about 1.5 semitones sharp (48/44.1): every sound is resampled to 48 kHz.
+LOADED_RATE = 48000
 
 
 def resample(pcm: bytes, channels: int, rate: int, target: int, tool: Path) -> bytes:
@@ -158,10 +162,10 @@ def _convert_audio(task):
         pcm, info = convert(project / relative, decoder, xwma_decoder)
         info["name"] = entry["name"]
         info["loadType"] = entry["loadType"]
-        if pcm is not None and entry["loadType"] == 1 and info["sample_rate"] != LOADED_RATE:
+        if pcm is not None and info["sample_rate"] != LOADED_RATE:
             resampler = find_decoder(None) or False
             if not resampler:
-                raise SoundError(f"loaded sound at {info['sample_rate']} Hz needs resampling to {LOADED_RATE}; "
+                raise SoundError(f"sound at {info['sample_rate']} Hz needs resampling to {LOADED_RATE}; "
                                  "no resampler (FFmpeg) found")
             data = resample(chunks(pcm)[1][b"data"], info["channels"], info["sample_rate"], LOADED_RATE,
                             resampler)
@@ -169,7 +173,7 @@ def _convert_audio(task):
                         pcm_sha256=hashlib.sha256(data).hexdigest(), frames=len(data) // (info["channels"] * 2),
                         bank_sample_rate=LOADED_RATE, alias_pitch_scale=1.0,
                         sample_rate_translation=f"resampled {info['sample_rate']} -> {LOADED_RATE} Hz "
-                                                "(BO2 loaded banks are 48 kHz only)")
+                                                "(BO2 banks are 48 kHz only)")
             pcm = canonical_pcm(data, info["channels"], LOADED_RATE)
         info["aliases"] = entry.get("aliases", [])
         return entry, pcm, info, None
