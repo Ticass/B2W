@@ -190,7 +190,26 @@ class StockMapPolicyTests(unittest.TestCase):
             (root / "maps/_zombiemode.gsc").write_text("round_spawning() { count = 0; level.zombie_total = 4; }")
             tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
             self.assertIsNone(tr.extract_round_health())
-            self.assertTrue(any("no zombie health function" in e for e in tr.report.errors))
+            # reported, never a build error (Verruckt failed to build on it)
+            self.assertFalse(tr.report.errors)
+            self.assertTrue(any("no zombie health function" in k for k in tr.report.unsupported))
+
+    def test_older_framework_health_step_in_the_round_loop(self):
+        # Verruckt: round_think calls ai_calculate_health itself; the source
+        # loop runs it, so BO2's round_spawning must not recompute health
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode.gsc").write_text(
+                "round_spawning() { count = 0; level.zombie_total = 4; }\n"
+                "round_think() { for( ;; ) { ai_calculate_health(); level.round_number++; } }\n" + HEALTH_STEP)
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertEqual(tr.extract_round_health(source_loop=True), "waw2bo2_health_in_round_loop_register")
+            self.assertIn("level.waw2bo2_health_in_round_loop = 1;", "\n".join(tr.level_state_parts))
+            self.assertFalse(tr.report.errors)
+            # without the source loop nobody would call the step: BO2's stays, reported
+            tr2 = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertIsNone(tr2.extract_round_health())
 
     def test_zombie_var_divisor_is_kept(self):
         with tempfile.TemporaryDirectory() as tmp:

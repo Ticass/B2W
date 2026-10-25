@@ -1695,7 +1695,7 @@ class Translator:
                                       f"\tlevel.max_zombie_func = ::{name};\n}}\n")
         return f"{name}_register"
 
-    def extract_round_health(self, core: str = None, function: str = None) -> str | None:
+    def extract_round_health(self, core: str = None, function: str = None, source_loop: bool = False) -> str | None:
         """WaW's round_spawning calls the framework's health step (stock:
         ai_calculate_health, one increment of level.zombie_health per call).
         Only round_spawning calls it, and a dog round swaps round_spawn_func
@@ -1725,9 +1725,32 @@ class Translator:
             if any(body[i:i + 3] == ["level", ".", "zombie_health"] for i in range(len(body) - 2)):
                 step = toks[start].low
                 break
+        loop = script.functions.get("round_think")
+        if step is None and source_loop and loop is not None:
+            # Older frameworks (Verruckt) step the health in round_think
+            # itself; the source loop runs that call, so BO2's round_spawning
+            # must leave the health alone.
+            toks_loop = toks[loop.body_open + 1:loop.body_close]
+            for i in range(1, len(toks_loop) - 3):
+                callee = script.functions.get(toks_loop[i].low) if toks_loop[i].kind == gsc.IDENT else None
+                if callee is None or [t.text for t in toks_loop[i + 1:i + 4]] != ["(", ")", ";"] \
+                        or toks_loop[i - 1].text not in (";", "{", "}"):
+                    continue
+                body = [t.low for t in toks[callee.body_open:callee.body_close]]
+                if any(body[j:j + 3] == ["level", ".", "zombie_health"] for j in range(len(body) - 2)):
+                    self.report.rewrites[f"WaW health step {toks_loop[i].low} in the source round loop"] += 1
+                    self.level_state_parts.append(
+                        f"\n// {core}::round_think calls {toks_loop[i].low} itself (the source loop runs it)\n"
+                        "waw2bo2_health_by_round_loop()\n{\n}\n\n"
+                        "waw2bo2_health_in_round_loop_register()\n{\n"
+                        "\tlevel.waw2bo2_health_in_round_loop = 1;\n"
+                        "\tlevel.waw2bo2_round_health_func = ::waw2bo2_health_by_round_loop;\n}\n")
+                    return "waw2bo2_health_in_round_loop_register"
         if step is None:
-            self.report.errors.append(f"{where}: {function} calls no zombie health function; "
-                                      f"BO2's round health stays")
+            # reported, never fatal: the map still converts with BO2's health
+            self.report.unsupported.setdefault(
+                f"GSC {core}::{function} health step (no zombie health function called; BO2's runs)",
+                []).append(where)
             return None
         extracted = self.extract_entry(core, step)
         name = f"{core.split(chr(92))[-1].lstrip('_')}__{step}_register"
@@ -2823,13 +2846,13 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     round_total = tr.extract_round_total()
     if round_total:
         framework_state.append(round_total)
-    round_health = tr.extract_round_health()
-    if round_health:
-        framework_state.append(round_health)
     # WaW drives the rounds: the map's own round loop (its display included)
     round_loop = tr.extract_round_loop()
     if round_loop:
         framework_state.append(round_loop)
+    round_health = tr.extract_round_health(source_loop=bool(round_loop))
+    if round_health:
+        framework_state.append(round_health)
     if round_loop or stock_map:
         # the source display's HUD state and materials (the source loop calls
         # its display itself; BO2's loop calls it through the counter hook)
@@ -3630,6 +3653,10 @@ WAW_ROUND_HEALTH_HELPER = """
 waw2bo2_round_health()
 {
     // waw2bo2: the source health step, called where WaW's round_spawning calls it
+    // (an older framework steps it in its own round loop, which runs instead)
+    if ( isdefined( level.waw2bo2_health_in_round_loop ) && level.waw2bo2_health_in_round_loop )
+        return;
+
     if ( isdefined( level.waw2bo2_source_zombie_health ) )
         level.zombie_health = level.waw2bo2_source_zombie_health;
 

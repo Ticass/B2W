@@ -1522,7 +1522,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             path_summary, animscripts, dog_traversals = paths.stage_paths(
                 paths_file, project_root / "BSP", project_root,
                 asd if asd is not None and asd.exists() else None, traversal_roots)
-            report.errors += dog_traversals.errors
+            report.warnings += [f"UNCONVERTED_TRAVERSAL {e}" for e in dog_traversals.errors]
             report.warnings.append(f"path nodes: {path_summary.nodes} nodes, {path_summary.links} links, "
                                    f"vis {path_summary.vis_bytes} bytes; traversals {path_summary.traversals}")
         except paths.PathError as exc:
