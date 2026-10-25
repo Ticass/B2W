@@ -64,6 +64,11 @@
       }
     }
   },
+  "audio_remaster": {
+    "doc": "BO2's power-up grab calls leaderdialog( powerup_name ); the map's power-up script names WaW's line per power-up (gscport.Translator.announcer_hook, audioremaster)",
+    "powerup_announcer": {"script": "maps\\_zombiemode_powerups", "function": "powerup_grab"},
+    "announcer_alias_prefix": "waw_"
+  },
   "stock_map_policies": {
     "solo_quick_revive": {"perk": "specialty_quickrevive", "solo_cost": 500, "solo_purchase_limit": 3,
                           "solo_hint": "ZOMBIE_PERK_QUICKREVIVE_SOLO"},

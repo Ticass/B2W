@@ -1095,7 +1095,7 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
 
 
 def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | None = None,
-                  reverb_send: dict | None = None) -> dict:
+                  reverb_send: dict | None = None, remaster: dict | None = None) -> dict:
     """Official BO2 alias CSV for every PCM- and curve-bound alias.
 
     Plays the original WaW audio through BO2's own sound engine. Categories,
@@ -1116,8 +1116,17 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
                                              "reason": "no stock data supplied"},
               "voice_limit_approximations": [], "errors": []}
     rows = []
+    roles = {}
     for item in bindings["aliases"]:
         document = json.loads((project / item["output"]).read_text())
+        if remaster is not None and document["aliases"]:
+            from . import audioremaster
+            first = document["aliases"][0]
+            bus = first.get("bus", {}).get("name") if isinstance(first.get("bus"), dict) else first.get("bus")
+            spatialized = bool(first["source"].get("flags", 0) & (1 << 6))
+            r = audioremaster.role(bus, spatialized, document["name"], remaster["music"], remaster["ambience"])
+            if r is not None:
+                roles[document["name"].lower()] = r
         new, errors = t6_alias_rows(document, weapon_aliases, report["reverb_send"])
         for index, row in enumerate(document["aliases"]):
             for field in ("limitType", "entityLimitType"):
@@ -1129,6 +1138,12 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
         if new:
             rows += new
             report["aliases"] += 1
+    if remaster is not None:
+        from . import audioremaster
+        copies = audioremaster.announcer_copies(rows, roles, remaster.get("announcer_events", {}),
+                                                remaster.get("announcer_prefix", "waw_"))
+        report["remaster"] = audioremaster.remaster(rows, roles, remaster["profiles"])
+        report["remaster"]["announcer_copies"] = copies
     report["clamped"] = clamp_t6_ranges(rows)
     if budget is not None:
         report["loaded_to_streamed"] = fit_loaded_budget(rows, project / "pcm", budget, weapon_aliases)

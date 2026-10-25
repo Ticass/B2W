@@ -1058,6 +1058,74 @@ class Translator:
         self.report.unsupported.setdefault(f"GSC {desc}", []).append(where)
         return f"{STUBS}::{stub}"
 
+    SOUND_BUILTINS = frozenset(("playsound", "playloopsound", "playsoundatposition", "playlocalsound",
+                                "playsoundasmaster", "playsoundtoplayer", "playsoundwithnotify"))
+
+    def plays_argument_sound(self, core: str, name: str, seen: frozenset = frozenset()) -> bool:
+        """A parameter of the WaW framework function decides the alias a sound
+        builtin plays: it occurs in the builtin's first argument (the alias,
+        or a table lookup such as level.zombie_sounds[ref]), or is passed to a
+        function of the same script that plays it (play_sound_2d ->
+        really_play_2d_sound)."""
+        script = self.sources.get(core)
+        fn = script.functions.get(name.lower()) if script else None
+        if fn is None or not fn.params or name.lower() in seen:
+            return False
+        params = [p.lower() for p in fn.params]
+        toks = script.tokens
+
+        def arguments(open_):
+            args, current, depth = [], [], 0
+            for j in range(open_ + 1, len(toks)):
+                t = toks[j].text
+                if t in ("(", "["):
+                    depth += 1
+                elif t in (")", "]"):
+                    if depth == 0:
+                        args.append(current)
+                        return args
+                    depth -= 1
+                elif t == "," and depth == 0:
+                    args.append(current)
+                    current = []
+                    continue
+                current.append(toks[j].low)
+            return args
+
+        for ref in gsc.references(toks, fn.body_open, fn.body_close):
+            i = ref.index
+            if i + 1 >= len(toks) or toks[i + 1].text != "(":
+                continue
+            args = arguments(i + 1)
+            callee = ref.name.lower()
+            if callee in self.SOUND_BUILTINS:
+                if args and any(t in params for t in args[0]):
+                    return True
+            elif any(arg in ([p] for p in params) for arg in args):
+                owner = self.function_script(core, ref)
+                if owner is not None and self.plays_argument_sound(owner, callee, seen | {name.lower()}):
+                    return True
+        return False
+
+    def function_script(self, core: str, ref) -> str | None:
+        """The WaW script defining the function a reference in ``core`` calls:
+        its qualifier, ``core`` itself, or one of ``core``'s includes."""
+        callee = ref.name.lower()
+        if ref.qualifier:
+            target = ref.qualifier
+            script = self.sources.get(target)
+            return target if script is not None and callee in script.functions else None
+        script = self.sources.get(core)
+        if script is None:
+            return None
+        if callee in script.functions:
+            return core
+        for include in script.includes:
+            other = self.sources.get(include)
+            if other is not None and callee in other.functions:
+                return include
+        return None
+
     def resolve_core(self, core: str, name: str, argc, where, included: set[str], sibling: bool = False) -> str | None:
         """Returns replacement text for the reference (None = keep as is).
         ``sibling``: called from code extracted from ``core`` itself; such a
@@ -1090,6 +1158,16 @@ class Translator:
             if compat:
                 self.report.rewrites[f"{core}::{name} -> compat wrapper"] += 1
                 return compat
+        # A WaW helper that plays a sound its caller names (play_sound_2d(
+        # "ann_vox_dog_start")) runs from source: its sound builtin goes through
+        # the compat wrappers that name WaW's aliases in the bank. BO2's
+        # same-named helper received WaW's bare alias and played nothing (Shi
+        # No Numa's dog-round "Fetch me their souls").
+        if self.plays_argument_sound(core, name):
+            extracted = self.extract(core, name)
+            if extracted:
+                self.report.rewrites[f"{core}::{name} -> source (plays a caller's sound alias)"] += 1
+                return extracted
         # WaW drives (docs/CONVERT_THE_WHOLE_MAP.md): a source-driven framework
         # script runs the map's own function, not BO2's of the same name; only
         # its engine glue (gsc_api source_driven glue, each with its reason)
@@ -2154,6 +2232,83 @@ class Translator:
             self.report.rewrites["WaW check_for_jugg_perk regen -> started after _zm::init"] += 1
         return calls
 
+    def announcer_lines(self, core: str, function: str, depth: int = 5) -> dict[str, list[str]]:
+        """{case label: aliases} for the switch in ``function`` of ``core``:
+        the literal aliases each case hands to a sound helper of the same
+        script (play_devil_dialog( "insta_vox" ), reached from case
+        "insta_kill" through insta_kill_powerup), in call order."""
+        script = self.sources.get(core)
+        fn = script.functions.get(function) if script else None
+        if fn is None:
+            return {}
+        toks = script.tokens
+        lines: dict[str, list[str]] = {}
+
+        def literals(open_: int, close: int, seen: set[str], level: int) -> list[str]:
+            found = []
+            for ref in gsc.references(toks, open_, close):
+                i, callee = ref.index, ref.name.lower()
+                if i + 3 >= len(toks) or toks[i + 1].text != "(":
+                    continue
+                owner = self.function_script(core, ref)
+                if owner is None:
+                    continue
+                if toks[i + 2].kind == gsc.STRING and toks[i + 3].text in (",", ")") \
+                        and self.plays_argument_sound(owner, callee):
+                    found.append(toks[i + 2].text.strip('"').lower())
+                elif owner == core and level < depth and callee not in seen:
+                    inner = script.functions[callee]
+                    found += literals(inner.body_open, inner.body_close, seen | {callee}, level + 1)
+            return found
+
+        for i in range(fn.body_open, fn.body_close):
+            if toks[i].low != "switch":
+                continue
+            close = gsc._match(toks, gsc._match(toks, i + 1, "(", ")") + 1, "{", "}")
+            cases = [j for j in range(i, close) if toks[j].low in ("case", "default")]
+            for k, j in enumerate(cases):
+                if toks[j].low != "case" or toks[j + 1].kind != gsc.STRING:
+                    continue
+                end = cases[k + 1] if k + 1 < len(cases) else close
+                label = toks[j + 1].text.strip('"')
+                aliases = literals(j, end, {function}, 1)
+                if aliases:
+                    lines[label] = list(dict.fromkeys(aliases))
+        return lines
+
+    def announcer_hook(self, out_root: Path) -> list[str]:
+        """BO2's power-up grab says leaderdialog( powerup_name ) through
+        game["zmbdialog"]; the map's own power-up script names WaW's line for
+        each (Shi No Numa: insta_kill -> insta_vox). Bound at runtime to the
+        announcer copy the sound bank holds for a line WaW authored as an
+        announcement (audioremaster), so BO2's announcer plays WaW's voice."""
+        contract = API["audio_remaster"]["powerup_announcer"]
+        lines = self.announcer_lines(contract["script"], contract["function"])
+        events = out_root / "content_source/announcer_events.json"
+        events.unlink(missing_ok=True)
+        if not lines:
+            return []
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text(
+            json.dumps(lines, indent=2) + "\n", encoding="utf-8")
+        prefix = API["audio_remaster"]["announcer_alias_prefix"]
+        # The map's line replaces BO2's stem: the first candidate the bank
+        # holds an announcer copy of (a sound effect the case also plays,
+        # such as nuke_flash, gets none).
+        body = ""
+        for label, aliases in sorted(lines.items()):
+            for alias in aliases:
+                name = prefix + re.sub(r"\W", "_", alias)
+                body += (f'    if ( !isdefined( bound["{label}"] ) && soundexists( "vox_zmba_{name}" ) )\n    {{\n'
+                         f'        game["zmbdialog"]["{label}"] = "{name}";\n'
+                         f'        bound["{label}"] = 1;\n    }}\n')
+        self.level_state_parts.append(
+            f"\n// {contract['script']}::{contract['function']}: WaW's announcer line for each power-up, said "
+            "by BO2's announcer\nwaw2bo2_announcer_events()\n{\n"
+            '    if ( !isdefined( game["zmbdialog"] ) )\n        return;\n    bound = [];\n' + body + "}\n")
+        self.report.rewrites["WaW power-up announcer lines -> BO2 announcer events"] += len(lines)
+        return [f"{CORE}::waw2bo2_announcer_events();"]
+
     def player_damage_scale_hook(self) -> list[str]:
         """WaW's player_damageMultiplier, which the engine applies to every
         non-melee hit on a player (scripted DoDamage and radiusdamage too: stock
@@ -2721,6 +2876,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.extract_end_game()
     tr.post_calls += tr.juggernog_hooks()
     tr.post_calls += tr.player_damage_scale_hook()
+    tr.post_calls += tr.announcer_hook(out_root)
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")

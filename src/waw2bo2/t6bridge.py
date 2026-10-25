@@ -1843,7 +1843,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if source_amb is not None:
         script_sounds |= sounds.ambient_aliases(wawtext.read(source_amb)) & defined_sounds
     entity_sounds = sounds.entity_aliases(ents_file, defined_sounds)
-    compiled_sound_names.update(script_sounds, entity_sounds)
+    # Every alias the map's own zones ship is the map's audio. Literal script
+    # references missed 1,399 in Shi No Numa: the announcer lines of the WaW
+    # power-up script BO2's replaces, runtime-built player quotes, mx_eggs and
+    # dog-wave music. The loaded-bank budget streams what does not fit.
+    compiled_sound_names.update(script_sounds, entity_sounds, zone_sound_names)
     report.content['script_sound_dependencies'] = sorted(script_sounds)
     report.content['entity_sound_dependencies'] = sorted(entity_sounds)
     sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
@@ -1869,8 +1873,26 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if reverb_send["status"] != "measured":
         report.warnings.append(f"SOUND_REVERB_SEND unmeasured: {reverb_send['reason']}; "
                                f"using the last stock measurement {reverb_send['db']} dB")
+    remaster = None
+    if bo2_root is not None:
+        # Mix each WaW role (music, announcer, ambience) as BO2's stock zombie
+        # maps do, from the map's own music table and ambient package.
+        from . import audioremaster
+        amb_text = wawtext.read(source_amb) if source_amb is not None else ""
+        events_file = project_root / "content_source/announcer_events.json"
+        remaster = {"profiles": audioremaster.stock_profiles(bo2_root),
+                    "music": audioremaster.music_table_aliases(amb_text),
+                    "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)},
+                    "announcer_events": json.loads(events_file.read_text()) if events_file.is_file() else {},
+                    "announcer_prefix": gscport.API["audio_remaster"]["announcer_alias_prefix"]}
     bank_report = progress.timed('Build sound bank', sounds.write_t6_bank, project_root / "content_source", bank,
-                                 project_root / "soundbank", budget, reverb_send)
+                                 project_root / "soundbank", budget, reverb_send, remaster)
+    if bank_report.get("remaster"):
+        report.content["audio_remaster"] = bank_report["remaster"]
+        for r, info in sorted(bank_report["remaster"]["roles"].items()):
+            report.warnings.append(f"AUDIO_REMASTER {r}: {info['aliases']} aliases take the stock BO2 {r} mix "
+                                   f"({info['stock_mix']['Bus']}/{info['stock_mix']['VolumeGroup']}, "
+                                   f"{info['stock_mix']['PanType']}), volume {info['volume_shift']:+g} dB")
     report.content["reverb_send"] = reverb_send
     write_amb_csc(report, project, project_root, source_amb, ents_file)
     if budget is not None:
