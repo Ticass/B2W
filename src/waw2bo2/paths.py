@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,6 +38,9 @@ JUMP_DOWN = (40, 72, 96, 127, 176)
 JUMP_UP = (72, 96, 127, 154, 222)
 JUMP_UP_TO_CLIMB = "jump_up_to_climb"
 GENERATED_PREFIX = "waw2bo2_"
+# Measured 2026-10-25 (Der Riese): T6 loaded "waw2bo2_jump_down_127__zombie_jump"
+# for the node animscript "waw2bo2_jump_down_127__zombie_jump_down_127".
+ANIMSCRIPT_NAME_MAX = 34
 
 
 class PathError(RuntimeError):
@@ -189,7 +193,11 @@ def convert_paths(waw: dict, substates: set[str] | None = None,
         calls = dog_calls.get(script.lower())
         if not calls:
             return MANTLE_SCRIPT if alias is None else GENERATED_PREFIX + alias
-        name = f"{GENERATED_PREFIX}{alias or MANTLE_SCRIPT}__{script.lower()}"
+        # T6 keeps only the first ANIMSCRIPT_NAME_MAX characters of a node's
+        # animscript; a longer name loads no script and the actor freezes at
+        # the node. One short name per (zombie alias, source script) pair.
+        key = f"{alias or MANTLE_SCRIPT}|{script.lower()}"
+        name = f"{GENERATED_PREFIX}t{zlib.crc32(key.encode()) & 0xFFFFFFFF:08x}"
         generated[name] = (alias, calls)
         return name
 
@@ -253,6 +261,10 @@ def convert_paths(waw: dict, substates: set[str] | None = None,
             "overlap": node["overlap"],
             "links": node_links,
         })
+    too_long = sorted({s for s in [*renamed.values(), *per_node.values()]
+                       if s.startswith(GENERATED_PREFIX) and len(s) > ANIMSCRIPT_NAME_MAX})
+    if too_long:
+        raise PathError(f"traversal script names over T6's {ANIMSCRIPT_NAME_MAX} characters: {too_long}")
     summary = PathSummary(nodes=count, links=links, vis_bytes=len(vis_hex) // 2, traversals=dict(renamed),
                           generated=generated)
     if per_node:

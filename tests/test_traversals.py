@@ -115,7 +115,7 @@ class TraversalTests(unittest.TestCase):
         waw = dict(nodeCount=2, nodes=[node, end], pathVis="00", visBytes=1)
         _, renamed, summary = paths.convert_paths(waw, {"jump_down_96"},
                                                   {"zombie_jump_down_96": ["dog_jump_down( 96, 7 );"]})
-        name = "waw2bo2_jump_down_96__zombie_jump_down_96"
+        name = next(iter(summary.generated))
         self.assertEqual(renamed["#0"], name)
         alias, calls = summary.generated[name]
         text = paths.traverse_script(alias, traversals.dog_branch(calls))
