@@ -166,7 +166,8 @@
     "maps\\_collectibles_game": null
   },
   "preserved_scripts": [
-    "maps\\_zombiemode_perks"
+    "maps\\_zombiemode_perks",
+    "maps\\_zombiemode_dogs"
   ],
   "core_patterns": [
     "^maps\\\\_zombiemode",
