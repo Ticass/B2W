@@ -552,6 +552,40 @@ def bridge_dynamic_hud_materials(tokens: list[gsc.Token]) -> int:
     return rewrites
 
 
+def mirror_team_zombie_vars(tokens: list[gsc.Token]) -> int:
+    """WaW keeps every zombie var in level.zombie_vars[name]; BO2 keeps the
+    power-up ones per team (gsc_api team_zombie_vars) and its scoring and
+    damage read level.zombie_vars[team][name]. After each source statement
+    that sets one (an assignment or set_zombie_var), the compat runtime copies
+    the value to every team, so WaW's double points and insta-kill reach BO2's
+    readers."""
+    names = set(API["team_zombie_vars"]["names"])
+    rewrites = 0
+    for i in range(len(tokens) - 6):
+        t = tokens[i]
+        name = None
+        if t.low == "level" and [x.text for x in tokens[i + 1:i + 4]] == [".", "zombie_vars", "["] \
+                and tokens[i + 4].kind == gsc.STRING and tokens[i + 5].text == "]" \
+                and tokens[i + 6].text in ("=", "+=", "-=", "*=", "/=", "++", "--") \
+                and (i == 0 or tokens[i - 1].text != "."):
+            name = tokens[i + 4].text.strip('"')
+        elif t.low.endswith("set_zombie_var") and tokens[i + 1].text == "(" and tokens[i + 2].kind == gsc.STRING:
+            name = tokens[i + 2].text.strip('"')
+        if name not in names:
+            continue
+        depth = 0
+        for j in range(i, len(tokens)):
+            depth += tokens[j].text in ("(", "[")
+            depth -= tokens[j].text in (")", "]")
+            if depth < 0 or tokens[j].text in ("{", "}"):
+                break   # inside a for header or an expression: not a statement
+            if tokens[j].text == ";" and depth == 0:
+                tokens[j].text += f' {COMPAT}::waw_team_zombie_var( "{name}" );'
+                rewrites += 1
+                break
+    return rewrites
+
+
 def hud_material_table_source(renamed: dict[str, str]) -> str:
     lines = ["// waw2bo2: converted HUD materials renamed out of BO2's names (materialisolation).",
              "table()", "{", "\tmaterials = [];"]
@@ -1020,6 +1054,8 @@ class Translator:
         self.waw_perk_parts: dict[str, set[str]] = {}
         # calls waw_main_post makes after BO2's _zm::init (framework overrides)
         self.post_calls: list[str] = []
+        # calls waw_main_pre makes before BO2's _zm::init (native replacements)
+        self.pre_calls: list[str] = []
         self.intermission_funcs: set[tuple[str, str]] = set()
         # (core, function) -> text patch applied after translation (extract_round_loop glue)
         self.post_patches: dict = {}
@@ -1329,10 +1365,67 @@ class Translator:
         self.report.rewrites["WaW session stat reads bridged to T6 counters"] += bridge_player_stat_reads(tokens)
         self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
+        self.report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += mirror_team_zombie_vars(tokens)
         if self.stock_map:
             self.report.rewrites["stock WaW map perk costs -> stock map policy"] +=                 bridge_stock_perk_costs(tokens, API["stock_map_policies"])
         header = (f"// Translated from World at War by waw2bo2 (gscport). Source: {where_file}\n")
         return header + gsc.emit(tokens)
+
+    def adapt_native_arguments(self, tokens: list[gsc.Token], ref, native: str, argc, where: str) -> None:
+        """A WaW call resolved to the BO2 function of the same name, whose
+        parameters differ (gsc_api native_argument_adapters): BO2's barrier
+        helpers take the barrier beside its chunks. Each output argument is a
+        WaW argument by index, "object" (what the WaW call runs on),
+        "owner:N" (argument N without its last field: the barrier of
+        X.barrier_chunks) or a literal."""
+        adapter = API["native_argument_adapters"].get(native)
+        if adapter is None or argc != adapter["waw_args"]:
+            return
+        open_ = ref.index + 1
+        close = gsc._match(tokens, open_, "(", ")")
+        spans, start, depth = [], open_ + 1, 0
+        for j in range(open_ + 1, close):
+            depth += tokens[j].text in ("(", "[")
+            depth -= tokens[j].text in (")", "]")
+            if tokens[j].text == "," and depth == 0:
+                spans.append((start, j))
+                start = j + 1
+        spans.append((start, close))
+        if any(tokens[j].kind == gsc.IDENT and tokens[j + 1].text == "(" for j in range(open_ + 1, close)):
+            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {native} arguments call functions; not adapted")
+            return
+        text = lambda s: " ".join(t.text for t in tokens[s[0]:s[1]]).replace(" . ", ".")
+        out = []
+        for arg in adapter["args"]:
+            if isinstance(arg, int):
+                out.append(text(spans[arg]))
+            elif arg == "object":
+                k = (ref.qual_index if ref.qualifier is not None else ref.index) - 1
+                if tokens[k].low == "thread":
+                    k -= 1
+                if tokens[k].kind != gsc.IDENT or tokens[k - 1].text not in (";", "{", "}"):
+                    self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {native} on a compound object; not adapted")
+                    return
+                out.append(tokens[k].text)
+            elif arg.startswith("owner:"):
+                s = spans[int(arg.split(":")[1])]
+                if s[1] - s[0] < 3 or tokens[s[1] - 2].text != ".":
+                    self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {native} chunks without an owner; not adapted")
+                    return
+                out.append(text((s[0], s[1] - 2)))
+            elif arg.startswith("defined_if:"):
+                # a WaW flag where BO2 tests only isdefined()
+                value = text(spans[int(arg.split(":")[1])]).lower()
+                if value not in ("true", "false", "1", "0"):
+                    self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {native} flag {value}; not adapted")
+                    return
+                out.append("1" if value in ("true", "1") else "undefined")
+            else:
+                out.append(arg)
+        for j in range(open_ + 1, close):
+            tokens[j].text = ""
+        tokens[open_].text = "( " + ", ".join(out) + " "
+        self.report.rewrites[f"{native}: WaW arguments adapted"] += 1
 
     def resolve_refs(self, tokens: list[gsc.Token], script: gsc.Script, where_file: str,
                      included_bo2: set[str], skip: set[int], extracting: str | None = None,
@@ -1427,6 +1520,8 @@ class Translator:
                     repl = self.resolve_core(target, name, argc, where, set(), sibling=target == extracting)
                     if repl is None:
                         repl = f"{API['core_scripts'][target]}::{ref.name}"
+                    if not ref.pointer:
+                        self.adapt_native_arguments(tokens, ref, repl, argc, where)
                     qual_tok.text = ""
                     tokens[ref.qual_index + 1].text = ""
                     tok.text = repl
@@ -1476,6 +1571,8 @@ class Translator:
             native_cleanup = repl
             if repl is None and owner is not None and API["core_scripts"].get(owner):
                 native_cleanup = API["core_scripts"][owner] + "::" + name
+            if native_cleanup and not ref.pointer:
+                self.adapt_native_arguments(tokens, ref, native_cleanup, argc, where)
             wrapper = API["hud_cleanup_wrappers"].get(native_cleanup)
             if wrapper and ref.method and argc == 0:
                 if bridge_hud_cleanup(tokens, ref.index, wrapper):
@@ -2022,6 +2119,7 @@ class Translator:
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
         self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
+        self.report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += mirror_team_zombie_vars(tokens)
         if (core, name) in self.intermission_funcs:
             self.report.rewrites["intermission player link -> T6 script camera"] += bridge_intermission_camera(tokens)
         text = gsc.emit(tokens)
@@ -2313,6 +2411,38 @@ class Translator:
             "waw2bo2_powerup_models()\n{\n" + body + "}\n")
         self.report.rewrites["WaW power-up models -> BO2 power-up registry"] += len(models)
         return [f"{CORE}::waw2bo2_powerup_models();"]
+
+    def native_replacements(self) -> list[str]:
+        """BO2 framework code calls its own functions where WaW called the
+        map's (BO2's _zm::init -> _zm_powerups::init, its spawner ->
+        powerup_drop). Plutonium's replacefunc puts the map's function there
+        (gsc_api native_replacements), through a wrapper with BO2's arity that
+        passes the map's own arguments on. A replacement's "keep" lists the BO2
+        calls that still run first, each for a stated engine reason."""
+        calls, parts = [], []
+        for core, entries in API["native_replacements"].items():
+            if core == "doc":
+                continue
+            for entry in entries:
+                native_script, native = entry["native"].rsplit("::", 1)
+                script = self.sources.get(core)
+                fn = script.functions.get(entry["function"]) if script else None
+                arity = self.api.scripts.get(native_script.lower(), {}).get(native)
+                if fn is None or arity is None:
+                    continue
+                name = self.extract_entry(core, entry["function"])
+                params = [f"arg{i}" for i in range(arity)]
+                passed = ", ".join(params[:len(fn.params)])
+                wrapper = f"waw2bo2_native_{native}"
+                keep = "".join(f"    // {k['reason']}\n    {k['call']};\n" for k in entry.get("keep", []))
+                parts.append(f"// {core}::{entry['function']} in place of {entry['native']}\n"
+                             f"{wrapper}( {', '.join(params)} )\n{{\n{keep}"
+                             f"    return self {CORE}::{name}( {passed} );\n}}\n")
+                calls.append(f"replacefunc( {entry['native']}, {CORE}::{wrapper} );")
+        if parts:
+            self.level_state_parts.append("\n" + "\n".join(parts))
+            self.report.rewrites["WaW functions in place of BO2's (replacefunc)"] += len(parts)
+        return calls
 
     def quote_hooks(self) -> list[str]:
         """WaW's player quotes start in framework code BO2 replaces. Where BO2
@@ -2827,7 +2957,10 @@ class Translator:
             hooks += ("\n\t// the map's _zombiemode overrides BO2's _zm::init replaced" +
                       "".join(f"\n\t{call}" for call in self.post_calls))
         tokens[fn.start].text = "waw_main_pre"
-        tokens[fn.body_open].text = ("{\n\t" + f"{COMPAT}::init();\n\t{CORE}::framework_level_state();"
+        pre = "".join(f"\n\t{call}" for call in self.pre_calls)
+        if pre:
+            pre = "\n\t// the map's functions in place of BO2's, before _zm::init calls them" + pre
+        tokens[fn.body_open].text = ("{\n\t" + f"{COMPAT}::init();\n\t{CORE}::framework_level_state();" + pre +
                                      f"\n\t{PRECACHE}::init();\n\t{ONEWAY}::init();\n\t{WATER_BULLETS}::init();")
         split = None
         for ref in gsc.references(tokens, fn.body_open, fn.body_close):
@@ -2990,6 +3123,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.post_calls += tr.powerup_models_hook()
     tr.post_calls += tr.sound_table_hook()
     tr.post_calls += tr.quote_hooks()
+    tr.pre_calls += tr.native_replacements()
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")

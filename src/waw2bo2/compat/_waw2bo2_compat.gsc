@@ -96,6 +96,21 @@ init()
     level thread melee_wallbuy_costs();
 }
 
+// WaW cuts and restores a window's paths through its clip brush, which BO2's
+// blocker_init deletes beside a zbarrier (the carpenter's windows.clip);
+// waw_window_paths then follows the chunks instead.
+waw_connectpaths()
+{
+    if ( isdefined( self ) )
+        self connectpaths();
+}
+
+waw_disconnectpaths()
+{
+    if ( isdefined( self ) )
+        self disconnectpaths();
+}
+
 // WaW keeps a boarded window shut to path-finding: its clip brush
 // disconnects the window's traversal until every chunk is destroyed and again
 // on the first repair (_zombiemode_blockers). T6's blocker_disconnect_paths
@@ -238,6 +253,9 @@ wait_network_frame()
 // Restoring only their origin leaves T6's use trigger hidden after relocation.
 waw_enable_trigger()
 {
+    // a window's clip: BO2's blocker_init deletes it beside a zbarrier
+    if ( !isdefined( self ) )
+        return;
     self maps\mp\zombies\_zm_utility::enable_trigger();
     if ( isdefined( self.classname ) && self.classname == "trigger_use" )
         self show();
@@ -542,6 +560,20 @@ waw_set_zombie_var( var, value, div, is_float )
     if ( isdefined( div ) )
         value = value / div;
     level.zombie_vars[var] = value;
+}
+
+// BO2 keeps some zombie vars per team and reads level.zombie_vars[team][var];
+// the map's code keeps them global. Called after each source write of one.
+waw_team_zombie_var( var )
+{
+    if ( !isdefined( level.teams ) )
+        return;
+    foreach ( team in level.teams )
+    {
+        if ( !isdefined( level.zombie_vars[team] ) )
+            level.zombie_vars[team] = [];
+        level.zombie_vars[team][var] = level.zombie_vars[var];
+    }
 }
 
 // T6 MP's entity rope anchors are visual followers, not physical joints.

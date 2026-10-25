@@ -2820,21 +2820,27 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     # map script names them (for example the teammate revive waypoint).
     shaders = set(SCRIPT_SHADER_RE.findall(
         (gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8")))
-    shaders |= set(SCRIPT_SHADER_RE.findall(core_text))
-    shaders |= {m for b, m in ENGINE_BUILTIN_MATERIALS.items() if re.search(rf"\b{b}\s*\(", core_text, re.I)}
+    # the names the map's own code draws (ported scripts, stock ones too, and
+    # the framework functions extracted from it)
+    source_shaders = set(SCRIPT_SHADER_RE.findall(core_text))
     for path in port.ported:
-        text = sources.text.get(path + ".gsc", "")
-        shaders |= set(SCRIPT_SHADER_RE.findall(text))
+        text = sources.text.get(path + ".gsc") or sources.stock.get(path + ".gsc", "")
+        source_shaders |= set(SCRIPT_SHADER_RE.findall(text))
         shaders |= {m for b, m in ENGINE_BUILTIN_MATERIALS.items() if re.search(rf"\b{b}\s*\(", text, re.I)}
+    shaders |= {m for b, m in ENGINE_BUILTIN_MATERIALS.items() if re.search(rf"\b{b}\s*\(", core_text, re.I)}
+    shaders |= source_shaders
     stock_materials = api.stock_assets.get("material", set())
     hud = []
-    # a stock policy's WaW HUD (round counter chalk) is converted even when
-    # BO2 ships a material of that name; materialisolation renames it
+    # WaW's material wins over BO2's of the same name when the map's code
+    # draws it and WaW ships it (Der Riese's teleporter stopwatch: BO2's
+    # zombie_stopwatch drew a checkerboard); materialisolation renames it.
+    # Names only the compat runtime draws stay BO2's.
     waw_hud = set(port.waw_hud_materials)
     for name in sorted(shaders):
-        if name.lower() in stock_materials and name not in waw_hud:
+        waw_has = any((r / techsets.oat_material_path(name)).exists() for r in model_roots)
+        if name.lower() in stock_materials and name not in waw_hud and not (name in source_shaders and waw_has):
             continue
-        if any((r / techsets.oat_material_path(name)).exists() for r in model_roots):
+        if waw_has:
             hud.append(name)
         else:
             report.warnings.append(f"UNSUPPORTED_ASSET material {name}: drawn by the map scripts, not in any WaW "
