@@ -715,6 +715,14 @@ waw_playfxontag( fx, ent, tag )
 {
     if ( !isdefined( fx ) || !isdefined( ent ) )
         return;
+    // WaW plays on "tag_origin" of models without that bone (the power-ups'
+    // glow on zombie_bomb, whose only bone is fatman); in T6 a missing tag is
+    // a runtime error. Play on a tag_origin carrier riding the entity instead.
+    if ( isdefined( tag ) && isdefined( ent.model ) && ent.model != "" && !waw_entity_has_tag( ent, tag ) )
+    {
+        ent = waw_tag_carrier( ent );
+        tag = "tag_origin";
+    }
     if ( isdefined( level.waw2bo2_bolted_loops ) && isdefined( level.waw2bo2_bolted_loops[fx] ) )
     {
         // T6's transient PlayFXOnTag event cannot own an indefinitely looping
@@ -726,6 +734,39 @@ waw_playfxontag( fx, ent, tag )
         return carrier;
     }
     playfxontag( fx, ent, tag );
+}
+
+waw_entity_has_tag( ent, tag )
+{
+    if ( waw_model_has_tag( ent.model, tag ) )
+        return 1;
+    for ( i = 0; i < ent getattachsize(); i++ )
+    {
+        if ( waw_model_has_tag( ent getattachmodelname( i ), tag ) )
+            return 1;
+    }
+    return 0;
+}
+
+waw_tag_carrier( ent )
+{
+    if ( isdefined( ent.waw_tag_carrier ) )
+        return ent.waw_tag_carrier;
+    carrier = spawn( "script_model", ent.origin );
+    carrier.angles = ent.angles;
+    carrier setmodel( "tag_origin" );
+    carrier linkto( ent );
+    ent.waw_tag_carrier = carrier;
+    level thread waw_tag_carrier_lifetime( carrier, ent );
+    return carrier;
+}
+
+waw_tag_carrier_lifetime( carrier, ent )
+{
+    while ( isdefined( ent ) )
+        wait 0.1;
+    if ( isdefined( carrier ) )
+        carrier delete();
 }
 
 waw_bolted_fx_lifetime( carrier, parent, tag )
