@@ -80,6 +80,13 @@ Replace these with ported source over time. Note each one here when it is done.
   `ai_calculate_health` hooked into BO2's `round_spawning` (branch `waw-health-qr-dogs`).
 - `framework_zombie_vars`: reads only the literal value and drops the divisor (being fixed on
   the same branch).
+- Traversals (fixed for dogs, 2026-10-25): `paths.py` generated one zombie-only script per
+  traversal, so the source's dog branch (`dog_jump_down( 96, 7 )`...) vanished on every map
+  and dogs froze in noclip at heights the dog's animstate lacks (Der Riese). `traversals.py`
+  now converts the dog branch, the WaW dog traversal library and the dog animation table
+  from the source. The **zombie** branch is still mapped by height onto BO2's
+  `zm_traverse` substates instead of converting the source `DoTraverse` with its WaW
+  animation: next to convert.
 - BO2's round loop (`round_think`, `round_wait`, intermission) still runs in place of the
   source's. Only the count formula, the round counter and selected pieces are ported. Audit the
   rest function by function against `_zombiemode::round_think`.

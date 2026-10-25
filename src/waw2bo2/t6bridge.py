@@ -1508,13 +1508,21 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # map-placed script_model entities: WaW collides each one (see hulls.SCRIPT_MODEL_CONTENTS)
     entity_box_models: set[str] = set()
     animscripts: dict[str, str] = {}
+    dog_traversals = None
     paths_file = gfx_bin.parent / f"{gfx_bin.name.removesuffix('.gfx.bin')}.paths.json"
     if paths_file.exists():
         try:
             # the zombie actor the converted spawners use (entities.ZOMBIE_ACTOR_CLASS)
             asd = bo2_root / "raw" / "animstatedefs" / "zm_nuked_basic.asd" if bo2_root is not None else None
-            path_summary, animscripts = paths.stage_paths(paths_file, project_root / "BSP", project_root,
-                                                          asd if asd is not None and asd.exists() else None)
+            # the source traversal scripts (map zones first, then stock WaW)
+            traversal_roots = [*(waw_patch_script_roots or []),
+                               *([waw_map_script.parent.parent] if waw_map_script else []),
+                               *(waw_script_roots or []), *roots,
+                               *([waw_stock_scripts] if waw_stock_scripts else [])]
+            path_summary, animscripts, dog_traversals = paths.stage_paths(
+                paths_file, project_root / "BSP", project_root,
+                asd if asd is not None and asd.exists() else None, traversal_roots)
+            report.errors += dog_traversals.errors
             report.warnings.append(f"path nodes: {path_summary.nodes} nodes, {path_summary.links} links, "
                                    f"vis {path_summary.vis_bytes} bytes; traversals {path_summary.traversals}")
         except paths.PathError as exc:
@@ -1624,7 +1632,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 for tree, kind in sorted(native_trees.items()):
                     cfg = gscport.API['zombie_runtime']['actor_templates'].get(kind)
                     if isinstance(cfg, dict) and cfg.get('owned_tree'):
-                        tree, atr = stage_owned_actor_tree(project_root, bo2_root, tree, cfg)
+                        dog_states = dog_traversals.states if dog_traversals is not None and kind == 'dog' else {}
+                        tree, atr = stage_owned_actor_tree(project_root, bo2_root, tree, cfg, dog_states,
+                                                           report, roots, stock_waw)
                     else:
                         atr = (bo2_root / 'raw/animtrees' / f'{tree}.atr').read_text(encoding='utf-8')
                     zone.write(f"rawfile,animtrees/{tree}.atr\nrawfile,animstatedefs/{tree}.asd\n")
@@ -2391,10 +2401,15 @@ def _stage_weapon_runtime(report: StageReport, project: str, project_root: Path,
                                      visual_errors=len(visuals["errors"]), runtime_report="content_source/weapons.runtime.json")
 
 
-def stage_owned_actor_tree(project_root: Path, bo2_root: Path, base: str, cfg: dict) -> tuple[str, str]:
+def stage_owned_actor_tree(project_root: Path, bo2_root: Path, base: str, cfg: dict,
+                           source_states: dict[str, str] | None = None, report: StageReport | None = None,
+                           roots: list[Path] | None = None, stock_waw=None) -> tuple[str, str]:
     """A native T6 actor graph plus named states from another native graph
     (the dog: TranZit's shipped attack/move states, Nuketown's window barrier),
-    staged under an owned name the converted actors use. Returns (tree, atr)."""
+    staged under an owned name the converted actors use. ``source_states``:
+    zm_traverse substates the source scripts play ({state: WaW xanim}, the
+    dog's traversals, traversals.py); their WaW xanims are staged under
+    namespaced names. Returns (tree, atr)."""
     raw = bo2_root / 'raw'
     asd = (raw / 'animstatedefs' / f'{base}.asd').read_text(encoding='utf-8')
     atr = (raw / 'animtrees' / f'{base}.atr').read_text(encoding='utf-8')
@@ -2418,6 +2433,23 @@ def stage_owned_actor_tree(project_root: Path, bo2_root: Path, base: str, cfg: d
                              atr, count=1, flags=re.M)
         if count != 1:
             raise StageError(f'{base}.atr has no body group')
+    if source_states:
+        from . import traversals
+        resolver = assetresolve.Resolver(roots or [], stock_waw)
+        found = {}
+        for state, anim in sorted(source_states.items()):
+            src = resolver.find("xanim", anim)
+            if src is None:
+                if report is not None:
+                    report.errors.append(f"UNSUPPORTED_XANIM {anim} ({state}): no WaW xanim; "
+                                         f"the source dog traversal cannot play it")
+                continue
+            dst = project_root / "xanim" / gscport.animation_asset_name(anim)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            found[state] = anim
+        asd, atr, staged = traversals.add_dog_states(asd, atr, found, gscport.animation_asset_name)
+        added += [a for a in staged if a not in added]
     tree = cfg['owned_tree']
     for directory, suffix, text in (('animtrees', '.atr', atr), ('animstatedefs', '.asd', asd)):
         target = project_root / directory / (tree + suffix)
