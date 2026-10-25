@@ -1,5 +1,65 @@
 # WaW → BO2 Custom Map Converter Handoff
 
+## Power-ups, stopwatch, quotes, map audio, 2026-10-25 (afternoon/evening)
+
+Worktree `C:\WawConverter-audio`. On `main` (pushed, user asked): everything up to 12b1387
+(waw-drives-dogs, waw-health-qr-dogs, audio-remaster, map-content-audit: box music via the map's own
+`add_sound` table, quote triggers through Plutonium `replacefunc`). Current branch **`der-riese-accuracy`**
+(not pushed, not merged; user playtest pending), commits 05a84c0..6f01063, 748 tests pass.
+Installed: Der Riese (backup `work/der_riese_acc/build/installed_backup_20261025`) and Shi No Numa
+(backup `work/snn_audio/build/installed_backup_20261025_powerups`) built from 55a763f, i.e. WITHOUT the
+audio commit 6f01063 (SnN rebuilt with it in `work/snn_audio/build`, not installed).
+Build scripts: `work/der_riese_acc/build.py`, `work/snn_audio/build.py`; install = `python -m waw2bo2.cli
+package build/stage <project> --bo2 <BO2> --work build/mod_build` (PYTHONPATH=src; the game can stay open,
+except a locked SnN ipak once).
+
+User rules restated: never map-specific fixes, find what the conversion lost; the map drives; replacefunc may
+be used anywhere (Plutonium builtin, registered in t6api.PLUTONIUM_BUILTINS; seen in the bootstrapper's
+builtin list). Never hand-copy WaW lines: run the WaW function at its call site.
+
+Done on der-riese-accuracy:
+- Teleporter stopwatch checkerboard: `_zombiemode_timer` is in `preserved_scripts` (ported whole, its init
+  runs from the _zombiemode::main hook pass); t6bridge HUD rule: a material the map's code draws and WaW
+  ships is WaW's even when BO2 has the name (materialisolation renames).
+- WaW power-ups whole: `source_driven` maps\_zombiemode_powerups; `native_replacements` (gscport) replacefuncs
+  BO2 `_zm_powerups::init` (wrapper keeps BO2 `init_powerups` for client fields/drop flag, player vars, then
+  empties the drop lists and runs WaW init), `powerup_drop`, `check_for_instakill` (arity wrappers), called in
+  waw_main_pre (`self.pre_calls`). `mirror_team_zombie_vars` copies WaW's global writes of BO2 per-team vars
+  (gsc_api team_zombie_vars) via compat `waw_team_zombie_var`. Carpenter = WaW start_carpenter through
+  `native_argument_adapters` (BO2 barrier helpers take the barrier; replace_chunk perk flag -> defined/undefined);
+  compat `waw_connectpaths/disconnectpaths/enable_trigger` tolerate the clip BO2 deletes.
+- framework_zombie_vars read inside `/# #/`: zombie_score_start was 100000 (dev cheat), so WaW's drop
+  watcher waited for 102000 points. Fixed. compat sets `score_total` on connect (BO2 only at spawn).
+- compat `waw_playfxontag`: a model without the tag (power-up models, root bone `fatman`) plays on a linked
+  `tag_origin` carrier (missing tag = T6 runtime error).
+- Audio (6f01063, NOT installed): `sounds.bind_entity_sounds` names `waw/<alias>` in the entities BO2's client
+  `_audio.csc` plays itself (structs script_label line_emitter/looper/random, audio_bump/step triggers):
+  SnN's 638 swamp/water/machine emitters were silent (raw WaW names). Perk machines keep raw names (scripts
+  compare them). `audioremaster.stock_group_levels` aligns every WaW (VolumeGroup, PanType) median to BO2's
+  (voice 3D -13, foley 3D -21, weapons -10/-14). `zombie_vocals_hook` binds BO2 `level.zmb_vox` categories to
+  WaW amb/sprint/attack/board/taunt/behind/death/crawl/elec_vocals. Loaded budget orders weapons, then
+  `played` (script/entity/ambient/vocal aliases), then size.
+
+Open:
+- User's audio report: zombie sounds/footsteps quiet, death/scream loud and "global", no ambience, quick
+  repeats cut (cash on barrier repair). Ambience + levels + voices addressed above (untested in game).
+  Cut-offs: loaded-bank entry cap 392 (stock max 2226 always-loaded + 1656 map bank; template zmb_test 1264);
+  weapons take 310, so cash/boards/zombie voices still STREAM (played_files_streamed 449). User asked whether
+  sounds are omitted: no, streamed, not dropped. Next: IDA `snd_max_stream_voice` dvar (string 0xbdf4b0 in
+  Steam t6zm.i64): can stream voices be raised; is 392 a real engine limit or just the stock maximum.
+  On repair, BO2's client zbarrier callback (_zm.csc ~536) plays BO2 `zmb_repair_boards` + `zmb_cha_ching`;
+  WaW plays no cash sound on repair (repair_boards / boards_float / board_slam only).
+  Footsteps are BO2's (client, `fly_step_*` from the template bank).
+- Dogs stuck in Der Riese doorways (user report, "like dlc5 beta"): not reproduced. Probe ready, never run:
+  `work/der_riese_acc/probe_dogdoor` (opens doors, forces a dog round, teleports once, logs STUCK with asd,
+  path, negotiation node, nearest door). Ruled out statically: aitype size, traverse_height, zone selection.
+  `work/der_riese_acc/probe_powerups` (drops each power-up, grabs it, logs score/scalar/insta incl. team
+  copies) also never run. Runner: `powershell -File run_probe.ps1` with no game running.
+- Carpenter "black box": not diagnosed statically (same gold material and lighting origin as the skull;
+  skull/bomb/x2 are BO2 stock model names, carpenter/ammocan are not). Needs a look in game.
+- `%LOCALAPPDATA%\Plutonium\storage\t6\scripts\zm\` holds old scripts from earlier sessions that load on
+  every map (waw2bo2_devmode, zzz_nuketown_fixes, babygun, ...).
+
 ## WaW drives, not BO2: health, dog traversals, solo QR, round loop, 2026-10-25
 
 Branch `waw-health-qr-dogs` (not on main; user playtest pending). User rules this night:
