@@ -727,8 +727,13 @@ waw_zombie_can_drop_powerups( zombie )
 '''
 
 
-# BO2's kill quotes (its own vox categories, which a WaW map's bank lacks).
-# gscport quote_hooks ports the map's own to these call sites.
+# The map's zombie_death_event runs beside BO2's (gscport quote_hooks); BO2's
+# copies of its work go: the death vocal, the close-call line (BO2's vox
+# categories) and the killer's zom_kill, which the map's kill-streak timer
+# counts once per kill.
+_DEATH_EVENT = '    level thread zombie_death_event( self );\n'
+_DEATH_VOCALS = '    zombie thread maps\\mp\\zombies\\_zm_audio::do_zombies_playvocals( "death", name );\n'
+_KILL_NOTIFY = '        zombie.attacker notify( "zom_kill", zombie );\n'
 _CLOSE_DAMAGE_VOX = '''        if ( isdefined( zombie.sound_damage_player ) && zombie.sound_damage_player == zombie.attacker )
         {
             chance = get_response_chance( "damage" );
@@ -745,15 +750,17 @@ _CLOSE_DAMAGE_VOX = '''        if ( isdefined( zombie.sound_damage_player ) && z
 
 
 def waw_quote_rules(text: str, native: str, core_text: str) -> str:
-    """The map's kill quotes replace BO2's where core defines the ported ones."""
-    if 'waw2bo2_death_vo(' in core_text:
-        text = text.replace(_KILL_VOX, _KILL_VOX.replace(
-            'maps\\mp\\zombies\\_zm_audio::player_zombie_kill_vox', 'maps\\mp\\waw\\_waw2bo2_core::waw2bo2_death_vo'))
-    if 'waw2bo2_kill_vo(' in core_text:
-        if text.count(_CLOSE_DAMAGE_VOX) != 1:
-            raise ValueError(f'{native}: kill quote contract changed near the close-damage line')
-        text = text.replace(_CLOSE_DAMAGE_VOX,
-                            '        zombie.attacker maps\\mp\\waw\\_waw2bo2_core::waw2bo2_kill_vo( zombie );\n')
+    """Thread the map's zombie_death_event where core holds it, in place of
+    BO2's copies of its work."""
+    if 'waw2bo2_zombie_death_event(' not in core_text:
+        return text
+    for anchor in (_DEATH_EVENT, _DEATH_VOCALS, _KILL_NOTIFY, _CLOSE_DAMAGE_VOX):
+        if text.count(anchor) != 1:
+            raise ValueError(f'{native}: zombie death event contract changed near {anchor.strip()[:40]!r}')
+    text = text.replace(_DEATH_EVENT, _DEATH_EVENT +
+                        '    maps\\mp\\waw\\_waw2bo2_core::waw2bo2_zombie_death_event( self );\n')
+    for anchor in (_DEATH_VOCALS, _KILL_NOTIFY, _CLOSE_DAMAGE_VOX):
+        text = text.replace(anchor, '')
     return text
 
 

@@ -111,6 +111,11 @@ def classify_tables(tables, usage: dict[str, list[int]]):
     return functions, methods
 
 
+# Server builtins the Plutonium t6zm runtime adds to the stock table (named in
+# plutonium-bootstrapper-win32.exe's builtin list); converted maps run there.
+PLUTONIUM_BUILTINS = {"replacefunc": (2, 2)}
+
+
 @dataclass
 class T6Api:
     builtins: dict[str, tuple[int, int]]           # server builtin functions
@@ -121,6 +126,7 @@ class T6Api:
     stock_assets: dict[str, set[str]] = field(default_factory=dict)
 
     def __post_init__(self):
+        self.builtins = {**PLUTONIUM_BUILTINS, **self.builtins}
         for path, names in self.scripts.items():
             for n in names:
                 self.by_name.setdefault(n, []).append(path)

@@ -2315,41 +2315,30 @@ class Translator:
         return [f"{CORE}::waw2bo2_powerup_models();"]
 
     def quote_hooks(self) -> list[str]:
-        """WaW's player quotes start in framework code BO2 replaces: a kill
-        (play_death_vo from zombie_death_points, the close-call line and the
-        kill count from zombie_death_event), a power-up grab (powerup_vo) and
-        _zombiemode::main's ammo watcher. The map's functions run where BO2
-        raises the same event: the owned spawner's death points and death
-        event call the wrappers below (zombiebehavior), BO2's power-up grab
-        calls its custom response hook, and the watcher starts with the map."""
+        """WaW's player quotes start in framework code BO2 replaces. Where BO2
+        calls its own quote function at the same moment with the same
+        arguments (a kill's zombie_death_points, a power-up grab), Plutonium's
+        replacefunc puts the map's function in its place. The map's
+        zombie_death_event (death vocals, the kill count its kill-streak timer
+        reads, the close-call line, zom_kill) runs where WaW threads it, on
+        each spawned zombie; the owned spawner drops BO2's copies of that work
+        (zombiebehavior.waw_quote_rules). _zombiemode::main's ammo watcher
+        starts with the map."""
         contract = API["quote_triggers"]
         parts, calls = [], []
-        death = contract["death"]
+        for entry in contract["replace"]:
+            native_script, native = entry["native"].rsplit("::", 1)
+            name = self.extract_entry(entry["script"], entry["function"]) \
+                if self.api.defines(native_script, native) else None
+            if name:
+                calls.append(f"    // {entry['script']}::{entry['function']} at BO2's call\n"
+                             f"    replacefunc( {entry['native']}, {CORE}::{name} );\n")
+        death = contract["death_event"]
         name = self.extract_entry(death["script"], death["function"])
         if name:
-            parts.append(f"// {death['script']}::zombie_death_points: the killer's quote\n"
-                         "waw2bo2_death_vo( hit_location, attacker, mod, zombie )\n{\n"
-                         f"    level thread {CORE}::{name}( hit_location, attacker, mod, zombie );\n}}\n")
-        kill = contract["kill"]
-        script = self.sources.get(kill["script"])
-        fn = script.functions.get(kill["function"].lower()) if script else None
-        words = {t.low for t in script.tokens[fn.body_open:fn.body_close]} if fn else set()
-        close = self.extract_entry(kill["script"], kill["close_damage"].lower()) \
-            if {"killcounter", kill["close_damage"].lower()} <= words else None
-        if close:
-            parts.append(f"// {kill['script']}::{kill['function']}: the killer's kill count (its kill-streak quote)\n"
-                         "// and close-call line\nwaw2bo2_kill_vo( zombie )\n{\n"
-                         "    if ( !isdefined( self.killcounter ) )\n        self.killcounter = 1;\n"
-                         "    else\n        self.killcounter++;\n\n"
-                         "    if ( isdefined( zombie.sound_damage_player ) && zombie.sound_damage_player == self )\n"
-                         f"        self thread {CORE}::{close}();\n}}\n")
-        powerup = contract["powerup"]
-        name = self.extract_entry(powerup["script"], powerup["function"])
-        if name:
-            parts.append(f"// {powerup['script']}::powerup_grab: the grabber's quote\n"
-                         "waw2bo2_powerup_vo( player, type )\n{\n"
-                         f"    player thread {CORE}::{name}( type );\n}}\n")
-            calls.append(f"    level.{powerup['native_hook']} = ::waw2bo2_powerup_vo;\n")
+            parts.append(f"// {death['script']}: zombie_spawn_init threads it on each zombie\n"
+                         "waw2bo2_zombie_death_event( zombie )\n{\n"
+                         f"    level thread {CORE}::{name}( zombie );\n}}\n")
         ammo = contract["ammo"]
         name = self.extract_entry(ammo["script"], ammo["function"])
         if name:
