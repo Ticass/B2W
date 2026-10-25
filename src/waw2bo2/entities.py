@@ -33,6 +33,10 @@ ZOMBIE_ACTOR_CLASS = "actor_zm_nuked_basic_01"
 # weapons are carried under their WaW names and t6bridge maps renamed or
 # uncarried ones once mod.ff's weapon set is known (map_wall_buys).
 RISE_SUFFIX = "_rise"
+# WaW _zombiemode_zone_manager: a zone's dog spawn spots are the structs named
+# volume.target + "_dog" (zone.dog_locations); BO2's zone manager reads
+# structs named volume.target tagged "dog_location" instead.
+DOG_SUFFIX = "_dog"
 ZBARRIER_ASSET ="zmcore_basicwoodbarrier"
 
 
@@ -214,6 +218,15 @@ def convert_entities(ents: list[dict[str, str]], project: str,
                 rise["script_string"] = "find_flesh"
             out.append(rise)
             renamed["WaW rise struct -> riser_location struct"] += 1
+        if cls == "script_struct" and ent.get("targetname", "").endswith(DOG_SUFFIX) \
+                and ent["targetname"][:-len(DOG_SUFFIX)] in volume_targets:
+            # the zone's WaW dog spot as BO2's: the source dog script picks
+            # among level.enemy_dog_locations (Der Riese's
+            # dog_spawn_factory_logic) and teleports the dog there
+            out.append({"classname": "script_struct", "targetname": ent["targetname"][:-len(DOG_SUFFIX)],
+                        "origin": ent.get("origin", "0 0 0"), "angles": ent.get("angles", "0 0 0"),
+                        "script_noteworthy": "dog_location"})
+            renamed["WaW dog struct -> dog_location struct"] += 1
         out.append(ent)
 
     wall_buy_null_targets(out, renamed)

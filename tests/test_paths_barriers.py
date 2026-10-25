@@ -66,6 +66,23 @@ class SpawnerTests(unittest.TestCase):
             self.assertTrue(all(e["targetname"] == "zone_a_spawners" for e in out
                                 if e.get("script_noteworthy") in ("spawn_location", "riser_location")))
 
+    def test_zone_dog_structs_become_dog_locations(self):
+        # WaW zone manager: zone.dog_locations = structs named volume.target + "_dog"
+        ents = "\n".join([
+            '{\n"classname" "info_volume"\n"targetname" "zone_a"\n"target" "zone_a_spawners"\n}',
+            '{\n"classname" "script_struct"\n"targetname" "zone_a_spawners_dog"\n"origin" "5 6 7"\n}',
+            '{\n"classname" "script_struct"\n"targetname" "unrelated_dog"\n"origin" "8 8 8"\n}',
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "map.ents"
+            path.write_text(ents)
+            entities.write_entities(path, "proj", Path(temp) / "BSP")
+            out = json.loads((Path(temp) / "BSP/entities.json").read_text())["entities"]
+            dogs = [(e["targetname"], e["origin"]) for e in out if e.get("script_noteworthy") == "dog_location"]
+            self.assertEqual(dogs, [("zone_a_spawners", "5 6 7")])
+            # the source struct stays for the map's own lookups
+            self.assertTrue(any(e.get("targetname") == "zone_a_spawners_dog" for e in out))
+
 
 class BarrierTests(unittest.TestCase):
     def test_goal_target_group_gets_the_inward_window_traversal(self):
