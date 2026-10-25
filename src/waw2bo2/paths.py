@@ -369,6 +369,9 @@ def stage_paths(paths_file: Path, bsp_dir: Path, project_root: Path,
     bsp_dir.mkdir(parents=True, exist_ok=True)
     (bsp_dir / "paths.json").write_text(json.dumps(t6, separators=(",", ":")) + "\n", encoding="utf-8")
     folder = project_root / "maps" / "mp" / "animscripts" / "traverse"
+    # generated scripts of an earlier build are compiled too (traverse_scripts)
+    for old in folder.glob(f"{GENERATED_PREFIX}*.gsc") if folder.is_dir() else ():
+        old.unlink()
     for script in sorted(set(renamed.values())):
         if not script.startswith(GENERATED_PREFIX):
             continue

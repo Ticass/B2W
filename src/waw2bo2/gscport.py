@@ -3549,10 +3549,10 @@ waw2bo2_apply_zombie_var_defaults()
     if ( !isdefined( level.waw2bo2_zombie_var_defaults ) )
         return;
 
-    foreach ( var in getarraykeys( level.waw2bo2_zombie_var_defaults ) )
+    foreach ( var, value in level.waw2bo2_zombie_var_defaults )
     {
         if ( !isdefined( level.zombie_vars[var] ) )
-            maps\\mp\\waw\\_waw2bo2_compat::waw_set_zombie_var( var, level.waw2bo2_zombie_var_defaults[var], waw2bo2_zombie_var_divisor( var ) );
+            maps\\mp\\waw\\_waw2bo2_compat::waw_set_zombie_var( var, value, waw2bo2_zombie_var_divisor( var ) );
     }
 }
 
