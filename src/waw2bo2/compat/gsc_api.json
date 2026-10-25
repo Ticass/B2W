@@ -205,7 +205,6 @@
     "maps\\_zombiemode_blockers_new": "maps\\mp\\zombies\\_zm_blockers",
     "maps\\_zombiemode_net": "maps\\mp\\zombies\\_zm_net",
     "maps\\_zombiemode_devgui": "maps\\mp\\zombies\\_zm_devgui",
-    "maps\\_zombiemode_bowie": "maps\\mp\\zombies\\_zm_weap_bowie",
     "maps\\_zombiemode_cymbal_monkey": "maps\\mp\\zombies\\_zm_weap_cymbal_monkey",
     "maps\\_laststand": "maps\\mp\\zombies\\_zm_laststand",
     "maps\\_load": "maps\\mp\\zombies\\_load",
@@ -234,8 +233,16 @@
   "preserved_scripts": [
     "maps\\_zombiemode_perks",
     "maps\\_zombiemode_dogs",
-    "maps\\_zombiemode_timer"
+    "maps\\_zombiemode_timer",
+    "maps\\_zombiemode_bowie"
   ],
+  "preserved_template_inits": {
+    "doc": "Template map-main lines that set up BO2's counterpart of a WaW framework script the map ports whole (preserved_scripts). The ported script owns the job; the BO2 one would think on the same map entities. Each needs a reason.",
+    "maps\\_zombiemode_bowie": [
+      {"line": "    maps\\mp\\zombies\\_zm_weap_bowie::init();",
+       "reason": "BO2's melee wallbuy threads on the map's bowie_upgrade triggers (WaW's bowie_think buys)"}
+    ]
+  },
   "core_patterns": [
     "^maps\\\\_zombiemode",
     "^maps\\\\_callback",

@@ -25,6 +25,17 @@ class EntitySoundTests(unittest.TestCase):
             self.assertEqual(ents[0]["script_label"], "line_emitter")
 
 
+class AmbientEmitterTests(unittest.TestCase):
+    def test_emitter_sounds_are_ambience_after_binding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "entities.json"
+            path.write_text(json.dumps({"entities": [
+                {"classname": "script_struct", "script_label": "line_emitter", "script_sound": "waw/amb_swamp_01_L"},
+                {"classname": "script_struct", "script_label": "random", "script_sound": "amb_frog"},
+                {"classname": "trigger_multiple", "targetname": "audio_bump_trigger", "script_sound": "waw/perks_rattle"}]}))
+            self.assertEqual(sounds.ambient_emitter_aliases(path), {"amb_swamp_01_l", "amb_frog"})
+
+
 class GroupLevelTests(unittest.TestCase):
     def test_each_group_sits_at_bo2s_level(self):
         rows = [{"Name": "waw/attack_vocals", "VolumeGroup": "grp_voice", "PanType": "3d", "VolMin": "98", "VolMax": "100"},
@@ -36,6 +47,18 @@ class GroupLevelTests(unittest.TestCase):
         self.assertEqual([r["VolMax"] for r in rows[:2]], ["84", "80"])
         self.assertEqual(report["groups"]["grp_voice|3d"]["volume_shift"], -16.0)
         self.assertEqual(rows[2]["VolMax"], "90")    # a role row is not a group row
+
+    def test_ambience_keeps_its_waw_level_against_the_rest_of_the_bank(self):
+        rows = [{"Name": "waw/gun", "VolumeGroup": "grp_weapon", "PanType": "3d", "VolMin": "95", "VolMax": "95"},
+                {"Name": "waw/amb_swamp", "VolumeGroup": "grp_foley", "PanType": "3d", "VolMin": "95", "VolMax": "95"}]
+        profiles = {"groups": {"grp_weapon|3d": {"volume": 81.0, "rows": 4000}},
+                    "ambience": {"mix": {"Bus": "bus_fx", "VolumeGroup": "grp_ambience", "PanType": "3d"},
+                                 "volume": 70.0, "rows": 500}}
+        report = audioremaster.remaster(rows, {"waw/amb_swamp": "ambience"}, profiles)
+        # level with the gun as in WaW, not at BO2's ambience median (70)
+        self.assertEqual([r["VolMax"] for r in rows], ["81", "81"])
+        self.assertEqual(rows[1]["VolumeGroup"], "grp_ambience")
+        self.assertEqual(report["roles"]["ambience"]["volume_shift"], -14.0)
 
 
 class LoadedBudgetTests(unittest.TestCase):
@@ -51,6 +74,27 @@ class LoadedBudgetTests(unittest.TestCase):
             streamed = sounds.fit_loaded_budget(rows, pcm, budget, {"gun_fire"})
             self.assertEqual([s["alias"] for s in streamed], ["waw/step_run_dirt"])
             self.assertEqual(budget["played_files_loaded"], 1)
+
+    def test_template_bytes_come_from_the_stock_entries(self):
+        import struct
+
+        def bank(path, entries):
+            header = struct.pack("<8I3q", 0x23585532, 14, 20, 0, 0, len(entries), 0, 0, 0, 2048, 0)
+            path.write_bytes(header.ljust(2048, b"\0") + b"".join(
+                struct.pack("<4I4b", key, size, 0, 0, 0, 1, 0, 0) for key, size in entries))
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "sound").mkdir()
+            source = "raw\\sound\\fly\\step_00.LN65.pc.snd"
+            bank(root / "sound" / "zmb_map.all.sabl", [(sounds.snd_hash(source), 300), (7, 700)])
+            bank(root / "sound" / "zmb_common.all.sabl", [(9, 50)])
+            csv_path = root / "template.csv"
+            csv_path.write_text("Name,FileSource,Storage\nfly_step,%s,loaded\nmus,mus.snd,streamed\n" % source)
+            budget = sounds.loaded_budget(root, csv_path)
+            self.assertEqual((budget["reference_bytes"], budget["template_bytes"], budget["bytes"]), (1000, 300, 700))
+            # entries are one pool over every bank, not a map budget
+            self.assertEqual(budget["entries"], sounds.T6_SND_ENTRY_POOL - 1 - 2)
 
 
 if __name__ == "__main__":

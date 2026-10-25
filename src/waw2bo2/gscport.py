@@ -3929,6 +3929,24 @@ def hook_bo2_animtrees(main_gsc: Path, main_csc: Path, out_root: Path, trees: li
     return changed
 
 
+def drop_preserved_template_inits(main_gsc: Path, out_root: Path) -> list[str]:
+    """Remove the template's BO2 counterpart setup of each WaW framework script
+    the map ports whole (gsc_api preserved_template_inits); returns the lines
+    removed. A module the map does not port keeps the template's line."""
+    source = main_gsc.read_text(encoding="utf-8", errors="replace")
+    removed = []
+    for module, lines in API.get("preserved_template_inits", {}).items():
+        if module == "doc" or not (out_root / (ported_path(module).replace("\\", "/") + ".gsc")).is_file():
+            continue
+        for entry in lines:
+            if entry["line"] + "\n" in source:
+                source = source.replace(entry["line"] + "\n", "", 1)
+                removed.append(entry["line"].strip())
+    if removed:
+        main_gsc.write_text(source, encoding="utf-8")
+    return removed
+
+
 def hook_bo2_main(main_gsc: Path, map_name: str) -> bool:
     """Call the ported WaW main around _zm::init in the BO2 map main (idempotent)."""
     source = main_gsc.read_text(encoding="utf-8", errors="replace")

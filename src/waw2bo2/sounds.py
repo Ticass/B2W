@@ -409,6 +409,19 @@ def bind_entity_sounds(entities_json: Path, converted: set[str]) -> int:
     return count
 
 
+def ambient_emitter_aliases(entities_json: Path) -> set[str]:
+    """Aliases the map's ambient emitters play (script_label line_emitter /
+    looper / random structs), lowercase, without the waw/ prefix. WaW authors
+    them as level ambience; by bus they fell in foley and sat ~8 dB under the
+    weapons once each group took BO2's level."""
+    if not entities_json.is_file():
+        return set()
+    labels = CLIENT_AUDIO_ENTITIES[0][1]
+    return {entity["script_sound"].lower().removeprefix("waw/")
+            for entity in json.loads(entities_json.read_text(encoding="utf-8"))["entities"]
+            if entity.get("script_label") in labels and isinstance(entity.get("script_sound"), str)}
+
+
 def decode_flags(flags: int) -> dict:
     """Measured in official T4 linker_pc sub_404D50, not T6 flag layout."""
     if not isinstance(flags, int) or not 0 <= flags <= 0xffffffff:
@@ -1116,28 +1129,72 @@ def _bank_entries(path: Path) -> int:
         return struct.unpack("<8I", f.read(32))[5]
 
 
+def _bank_entry_sizes(path: Path) -> dict[int, int]:
+    """SndAssetBankEntry id -> data size for every entry of a T6 bank."""
+    with path.open("rb") as f:
+        header = struct.unpack("<8I3q", f.read(56))
+        f.seek(header[9])
+        return {entry[0]: entry[1] for entry in (struct.unpack("<4I4b", f.read(20)) for _ in range(header[5]))}
+
+
+def snd_hash(name: str) -> int:
+    """T6 SND_HashName (alias and asset ids)."""
+    result = 0x1505
+    for c in name.lower():
+        result = (ord(c) + 0x1003F * result) & 0xFFFFFFFF
+    return result or 1
+
+
+# T6 keeps every loaded bank's entries (loaded and streamed tables alike) in
+# one pool: a bank whose entries pass 0x4000 fails to load (t6zm sub_911F10).
+T6_SND_ENTRY_POOL = 0x4000
+
+
 def loaded_budget(bo2_root: Path, template_csv: Path | None) -> dict:
     """Loaded-bank headroom for the converted map, measured on stock BO2.
 
     A loaded (.sabl) bank lives whole in the 32-bit game's memory. WaW kept its
     loaded sounds ADPCM/XWMA-compressed; decoded to T6 PCM the same set can
     exceed what any stock level loads (measured freeze at the main menu with
-    ~833 MB of loaded banks). Budget = the largest stock map bank (entries and
-    bytes) minus the template map bank already in mod.ff; the template's bytes
-    are estimated at the stock average bytes per entry."""
+    ~833 MB of loaded banks). Bytes = the largest stock map bank's sound data
+    minus the template map bank already in mod.ff, measured on the stock
+    entries the linker copies the template's sounds from. Entries are no map
+    budget: T6 pools them over every bank, and a sound moved between loaded
+    and streamed keeps its one entry; what is left of the pool is reported.
+    Streaming is what costs: T6 plays 10 streamed voices at once
+    (snd_max_stream_voice, default and maximum 10), so a streamed sound that
+    repeats quickly cuts itself and others off."""
     banks = [p for p in sorted((bo2_root / "sound").glob("*.all.sabl")) if not p.name.startswith(ALWAYS_LOADED_BANKS)]
     if not banks:
         raise SoundError(f"no stock BO2 map sound banks under {bo2_root / 'sound'} to measure a budget")
-    biggest = max(banks, key=lambda p: p.stat().st_size)
-    entries, size = _bank_entries(biggest), biggest.stat().st_size
-    template = 0
+    stock = {p: _bank_entry_sizes(p) for p in sorted((bo2_root / "sound").glob("*.sab?"))}
+    biggest = max(banks, key=lambda p: sum(stock[p].values()))
+    size = sum(stock[biggest].values())
+    always = sum(len(found) for p, found in stock.items() if p.name.startswith(ALWAYS_LOADED_BANKS))
+    sizes = {}
+    for found in stock.values():
+        for key, value in found.items():
+            sizes.setdefault(key, value)
+    template_files, template_entries, unmatched = set(), 0, 0
     if template_csv is not None and template_csv.exists():
         with template_csv.open(encoding="utf-8", errors="replace", newline="") as f:
-            template = len({r["FileSource"] for r in csv.DictReader(f)
-                            if r.get("Storage", "").lower() == "loaded" and r.get("FileSource")})
-    return {"reference_bank": biggest.name, "reference_entries": entries, "reference_bytes": size,
-            "template_entries": template, "entries": max(entries - template, 0),
-            "bytes": max(size - int(template * size / entries), 0)}
+            rows = [r for r in csv.DictReader(f) if r.get("FileSource")]
+        template_entries = len({r["FileSource"] for r in rows})
+        template_files = {r["FileSource"] for r in rows if r.get("Storage", "").lower() == "loaded"}
+    average = size / max(len(stock[biggest]), 1)
+    template_bytes = 0
+    for source in template_files:
+        found = sizes.get(snd_hash(source))
+        if found is None:
+            unmatched += 1
+            found = int(average)
+        template_bytes += found
+    return {"reference_bank": biggest.name, "reference_entries": len(stock[biggest]), "reference_bytes": size,
+            "template_entries": len(template_files), "template_bytes": template_bytes,
+            "template_unmatched": unmatched,
+            "entries": max(T6_SND_ENTRY_POOL - always - template_entries, 0),
+            "entry_pool": {"size": T6_SND_ENTRY_POOL, "always_loaded": always, "template": template_entries},
+            "bytes": max(size - template_bytes, 0)}
 
 
 def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
@@ -1173,6 +1230,8 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
         if row["Storage"] == "loaded" and row["FileSource"] not in keep:
             row["Storage"] = "streamed"
             streamed.append({"alias": row["Name"], "file": row["FileSource"], "bytes": sizes[row["FileSource"]]})
+    if "entry_pool" in budget:
+        budget["entry_pool"]["map"] = len({r["FileSource"] for r in rows if r.get("FileSource")})
     budget.update(loaded_files=len(keep), loaded_bytes=used, streamed_files=len(sizes) - len(keep),
                   weapon_files_loaded=len(weapon_files & keep),
                   weapon_files_streamed=len((weapon_files & sizes.keys()) - keep),

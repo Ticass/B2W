@@ -93,7 +93,6 @@ init()
     level thread stuck_zombie_monitor();
     level thread waw_window_paths();
     level thread power_bridge();
-    level thread melee_wallbuy_costs();
 }
 
 // WaW cuts and restores a window's paths through its clip brush, which BO2's
@@ -143,30 +142,6 @@ waw_window_paths()
             setenablenode( goal.neg_end, open );
         }
         wait 0.05;
-    }
-}
-
-// BO2's melee wallbuy (_zm_melee_weapon::melee_weapon_think) charges
-// self.stub.cost, which only BO2's struct wallbuys carry. A WaW map's
-// trigger_use (bowie_upgrade) has no stub, so the price is undefined and
-// minus_to_player_score returns without charging. Give each such trigger a
-// stub holding its registered cost once the think threads have started.
-melee_wallbuy_costs()
-{
-    while ( !isdefined( level._melee_weapons ) )
-        wait 0.05;
-    waittillframeend;
-    for ( i = 0; i < level._melee_weapons.size; i++ )
-    {
-        melee_weapon = level._melee_weapons[i];
-        triggers = getentarray( melee_weapon.wallbuy_targetname, "targetname" );
-        for ( j = 0; j < triggers.size; j++ )
-        {
-            if ( isdefined( triggers[j].stub ) )
-                continue;
-            triggers[j].stub = spawnstruct();
-            triggers[j].stub.cost = melee_weapon.cost;
-        }
     }
 }
 
@@ -2117,6 +2092,23 @@ waw_setperk( perk )
     if ( !isdefined( self.waw2bo2_perks ) )
         self.waw2bo2_perks = [];
     self.waw2bo2_perks[perk] = 1;
+    if ( perk == "specialty_altmelee" )
+        self waw_altmelee_weapon();
+}
+
+// WaW's engine reads specialty_altmelee to melee with the bowie (the map's
+// _zombiemode_bowie only sets the perk). T6 melees with the player's melee
+// weapon instead: equip BO2's bowie the way BO2's flourish end does
+// (_zm_melee_weapon::do_melee_weapon_flourish_end).
+waw_altmelee_weapon()
+{
+    weapon = "bowie_knife_zm";
+    if ( self hasweapon( weapon ) )
+        return;
+    self giveweapon( weapon );
+    self maps\mp\zombies\_zm_melee_weapon::change_melee_weapon( weapon, self getcurrentweapon() );
+    if ( self hasweapon( "knife_zm" ) )
+        self takeweapon( "knife_zm" );
 }
 
 // WaW's HUD netfield -86 sends round((scale - 1) * 10) in six bits.

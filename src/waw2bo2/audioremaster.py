@@ -165,6 +165,13 @@ def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict])
             continue
         waw_volumes = [v for row in members for v in [_number(row.get("VolMax"))] if v is not None]
         shift = (profile["volume"] - _median(waw_volumes)) if profile["volume"] is not None and waw_volumes else 0.0
+        if r == "ambience" and report["groups"]:
+            # Ambience plays under the map's weapons and voices, so it keeps
+            # WaW's level against them: the shift most of the bank's rows
+            # took. BO2's own ambience median sat it ~6 dB under the weapons
+            # where WaW had its emitters level with them (playtest: "way too
+            # quiet compared to the rest of the game").
+            shift = _median([g["volume_shift"] for g in report["groups"].values() for _ in range(g["rows"])])
         # Ambience keeps WaW's authored panning: a 2D bed (amb_spooky_2d) is
         # not a point emitter. Music and announcer lines are 2D by role.
         mix = {k: v for k, v in profile["mix"].items() if not (r == "ambience" and k == "PanType")}

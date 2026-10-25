@@ -1759,6 +1759,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 gscport.hook_bo2_characters(main_gsc)
             gscport.hook_bo2_weapons(main_gsc)
             gscport.hook_bo2_box(main_gsc)
+            for line in gscport.drop_preserved_template_inits(main_gsc, project_root):
+                report.warnings.append(f"template init dropped, the ported WaW script owns it: {line}")
             if bo2_root is None:
                 raise ValueError("BO2 runtime sources required to stage WaW perk ownership")
             gscport.stage_bo2_perk_support(project_root, bo2_root, bo2_stock_perks=bo2_stock_perks)
@@ -1903,7 +1905,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         events_file = project_root / "content_source/announcer_events.json"
         remaster = {"profiles": audioremaster.stock_profiles(bo2_root),
                     "music": audioremaster.music_table_aliases(amb_text),
-                    "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)},
+                    "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)}
+                                | sounds.ambient_emitter_aliases(project_root / "BSP" / "entities.json"),
                     "announcer_events": json.loads(events_file.read_text()) if events_file.is_file() else {},
                     "announcer_prefix": gscport.API["audio_remaster"]["announcer_alias_prefix"]}
     bank_report = progress.timed('Build sound bank', sounds.write_t6_bank, project_root / "content_source", bank,
@@ -1919,9 +1922,13 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if budget is not None:
         report.warnings.append(
             f"SOUND_LOADED_TO_STREAMED {budget['streamed_files']} WaW loaded sounds streamed: loaded-bank budget "
-            f"{budget['entries']} files / {budget['bytes'] // 2**20} MB (largest stock map bank "
-            f"{budget['reference_bank']} minus the template bank); kept {budget['loaded_files']} loaded files, prioritizing weapon dependencies "
-            f"({budget['loaded_bytes'] // 2**20} MB). List: content_source/sounds.bank.json")
+            f"{budget['bytes'] // 2**20} MB (largest stock map bank {budget['reference_bank']} minus the template "
+            f"bank's {budget['template_bytes'] // 2**20} MB); kept {budget['loaded_files']} loaded files, weapon "
+            f"dependencies, then played sounds ({budget['loaded_bytes'] // 2**20} MB); {budget['played_files_streamed']} "
+            f"played files still stream (10 stream voices). List: content_source/sounds.bank.json")
+        pool = budget.get("entry_pool", {})
+        if pool and pool["always_loaded"] + pool["template"] + pool.get("map", 0) > pool["size"]:
+            report.warnings.append(f"SOUND_ENTRY_POOL {pool}: T6 cannot load the map bank (entry pool full)")
     if bank_report["variants"]:
         with (project_root / MOD_EXTRA_ZONE).open("a", encoding="utf-8") as zone:
             zone.write(f"soundbank,{bank}\n")
