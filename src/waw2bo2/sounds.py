@@ -397,14 +397,23 @@ def bind_entity_sounds(entities_json: Path, converted: set[str]) -> int:
     data = json.loads(entities_json.read_text(encoding="utf-8"))
     names = {name.lower(): name for name in converted}
     count = 0
+    changed = False
     for entity in data["entities"]:
+        # WaW's client times a random emitter in script (soundRandom_Thread:
+        # wait random(script_wait_min, script_wait_max), play). BO2's
+        # _audio.csc runs that same loop only for script_scripted structs and
+        # hands the rest to the native createsoundrandom, which kept Shi No
+        # Numa's 48 fly_swarm emitters buzzing without pause (playtest).
+        if entity.get("script_label") == "random" and entity.get("script_scripted") is None:
+            entity["script_scripted"] = "1"
+            changed = True
         keys = [k for field, values, ks in CLIENT_AUDIO_ENTITIES if entity.get(field) in values for k in ks]
         for key in keys:
             value = entity.get(key)
             if isinstance(value, str) and value.lower() in names:
                 entity[key] = "waw/" + names[value.lower()]
                 count += 1
-    if count:
+    if count or changed:
         entities_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     return count
 

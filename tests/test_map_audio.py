@@ -23,6 +23,9 @@ class EntitySoundTests(unittest.TestCase):
             self.assertEqual([e["script_sound"] for e in ents],
                              ["waw/amb_swamp_01_L", "waw/comp_loop", "waw/perks_rattle", "mx_jugger_jingle", "not_converted"])
             self.assertEqual(ents[0]["script_label"], "line_emitter")
+            # randoms run WaW's script loop, not BO2's native emitter
+            self.assertEqual(ents[4].get("script_scripted"), "1")
+            self.assertNotIn("script_scripted", ents[0])
 
 
 class AmbientEmitterTests(unittest.TestCase):
