@@ -2276,6 +2276,36 @@ class Translator:
                     lines[label] = list(dict.fromkeys(aliases))
         return lines
 
+    def powerup_models_hook(self) -> list[str]:
+        """BO2's power-up script registers the drops with BO2's models; the
+        map's own power-up script names its models (Shi No Numa:
+        add_zombie_powerup( "nuke", "zombie_bomb", ... )). BO2's
+        add_zombie_powerup keeps the model in level.zombie_powerups[name], so
+        the map's model replaces it there. The literal also makes the model
+        part of the conversion and of the first-frame precache."""
+        contract = API["map_content"]["powerup_models"]
+        script = self.sources.get(contract["script"])
+        if script is None:
+            return []
+        toks, models = script.tokens, {}
+        for ref in gsc.references(toks, 0, len(toks)):
+            i = ref.index
+            if ref.name.lower() != contract["register"] or i + 5 >= len(toks) or toks[i + 1].text != "(":
+                continue
+            if toks[i + 2].kind == gsc.STRING and toks[i + 3].text == "," and toks[i + 4].kind == gsc.STRING:
+                models[toks[i + 2].text.strip('"')] = toks[i + 4].text.strip('"')
+        if not models:
+            return []
+        body = "".join(f'    {COMPAT}::waw_precachemodel( "{model}" );\n'
+                       f'    if ( isdefined( level.zombie_powerups ) && isdefined( level.zombie_powerups["{name}"] ) )\n'
+                       f'        level.zombie_powerups["{name}"].model_name = "{model}";\n'
+                       for name, model in sorted(models.items()))
+        self.level_state_parts.append(
+            f"\n// {contract['script']}: the map's power-up models on BO2's power-up registry\n"
+            "waw2bo2_powerup_models()\n{\n" + body + "}\n")
+        self.report.rewrites["WaW power-up models -> BO2 power-up registry"] += len(models)
+        return [f"{CORE}::waw2bo2_powerup_models();"]
+
     def announcer_hook(self, out_root: Path) -> list[str]:
         """BO2's power-up grab says leaderdialog( powerup_name ) through
         game["zmbdialog"]; the map's own power-up script names WaW's line for
@@ -2877,6 +2907,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.post_calls += tr.juggernog_hooks()
     tr.post_calls += tr.player_damage_scale_hook()
     tr.post_calls += tr.announcer_hook(out_root)
+    tr.post_calls += tr.powerup_models_hook()
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")

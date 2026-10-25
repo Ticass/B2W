@@ -69,6 +69,10 @@
     "powerup_announcer": {"script": "maps\\_zombiemode_powerups", "function": "powerup_grab"},
     "announcer_alias_prefix": "waw_"
   },
+  "map_content": {
+    "doc": "Map content a replaced WaW framework script names, carried onto the BO2 system that replaces it (docs/MAP_CONTENT_AUDIT.md)",
+    "powerup_models": {"script": "maps\\_zombiemode_powerups", "register": "add_zombie_powerup"}
+  },
   "stock_map_policies": {
     "solo_quick_revive": {"perk": "specialty_quickrevive", "solo_cost": 500, "solo_purchase_limit": 3,
                           "solo_hint": "ZOMBIE_PERK_QUICKREVIVE_SOLO"},

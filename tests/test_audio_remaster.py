@@ -103,5 +103,17 @@ class RemasterMixTests(unittest.TestCase):
             self.assertEqual(report['roles']['announcer']['aliases'], 2)
 
 
+class PowerupModelTests(unittest.TestCase):
+    def test_map_powerup_models_replace_bo2s(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode_powerups.gsc').write_text(
+                'init_powerups() { add_zombie_powerup( "nuke", "zombie_bomb", &"X", "fx" ); }\n')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.powerup_models_hook(), ['maps\\mp\\waw\\_waw2bo2_core::waw2bo2_powerup_models();'])
+            self.assertIn('level.zombie_powerups["nuke"].model_name = "zombie_bomb";', tr.level_state_parts[-1])
+
+
 if __name__ == '__main__':
     unittest.main()

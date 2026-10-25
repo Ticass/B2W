@@ -968,9 +968,30 @@ waw_playsound( alias, notifyname, stoppable )
     if ( !isdefined( name ) )
         return;
     if ( isdefined( notifyname ) )
+    {
         self playsoundwithnotify( name, notifyname );
+        self thread waw_sound_wait( notifyname );
+    }
     else
         self playsound( name );
+}
+
+// WaW's IsWaitingOnSound: the entity still has a sound playing whose notify
+// has not fired (maps\_utility::delete_on_death_wait_sound waits for it
+// before deleting the entity). T6 has no such builtin.
+waw_sound_wait( notifyname )
+{
+    self endon( "death" );
+    if ( !isdefined( self.waw2bo2_sounds_waiting ) )
+        self.waw2bo2_sounds_waiting = 0;
+    self.waw2bo2_sounds_waiting++;
+    self waittill( notifyname );
+    self.waw2bo2_sounds_waiting--;
+}
+
+waw_iswaitingonsound()
+{
+    return isdefined( self.waw2bo2_sounds_waiting ) && self.waw2bo2_sounds_waiting > 0;
 }
 
 waw_playloopsound( alias, fadetime )
