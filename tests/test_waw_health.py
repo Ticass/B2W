@@ -19,6 +19,15 @@ class MaxHealthLoweringTests(unittest.TestCase):
         self.assertIn(f"player {self.SET} 160 );", text)
         self.assertIn("player.health = 160;", text)
 
+    def test_builtin_call_after_the_rewrite_is_not_a_method(self):
+        # Der Riese dog_init: self.maxhealth = int( level.dog_health * m ); the
+        # int call was read as `x int( ... )` and stubbed (undefined health)
+        tokens = gsc.tokenize('f()\n{\n    self.maxhealth = int( a * m );\n}\n')
+        gscport.lower_maxhealth_assignments(tokens)
+        refs = [r for r in gsc.references(tokens) if r.name.lower() == "int"]
+        self.assertEqual(len(refs), 1)
+        self.assertFalse(refs[0].method)
+
     def test_consecutive_indexed_and_else_receivers(self):
         count, text = lower('f()\n{\n    self.maxhealth = 100;\n    level.players[i].maxhealth = int( a * ( b + 1 ) );\n'
                             '    if ( x ) y = 1;\n    else self.maxhealth = 5;\n}\n')

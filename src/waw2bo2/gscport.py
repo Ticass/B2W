@@ -845,6 +845,9 @@ def lower_maxhealth_assignments(tokens: list[gsc.Token]) -> int:
             continue
         tokens[i - 1].text = ''
         tokens[i].text = ' ' + COMPAT + '::waw_set_maxhealth('
+        # no longer a name: an IDENT here made the reference scanner read the
+        # first call of the expression as a method (`x int( ... )`) and stub it
+        tokens[i].kind = gsc.PUNCT
         tokens[i].pre = ''
         tokens[i + 1].text = tokens[i + 1].pre = ''
         tokens[i + 2].pre = ' '
