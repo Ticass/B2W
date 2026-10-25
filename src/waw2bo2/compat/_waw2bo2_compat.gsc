@@ -954,6 +954,9 @@ waw_sound( alias )
 {
     if ( !isdefined( alias ) )
         return undefined;
+    // level.zombie_sounds holds the map's aliases already bound (waw/music_box)
+    if ( getsubstr( alias, 0, 4 ) == "waw/" && soundexists( alias ) )
+        return alias;
     name = "waw/" + alias;
     if ( soundexists( name ) )
         return name;

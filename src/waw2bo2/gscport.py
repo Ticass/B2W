@@ -2306,6 +2306,41 @@ class Translator:
         self.report.rewrites["WaW power-up models -> BO2 power-up registry"] += len(models)
         return [f"{CORE}::waw2bo2_powerup_models();"]
 
+    def sound_table_hook(self) -> list[str]:
+        """BO2's init_sounds fills level.zombie_sounds with BO2 aliases
+        (music_chest -> zmb_music_box); the map's framework fills it with its
+        own (music_chest -> music_box). WaW code and BO2 code both play a ref
+        through that table, so each ref WaW names is rebound to WaW's alias as
+        the bank holds it (waw/music_box), which the compat sound lookup takes
+        as it is. The framework's table first, then any the map adds."""
+        contract = API["map_content"]["sound_table"]
+        framework = norm(contract["script"]) + ".gsc"
+        keys = [framework] + sorted(k for k in self.sources.text if k.endswith(".gsc") and k != framework)
+        table = {}
+        for key in keys:
+            script = self.sources.get(key[:-4])
+            if script is None:
+                continue
+            toks = script.tokens
+            for ref in gsc.references(toks, 0, len(toks)):
+                i = ref.index
+                if ref.name.lower() != contract["register"] or i + 5 >= len(toks) or toks[i + 1].text != "(":
+                    continue
+                if toks[i + 2].kind == gsc.STRING and toks[i + 3].text == "," and toks[i + 4].kind == gsc.STRING \
+                        and toks[i + 5].text == ")":
+                    table[toks[i + 2].text.strip('"')] = toks[i + 4].text.strip('"')
+        if not table:
+            return []
+        body = "".join(f'    if ( soundexists( "waw/{alias}" ) )\n'
+                       f'        level.zombie_sounds["{name}"] = "waw/{alias}";\n'
+                       for name, alias in table.items())
+        self.level_state_parts.append(
+            f"\n// {contract['script']}::init_sounds: the map's sound for each ref on BO2's sound table\n"
+            "waw2bo2_sound_table()\n{\n"
+            "    if ( !isdefined( level.zombie_sounds ) )\n        level.zombie_sounds = [];\n" + body + "}\n")
+        self.report.rewrites["WaW sound table -> BO2 level.zombie_sounds"] += len(table)
+        return [f"{CORE}::waw2bo2_sound_table();"]
+
     def announcer_hook(self, out_root: Path) -> list[str]:
         """BO2's power-up grab says leaderdialog( powerup_name ) through
         game["zmbdialog"]; the map's own power-up script names WaW's line for
@@ -2908,6 +2943,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.post_calls += tr.player_damage_scale_hook()
     tr.post_calls += tr.announcer_hook(out_root)
     tr.post_calls += tr.powerup_models_hook()
+    tr.post_calls += tr.sound_table_hook()
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")

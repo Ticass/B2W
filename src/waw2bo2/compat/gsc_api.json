@@ -71,7 +71,8 @@
   },
   "map_content": {
     "doc": "Map content a replaced WaW framework script names, carried onto the BO2 system that replaces it (docs/MAP_CONTENT_AUDIT.md)",
-    "powerup_models": {"script": "maps\\_zombiemode_powerups", "register": "add_zombie_powerup"}
+    "powerup_models": {"script": "maps\\_zombiemode_powerups", "register": "add_zombie_powerup"},
+    "sound_table": {"script": "maps\\_zombiemode", "register": "add_sound"}
   },
   "stock_map_policies": {
     "solo_quick_revive": {"perk": "specialty_quickrevive", "solo_cost": 500, "solo_purchase_limit": 3,

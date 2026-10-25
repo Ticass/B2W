@@ -115,5 +115,22 @@ class PowerupModelTests(unittest.TestCase):
             self.assertIn('level.zombie_powerups["nuke"].model_name = "zombie_bomb";', tr.level_state_parts[-1])
 
 
+class SoundTableTests(unittest.TestCase):
+    def test_map_sound_table_replaces_bo2s(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode.gsc').write_text(
+                'init_sounds() { add_sound( "music_chest", "music_box" ); add_sound( "open_chest", "lid_open" ); }\n')
+            (root / 'maps/nazi_zombie_test.gsc').write_text('main() { add_sound( "open_chest", "map_lid" ); }\n')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.sound_table_hook(), ['maps\\mp\\waw\\_waw2bo2_core::waw2bo2_sound_table();'])
+            body = tr.level_state_parts[-1]
+            self.assertIn('level.zombie_sounds["music_chest"] = "waw/music_box";', body)
+            # the map's own registration wins over the framework's
+            self.assertIn('level.zombie_sounds["open_chest"] = "waw/map_lid";', body)
+            self.assertNotIn('lid_open', body)
+
+
 if __name__ == '__main__':
     unittest.main()
