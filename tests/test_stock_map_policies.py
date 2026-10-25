@@ -225,6 +225,20 @@ class StockMapPolicyTests(unittest.TestCase):
             self.assertIn('level.waw2bo2_zombie_var_divisors["zombie_health_increase_percent"] = 100;', core)
             self.assertNotIn('level.waw2bo2_zombie_var_divisors["zombie_health_start"]', core)
 
+    def test_developer_blocks_are_not_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode.gsc").write_text(
+                'init_levelvars() { set_zombie_var( "zombie_score_start", 500 );\n/#\n'
+                'if( GetDvarInt( "zombie_cheat" ) >= 1 ) { set_zombie_var( "zombie_score_start", 100000 ); }\n#/\n'
+                'set_zombie_var( "zombie_score_kill", 50 ); }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            tr.framework_zombie_vars()
+            core = "\n".join(tr.level_state_parts)
+            self.assertIn('level.waw2bo2_zombie_var_defaults["zombie_score_start"] = 500;', core)
+            self.assertIn('level.waw2bo2_zombie_var_defaults["zombie_score_kill"] = 50;', core)
+
     def test_compat_runtime_defines_the_policy_functions(self):
         script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
         for name in ("waw_stock_perk_cost", "waw_stock_solo_revive", "waw_stock_solo_revive_bought",
