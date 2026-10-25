@@ -1145,6 +1145,14 @@ def snd_hash(name: str) -> int:
     return result or 1
 
 
+# Loaded map-bank bytes measured beside the 157.6 MB zm_test template bank:
+# 34 MB loads; 88 MB (template + map = 257.2 MB, just under stock Shi No
+# Numa's single 257.7 MB bank) froze the mount on both Der Riese and Shi No
+# Numa (2026-10-25): the converted zones take more memory than the stock
+# map's, so the stock bank size is no ceiling for ours.
+LOADED_BYTES_MEASURED = 34 * 2**20
+
+
 # T6 keeps every loaded bank's entries (loaded and streamed tables alike) in
 # one pool: a bank whose entries pass 0x4000 fails to load (t6zm sub_911F10).
 T6_SND_ENTRY_POOL = 0x4000
@@ -1194,7 +1202,8 @@ def loaded_budget(bo2_root: Path, template_csv: Path | None) -> dict:
             "template_unmatched": unmatched,
             "entries": max(T6_SND_ENTRY_POOL - always - template_entries, 0),
             "entry_pool": {"size": T6_SND_ENTRY_POOL, "always_loaded": always, "template": template_entries},
-            "bytes": max(size - template_bytes, 0)}
+            "stock_headroom_bytes": max(size - template_bytes, 0),
+            "bytes": min(max(size - template_bytes, 0), LOADED_BYTES_MEASURED)}
 
 
 def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,

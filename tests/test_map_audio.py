@@ -92,7 +92,7 @@ class LoadedBudgetTests(unittest.TestCase):
             csv_path = root / "template.csv"
             csv_path.write_text("Name,FileSource,Storage\nfly_step,%s,loaded\nmus,mus.snd,streamed\n" % source)
             budget = sounds.loaded_budget(root, csv_path)
-            self.assertEqual((budget["reference_bytes"], budget["template_bytes"], budget["bytes"]), (1000, 300, 700))
+            self.assertEqual((budget["reference_bytes"], budget["template_bytes"], budget["stock_headroom_bytes"]), (1000, 300, 700))
             # entries are one pool over every bank, not a map budget
             self.assertEqual(budget["entries"], sounds.T6_SND_ENTRY_POOL - 1 - 2)
 
