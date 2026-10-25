@@ -867,9 +867,14 @@ def vertex_contract(source_assembly, source_pass, native_pass, native_root, pair
             # T6 keeps sun visibility in gridLightingCoordsAndVis.w (lprobe sun
             # PS: sun term * v.w); WaW keeps it in the model lighting texel
             # alpha. Carry .w on the varying WaW already uses for these coords.
+            # Only when WaW leaves that .w free: its clothcharr programs write
+            # __characterCharredAmount there (mov o8.w, c61.x), and the
+            # carried grid visibility drew zombies burnt wherever the grid
+            # was bright (Shi No Numa uniforms switching while they walked).
             hits = tainted_outputs(source_assembly, {reg})
             carriers = {r for r, _ in hits}
-            if len(carriers) == 1 and {c for _, c in hits} <= set('xyz'):
+            if len(carriers) == 1 and {c for _, c in hits} <= set('xyz') \
+                    and not writes_component(source_assembly, next(iter(carriers)), 'w'):
                 carrier = carriers.pop()
                 contract['outputs'][carrier]['width'] = 4
                 contract['epilogue'] = {'lines': [f'{carrier}.w = t6_cb{slot}[{at//16}].w;'], 'uses': [[slot, at//16]]}
@@ -877,6 +882,20 @@ def vertex_contract(source_assembly, source_pass, native_pass, native_root, pair
     if ir['samplers']:
         raise shaders.ShaderError('vertex texture binding adapter required')
     return contract
+
+
+def writes_component(assembly: str, register: str, component: str) -> bool:
+    """An instruction of the program writes ``component`` of ``register``
+    (an unmasked destination writes every component)."""
+    for line in assembly.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) < 2 or parts[0].startswith(('//', 'dcl', 'def', 'vs_', 'ps_')):
+            continue
+        dest = parts[1].split(',', 1)[0].strip()
+        name, _, mask = dest.partition('.')
+        if name == register and (not mask or component in mask):
+            return True
+    return False
 
 
 _ELEMENTWISE = {'mov', 'add', 'sub', 'mul', 'mad', 'min', 'max', 'slt', 'sge', 'frc', 'abs', 'cmp', 'lrp', 'dsx', 'dsy'}

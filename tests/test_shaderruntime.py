@@ -355,6 +355,17 @@ sqrt o0.xyz, r0.xyzx
         self.assertEqual(runtime.alpha_test_lines(material, 'wc_l_sm_r0c0', 4, 'oC0'), [])
         self.assertFalse(runtime.alpha_tested(material))
 
+class LightingVisibilityCarrierTests(unittest.TestCase):
+    def test_carrier_w_written_by_waw_is_not_free(self):
+        # clothcharr vertex programs put __characterCharredAmount in o8.w;
+        # carrying grid visibility there drew Shi No Numa zombies burnt
+        charred = '    vs_3_0\n    dcl_texcoord6 o8\n    mov o8.xyz, c8\n    mov o8.w, c61.x\n'
+        plain = '    vs_3_0\n    dcl_texcoord6 o8.xyz\n    mov o8.xyz, c8\n'
+        self.assertTrue(runtime.writes_component(charred, 'o8', 'w'))
+        self.assertFalse(runtime.writes_component(plain, 'o8', 'w'))
+        self.assertTrue(runtime.writes_component('    mov o8, r0\n', 'o8', 'w'))
+
+
 class DisplayScaleTests(unittest.TestCase):
     def test_waw_scene_passes_write_half_their_display_colour(self):
         opaque = {'blendOpRgb': 'disabled'}
