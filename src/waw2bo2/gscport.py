@@ -1976,6 +1976,13 @@ class Translator:
                                       text, count=1, flags=re.IGNORECASE)
                 if count != 1:
                     raise ValueError(f"{where}: {function} translated without anchor {label}")
+            # A local spawn function (older loops) is round_spawning, which is
+            # glue: BO2's (T6 actors, source hooks), the function BO2 keeps in
+            # level.round_spawn_func and dog rounds swap.
+            text, local = re.subn(r"(?<![.\w])round_spawn_func\s*=\s*[^;]+;",
+                                  "round_spawn_func = level.round_spawn_func;", text)
+            if local:
+                self.report.rewrites["source loop's local spawn function -> level.round_spawn_func"] += local
             return text
 
         self.post_patches[(core, function)] = glue
@@ -3673,7 +3680,8 @@ waw2bo2_round_health()
 # Anchors every WaW round_think has (Translator.extract_round_loop); ROUND_WAIT is
 # the source round_wait call (translated: the extracted function's name).
 SOURCE_ROUND_ANCHORS = (
-    ("spawn", r"level\s+thread\s+\[\[\s*level\.round_spawn_func\s*\]\]\s*\(\s*\)\s*;"),
+    # older frameworks (Verruckt) thread a local: round_spawn_func = ::round_spawning
+    ("spawn", r"level\s+thread\s+\[\[\s*(?:level\.)?round_spawn_func\s*\]\]\s*\(\s*\)\s*;"),
     ("wait", r"\bROUND_WAIT\s*\(\s*\)\s*;"),
     ("advance", r"level\.round_number\s*\+\+\s*;"),
 )

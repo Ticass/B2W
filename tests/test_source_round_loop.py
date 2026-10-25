@@ -85,6 +85,16 @@ class SourceRoundLoopTests(unittest.TestCase):
         self.assertIn("maps\\mp\\zombies\\_zm::spectators_respawn", core)
         self.assertNotIn("zombiemode__spectators_respawn()", core)
 
+    def test_older_loop_with_a_local_spawn_function(self):
+        # Verruckt: round_spawn_func = ::round_spawning; level thread [[round_spawn_func]]();
+        older = ZOMBIEMODE.replace("level thread [[level.round_spawn_func]]();",
+                                   "round_spawn_func = ::round_spawning;\n\t\tlevel thread [[round_spawn_func]]();")
+        older += "round_spawning()\n{\n\tlevel.zombie_total = 1;\n}\n"
+        _, name, core = self._translate(older)
+        self.assertEqual(name, "waw2bo2_source_round_loop")
+        self.assertIn("round_spawn_func = level.round_spawn_func;", core)
+        self.assertIn("_waw2bo2_zm::waw2bo2_round_started();", core)
+
     def test_a_loop_without_the_anchors_keeps_bo2(self):
         tr, name, _ = self._translate("round_think() { for(;;) { wait( 1 ); } }")
         self.assertIsNone(name)
