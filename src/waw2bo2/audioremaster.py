@@ -62,7 +62,32 @@ def stock_profiles(bo2_root: Path) -> dict[str, dict]:
                    for v in [_number(r.get("VolMax"))] if v is not None]
         profiles[role] = {"mix": dict(zip(MIX_COLUMNS, mix)), "volume": _median(volumes) if volumes else None,
                           "rows": count}
+    profiles["groups"] = stock_group_levels(bo2_root)
     return profiles
+
+
+# A group needs this many stock rows to give a level (BO2's 2D voice group
+# holds 53 rows, all silent placeholders at 0).
+MIN_GROUP_ROWS = 100
+
+
+def stock_group_levels(bo2_root: Path) -> dict[str, dict]:
+    """"<VolumeGroup>|<PanType>" -> median stock VolMax over BO2's zombie maps.
+
+    Every other WaW sound keeps its converted category (sounds._category); its
+    level should sit where BO2 mixes that category. Measured on the stock
+    banks: converted WaW voice 3D sat at 100 against BO2's 82, foley 3D at 90
+    against 69, so BO2's own sounds in the same map (zombie vocals, footsteps)
+    played some 18 dB under WaW's."""
+    values: dict[str, list[float]] = {}
+    for path in sorted((bo2_root / "raw/soundbank").glob("zmb_*.aliases.csv")):
+        with path.open(encoding="utf-8", errors="replace", newline="") as f:
+            for row in csv.DictReader(f):
+                volume = _number(row.get("VolMax"))
+                if volume is not None:
+                    values.setdefault(f"{row.get('VolumeGroup', '')}|{row.get('PanType', '')}", []).append(volume)
+    return {key: {"volume": _median(found), "rows": len(found)} for key, found in values.items()
+            if len(found) >= MIN_GROUP_ROWS and _median(found) > 0}
 
 
 _MUSIC_CALL = re.compile(r'\bmusicAlias(?:loop)?\s*\(\s*"([^"]+)"', re.IGNORECASE)
@@ -104,14 +129,35 @@ def announcer_copies(rows: list[dict], roles: dict[str, str], events: dict[str, 
     return made
 
 
+def _shift(rows: list[dict], shift: float) -> None:
+    for row in rows:
+        for column in ("VolMin", "VolMax"):
+            value = _number(row.get(column))
+            if value is not None:
+                row[column] = f"{max(0.0, min(100.0, value + shift)):g}"
+
+
 def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict]) -> dict:
     """Apply each role's stock mix to its rows in place; returns the report."""
-    report = {"roles": {}, "unmeasured": []}
+    report = {"roles": {}, "unmeasured": [], "groups": {}}
     by_role: dict[str, list[dict]] = {}
+    by_group: dict[str, list[dict]] = {}
     for row in rows:
         r = roles.get(row["Name"].lower())
         if r is not None:
             by_role.setdefault(r, []).append(row)
+        else:
+            by_group.setdefault(f"{row.get('VolumeGroup', '')}|{row.get('PanType', '')}", []).append(row)
+    for key, members in sorted(by_group.items()):
+        stock = profiles.get("groups", {}).get(key)
+        waw_volumes = [v for row in members for v in [_number(row.get("VolMax"))] if v is not None]
+        if stock is None or not waw_volumes:
+            report["unmeasured"].append(key)
+            continue
+        shift = stock["volume"] - _median(waw_volumes)
+        _shift(members, shift)
+        report["groups"][key] = {"aliases": len({row["Name"] for row in members}), "rows": len(members),
+                                 "volume_shift": round(shift, 2), "stock_rows": stock["rows"]}
     for r, members in sorted(by_role.items()):
         profile = profiles.get(r)
         if profile is None:
@@ -124,10 +170,7 @@ def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict])
         mix = {k: v for k, v in profile["mix"].items() if not (r == "ambience" and k == "PanType")}
         for row in members:
             row.update(mix)
-            for column in ("VolMin", "VolMax"):
-                value = _number(row.get(column))
-                if value is not None:
-                    row[column] = f"{max(0.0, min(100.0, value + shift)):g}"
+        _shift(members, shift)
         report["roles"][r] = {"aliases": len({row["Name"] for row in members}), "rows": len(members),
                               "stock_mix": profile["mix"], "volume_shift": round(shift, 2),
                               "stock_rows": profile["rows"]}

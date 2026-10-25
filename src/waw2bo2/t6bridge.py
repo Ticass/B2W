@@ -1867,6 +1867,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     report.content['entity_sound_dependencies'] = sorted(entity_sounds)
     sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
     sound_names = {n["name"] for n in sound_graph["nodes"] if n["kind"] == "sound"}
+    report.content['entity_sounds_bound'] = sounds.bind_entity_sounds(project_root / "BSP" / "entities.json", sound_names)
     unreferenced = sorted(zone_sound_names - sound_names)
     (project_root / "content_source").mkdir(parents=True, exist_ok=True)
     (project_root / "content_source/sounds.unreferenced.json").write_text(
@@ -1884,6 +1885,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     bank = f"waw_{project}.all"
     budget = sounds.loaded_budget(bo2_root, bo2_root / "mods" / "zm_test" / "soundbank" / "zmb_test.all.aliases.csv") \
         if bo2_root is not None else None
+    if budget is not None:
+        # what the map plays: its scripts, entities and ambient packages, and
+        # the zombie voices BO2's events play (gsc_api zombie_vocals)
+        vocals = {a for actor, cats in gscport.API["zombie_vocals"].items() if actor != "doc" for a in cats.values()}
+        budget["played"] = sorted(script_sounds | entity_sounds | vocals)
     reverb_send = progress.timed('Measure reverb send convention', measure_reverb_send, bo2_root, stock_waw)
     if reverb_send["status"] != "measured":
         report.warnings.append(f"SOUND_REVERB_SEND unmeasured: {reverb_send['reason']}; "

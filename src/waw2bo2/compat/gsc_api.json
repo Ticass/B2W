@@ -90,6 +90,12 @@
       {"native": "maps\\mp\\zombies\\_zm_powerups::check_for_instakill", "function": "check_for_instakill"}
     ]
   },
+  "zombie_vocals": {
+    "doc": "BO2's zombie actors voice their animation events through level.zmb_vox (do_zombies_playvocals: ambient, sprint, attack, ...); WaW's played the same events from its animation notetracks with its own aliases. Each BO2 category plays the map's alias where the bank holds it (gscport.zombie_vocals_hook).",
+    "zombie": {"ambient": "amb_vocals", "sprint": "sprint_vocals", "attack": "attack_vocals",
+               "teardown": "board_vocals", "taunt": "taunt_vocals", "behind": "behind_vocals",
+               "death": "death_vocals", "crawler": "crawl_vocals", "electrocute": "elec_vocals"}
+  },
   "native_argument_adapters": {
     "doc": "WaW calls that resolve to a BO2 function of the same name with different parameters (gscport.adapt_native_arguments). BO2's barrier helpers take the barrier (a zbarrier window) beside its chunks.",
     "maps\\mp\\zombies\\_zm_utility::all_chunks_intact": {"waw_args": 1, "args": ["owner:0", 0]},

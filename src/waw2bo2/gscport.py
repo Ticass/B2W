@@ -2481,6 +2481,32 @@ class Translator:
         self.report.rewrites["WaW quote triggers -> BO2 events"] += len(parts) + len(calls)
         return [f"{CORE}::waw2bo2_quote_triggers();"]
 
+    def zombie_vocals_hook(self) -> list[str]:
+        """BO2's zombie actors voice their animation events through
+        level.zmb_vox (prefix + category alias); WaW's zombies voiced the same
+        events from their own animations with the map's aliases (amb_vocals,
+        sprint_vocals, ...). Each category whose WaW alias the bank holds plays
+        it; the others keep BO2's full name."""
+        table = API["zombie_vocals"]
+        body = ("    if ( !isdefined( level.zmb_vox ) || !isdefined( level.zmb_vox[\"prefix\"] ) )\n        return;\n"
+                "    prefix = level.zmb_vox[\"prefix\"];\n"
+                "    foreach ( type, entries in level.zmb_vox )\n    {\n"
+                "        if ( type == \"prefix\" )\n            continue;\n"
+                "        foreach ( category, alias in entries )\n"
+                "            level.zmb_vox[type][category] = prefix + alias;\n    }\n"
+                "    level.zmb_vox[\"prefix\"] = \"\";\n")
+        for actor, categories in table.items():
+            if actor == "doc":
+                continue
+            body += f'    if ( !isdefined( level.zmb_vox["{actor}"] ) )\n        level.zmb_vox["{actor}"] = [];\n'
+            for category, alias in categories.items():
+                body += (f'    if ( soundexists( "waw/{alias}" ) )\n'
+                         f'        level.zmb_vox["{actor}"]["{category}"] = "waw/{alias}";\n')
+        self.level_state_parts.append(
+            "\n// BO2's zombie vocal events play the map's own voices\nwaw2bo2_zombie_vocals()\n{\n" + body + "}\n")
+        self.report.rewrites["WaW zombie vocals -> BO2 zmb_vox"] += 1
+        return [f"{CORE}::waw2bo2_zombie_vocals();"]
+
     def sound_table_hook(self) -> list[str]:
         """BO2's init_sounds fills level.zombie_sounds with BO2 aliases
         (music_chest -> zmb_music_box); the map's framework fills it with its
@@ -3129,6 +3155,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.post_calls += tr.announcer_hook(out_root)
     tr.post_calls += tr.powerup_models_hook()
     tr.post_calls += tr.sound_table_hook()
+    tr.post_calls += tr.zombie_vocals_hook()
     tr.post_calls += tr.quote_hooks()
     tr.pre_calls += tr.native_replacements()
     for name in sorted(actor_types):

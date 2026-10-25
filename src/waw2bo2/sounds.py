@@ -375,6 +375,40 @@ def entity_aliases(ents: Path | None, defined: set[str]) -> set[str]:
             for value in entity.values() if value.lower() in names}
 
 
+# The map entities BO2's client _audio.csc plays by itself, with the keys it
+# reads as an alias: WaW's _audio conventions, kept by BO2 (emitter structs by
+# script_label; bump and step triggers by targetname).
+CLIENT_AUDIO_ENTITIES = (
+    ("script_label", ("line_emitter", "looper", "random"), ("script_sound",)),
+    ("targetname", ("audio_bump_trigger",), ("script_sound", "script_noteworthy")),
+    ("targetname", ("audio_step_trigger",), ("script_label", "script_sound", "script_noteworthy")),
+)
+
+
+def bind_entity_sounds(entities_json: Path, converted: set[str]) -> int:
+    """Name the converted alias in the entities BO2's client plays itself
+    (_audio.csc soundloopemitter / soundlineemitter / createsoundrandom and
+    its audio triggers). The bank holds WaW's sounds as waw/<name>, so the raw
+    WaW name played nothing: Shi No Numa's 638 swamp, water and machine
+    emitters were silent. Other entities keep the raw name their ported
+    scripts compare (the perk machines' script_sound jingle)."""
+    if not entities_json.is_file():
+        return 0
+    data = json.loads(entities_json.read_text(encoding="utf-8"))
+    names = {name.lower(): name for name in converted}
+    count = 0
+    for entity in data["entities"]:
+        keys = [k for field, values, ks in CLIENT_AUDIO_ENTITIES if entity.get(field) in values for k in ks]
+        for key in keys:
+            value = entity.get(key)
+            if isinstance(value, str) and value.lower() in names:
+                entity[key] = "waw/" + names[value.lower()]
+                count += 1
+    if count:
+        entities_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    return count
+
+
 def decode_flags(flags: int) -> dict:
     """Measured in official T4 linker_pc sub_404D50, not T6 flag layout."""
     if not isinstance(flags, int) or not 0 <= flags <= 0xffffffff:
@@ -1113,6 +1147,11 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
     Moving rapid weapon sounds to streaming competes for the engine's scarce
     streaming voices and can cause intermittent silence. Use the actual
     weapon dependency graph, rather than the WaW author's bus/name choices.
+    Then what the map plays (budget "played": its scripts, entities, ambient
+    packages, the zombie voices BO2's events play): the zone also ships sounds
+    nothing reaches (WaW's footstep set, which BO2's own footsteps replace), and
+    smallest-first filled the entries with those while the cash, board and
+    zombie voice sounds streamed and cut each other off.
     """
     sizes = {}
     for row in rows:
@@ -1121,7 +1160,10 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
     keep, used = set(), 0
     weapon_files = {r["FileSource"] for r in rows
                     if r["Name"].removeprefix("waw/") in (weapon_aliases or set())}
-    for source, size in sorted(sizes.items(), key=lambda kv: (kv[0] not in weapon_files, kv[1], kv[0])):
+    played = {name.lower() for name in budget.pop("played", [])}
+    played_files = {r["FileSource"] for r in rows if r["Name"].lower().removeprefix("waw/") in played}
+    for source, size in sorted(sizes.items(), key=lambda kv: (kv[0] not in weapon_files, kv[0] not in played_files,
+                                                              kv[1], kv[0])):
         if len(keep) >= budget["entries"] or used + size > budget["bytes"]:
             continue
         keep.add(source)
@@ -1133,7 +1175,9 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
             streamed.append({"alias": row["Name"], "file": row["FileSource"], "bytes": sizes[row["FileSource"]]})
     budget.update(loaded_files=len(keep), loaded_bytes=used, streamed_files=len(sizes) - len(keep),
                   weapon_files_loaded=len(weapon_files & keep),
-                  weapon_files_streamed=len((weapon_files & sizes.keys()) - keep))
+                  weapon_files_streamed=len((weapon_files & sizes.keys()) - keep),
+                  played_files_loaded=len(played_files & keep),
+                  played_files_streamed=len((played_files & sizes.keys()) - keep))
     return streamed
 
 
