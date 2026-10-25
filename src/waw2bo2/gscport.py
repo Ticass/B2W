@@ -1153,6 +1153,15 @@ class Translator:
     def translate(self, path: str, main_split: bool = False) -> str:
         script = self.sources.get(path)
         tokens = script.tokens
+        # T6 actor setup a source spawn function lacks because WaW's engine did
+        # it itself (gsc_api zombie_runtime actor_glue: "script::function" ->
+        # owned glue), run first in that function
+        for key, glue in API['zombie_runtime'].get('actor_glue', {}).items():
+            owner, _, name = key.rpartition('::')
+            fn = script.functions.get(name.lower()) if norm(owner) == norm(path) else None
+            if fn is not None and tokens[fn.body_open].text == "{":
+                tokens[fn.body_open].text = "{\n\tself " + glue + "();"
+                self.report.rewrites[f"T6 actor glue {glue} -> {key}"] += 1
         for fn in script.functions.values():
             if fn.animtree:
                 self.animation_requirements[fn.animtree.lower()].update(
@@ -2463,11 +2472,20 @@ class Translator:
                     ref.name.lower() not in self.waw_perk_parts.get(target, ()):
                 continue
             dogs = API['zombie_runtime']['dog_rounds']
-            if target == norm(dogs['source_script']) and ref.name.lower() == dogs['source_init']:
+            # WaW drives the dog rounds: the source _zombiemode_dogs::init is
+            # ported like any framework hook (the source tracker, spawning,
+            # health, aftermath); T6 actor setup comes from actor_glue.
+            if target == norm(dogs['source_script']) and ref.name.lower() == dogs['source_init'] \
+                    and not dogs.get('source_driven'):
                 call = self.dog_rounds_hook()
                 if call and call not in calls:
                     calls.append(call)
                 continue
+            if target == norm(dogs['source_script']) and ref.name.lower() == dogs['source_init']:
+                # the source tracker sends the moments the client fog monitors wait for
+                for name in self.client_fog_monitors(dogs['client_notifies']):
+                    calls.append(f"level thread {CORE}::{name}();")
+                self.report.rewrites["WaW drives the dog rounds: source _zombiemode_dogs"] += 1
             if is_core(target, self.sources):
                 continue
             dep = self.sources.get(target)
@@ -3835,7 +3853,43 @@ def owned_dogs_source(bo2_root: Path) -> str:
     # trails, gib); prefer its converted effects (dog_rounds_hook queues them).
     text = re.sub(r'\bloadfx\s*\(', lambda _: f'{COMPAT}::waw_loadfx_native(', text, flags=re.IGNORECASE)
     return ('// waw2bo2: BO2 dog rounds playing the source WaW dog sounds and effects (generated).\n' +
-            text.replace(native + '::', owned + '::'))
+            text.replace(native + '::', owned + '::') + DOG_ACTOR_GLUE)
+
+
+# T6 actor setup BO2's dog_init gives a dog and WaW's dog_init leaves to its
+# engine (gsc_api zombie_runtime actor_glue runs it first in the source
+# dog_init when WaW drives the dog rounds). No round rules here.
+DOG_ACTOR_GLUE = """
+
+waw2bo2_dog_actor_glue()
+{
+    self.team = level.zombie_team;
+    // BO2's dog animscripts and traversals read these
+    self.zombie_move_speed = "sprint";
+    self.a.disablepain = 1;
+    self disable_react();
+    // WaW: dog_MeleeDamage 100 x player_meleeDamageMultiplier 0.4 (_zombiemode_dogs::init)
+    self.meleedamage = 40;
+    self.thundergun_knockdown_func = ::dog_thundergun_knockdown;
+    // per-hit player points through BO2's actor damage plumbing
+    self thread maps\\mp\\zombies\\_zm_spawner::enemy_death_detection();
+    self thread waw2bo2_dog_keep_enemy();
+}
+
+waw2bo2_dog_keep_enemy()
+{
+    // T6 dogs drop a favoriteenemy that went down; WaW's engine retargeted
+    self endon( "death" );
+
+    while ( true )
+    {
+        if ( isdefined( self.favoriteenemy ) && !is_player_valid( self.favoriteenemy ) )
+            self.favoriteenemy = get_favorite_enemy();
+
+        wait 0.2;
+    }
+}
+"""
 
 
 def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: bool = False) -> None:

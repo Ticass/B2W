@@ -82,7 +82,9 @@
     "actor_templates": {"human": "zm_nuked_basic_01",
                         "dog": {"aitype": "zombie_dog", "owned_tree": "waw2bo2_dog_actor",
                                 "add_states": {"zm_nuked_dog": ["zm_traverse_barrier"]}}},
-    "dog_rounds": {"source_script": "maps\\_zombiemode_dogs", "source_init": "init", "guard": "dogs_enabled",
+    "actor_glue": {"maps\\_zombiemode_dogs::dog_init": "maps\\mp\\waw\\_waw2bo2_ai_dogs::waw2bo2_dog_actor_glue"},
+    "dog_rounds": {"source_driven": true,
+                   "source_script": "maps\\_zombiemode_dogs", "source_init": "init", "guard": "dogs_enabled",
                    "native_script": "maps\\mp\\zombies\\_zm_ai_dogs", "native_init": "init",
                    "source_spawning": "dog_round_spawning",
                    "spawn_logic": ["dog_spawn_sumpf_logic"], "health": "dog_health_increase",
@@ -318,6 +320,7 @@
     ]
   },
   "library_functions": {
+    "animscripts\\dog_init": {"initdoganimations": "dog_animation_tables", "change_anim_set": "dog_animation_set"},
     "maps\\trem_hintstrings": {
       "_sethintstring": "native_hintstring"
     }

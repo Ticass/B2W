@@ -105,24 +105,33 @@ class DogRoundTests(unittest.TestCase):
                 "init": 0, "enable_dog_rounds": 0, "dog_spawn_sumpf_logic": 2}}, methods={})
             tr = gscport.Translator(gscport.Sources([root], [], None), api, gscport.PortReport())
             calls = tr.framework_hooks()
-            self.assertEqual(len(calls), 1)
-            call = calls[0]
-            self.assertIn("if ( isdefined( level.dogs_enabled ) && level.dogs_enabled )", call)
-            self.assertIn("maps\\mp\\waw\\_waw2bo2_ai_dogs::init();", call)
-            self.assertIn("waw_dog_rounds( maps\\mp\\waw\\_waw2bo2_ai_dogs::dog_spawn_sumpf_logic, "
-                          "maps\\mp\\waw\\_waw2bo2_core::zombiemode_dogs__dog_health_increase, "
-                          "maps\\mp\\waw\\_waw2bo2_ai_dogs::enable_dog_rounds );", call)
-            self.assertIn(("maps\\_zombiemode_dogs", "dog_health_increase"), tr.core_funcs)
-            # the map's client fog monitors run on the server at the native moments
-            self.assertIn("level thread maps\\mp\\waw\\_waw2bo2_core::waw2bo2_client_dog_start_0();", call)
+            # WaW drives the dog rounds: the source init is ported and called
+            self.assertIn("maps\\mp\\waw\\_zombiemode_dogs::init();", calls)
+            self.assertIn("maps\\_zombiemode_dogs", tr.queue)
+            self.assertFalse(any("waw_dog_rounds" in c for c in calls))
+            # the map's client fog monitors run on the server at the source moments
+            self.assertIn("level thread maps\\mp\\waw\\_waw2bo2_core::waw2bo2_client_dog_start_0();", calls)
             fog = "\n".join(tr.level_state_parts)
             self.assertIn('level waittill( "dog_round_starting" );', fog)
             self.assertIn("waw_setvolfog( 729.34, 971.99, 338.336, 398.623, 0.58, 0.60, 0.56, 7 );", fog)
             self.assertIn('level waittill( "last_dog_down" );\n\t\twait 2;', fog)
             self.assertIn("waw_setvolfog( 404.39, 1543.52, 460.33, -244.014, 0.65, 0.84, 0.79, 6 );", fog)
             self.assertNotIn("VisionSetNaked", fog)
-            # the source dog effects are converted for the owned BO2 dog runtime
-            self.assertIn("maps/zombie/fx_zombie_dog_lightning_buildup", tr.report.fx)
+
+    def test_source_dog_init_gets_the_t6_actor_glue_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode_dogs.gsc").write_text(
+                'dog_init()\n{\n\tself.ignoreall = true;\n\tanimscripts\\dog_init::change_anim_set( "zombie" );\n}\n')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api(builtins={}, scripts={}, methods={}),
+                                    gscport.PortReport())
+            text = tr.translate("maps\\_zombiemode_dogs")
+            body = text[text.index("dog_init()"):]
+            self.assertLess(body.index("self maps\\mp\\waw\\_waw2bo2_ai_dogs::waw2bo2_dog_actor_glue();"),
+                            body.index("self.ignoreall = true;"))
+            # WaW's raw-animation dog tables have no T6 consumer
+            self.assertIn('maps\\mp\\waw\\_waw2bo2_compat::waw_dog_animation_set( "zombie" );', text)
 
     def test_owned_dog_runtime_plays_the_source_dog_sounds(self):
         bo2 = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops II")

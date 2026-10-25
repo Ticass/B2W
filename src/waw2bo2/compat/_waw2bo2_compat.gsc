@@ -2314,6 +2314,17 @@ waw_assertex( condition, message )
 {
 }
 
+// WaW animscripts\dog_init fills anim.dogAnims, the tables WaW's raw-animation
+// dog scripts play. A T6 dog plays its animation state machine instead (the
+// traversal table is converted by traversals.py), so nothing reads them.
+waw_dog_animation_tables()
+{
+}
+
+waw_dog_animation_set( animset )
+{
+}
+
 // WaW bbPrint( format, args... ) writes a telemetry line; T6's bbprint takes
 // ( table, format, args... ), so a WaW call hands T6 a number as its format.
 // Telemetry only (no gameplay): the source loop's call must not stop it.
