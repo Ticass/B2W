@@ -623,6 +623,8 @@ class PlaybackBankTests(unittest.TestCase):
         rows, errors = sounds.t6_alias_rows(document, {"custom_fire"})
         self.assertEqual(errors, [])
         self.assertEqual((rows[0]["VolumeGroup"], rows[0]["DuckGroup"]), ("grp_weapon", "snp_wpn_1p"))
+        # map sounds pause with the game, as in WaW and stock BO2
+        self.assertEqual(rows[0]["Pauseable"], "yes")
 
     def test_loaded_audio_is_resampled_to_48k(self):
         from waw2bo2 import audio

@@ -1034,7 +1034,9 @@ def t6_alias_rows(document: dict, weapon_aliases: set[str] | None = None,
             "DistanceLpf": "yes" if flags["distanceLpf"] else "no", "FluxType": "none", "FluxTime": "0",
             "Subtitle": source.get("subtitle", ""), "Doppler": "yes" if flags["doppler"] else "no",
             "ContextType": "", "ContextValue": "", "Timescale": "no", "IsMusic": music, "IsCinematic": "no",
-            "FadeIn": "0", "FadeOut": "0", "Pauseable": "no", "StopOnEntDeath": "no", "StopOnPlay": "",
+            # WaW pauses world sound with the game; stock BO2 zombie aliases are
+            # pauseable except menu UI, bink and menu music (109,201 of 109,272).
+            "FadeIn": "0", "FadeOut": "0", "Pauseable": "yes", "StopOnEntDeath": "no", "StopOnPlay": "",
             "DopplerScale": "0", "FutzPatch": "", "VoiceLimit": "no", "IgnoreMaxDist": "no", "NeverPlayTwice": "no"})
     return rows, errors
 
