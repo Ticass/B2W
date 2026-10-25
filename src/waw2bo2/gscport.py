@@ -2690,7 +2690,14 @@ class Translator:
         if fn is None:
             return None
         toks, values, divisors = script.tokens, {}, {}
+        dev = False
         for i in range(fn.body_open, fn.body_close - 5):
+            # /# ... #/ is developer-only code a release build drops
+            # (Der Riese: zombie_score_start 100000 under zombie_cheat)
+            if toks[i].text in ("/#", "#/"):
+                dev = toks[i].text == "/#"
+            if dev:
+                continue
             if toks[i].low == "set_zombie_var" and toks[i + 1].text == "(" and toks[i + 2].kind == gsc.STRING \
                     and toks[i + 3].text == ",":
                 j, sign = i + 4, ""

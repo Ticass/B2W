@@ -1687,6 +1687,14 @@ waw_player_stats()
         self thread waw_grenade_diagnostics();
         self thread waw_inventory_size();
     }
+    // WaW sets score_total when a player connects (_zombiemode::onPlayerConnect),
+    // BO2 only at spawn; the map's power-up drop watcher sums it meanwhile
+    if ( !isdefined( self.score_total ) )
+    {
+        self.score_total = 0;
+        if ( isdefined( self.score ) )
+            self.score_total = self.score;
+    }
     if ( isdefined( self.stats ) )
         return;
     self.stats = [];
