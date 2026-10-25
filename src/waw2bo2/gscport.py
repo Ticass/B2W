@@ -582,8 +582,6 @@ def stock_map_policy(policies: dict, level: str) -> str:
              f'\tlevel.waw2bo2_solo_revive["hint"] = &"{revive["solo_hint"]}";',
              f'\tprecachestring( &"{revive["solo_hint"]}" );',
              f"\tlevel thread {COMPAT}::waw_stock_solo_revive();"]
-    if level not in policies["waw_health_overflow"]["excluded_levels"]:
-        lines.append(f"\tlevel thread {COMPAT}::waw_stock_health_overflow();")
     return "\n".join(lines + ["}", ""])
 
 
@@ -1672,6 +1670,47 @@ class Translator:
                                       f"\tlevel.max_zombie_func = ::{name};\n}}\n")
         return f"{name}_register"
 
+    def extract_round_health(self, core: str = None, function: str = None) -> str | None:
+        """WaW's round_spawning calls the framework's health step (stock:
+        ai_calculate_health, one increment of level.zombie_health per call).
+        Only round_spawning calls it, and a dog round swaps round_spawn_func
+        to dog_round_spawning, so dog rounds never raise health. BO2's
+        round_spawning instead rebuilds health from the round number. The
+        function the source round_spawning calls with no arguments that
+        assigns level.zombie_health is extracted and registered as
+        level.waw2bo2_round_health_func; the owned _zm round_spawning calls it
+        in place of BO2's ai_calculate_health (WAW_ROUND_HEALTH), so the map's
+        own code decides (docs/CONVERT_THE_WHOLE_MAP.md).
+        Returns the registration function's name in CORE."""
+        core = core or ZOMBIEMODE
+        function = function or ROUND_SPAWNING
+        script = self.sources.get(core)
+        fn = script.functions.get(function) if script else None
+        if fn is None:
+            return None
+        toks = script.tokens
+        where = self.sources.origin.get(core + ".gsc", core)
+        step = None
+        for start, end in top_level_statements(toks, fn.body_open, fn.body_close):
+            words = [t.text for t in toks[start:end]]
+            callee = script.functions.get(toks[start].low) if toks[start].kind == gsc.IDENT else None
+            if callee is None or words[1:] != ["(", ")", ";"]:
+                continue
+            body = [t.low for t in toks[callee.body_open:callee.body_close]]
+            if any(body[i:i + 3] == ["level", ".", "zombie_health"] for i in range(len(body) - 2)):
+                step = toks[start].low
+                break
+        if step is None:
+            self.report.errors.append(f"{where}: {function} calls no zombie health function; "
+                                      f"BO2's round health stays")
+            return None
+        extracted = self.extract_entry(core, step)
+        name = f"{core.split(chr(92))[-1].lstrip('_')}__{step}_register"
+        self.level_state_parts.append(
+            f"\n// {core}::{function} calls {step} once per round it runs (never on a dog round)\n"
+            f"{name}()\n{{\n\tlevel.waw2bo2_round_health_func = ::{extracted};\n}}\n")
+        return name
+
     def extract_round_counter(self, core: str = None) -> str | None:
         """Stock maps: WaW's own round counter (stock_map_policies waw_round_counter).
         BO2 shows rounds through setroundsplayed, an 8-bit display, and clamps
@@ -2131,7 +2170,7 @@ class Translator:
         fn = functions.get("init_levelvars") or functions.get("init_zombie_vars")
         if fn is None:
             return None
-        toks, values = script.tokens, {}
+        toks, values, divisors = script.tokens, {}, {}
         for i in range(fn.body_open, fn.body_close - 5):
             if toks[i].low == "set_zombie_var" and toks[i + 1].text == "(" and toks[i + 2].kind == gsc.STRING \
                     and toks[i + 3].text == ",":
@@ -2140,13 +2179,21 @@ class Translator:
                     sign, j = "-", j + 1
                 if (toks[j].kind == gsc.NUMBER or toks[j].low in ("true", "false")) and toks[j + 1].text in (",", ")"):
                     values[toks[i + 2].text[1:-1]] = sign + toks[j].text
+                    # WaW set_zombie_var( var, value, div, is_float ) divides by div
+                    # after any table override, so the divisor is kept apart.
+                    if toks[j + 1].text == "," and toks[j + 2].kind == gsc.NUMBER \
+                            and toks[j + 3].text in (",", ")"):
+                        divisors[toks[i + 2].text[1:-1]] = toks[j + 2].text
         if not values:
             return None
         name = "zombiemode__init_zombie_vars_defaults"
         self.level_state_parts.append(
             f"\n// {ZOMBIEMODE}::init_zombie_vars: WaW defaults for BO2's init_zombie_vars\n{name}()\n{{\n"
             "\tlevel.waw2bo2_zombie_var_defaults = [];\n" +
-            "".join(f'\tlevel.waw2bo2_zombie_var_defaults["{k}"] = {v};\n' for k, v in sorted(values.items())) + "}\n")
+            "".join(f'\tlevel.waw2bo2_zombie_var_defaults["{k}"] = {v};\n' for k, v in sorted(values.items())) +
+            "\tlevel.waw2bo2_zombie_var_divisors = [];\n" +
+            "".join(f'\tlevel.waw2bo2_zombie_var_divisors["{k}"] = {v};\n' for k, v in sorted(divisors.items()))
+            + "}\n")
         self.report.rewrites["WaW framework zombie_vars defaults"] += len(values)
         return name
 
@@ -2679,6 +2726,9 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     round_total = tr.extract_round_total()
     if round_total:
         framework_state.append(round_total)
+    round_health = tr.extract_round_health()
+    if round_health:
+        framework_state.append(round_health)
     if stock_map:
         policy = stock_map_policy(API["stock_map_policies"], map_name.lower())
         core_parts.append(policy)
@@ -3462,7 +3512,50 @@ WAW_START_LOCATION = (
 # zombies into rounds the source formula had already counted.
 WAW_FAILSAFE_NO_REQUEUE = ("level.put_timed_out_zombies_back_in_queue = 1;",
                            "level.put_timed_out_zombies_back_in_queue = 0; // waw2bo2: WaW never requeues")
+# WaW's round_spawning calls the source health step (Translator.extract_round_health):
+# one increment per round that runs round_spawning, so dog rounds (which run
+# dog_round_spawning instead) never raise health, and the source arithmetic
+# wraps at 32 bits ("insta-kill rounds") exactly as the map's code does.
+WAW_ROUND_HEALTH = (
+    "    ai_calculate_health( level.round_number );\n",
+    "    if ( isdefined( level.waw2bo2_round_health_func ) )\n"
+    "        waw2bo2_round_health();\n"
+    "    else\n"
+    "        ai_calculate_health( level.round_number );\n")
+WAW_ROUND_HEALTH_HELPER = """
+waw2bo2_round_health()
+{
+    // waw2bo2: the source health step, called where WaW's round_spawning calls it
+    if ( isdefined( level.waw2bo2_source_zombie_health ) )
+        level.zombie_health = level.waw2bo2_source_zombie_health;
+
+    [[ level.waw2bo2_round_health_func ]]();
+    level.waw2bo2_source_zombie_health = level.zombie_health;
+}
+"""
 WAW_ZOMBIE_VAR_HELPER = """
+waw2bo2_zombie_var_divisor( var )
+{
+    if ( isdefined( level.waw2bo2_zombie_var_divisors ) && isdefined( level.waw2bo2_zombie_var_divisors[var] ) )
+        return level.waw2bo2_zombie_var_divisors[var];
+
+    return undefined;
+}
+
+waw2bo2_apply_zombie_var_defaults()
+{
+    // waw2bo2: WaW framework zombie_vars BO2's init_levelvars does not set
+    // (zombie_health_increase_percent, read by the source health step)
+    if ( !isdefined( level.waw2bo2_zombie_var_defaults ) )
+        return;
+
+    foreach ( var in getarraykeys( level.waw2bo2_zombie_var_defaults ) )
+    {
+        if ( !isdefined( level.zombie_vars[var] ) )
+            maps\\mp\\waw\\_waw2bo2_compat::waw_set_zombie_var( var, level.waw2bo2_zombie_var_defaults[var], waw2bo2_zombie_var_divisor( var ) );
+    }
+}
+
 waw2bo2_set_zombie_var( var, value, is_float, column, is_team_based )
 {
     // waw2bo2: a variable WaW's framework sets keeps WaW's default and only the
@@ -3470,7 +3563,7 @@ waw2bo2_set_zombie_var( var, value, is_float, column, is_team_based )
     // BO2's stock mp/zombiemode.csv (zombie_spawn_delay 2.0) does not apply.
     if ( isdefined( level.waw2bo2_zombie_var_defaults ) && isdefined( level.waw2bo2_zombie_var_defaults[var] ) )
     {
-        maps\\mp\\waw\\_waw2bo2_compat::waw_set_zombie_var( var, level.waw2bo2_zombie_var_defaults[var], undefined, is_float );
+        maps\\mp\\waw\\_waw2bo2_compat::waw_set_zombie_var( var, level.waw2bo2_zombie_var_defaults[var], waw2bo2_zombie_var_divisor( var ), is_float );
         return level.zombie_vars[var];
     }
 
@@ -3512,6 +3605,9 @@ def waw_zombie_var_defaults(bootstrap: str) -> str:
             count += 1
     if not count:
         raise ValueError("BO2 init_levelvars sets no zombie_vars")
+    # WaW framework variables BO2 never sets (zombie_health_increase_percent,
+    # read by the source health step) get WaW's value too.
+    toks[fn.body_close].pre = "\n    waw2bo2_apply_zombie_var_defaults();\n" + toks[fn.body_close].pre
     return gsc.emit(script.tokens) + WAW_ZOMBIE_VAR_HELPER
 
 
@@ -3645,6 +3741,10 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: b
     if bootstrap.count(WAW_FAILSAFE_NO_REQUEUE[0]) != 1:
         raise ValueError("BO2 server bootstrap failsafe requeue changed")
     bootstrap = bootstrap.replace(*WAW_FAILSAFE_NO_REQUEUE)
+    if bootstrap.count(WAW_ROUND_HEALTH[0]) != 1:
+        raise ValueError("BO2 server bootstrap round health call changed")
+    bootstrap = bootstrap.replace(*WAW_ROUND_HEALTH)
+    bootstrap += WAW_ROUND_HEALTH_HELPER
     bootstrap = waw_zombie_var_defaults(bootstrap)
     bootstrap = waw_pvp_attack_notify(bootstrap)
     bootstrap += WAW_ROUND_COUNTER_HELPER

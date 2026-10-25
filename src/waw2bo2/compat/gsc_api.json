@@ -38,9 +38,8 @@
     "stock_map_policies: behaviour applied ONLY when the source is a retail WaW level (its fastfile is in the WaW",
     "  install's zone folder; --waw-stock-map). Custom maps keep their own logic. solo_quick_revive (user request",
     "  2026-10-14): BO-style solo Quick Revive (solo_cost, one self-revive life per purchase, solo_purchase_limit",
-    "  purchases, BO2's own solo_hint key). waw_health_overflow (user request 2026-10-14): WaW's incremental zombie",
-    "  health wraps at 32 bits and an overflowed round spawns at round-1 health ('insta-kill rounds'); BO2 clamps it.",
-    "  The source health code gives no exclusion signal: excluded_levels is the user's explicit list (Der Riese).",
+    "  purchases, BO2's own solo_hint key). Zombie health is not a policy: every map runs its source health step",
+    "  (Translator.extract_round_health), wrap and dog rounds included (docs/CONVERT_THE_WHOLE_MAP.md).",
     "  waw_round_counter (user request 2026-10-14): the source round display functions replace BO2's 8-bit",
     "  setroundsplayed counter and its 255 round clamp; their HUD materials stay WaW (isolated from BO2's names).",
     "client_listener_calls: client-script calls a WaW client listener may make once gscport runs it on the server",
@@ -52,7 +51,6 @@
   "stock_map_policies": {
     "solo_quick_revive": {"perk": "specialty_quickrevive", "solo_cost": 500, "solo_purchase_limit": 3,
                           "solo_hint": "ZOMBIE_PERK_QUICKREVIVE_SOLO"},
-    "waw_health_overflow": {"excluded_levels": ["nazi_zombie_factory"]},
     "waw_round_counter": {"round_start": "chalk_one_up", "round_end": "chalk_round_hint",
                           "state_init": "round_start", "precache_functions": ["precache_shaders", "init", "main"]}
   },

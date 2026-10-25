@@ -92,6 +92,7 @@ class PerkOwnershipTests(unittest.TestCase):
                 'player_damage_override()\n{\n    if ( smeansofdeath == "MOD_PROJECTILE" )\n    {\n'
                 + gscport.WAW_SELF_DAMAGE_CAP[0] + '    }\n' + gscport.WAW_PLAYER_DAMAGE_SCALE[0] + '}\n'
                 'init_levelvars()\n{\n    set_zombie_var( "zombie_spawn_delay", 2.0, 1, column );\n}\n'
+                'round_spawning()\n{\n' + gscport.WAW_ROUND_HEALTH[0] + '}\n'
                 'callback_playerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint )\n'
                 '{\n    finish();\n}\n')
             out = root / 'out'
@@ -103,6 +104,9 @@ class PerkOwnershipTests(unittest.TestCase):
             self.assertIn('idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );', owned_zm)
             self.assertIn('waw2bo2_set_zombie_var( "zombie_spawn_delay", 2.0, 1, column );', owned_zm)
             self.assertIn('waw2bo2_set_zombie_var( var, value, is_float, column, is_team_based )', owned_zm)
+            # the source health step replaces BO2's round-number rebuild
+            self.assertIn('        waw2bo2_round_health();\n', owned_zm)
+            self.assertIn('    waw2bo2_apply_zombie_var_defaults();\n', owned_zm)
             self.assertIn('self notify( "weapon_pvp_attack", eattacker, maps\\mp\\waw\\_waw2bo2_compat::'
                           'waw_weapon_name( sweapon ), idamage, smeansofdeath );', owned_zm)
             self.assertIn('WaW applies the player', owned_zm)

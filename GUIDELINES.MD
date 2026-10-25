@@ -17,6 +17,11 @@ the existing codebase, preserving working conversions. New compatibility work
 should extend reusable semantics and definitions so future maps need less
 manual intervention. Section 14 defines this direction in detail.
 
+**Convert the whole map (user rule, 2026-10-25):** never cherry-pick source
+behaviour or rewrite WaW game rules by hand. The map's own source functions
+run, called where the source calls them. Read `docs/CONVERT_THE_WHOLE_MAP.md`
+before changing any gameplay behaviour.
+
 The primary question should always be:
 
 > "Will this work for arbitrary WaW maps?"

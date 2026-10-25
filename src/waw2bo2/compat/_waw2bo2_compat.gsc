@@ -2277,6 +2277,11 @@ waw_stock_solo_revive_spent()
     self endon( "death" );
     level waittill( "waw2bo2_solo_revive_spent" );
     self sethintstring( "" );
+    // trigger_off moves the trigger 10000 units down, which a linked trigger
+    // ignores: Shi No Numa links each vending trigger to the script_origin
+    // its random spot moves (nazi_zombie_sumpf_perks), so the machine kept
+    // selling. Unlink first; the source never moves it again after that.
+    self unlink();
     self trigger_off();
 }
 
@@ -2286,41 +2291,6 @@ waw_stock_solo_revive_bought()
     level.solo_lives_given++;
     if ( level.solo_lives_given >= level.waw2bo2_solo_revive["limit"] )
         level notify( "waw2bo2_solo_revive_spent" );
-}
-
-// WaW's ai_calculate_health grows level.zombie_health once per round (+increase
-// before round 10, then +int(health * percent)) with no guard, so the 32-bit
-// value wraps; an overflowed round spawns zombies at round-1 health (the
-// retail "insta-kill rounds"). BO2's recomputation keeps the last value
-// instead. After BO2 sets the round's health (zombie_total_set, before the
-// first spawn) the WaW sequence replaces it.
-waw_stock_health_overflow()
-{
-    level endon( "end_game" );
-    for ( ;; )
-    {
-        level waittill( "zombie_total_set" );
-        level.zombie_health = waw_round_health( level.round_number );
-    }
-}
-
-waw_round_health( round )
-{
-    start = level.zombie_vars["zombie_health_start"];
-    percent = level.zombie_vars["zombie_health_increase_multiplier"];
-    if ( isdefined( level.zombie_vars["zombie_health_increase_percent"] ) )
-        percent = level.zombie_vars["zombie_health_increase_percent"];
-    health = start;
-    for ( i = 2; i <= round; i++ )
-    {
-        if ( i >= 10 )
-            health = health + int( health * percent );
-        else
-            health = int( health + level.zombie_vars["zombie_health_increase"] );
-    }
-    if ( health <= 0 )
-        return start;
-    return health;
 }
 
 // ---- miscellaneous WaW builtins ----

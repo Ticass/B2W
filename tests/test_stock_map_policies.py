@@ -26,6 +26,19 @@ round_spawning()
 }
 '''
 
+HEALTH_STEP = '''
+ai_calculate_health()
+{
+	if( level.round_number >= 10 )
+	{
+		level.zombie_health += Int( level.zombie_health * level.zombie_vars["zombie_health_increase_percent"] );
+		return;
+	}
+	if( level.round_number > 1 )
+		level.zombie_health = Int( level.zombie_health + level.zombie_vars["zombie_health_increase"] );
+}
+'''
+
 PERKS = '''
 vending_trigger_think()
 {
@@ -149,25 +162,57 @@ class StockMapPolicyTests(unittest.TestCase):
             self.assertIn('level.waw2bo2_solo_revive["cost"] = 500;', core)
             self.assertIn('level.waw2bo2_solo_revive["limit"] = 3;', core)
             self.assertIn('&"ZOMBIE_PERK_QUICKREVIVE_SOLO"', core)
-            self.assertIn("waw_stock_health_overflow()", core)
             self.assertIn("\twaw2bo2_stock_map_policies();", core)
 
-    def test_der_riese_keeps_bo2_health_but_gets_solo_revive(self):
-        policy = gscport.stock_map_policy(gscport.API["stock_map_policies"], "nazi_zombie_factory")
-        self.assertNotIn("waw_stock_health_overflow", policy)
-        self.assertIn("waw_stock_solo_revive()", policy)
-        self.assertIn("waw_stock_health_overflow",
-                      gscport.stock_map_policy(gscport.API["stock_map_policies"], "nazi_zombie_asylum"))
+    def test_health_comes_from_the_source_step_on_every_map(self):
+        # WaW: round_spawning calls ai_calculate_health; dog rounds run
+        # dog_round_spawning instead, so they never raise health.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode.gsc").write_text(ROUND_SPAWNING + HEALTH_STEP)
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertEqual(tr.extract_round_health(), "zombiemode__ai_calculate_health_register")
+            while tr.core_queue:
+                tr.level_state_parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
+            core = "\n".join(tr.level_state_parts)
+            self.assertIn("level.waw2bo2_round_health_func = ::zombiemode__ai_calculate_health;", core)
+            self.assertIn('level.zombie_vars["zombie_health_increase_percent"]', core)
+        for level in ("nazi_zombie_factory", "nazi_zombie_sumpf"):
+            policy = gscport.stock_map_policy(gscport.API["stock_map_policies"], level)
+            self.assertIn("waw_stock_solo_revive()", policy)
+            self.assertNotIn("zombie_health", policy)
+
+    def test_round_spawning_without_a_health_step_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode.gsc").write_text("round_spawning() { count = 0; level.zombie_total = 4; }")
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertIsNone(tr.extract_round_health())
+            self.assertTrue(any("no zombie health function" in e for e in tr.report.errors))
+
+    def test_zombie_var_divisor_is_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode.gsc").write_text(
+                'init_levelvars() { set_zombie_var( "zombie_health_increase_percent", 10, 100 ); '
+                'set_zombie_var( "zombie_health_start", 150 ); }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertEqual(tr.framework_zombie_vars(), "zombiemode__init_zombie_vars_defaults")
+            core = "\n".join(tr.level_state_parts)
+            self.assertIn('level.waw2bo2_zombie_var_defaults["zombie_health_increase_percent"] = 10;', core)
+            self.assertIn('level.waw2bo2_zombie_var_divisors["zombie_health_increase_percent"] = 100;', core)
+            self.assertNotIn('level.waw2bo2_zombie_var_divisors["zombie_health_start"]', core)
 
     def test_compat_runtime_defines_the_policy_functions(self):
         script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
         for name in ("waw_stock_perk_cost", "waw_stock_solo_revive", "waw_stock_solo_revive_bought",
-                     "waw_stock_health_overflow", "waw_round_health", "waw_player_damage_override",
+                     "waw_player_damage_override",
                      "waw_linkto", "waw_linked_trigger_contacts"):
             self.assertIn(name, script.functions)
-        health = script.functions["waw_round_health"]
-        body = gsc.emit(script.tokens[health.body_open:health.body_close + 1])
-        self.assertIn("if ( health <= 0 )\n        return start;", body)
+        self.assertNotIn("waw_round_health", script.functions)
 
     def test_stock_maps_draw_the_source_round_counter(self):
         with tempfile.TemporaryDirectory() as tmp:
