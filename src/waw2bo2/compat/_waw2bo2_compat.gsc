@@ -2314,6 +2314,13 @@ waw_assertex( condition, message )
 {
 }
 
+// WaW bbPrint( format, args... ) writes a telemetry line; T6's bbprint takes
+// ( table, format, args... ), so a WaW call hands T6 a number as its format.
+// Telemetry only (no gameplay): the source loop's call must not stop it.
+waw_bbprint( format, a, b, c, d, e, f, g )
+{
+}
+
 waw_getstat( index )
 {
     report( "getStat" );

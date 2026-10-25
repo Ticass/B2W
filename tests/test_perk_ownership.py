@@ -157,7 +157,8 @@ class PerkOwnershipTests(unittest.TestCase):
             self.assertNotIn('zmDifficulty', bootstrap_server.read_text())
             # stock maps draw WaW's round counter: no 8-bit display, no 255 clamp
             server_text = bootstrap_server.read_text()
-            self.assertEqual(server_text.count('waw2bo2_setroundsplayed( level.round_number );'), 2)
+            # BO2's round_think (twice) and the source-loop glue (begin, advanced)
+            self.assertEqual(server_text.count('waw2bo2_setroundsplayed( level.round_number );'), 4)
             self.assertIn('if ( 255 < level.round_number && !( isdefined( level.waw2bo2_waw_round_counter )',
                           server_text)
             self.assertIn('waw2bo2_setroundsplayed( round )', server_text)

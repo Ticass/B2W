@@ -58,7 +58,7 @@ Gameplay values or behaviour written by hand where the source has the code:
 | `set_zombie_var` divisor dropped (health % 10 instead of 0.1) | `framework_zombie_vars` | **fixed** 2026-10-25 |
 | traversal scripts (zombie-only; dog branch dropped) | `paths.py` | dog branch **converted** 2026-10-25; zombie branch still mapped by height onto BO2 substates |
 | dog round schedule, counts, spawn pacing | owned `_zm_ai_dogs` (`waw_dog_rounds`) | open: source `_zombiemode_dogs` `dog_round_tracker`/`dog_round_spawning` |
-| round loop: wait, intermission, spawn delay, max AI, game over | owned `_zm` + `WAW_*` text patches (`WAW_FAILSAFE_NO_REQUEUE`, round counter, start location) | open: source `round_think`/`round_wait`/`round_spawning` |
+| round loop: wait, intermission, spawn delay, move speed, later-round spawners, display | owned `_zm` `round_think` | **in progress** 2026-10-25: `gsc_api source_driven` (`maps\_zombiemode`) + `Translator.extract_round_loop`: the map's `round_think` is `level.round_think_func`, BO2 glue (`WAW_SOURCE_ROUND_GLUE`) at its spawn/wait/advance anchors; `round_spawning` stays BO2's (T6 actors) with source hooks |
 | zombie spawn init, speed, pathing, damage callbacks, gibs | `_zm_spawner` + zombiebehavior.py source policies | partly from source (speed selector, chase policy); rest open |
 | player damage scale, explosive self-damage cap removal | `WAW_PLAYER_DAMAGE_SCALE` (`_gameskill` value), `WAW_SELF_DAMAGE_CAP` | value read from source; the callback itself is BO2's: open |
 | Juggernog regen loop and health | juggernog hooks | ported from source `check_for_jugg_perk` (keep); verify call site |

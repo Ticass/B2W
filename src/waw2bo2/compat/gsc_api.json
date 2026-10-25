@@ -48,6 +48,22 @@
     "  another translation owns listeners using it (setvolfog: client_fog_monitors), so they are not reported.",
     "  A listener calling anything else stays on the client side, unported and reported."
   ],
+  "source_driven": {
+    "maps\\_zombiemode": {
+      "doc": "WaW drives the rounds (docs/CONVERT_THE_WHOLE_MAP.md): calls into this script run the map's own function. glue: functions that stay BO2's because the T6 engine or BO2's player/AI plumbing owns that job; each needs a reason.",
+      "glue": {
+        "spectators_respawn": "T6 player respawn: WaW calls the SP level.spawnPlayer; BO2's gametype owns spawning",
+        "spectator_respawn": "T6 player respawn (gametype spawn path)",
+        "spawnspectator": "T6 spectator state is the gametype's",
+        "store_crumb": "feeds BO2's zombie pathing (the actors are BO2's)",
+        "round_spawn_failsafe": "BO2 actors: BO2's failsafe knows their state",
+        "round_spawning": "T6 actors spawn through BO2's spawner; its rules come from the source hooks (count, health, spawner choice)",
+        "end_game": "T6 game over and its LUI screens",
+        "player_damage_override": "T6 damage callback",
+        "main": "the map entry; BO2's gametype starts the game"
+      }
+    }
+  },
   "stock_map_policies": {
     "solo_quick_revive": {"perk": "specialty_quickrevive", "solo_cost": 500, "solo_purchase_limit": 3,
                           "solo_hint": "ZOMBIE_PERK_QUICKREVIVE_SOLO"},
@@ -181,6 +197,7 @@
     "maps\\mp\\zombies\\_zm_utility::destroy_hud": "waw_destroy_hud"
   },
   "compat_wrappers": [
+    "bbprint",
     "clientnotify",
     "gettagorigin",
     "newhudelem",

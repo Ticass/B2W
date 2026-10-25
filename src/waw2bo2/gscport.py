@@ -1002,6 +1002,8 @@ class Translator:
         # calls waw_main_post makes after BO2's _zm::init (framework overrides)
         self.post_calls: list[str] = []
         self.intermission_funcs: set[tuple[str, str]] = set()
+        # (core, function) -> text patch applied after translation (extract_round_loop glue)
+        self.post_patches: dict = {}
 
     # ---- classification -------------------------------------------------
     def owner(self, script: gsc.Script, name: str) -> str | None:
@@ -1079,6 +1081,16 @@ class Translator:
             if compat:
                 self.report.rewrites[f"{core}::{name} -> compat wrapper"] += 1
                 return compat
+        # WaW drives (docs/CONVERT_THE_WHOLE_MAP.md): a source-driven framework
+        # script runs the map's own function, not BO2's of the same name; only
+        # its engine glue (gsc_api source_driven glue, each with its reason)
+        # stays BO2's.
+        driven = API.get("source_driven", {}).get(core)
+        if driven is not None and name not in driven.get("glue", {}):
+            extracted = self.extract(core, name)
+            if extracted:
+                self.report.rewrites[f"{core}::{name} -> source (WaW drives)"] += 1
+                return extracted
         if any(self.api.defines(inc, name) for inc in included):
             self.report.rewrites[f"{core}::{name} -> included BO2 script"] += 1
             return None
@@ -1378,7 +1390,8 @@ class Translator:
         """Port one WaW framework function BO2 has no counterpart for."""
         if (core, name) in self.core_funcs:   # deliberately extracted entry (extract_entry)
             return f"{CORE}::{self.core_funcs[(core, name)]}"
-        if core in API["no_extract"] and \
+        driven = API.get("source_driven", {}).get(core)
+        if core in API["no_extract"] and not (driven is not None and name not in driven.get("glue", {})) and \
                 not any(name.endswith(s) for s in API["extract_exceptions"].get(core, ())):
             return None
         script = self.sources.get(core)
@@ -1711,7 +1724,7 @@ class Translator:
             f"{name}()\n{{\n\tlevel.waw2bo2_round_health_func = ::{extracted};\n}}\n")
         return name
 
-    def extract_round_counter(self, core: str = None) -> str | None:
+    def extract_round_counter(self, core: str = None, source_loop: bool = False) -> str | None:
         """Stock maps: WaW's own round counter (stock_map_policies waw_round_counter).
         BO2 shows rounds through setroundsplayed, an 8-bit display, and clamps
         level.round_number at 255; WaW draws script HUD elements (chalk tallies,
@@ -1719,7 +1732,9 @@ class Translator:
         WaW's round_think called them: the round-start one on BO2's
         zombie_round_change_custom hook, the round-end one on end_of_round. The
         HUD objects come from the source round-start assignments that create
-        them with the framework's own functions. Returns the registration name."""
+        them with the framework's own functions. Returns the registration name.
+        ``source_loop``: the map's own round loop runs (extract_round_loop) and
+        calls the display itself; only the HUD state and materials are set up."""
         core = core or ZOMBIEMODE
         contract = API["stock_map_policies"]["waw_round_counter"]
         script = self.sources.get(core)
@@ -1761,8 +1776,9 @@ class Translator:
                     helpers.add(name)
                     queue.append(script.functions[name])
         mapped = API["core_scripts"].get(core)
+        driven = core in API.get("source_driven", {})
         for name in sorted(helpers):
-            if not (mapped and self.api.defines(mapped, name)):   # BO2's counterpart resolves first
+            if driven or not (mapped and self.api.defines(mapped, name)):   # else BO2's counterpart resolves first
                 self.extract_entry(core, name)
         state = self.extract_level_state(core, contract["state_init"], read & created) if read & created else None
         start = self.extract_entry(core, contract["round_start"])
@@ -1785,6 +1801,14 @@ class Translator:
                 if any(material.startswith(l) for l in literals if l) and material not in precache:
                     precache.append(material)
         self.report.waw_hud_materials += [m for m in precache if m not in self.report.waw_hud_materials]
+        if source_loop:
+            lines = ["", f"// {core}: the source round display's HUD state (the source loop draws it)",
+                     "waw2bo2_waw_round_counter()", "{", "\tlevel.waw2bo2_waw_round_counter = 1;",
+                     *[f'\tprecacheshader( "{m}" );' for m in precache],
+                     *([f"\t{state}();"] if state else []), "}", ""]
+            self.level_state_parts.append("\n".join(lines))
+            self.report.rewrites["source round display (source loop)"] += 1
+            return "waw2bo2_waw_round_counter"
         lines = ["", f"// {core}: WaW's round counter (stock_map_policies waw_round_counter); BO2's 8-bit",
                  "// setroundsplayed display and its 255 round clamp stay unused",
                  "waw2bo2_waw_round_counter()", "{", "\tlevel.waw2bo2_waw_round_counter = 1;",
@@ -1873,7 +1897,59 @@ class Translator:
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
         if (core, name) in self.intermission_funcs:
             self.report.rewrites["intermission player link -> T6 script camera"] += bridge_intermission_camera(tokens)
-        return gsc.emit(tokens)
+        text = gsc.emit(tokens)
+        patch = self.post_patches.get((core, name))
+        return patch(text) if patch else text
+
+    def extract_round_loop(self, core: str = None, function: str = "round_think") -> str | None:
+        """WaW drives the rounds (docs/CONVERT_THE_WHOLE_MAP.md): the map's own
+        round loop (_zombiemode::round_think and what it calls: round_wait,
+        add_later_round_spawners, the chalk display, award_grenades...) runs as
+        BO2's level.round_think_func. BO2's systems still need the signals its
+        own loop gives (start_of_round / end_of_round, stats, the round display,
+        hot-join Quick Revive): owned _zm glue (WAW_SOURCE_ROUND_GLUE) is called
+        after the anchors every WaW loop shares. A loop without them is
+        reported and BO2's loop stays. Returns the registration name."""
+        core = core or ZOMBIEMODE
+        script = self.sources.get(core)
+        fn = script.functions.get(function) if script else None
+        if fn is None:
+            return None
+        where = self.sources.origin.get(core + ".gsc", core)
+        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
+        missing = [label for label, pattern in SOURCE_ROUND_ANCHORS
+                   if len(re.findall(pattern.replace("ROUND_WAIT", r"round_wait"), body, re.IGNORECASE)) != 1]
+        if missing:
+            self.report.unsupported.setdefault(
+                f"GSC {core}::{function} round loop (no anchors {missing}; BO2's loop runs)", []).append(where)
+            return None
+        name = self.extract_entry(core, function)
+
+        def glue(text: str) -> str:
+            for label, pattern in SOURCE_ROUND_ANCHORS:
+                # translated: the source round_wait() became the extracted name
+                pattern = pattern.replace("ROUND_WAIT", r"\w*round_wait")
+                before, after = SOURCE_ROUND_GLUE_CALLS[label]
+                text, count = re.subn(pattern, lambda m: (f"{OWNED_ZM}::{before}();\n\t\t" if before else "")
+                                      + m[0] + (f"\n\t\t{OWNED_ZM}::{after}();" if after else ""),
+                                      text, count=1, flags=re.IGNORECASE)
+                if count != 1:
+                    raise ValueError(f"{where}: {function} translated without anchor {label}")
+            return text
+
+        self.post_patches[(core, function)] = glue
+        self.report.rewrites["WaW drives the rounds: source round_think -> round_think_func"] += 1
+        self.report.extracted.append(f"{core}::{function} (round loop -> round_think_func)")
+        self.level_state_parts.append(
+            f"\n// {core}::{function}: the map's round loop drives the rounds; BO2's glue runs at its anchors\n"
+            f"waw2bo2_source_round_think( restart )\n{{\n"
+            f'\tlevel endon( "end_round_think" );\n'
+            f"\t{OWNED_ZM}::waw2bo2_round_think_begin( restart );\n"
+            f"\t{name}();\n}}\n\n"
+            f"waw2bo2_source_round_loop()\n{{\n"
+            f"\tlevel.waw2bo2_source_round_loop = 1;\n"
+            f"\tlevel.round_think_func = ::waw2bo2_source_round_think;\n}}\n")
+        return "waw2bo2_source_round_loop"
 
     def map_framework_function(self, name: str) -> gsc.Function | None:
         """``name`` in the map's _zombiemode override when the map edited it
@@ -2729,13 +2805,20 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     round_health = tr.extract_round_health()
     if round_health:
         framework_state.append(round_health)
+    # WaW drives the rounds: the map's own round loop (its display included)
+    round_loop = tr.extract_round_loop()
+    if round_loop:
+        framework_state.append(round_loop)
+    if round_loop or stock_map:
+        # the source display's HUD state and materials (the source loop calls
+        # its display itself; BO2's loop calls it through the counter hook)
+        counter = tr.extract_round_counter(source_loop=bool(round_loop))
+        if counter:
+            framework_state.append(counter)
     if stock_map:
         policy = stock_map_policy(API["stock_map_policies"], map_name.lower())
         core_parts.append(policy)
         framework_state.append("waw2bo2_stock_map_policies")
-        counter = tr.extract_round_counter()
-        if counter:
-            framework_state.append(counter)
         report.rewrites["stock WaW map policies (solo Quick Revive)"] += 1
     # Effects of WaW's framework FX init (BO2 replaces _zombiemode): the box
     # glow, eye glow, window chunks... registered for the keys ported scripts
@@ -3533,6 +3616,121 @@ waw2bo2_round_health()
     level.waw2bo2_source_zombie_health = level.zombie_health;
 }
 """
+# Anchors every WaW round_think has (Translator.extract_round_loop); ROUND_WAIT is
+# the source round_wait call (translated: the extracted function's name).
+SOURCE_ROUND_ANCHORS = (
+    ("spawn", r"level\s+thread\s+\[\[\s*level\.round_spawn_func\s*\]\]\s*\(\s*\)\s*;"),
+    ("wait", r"\bROUND_WAIT\s*\(\s*\)\s*;"),
+    ("advance", r"level\.round_number\s*\+\+\s*;"),
+)
+# anchor -> (owned glue before it, owned glue after it)
+SOURCE_ROUND_GLUE_CALLS = {
+    "spawn": ("waw2bo2_round_spawn_ready", "waw2bo2_round_started"),
+    "wait": (None, "waw2bo2_round_waited"),
+    "advance": (None, "waw2bo2_round_advanced"),
+}
+# BO2's round_think minus its game rules: what BO2's other systems, stats and
+# the HUD need from a round loop when the map's own loop drives the rounds.
+WAW_SOURCE_ROUND_GLUE = """
+waw2bo2_round_think_begin( restart )
+{
+    // waw2bo2: BO2 round_think's start (controls, stats, round display)
+    if ( !isdefined( restart ) )
+        restart = 0;
+
+    if ( !restart )
+    {
+        if ( isdefined( level.initial_round_wait_func ) )
+            [[ level.initial_round_wait_func ]]();
+
+        if ( !( isdefined( level.host_ended_game ) && level.host_ended_game ) )
+        {
+            players = get_players();
+
+            foreach ( player in players )
+            {
+                if ( !( isdefined( player.hostmigrationcontrolsfrozen ) && player.hostmigrationcontrolsfrozen ) )
+                    player freezecontrols( 0 );
+
+                player maps\\mp\\zombies\\_zm_stats::set_global_stat( "rounds", level.round_number );
+            }
+        }
+    }
+
+    waw2bo2_setroundsplayed( level.round_number );
+}
+
+waw2bo2_round_spawn_ready()
+{
+    // waw2bo2: BO2's spawner needs an active spawn location
+    while ( level.zombie_spawn_locations.size <= 0 )
+        wait 0.1;
+}
+
+waw2bo2_round_started()
+{
+    // waw2bo2: BO2's start-of-round signal and stats
+    level notify( "start_of_round" );
+    recordzombieroundstart();
+    players = getplayers();
+
+    for ( index = 0; index < players.size; index++ )
+    {
+        zonename = players[index] get_current_zone();
+
+        if ( isdefined( zonename ) )
+            players[index] recordzombiezone( "startingZone", zonename );
+    }
+
+    if ( isdefined( level.round_start_custom_func ) )
+        [[ level.round_start_custom_func ]]();
+}
+
+waw2bo2_round_waited()
+{
+    // waw2bo2: BO2's end-of-round signal and stats
+    level notify( "end_of_round" );
+    uploadstats();
+
+    if ( isdefined( level.round_end_custom_logic ) )
+        [[ level.round_end_custom_logic ]]();
+
+    players = get_players();
+    array_thread( players, maps\\mp\\zombies\\_zm_pers_upgrades_system::round_end );
+
+    for ( player_index = 0; player_index < players.size; player_index++ )
+    {
+        if ( players[player_index].pers["team"] != "spectator" )
+        {
+            zonename = players[player_index] get_current_zone();
+
+            if ( isdefined( zonename ) )
+                players[player_index] recordzombiezone( "endingZone", zonename );
+        }
+    }
+
+    recordzombieroundend();
+}
+
+waw2bo2_round_advanced()
+{
+    // waw2bo2: BO2's per-round stats, round display and hot-join Quick Revive
+    waw2bo2_setroundsplayed( level.round_number );
+    matchutctime = getutc();
+    players = get_players();
+
+    foreach ( player in players )
+    {
+        if ( level.curr_gametype_affects_rank && level.round_number > 3 + level.start_round )
+            player maps\\mp\\zombies\\_zm_stats::add_client_stat( "weighted_rounds_played", level.round_number );
+
+        player maps\\mp\\zombies\\_zm_stats::set_global_stat( "rounds", level.round_number );
+        player maps\\mp\\zombies\\_zm_stats::update_playing_utc_time( matchutctime );
+    }
+
+    check_quickrevive_for_hotjoin();
+}
+"""
 WAW_ZOMBIE_VAR_HELPER = """
 waw2bo2_zombie_var_divisor( var )
 {
@@ -3745,6 +3943,7 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: b
         raise ValueError("BO2 server bootstrap round health call changed")
     bootstrap = bootstrap.replace(*WAW_ROUND_HEALTH)
     bootstrap += WAW_ROUND_HEALTH_HELPER
+    bootstrap += WAW_SOURCE_ROUND_GLUE
     bootstrap = waw_zombie_var_defaults(bootstrap)
     bootstrap = waw_pvp_attack_notify(bootstrap)
     bootstrap += WAW_ROUND_COUNTER_HELPER
