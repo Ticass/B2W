@@ -84,6 +84,12 @@ def animation_names(tokens: list[gsc.Token]) -> set[str]:
             and tokens[i - 1].text in ("(", ",", "=", "[", "return", "[[")}
 
 
+# A source feature the port cannot carry, where BO2's behaviour runs instead:
+# reported in scripts.unsupported, never a build error (a fallback must not stop
+# the map from converting; Verruckt failed to build on one, 2026-10-25).
+FALLBACK = "GSC fallback (reported; BO2's behaviour runs)"
+
+
 @dataclass
 class PortReport:
     map_main: str = ""
@@ -1546,7 +1552,7 @@ class Translator:
                 anchor = header(stock.tokens, spans[0])
                 leads.extend(i for i, span in enumerate(map_spans) if header(toks, span) == anchor)
         if not leads:
-            self.report.errors.append(f"{where}: {function} does not keep a stock WaW body; the map's "
+            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {function} does not keep a stock WaW body; the map's "
                                       f"damage rules are not ported")
             return None
         lead = min(leads)
@@ -1595,7 +1601,7 @@ class Translator:
                 token.text = token.pre = ""
             self.report.rewrites["WaW zero-damage finish/return -> T6 damage cancellation"] += 1
         if len(fn.params) != 11 or any(t.low in ("finishplayerdamage", "finishplayerdamagewrapper") for t in body):
-            self.report.errors.append(f"{where}: {function} prelude applies damage itself; not ported")
+            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {function} prelude applies damage itself; not ported")
             return None
         name = f"{core.split(chr(92))[-1].lstrip('_')}__{function}_prelude"
         # BO2 callbacks get WaW's parameters without modelIndex (the 10th)
@@ -1647,7 +1653,7 @@ class Translator:
                 store = i
                 break
         if store is None:
-            self.report.errors.append(f"{where}: {function} sets no level.zombie_total from a local; the "
+            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {function} sets no level.zombie_total from a local; the "
                                       f"source round count formula is not ported")
             return None
         total = toks[spans[store][0] + 4].low
@@ -1679,7 +1685,7 @@ class Translator:
             if open_ is not None and at[-1] < gsc._match(body, open_, "{", "}"):
                 used.discard(name)
         if earlier & used:
-            self.report.errors.append(f"{where}: {function} count formula reads earlier locals "
+            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {function} count formula reads earlier locals "
                                       f"{', '.join(sorted(earlier & used))}; not ported")
             return None
         name = f"{core.split(chr(92))[-1].lstrip('_')}__{function}_total"
@@ -1776,7 +1782,7 @@ class Translator:
         where = self.sources.origin.get(core + ".gsc", core)
         names = (contract["round_start"], contract["round_end"])
         if script is None or any(n not in script.functions for n in names):
-            self.report.errors.append(f"{where}: no WaW round display ({', '.join(names)}); BO2's counter stays")
+            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: no WaW round display ({', '.join(names)}); BO2's counter stays")
             return None
         toks = script.tokens
         # level fields the display reads that the source start-of-game creates
@@ -2159,7 +2165,7 @@ class Translator:
             r'level\.difficultySettings\s*\[\s*"coopPlayerDifficultyHealth"\s*\]\s*\[\s*"normal"\s*\]\s*'
             r'\[\s*(\d)\s*\]\s*=\s*([\d.]+)\s*;', text))
         if not start or len(points) < 2 or sorted(coop) != [0, 1, 2, 3]:
-            self.report.errors.append(f"{GAMESKILL}: playerDifficultyHealth data not found; "
+            self.report.unsupported.setdefault(FALLBACK, []).append(f"{GAMESKILL}: playerDifficultyHealth data not found; "
                                       "player damage keeps BO2's scale (1)")
             return []
         frac = float(start[1])
@@ -2527,7 +2533,7 @@ class Translator:
             if hook is None or call in calls:
                 continue
             if hook.params or _argc(zm.tokens, ref.index):
-                self.report.errors.append(f"{where_file}:{zm.tokens[ref.index].line}: framework hook "
+                self.report.unsupported.setdefault(FALLBACK, []).append(f"{where_file}:{zm.tokens[ref.index].line}: framework hook "
                                           f"{target}::{ref.name} takes arguments; not called")
                 continue
             self.want(target)
@@ -2558,7 +2564,7 @@ class Translator:
                 break
         if split is None:
             tokens[fn.body_close].text = "}\n\nwaw_main_post()\n{" + hooks + "\n}"
-            self.report.errors.append(f"{script.path}: no maps\\_zombiemode::main() call; whole main runs before _zm::init")
+            self.report.unsupported.setdefault(FALLBACK, []).append(f"{script.path}: no maps\\_zombiemode::main() call; whole main runs before _zm::init")
             return
         i = split.qual_index
         end = i

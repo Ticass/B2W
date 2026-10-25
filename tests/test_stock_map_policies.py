@@ -131,7 +131,7 @@ class StockMapPolicyTests(unittest.TestCase):
                 "round_spawning() { players = get_players(); max = players.size * 6; level.zombie_total = max; }")
             tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
             self.assertIsNone(tr.extract_round_total())
-            self.assertTrue(any("earlier locals players" in e for e in tr.report.errors))
+            self.assertTrue(any("earlier locals players" in e for e in tr.report.unsupported.get(gscport.FALLBACK, [])))
 
     def test_round_formula_resetting_an_earlier_local_in_its_block_is_ported(self):
         # Verruckt: the dog-round branch sets players itself before reading it

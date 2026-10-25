@@ -39,7 +39,7 @@ class DamagePreludeTests(unittest.TestCase):
                 (home / 'maps/_zombiemode.gsc').write_text('// map-local copy\n' + text if home.name == 'map' else text)
             before = gscport.PortReport()
             gscport.Translator(gscport.Sources([root / 'map'], [], root / 'stock'), _api(), before).extract_damage_prelude()
-            self.assertTrue(any('prelude applies damage itself' in e for e in before.errors))
+            self.assertTrue(any('prelude applies damage itself' in e for e in before.unsupported.get(gscport.FALLBACK, [])))
             (root / 'stock/catalog.json').write_text(json.dumps({'zones': {
                 'zone/english/factory.ff': {'folder': str(root / 'factory')}}}))
             sources = gscport.Sources([root / 'map'], [], root / 'stock')
@@ -108,7 +108,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertNotIn("MOD_FALLING", core)             # BO2 _zm keeps the stock damage logic
         self.assertIn("register_player_damage_callback( ::zombiemode__player_damage_override_prelude )", core)
         self.assertIn("\tzombiemode__player_damage_override_prelude_register();", core)
-        self.assertFalse([e for e in report.errors if "damage" in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e])
 
     def test_map_edited_from_the_raw_release_matches_it_not_the_zone_one(self):
         # stock zones carry an older _zombiemode than the raw scripts maps start from
@@ -117,7 +117,7 @@ class DamagePreludeTests(unittest.TestCase):
         body = STOCK_DAMAGE.split("{\n", 1)
         core, report = self.port(body[0] + "{\n\tif( self.shielded )\n\t\treturn;\n" + body[1], older)
         self.assertIn("if( self.shielded )\n\t\treturn 0;", core)
-        self.assertFalse([e for e in report.errors if "damage" in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e])
 
     def port_callbackglobal(self, prelude: str, bo2_stock_perks: bool = False) -> tuple[str, gscport.PortReport]:
         stock = ("Callback_PlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
@@ -154,7 +154,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertNotIn("isPlayer( eAttacker )", core)   # stock body stays BO2's
         self.assertIn("register_player_damage_callback( ::callbackglobal__callback_playerdamage_prelude )", core)
         self.assertIn("\tcallbackglobal__callback_playerdamage_prelude_register();", core)
-        self.assertFalse([e for e in report.errors if "damage" in e.lower()])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e.lower()])
 
     def test_perk_damage_rules_are_dropped_when_bo2_owns_the_perks(self):
         # BO2's own PhD Flopper (_zm_perk_divetonuke) replaces the WaW one
@@ -176,7 +176,7 @@ class DamagePreludeTests(unittest.TestCase):
         core, report = self.port(body[0] + '{\n\tif ( self.self_revive ) return;\n' + edited)
         self.assertIn('if ( self.self_revive ) return 0;', core)
         self.assertNotIn('easter_egg', core)
-        self.assertFalse([e for e in report.errors if 'damage' in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e])
 
     def test_statement_split_keeps_if_else_chains_whole(self):
         tokens = gscport.gsc.tokenize("{ if ( a ) { b(); } else c(); d = 1; for ( i = 0; i < 2; i++ ) e(); }")
@@ -220,7 +220,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertIn('iDamage = 0;', core)
         self.assertIn('return 0;', core)
         self.assertNotIn('finishPlayerDamageWrapper', core)
-        self.assertFalse([e for e in report.errors if 'damage' in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e])
 
     def test_positive_damage_finish_is_still_rejected(self):
         body = STOCK_DAMAGE.split("{\n", 1)
@@ -230,7 +230,7 @@ class DamagePreludeTests(unittest.TestCase):
             return;
         }\n'''
         _, report = self.port(body[0] + '{\n' + prelude + body[1])
-        self.assertTrue([e for e in report.errors if 'prelude applies damage itself' in e])
+        self.assertTrue([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'prelude applies damage itself' in e])
 
 
 class HeldItemMeleeTests(unittest.TestCase):

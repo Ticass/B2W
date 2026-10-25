@@ -113,7 +113,7 @@ class FrameworkHookTests(unittest.TestCase):
         self.assertLess(post.index("_zombiemode_perks_custom::init();"), post.index("initial_players_connected"))
         self.assertNotIn("_zm_perks::init", post)     # framework scripts stay BO2's
         self.assertIn("maps\\_zombiemode_perks_custom", report.ported)
-        self.assertTrue(any("with_args takes arguments" in e for e in report.errors))
+        self.assertTrue(any("with_args takes arguments" in e for e in report.unsupported.get(gscport.FALLBACK, [])))
         # WaW-only perk names never reach T6 SetPerk/HasPerk ("Unknown perk")
         self.assertIn(f"self {gscport.COMPAT}::waw_setperk( \"specialty_boost\" )", perks)
         self.assertIn(f"self {gscport.COMPAT}::waw_hasperk( \"specialty_rof\" )", perks)
