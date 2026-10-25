@@ -1,5 +1,45 @@
 # WaW → BO2 Custom Map Converter Handoff
 
+## WaW drives, not BO2: health, dog traversals, solo QR, round loop, 2026-10-25
+
+Branch `waw-health-qr-dogs` (not on main; user playtest pending). User rules this night:
+convert the whole map, never cherry-pick or hand-write game rules (docs/CONVERT_THE_WHOLE_MAP.md);
+WaW's framework must drive the game, BO2 only engine glue (docs/MANUAL_RULES_AUDIT.md, measured with
+`tools/framework_coverage.py`: Shi No Numa ran 86 of 453 WaW framework functions).
+Uploaded to Drive + announced (04:20): Der Riese and Shi No Numa built from c61f658 (before the round loop).
+Backups: `work/der_riese/build/installed_backup_20261025`, `work/shi_no_numa_dlc2/build/installed_backup_20261025`.
+SnN build script `work/shi_no_numa_dlc2/build_20261025.py` (build.py's settings file is gone).
+- Zombie health: the source `ai_calculate_health` (the function round_spawning calls) runs from the owned
+  round_spawning (WAW_ROUND_HEALTH); dog rounds never call it. Live DR: 150, 250, dog 250, 350, 450, 550; the
+  source step wraps first at round 163 without dog rounds. Hand waw_round_health and the health policy removed.
+  framework_zombie_vars keeps set_zombie_var's divisor (health % was 10, not 0.1).
+- Traversals: traversals.py converts each node's WaW traversal script's dog branch, the WaW dog traversal
+  library (transpiled to zm_traverse substates waw_dog_<key>) and dog_init's table (WaW xanims). T6 reads only
+  34 characters of a node animscript (paths.ANIMSCRIPT_NAME_MAX; names waw2bo2_t<crc>). Live DR: 6/7 kinds pass
+  (wall hop not exercised). Zombie branch still maps by height onto BO2 substates (to convert).
+- Solo QR: Shi No Numa links its vending triggers; trigger_off ignored them. Unlink first. Live: trigger at
+  z -10606 after buy 3.
+- Round loop (de2d76e, unit-tested, NOT live-tested yet): gsc_api `source_driven` (maps\_zombiemode: map
+  functions win over BO2's same-named ones, `glue` keeps BO2's with reasons) + Translator.extract_round_loop
+  (source round_think = level.round_think_func; WAW_SOURCE_ROUND_GLUE at its spawn/wait/advance anchors).
+- Round loop live-tested (de2d76e): Der Riese 7 rounds + dog round, Shi No Numa, Nuketown (custom map,
+  install restored afterwards from `work/nuketown_20261019/build/installed_user_20261025`): WaW health,
+  10 s intermissions, spawn delay x0.95, chalk HUD, 0 script errors. Older loops (Verruckt) thread a local
+  round_spawn_func and step health in round_think: handled (bcc8e46, extract_round_health source_loop).
+- Dog rounds WaW-driven (cb1ef8f..2cf72f3, 8a5ed4b): `dog_rounds.source_driven` + `preserved_scripts`
+  ports the map's `_zombiemode_dogs`; `zombie_runtime.actor_glue` runs `DOG_ACTOR_GLUE` (owned dogs script)
+  first in the source dog_init; WaW zone dog spots (`volume.target + "_dog"`) become BO2 `dog_location`
+  structs; T6 lacks WaW's `dog_combat` animscript notify (glue emulates it). Live DR: 6 dogs, 2 alive,
+  12 spots, they hunt and bite, health 1600 (4x walk-in) -> 400, last dog drops Max Ammo. Live SnN: health
+  350, 6 spawners, Max Ammo. Plutonium storage `raw/maps/mp/animscripts/zm_dog_{combat,stop}.gsc` are
+  someone's Aug 28 overrides (print R4CBT/R4STOP), not ours; they affect every map.
+- Build blockers fixed: framework fallbacks were report.errors (fatal); now scripts.unsupported (FALLBACK).
+  lower_maxhealth_assignments stubbed `int()` (token kind). Verruckt and Nuketown build.
+- Drive: stable zips (c61f658) + `*_wawdrives_experimental.zip` (Der Riese, Shi No Numa; WaW loop + dogs).
+- Next: spawner, power-ups, score, blockers, last stand source-driven (framework_coverage DR: 125/594 run).
+- Probe gotchas: runner must skip old console lines (stale DONE); probe dogs need setgoalpos; check
+  "Could not load scriptparsetree" and LUI errors after every run.
+
 ## Shi No Numa: Waffe vs dogs, door risers, black Flogger, hut cables, 2026-10-16
 
 Branch `fix-gobo-black-leaves` (63eb799, 61f680f; cf78b8e reverted by 8b3bbfb). Evidence/probes `work/snn_power_lines`
