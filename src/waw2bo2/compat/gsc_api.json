@@ -70,6 +70,10 @@
     "maps\\_zombiemode_utility": {
       "doc": "only: the map's calls into these run WaW's function; BO2's same-named _zm_audio one plays BO2's lines (the map threads the kill-streak quote timer on every player)",
       "only": ["player_killstreak_timer"]
+    },
+    "maps\\_utility": {
+      "doc": "only: WaW's magic bullet shield holds the actor's health at 100000000 until stop restores it; BO2's _zm_utility one only lowers attacker accuracy, so Shi No Numa's dogs died during their spawn lightning and _zombiemode_dogs started their behind-you audio on a dead dog (its endon('death') had passed: an endless runtime error loop)",
+      "only": ["magic_bullet_shield", "stop_magic_bullet_shield"]
     }
   },
   "native_replacements": {
@@ -346,7 +350,8 @@
     "hasperk",
     "precachemodel",
     "linkto",
-    "dodamage"
+    "dodamage",
+    "bloodimpact"
   ],
   "no_extract": [
     "maps\\_zombiemode",

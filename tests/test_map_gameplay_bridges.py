@@ -335,6 +335,21 @@ class FrameworkSignatureTests(unittest.TestCase):
             # barrier helpers keep BO2's routing and its argument adapters
             self.assertFalse(tr.signature_differs("maps\\_zombiemode_utility", "all_chunks_intact"))
 
+    def test_waws_magic_bullet_shield_runs(self):
+        # BO2's only lowers attacker accuracy: dogs died during their spawn
+        # lightning and the dog script carried on with a dead dog
+        self.assertTrue(gscport.source_drives("maps\\_utility", "magic_bullet_shield"))
+        self.assertTrue(gscport.source_drives("maps\\_utility", "stop_magic_bullet_shield"))
+        self.assertFalse(gscport.source_drives("maps\\_utility", "array_thread"))
+        # its BloodImpact( bool ) takes T6's mode names, else the shield's
+        # thread ends before its health loop
+        self.assertIn("bloodimpact", gscport.API["compat_wrappers"])
+        compat = gscport.gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8"), "compat")
+        body = gscport.gsc.emit(compat.tokens[compat.functions["waw_bloodimpact"].body_open:
+                                              compat.functions["waw_bloodimpact"].body_close + 1])
+        self.assertIn('"none"', body)
+        self.assertIn('"normal"', body)
+
     def test_the_maps_net_init_runs_where_bo2_has_none(self):
         # its network_safe_spawn reads the counters init sets
         with tempfile.TemporaryDirectory() as temp:

@@ -2137,6 +2137,18 @@ waw_set_maxhealth( value )
         self.maxhealth = value;
 }
 
+// WaW BloodImpact( bool ); T6 takes "normal", "hero" or "none" and errors on
+// anything else, which ended WaW's magic_bullet_shield before its health loop.
+waw_bloodimpact( on )
+{
+    if ( isstring( on ) )
+        self bloodimpact( on );
+    else if ( on )
+        self bloodimpact( "normal" );
+    else
+        self bloodimpact( "none" );
+}
+
 waw_hasperk( perk )
 {
     if ( !waw_perk_emulated( perk ) )
