@@ -1476,6 +1476,10 @@ waw_include_weapon( name, in_box, collector, weighting_func )
     if ( !isdefined( in_box ) )
         in_box = 1;
     maps\mp\zombies\_zm_weapons::include_zombie_weapon( weapon, in_box, collector, weighting_func );
+    // the map's own registry (its _zombiemode_weapons::include_zombie_weapon,
+    // keyed by WaW name) for its box, wall buys and Pack-a-Punch
+    if ( isdefined( level.waw_include_zombie_weapon ) )
+        [[ level.waw_include_zombie_weapon ]]( name, in_box, weighting_func );
     // Native tactical helpers use a different inventory name. Precache and
     // include it for their startup guards, without a second mystery-box entry.
     if ( isdefined( level.waw2bo2_runtime_weapons ) && isdefined( level.waw2bo2_runtime_weapons[name] ) )
@@ -2418,6 +2422,26 @@ waw_stock_solo_revive_bought()
 }
 
 // ---- miscellaneous WaW builtins ----
+
+// The map's own string tables (its zones and patch: mp/zombiemode.csv holds
+// costs and zombie vars) ship as waw/<path>; WaW code reads them, never BO2's
+// table of the same name (level.waw2bo2_tables, _waw2bo2_assets).
+waw_table( table )
+{
+    if ( isdefined( level.waw2bo2_tables ) && isdefined( table ) && isdefined( level.waw2bo2_tables[tolower( table )] ) )
+        return level.waw2bo2_tables[tolower( table )];
+    return table;
+}
+
+waw_tablelookup( table, search_column, search_value, return_column )
+{
+    return tablelookup( waw_table( table ), search_column, search_value, return_column );
+}
+
+waw_tablelookupistring( table, search_column, search_value, return_column )
+{
+    return tablelookupistring( waw_table( table ), search_column, search_value, return_column );
+}
 
 // WaW's isdefined( player.is_drinking ) on BO2's drink counter (0 = idle).
 waw_is_drinking( player )

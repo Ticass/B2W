@@ -1909,7 +1909,10 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         _stage_weapon_runtime(report, project, project_root, roots, stock_materials, techset_dump, bo2_root,
                               t6_unlinker, stage, wavelets, set(effects.table),
                               waw_map_script.stem if waw_map_script is not None else None, native_fallbacks,
-                              table_roots=[*(waw_patch_script_roots or []), *roots])
+                              table_roots=[*(waw_patch_script_roots or []), *roots],
+                              map_table_roots=[*(waw_patch_script_roots or []),
+                                               *([waw_map_script.parent.parent] if waw_map_script else []),
+                                               *(waw_script_roots or [])])
     shader_report = progress.timed('Translate shaders', shaders.stage, roots, project_root / 'content_source/shaders')
     report.content['shaders'] = {k: v for k, v in shader_report.items() if k != 'shaders'}
     report.content['shaders']['report'] = 'content_source/shaders/stage.json'
@@ -2520,6 +2523,31 @@ def bolted_loop_effects(project: Path, table: dict[str, str]) -> set[str]:
     return result
 
 
+MAP_TABLE_PREFIX = "waw/"
+
+
+def stage_map_tables(roots: list[Path], project_root: Path) -> dict[str, str]:
+    """The map's own string tables (its zone, patch and mod dumps; the first
+    root holding a path wins, so pass the patch first) staged as waw/<path> in
+    mod.ff. WaW scripts read them through compat waw_tablelookup; BO2's tables
+    of the same name stay BO2's. Returns {WaW path: staged path}."""
+    tables: dict[str, str] = {}
+    for root in roots:
+        for path in sorted(root.rglob("*.csv")) if root.is_dir() else ():
+            rel = path.relative_to(root).as_posix()
+            if rel.startswith(("zone_source/", MAP_TABLE_PREFIX)) or rel.lower() in tables:
+                continue
+            staged = MAP_TABLE_PREFIX + rel
+            target = project_root / staged
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+            tables[rel.lower()] = staged
+    if tables:
+        with (project_root / MOD_EXTRA_ZONE).open("a", encoding="utf-8") as zone:
+            zone.write("".join(f"stringtable,{staged}\n" for staged in sorted(tables.values())))
+    return tables
+
+
 def source_zombie_var_overrides(roots: list[Path]) -> dict[str, str]:
     """WaW table column one, with source-root precedence; never BO2's table."""
     source = next((root / 'mp/zombiemode.csv' for root in roots
@@ -2534,7 +2562,8 @@ def _stage_weapon_runtime(report: StageReport, project: str, project_root: Path,
                           stock_materials: Path, techset_dump: Path | None, bo2_root: Path | None,
                           t6_unlinker: Path | None, stage: Path, wavelets, converted_fx: set[str],
                           waw_map: str | None, native_fallbacks: dict[str, Path] | None = None,
-                          table_roots: list[Path] | None = None) -> None:
+                          table_roots: list[Path] | None = None,
+                          map_table_roots: list[Path] | None = None) -> None:
     """Weapon visuals + the weapons mod.ff can carry (weapons.stage_runtime).
     Their zone lines go to mod_extra.zone (built by the BO2 mod tools linker,
     which reads the raw xanims); the scripts' weapon table is regenerated."""
@@ -2571,11 +2600,13 @@ def _stage_weapon_runtime(report: StageReport, project: str, project_root: Path,
     for name, reasons in sorted(runtime["excluded"].items()):
         report.warnings.append(f"UNSUPPORTED_WEAPON {name}: not carried in mod.ff: {'; '.join(reasons)}")
     (project_root / "maps" / "mp" / "waw").mkdir(parents=True, exist_ok=True)
+    tables = stage_map_tables(map_table_roots or [], project_root)
+    report.content["map_tables"] = sorted(tables)
     (project_root / "maps" / "mp" / "waw" / "_waw2bo2_assets.gsc").write_text(
         gscport.assets_source(report.fx_table, waw_map, runtime["table"],
                              bolted_loop_effects(project_root, report.fx_table),
                              # WaW loads <map>_patch.ff last: its table wins
-                             source_zombie_var_overrides(table_roots or roots)), encoding="utf-8")
+                             source_zombie_var_overrides(table_roots or roots), tables), encoding="utf-8")
     entities_json = project_root / "BSP" / "entities.json"
     if entities_json.exists():
         report.warnings += entities.map_wall_buys(entities_json, runtime["table"])

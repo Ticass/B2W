@@ -509,22 +509,28 @@ def network_client_models(entities_json: Path, names: set[str]) -> list[str]:
     return [f"{name} ({count})" for name, count in sorted(changed.items())]
 
 
+# The map's own _zombiemode_weapons buys from its wall-buy triggers; under
+# this name BO2's _zm_weapons::init_weapon_upgrade never finds them
+# (gscport renames the scripts' "weapon_upgrade" lookups the same way).
+WAW_WALL_BUY_TARGETNAME = "waw_weapon_upgrade"
+
+
 def map_wall_buys(entities_json: Path, table: dict[str, str]) -> list[str]:
-    """Point WaW wall buys at the weapons mod.ff carries (``table``: WaW name ->
-    BO2 name, "" = not carried). A wall buy for an uncarried weapon is removed:
-    BO2's wall-buy setup requires a registered weapon. Returns report lines."""
+    """The map's wall buys for its own weapon code (``table``: WaW name -> BO2
+    name, "" = not carried). They keep the WaW weapon name its registry is
+    keyed by (giving goes through the compat name map) and take the WaW-owned
+    targetname. A wall buy for an uncarried weapon is removed. Returns report
+    lines."""
     data = json.loads(entities_json.read_text(encoding="utf-8"))
     notes, kept = [], []
     for ent in data["entities"]:
         weapon = ent.get("zombie_weapon_upgrade")
-        if ent.get("targetname") == "weapon_upgrade" and weapon in table:
-            if not table[weapon]:
+        if ent.get("targetname") == "weapon_upgrade":
+            if weapon in table and not table[weapon]:
                 notes.append(f"UNSUPPORTED_WALLBUY {weapon} at {ent.get('origin')}: weapon not carried in mod.ff; "
                              f"trigger removed")
                 continue
-            if table[weapon] != weapon:
-                ent["zombie_weapon_upgrade"] = table[weapon]
-                notes.append(f"wall buy {weapon} -> {table[weapon]} (renamed weapon)")
+            ent["targetname"] = WAW_WALL_BUY_TARGETNAME
         kept.append(ent)
     data["entities"] = kept
     entities_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")

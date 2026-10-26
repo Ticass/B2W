@@ -155,8 +155,10 @@ class WeaponRegistrationTests(unittest.TestCase):
                 {"targetname": "weapon_upgrade", "zombie_weapon_upgrade": "m14_zm"}]}))
             notes = entities.map_wall_buys(path, {"fs_m14": "fs_m14", "zombie_knuckle_crack": "waw_zombie_knuckle_crack",
                                                   "rgun": ""})
-            weapons = [e["zombie_weapon_upgrade"] for e in json.loads(path.read_text())["entities"]]
-            self.assertEqual(weapons, ["fs_m14", "waw_zombie_knuckle_crack", "m14_zm"])
+            kept = json.loads(path.read_text())["entities"]
+            # the map's own weapon code buys by WaW name, from its own triggers
+            self.assertEqual([e["zombie_weapon_upgrade"] for e in kept], ["fs_m14", "zombie_knuckle_crack", "m14_zm"])
+            self.assertEqual({e["targetname"] for e in kept}, {entities.WAW_WALL_BUY_TARGETNAME})
             self.assertTrue(any(n.startswith("UNSUPPORTED_WALLBUY rgun") for n in notes))
 
 

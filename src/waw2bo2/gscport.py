@@ -53,12 +53,32 @@ WATER_BULLETS = "maps\\mp\\waw\\_waw2bo2_water_bullets"
 ZOMBIEMODE = "maps\\_zombiemode"
 PERKS = "maps\\_zombiemode_perks"
 GAMESKILL = "maps\\_gameskill"
+WEAPONS_FRAMEWORK = "maps\\_zombiemode_weapons"
 # the owned copy of BO2's _zm (stage_bo2_perk_support)
 OWNED_ZM = "maps\\mp\\waw\\_waw2bo2_zm"
 CORE_INCLUDES = ("common_scripts\\utility", "maps\\mp\\_utility", "maps\\mp\\zombies\\_zm_utility")
 # BO2 scripts a unique-name lookup may resolve into (never map/other-mode scripts)
 BO2_SHARED = re.compile(r"^(common_scripts\\utility|maps\\mp\\_utility|maps\\mp\\zombies\\_zm[a-z_]*|"
                         r"maps\\mp\\gametypes_zm\\_[a-z_]+|maps\\mp\\_[a-z_]+)$")
+
+
+def script_branch_taken(tokens: list, body_open: int, body_close: int, index: int, map_name: str | None) -> bool:
+    """False when tokens[index] lies in the branch of a top-level
+    if( level.script ==/!= "<map>" ) {...} else {...} that the map never takes
+    (level.script is the immutable WaW map name). Anything else is taken."""
+    if not map_name:
+        return True
+    for a, b in top_level_statements(tokens, body_open, body_close):
+        if not (a <= index < b) or tokens[a].low != "if":
+            continue
+        guard_end = gsc._match(tokens, a + 1, "(", ")")
+        words = [t.low for t in tokens[a + 2:guard_end]]
+        if len(words) != 5 or words[:3] != ["level", ".", "script"] or words[3] not in ("==", "!=")                 or not words[4].startswith('"') or tokens[guard_end + 1].text != "{":
+            return True
+        matched = (map_name.lower() == words[4].strip('"')) == (words[3] == "==")
+        yes_end = gsc._match(tokens, guard_end + 1, "{", "}")
+        return matched if index <= yes_end else not matched
+    return True
 
 
 def norm(path: str) -> str:
@@ -422,10 +442,19 @@ WAW_LEVEL_FIELDS["zombie_move_speed"] = API['zombie_runtime']['source_speed']['o
 # The map's own zone manager (preserved _zombiemode_zone_manager) keeps the
 # zones, its init pointer and the dog spawn lists the source spawn and dog
 # code read; BO2's _zm_zonemgr keeps its own for the BO2 triggers still in use.
+# The map's own weapon registry and box (preserved _zombiemode_weapons): BO2's
+# _zm_weapons/_zm_magicbox keep theirs for the BO2 code still running.
+WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
+    "zombie_weapons", "zombie_include_weapons", "limited_weapons", "weapon_weighting_funcs",
+    "zombie_treasure_chest_cost", "chest_accessed", "chest_min_move_usage", "open_chest_location",
+    "verify_chest", "random_pandora_box_start", "pulls_since_last_ray_gun", "pulls_since_last_tesla_gun",
+    "player_drops_tesla_gun", "player_seen_tesla_gun")})
 WAW_LEVEL_FIELDS.update({"zones": "waw_zones", "zone_manager_init_func": "waw_zone_manager_init_func",
                          "enemy_dog_locations": "waw_enemy_dog_locations",
                          "enemy_dog_spawns": "waw_enemy_dog_spawns"})
-WAW_BOX_FLAGS = {'moving_chest_enabled', 'moving_chest_now', 'chest_has_been_used'}
+WAW_BOX_FLAGS = {'moving_chest_enabled', 'moving_chest_now', 'chest_has_been_used',
+                 # the map's wall-buy triggers (entities.WAW_WALL_BUY_TARGETNAME)
+                 'weapon_upgrade'}
 
 
 def rename_level_fields(tokens: list[gsc.Token]) -> int:
@@ -3103,6 +3132,9 @@ class Translator:
         for ref in gsc.references(zm.tokens, fn.body_open, fn.body_close):
             if ref.qualifier is None or ref.pointer or ref.method:
                 continue
+            if not script_branch_taken(zm.tokens, fn.body_open, fn.body_close, ref.index,
+                                       getattr(self, "map_name", None)):
+                continue    # e.g. _zombiemode_weapons_sumpf::init outside Shi No Numa
             target = norm(ref.qualifier)
             tesla = API['tesla_runtime']
             if target == tesla['source_script'] and ref.name.lower() == tesla['initialize'] and \
@@ -3177,6 +3209,13 @@ class Translator:
             hooks += ("\n\t// the map's _zombiemode overrides BO2's _zm::init replaced" +
                       "".join(f"\n\t{call}" for call in self.post_calls))
         tokens[fn.start].text = "waw_main_pre"
+        weapons = self.sources.get(WEAPONS_FRAMEWORK)
+        if weapons is not None and "include_zombie_weapon" in weapons.functions:
+            # before the map's include_weapons(): compat waw_include_weapon
+            # fills the map's own registry through it as well as BO2's
+            self.want(WEAPONS_FRAMEWORK)
+            self.pre_calls.insert(0, f"level.waw_include_zombie_weapon = "
+                                     f"{ported_path(WEAPONS_FRAMEWORK)}::include_zombie_weapon;")
         pre = "".join(f"\n\t{call}" for call in self.pre_calls)
         if pre:
             pre = "\n\t// the map's functions in place of BO2's, before _zm::init calls them" + pre
@@ -3239,6 +3278,7 @@ def discover_animation_dependencies(sources: Sources, api: T6Api, map_name: str,
             sources.text[path + '.gsc'] = zombieappearance.appearance_script(original)
             sources._parsed.pop(path + '.gsc', None)
     tr = Translator(sources, api, PortReport())
+    tr.map_name = map_name
     tr.animation_discovery = True
     tr.queue.append(norm(f"maps/{map_name}"))
     tr.extract_custom_intermission()
@@ -3318,6 +3358,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     for alias, canonical in framework_aliases.items():
         report.rewrites[f'framework startup {alias} -> {canonical}'] += 1
     tr = Translator(sources, api, report)
+    tr.map_name = map_name
     tr.bo2_stock_perks = bo2_stock_perks
     tr.stock_map = stock_map
     tr.waw_perk_parts = waw_perk_parts
@@ -3695,8 +3736,13 @@ BO2_TACTICAL_RUNTIME_WEAPONS = {"zombie_cymbal_monkey": "cymbal_monkey_zm"}
 
 def assets_source(fx_table: dict[str, str], waw_map: str | None = None,
                   weapons: dict[str, str] | None = None, bolted_loops: set[str] = frozenset(),
-                  zombie_var_overrides: dict[str, str] | None = None) -> str:
+                  zombie_var_overrides: dict[str, str] | None = None,
+                  tables: dict[str, str] | None = None) -> str:
     lines = ["// waw2bo2: WaW asset name -> BO2 asset name for converted assets (generated).", "init()", "{"]
+    # the map's own string tables, read by compat waw_tablelookup
+    lines.append('    level.waw2bo2_tables = [];')
+    for waw, staged in sorted((tables or {}).items()):
+        lines.append(f'    level.waw2bo2_tables[{json.dumps(waw)}] = {json.dumps(staged)};')
     if waw_map:
         # WaW's level.script is the WaW map name (see gscport.WAW_LEVEL_FIELDS)
         lines.append(f'    level.waw_script = "{waw_map}";')
@@ -3832,9 +3878,8 @@ WEAPONS = "maps\\mp\\waw\\_waw2bo2_weapons"
 WEAPON_REGISTRATION = {
     "include": [("maps\\dlc3_code", "include_weapons")],    # WaW DLC3 mod-tools template
     "add": [("maps\\_zombiemode_weapons", "init_weapons")],  # WaW zombiemode framework (map override or stock)
-    # WaW's mystery box (map override or stock): BO2 _zm_magicbox only knows
-    # its own zbarrier boxes, so the WaW box runs as WaW code
-    "box": [("maps\\_zombiemode_weapons", "treasure_chest_init")],
+    # The mystery box, wall buys, ammo and turrets are the map's own: the
+    # preserved _zombiemode_weapons runs its init (gsc_api preserved_scripts).
 }
 # the framework init whose level assignments the box code reads (animations, flags)
 BOX_STATE_INIT = ("maps\\_zombiemode_weapons", "init")
