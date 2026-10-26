@@ -156,6 +156,37 @@ mov oC0, r0
             for suffix in ('.cso', '.hlsl', '.json'):
                 self.assertFalse(output.with_suffix(suffix).exists())
 
+    def test_memoized_translation_hands_out_independent_reports(self):
+        contract = {'constants': {f'c{i}': {'buffer': 2, 'index': i-5} for i in (5,6,7)},
+                    'samplers': {'s0': {'texture': 3, 'sampler': 4}},
+                    'inputs': {'v0': {'semantic': 'TEXCOORD1', 'width': 2}},
+                    'outputs': {'oC0': {'semantic': 'SV_Target0'}}}
+        first, report = shaders.translate(FILM, contract)
+        report['inputs'].clear()
+        second, again = shaders.translate(FILM, contract)
+        self.assertEqual(first, second)
+        self.assertEqual(again, shaders._translate(FILM, contract)[1])
+        # the key holds the bindings themselves, not just the program
+        contract['samplers']['s0']['texture'] = 5
+        self.assertIn('register(t5)', shaders.translate(FILM, contract)[0])
+        for _ in range(2):
+            with self.assertRaisesRegex(shaders.ShaderError, 'constant binding'):
+                shaders.translate(FILM, {})
+
+    @unittest.skipUnless(os.name == 'nt', 'D3DCompile')
+    def test_shared_compile_folder_reuses_identical_programs(self):
+        source = 'float4 main() : SV_Target { return float4(0.25, 0.5, 0.75, 1); }'
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(shaders, 'SHARED_COMPILES', Path(directory)):
+                shaders.compile_hlsl.cache_clear()
+                code = shaders.compile_hlsl(source, 'ps_5_0')
+                [shared] = Path(directory).glob('*.cso')
+                self.assertEqual(shared.read_bytes(), code)
+                shaders.compile_hlsl.cache_clear()
+                with patch.object(shaders, '_compile_hlsl', side_effect=AssertionError('compiled twice')):
+                    self.assertEqual(shaders.compile_hlsl(source, 'ps_5_0'), code)
+            shaders.compile_hlsl.cache_clear()
+
 
 if __name__ == '__main__':
     unittest.main()

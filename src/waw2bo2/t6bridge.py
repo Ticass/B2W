@@ -23,17 +23,19 @@ from __future__ import annotations
 
 import copy
 import csv
+import hashlib
 import os
 import json
 import re
 import shutil
 import struct
+import tempfile
 from collections import Counter
-from functools import lru_cache
+from functools import lru_cache, partial
 from dataclasses import dataclass, field
 from pathlib import Path
 from .resources import resource_root
-from . import clientport, progress, viewmodels, zombiebehavior
+from . import clientport, parallel, progress, viewmodels, zombiebehavior
 
 from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
 from .fbx import collision_material_slots, collision_slot_models, water_only, write_collision_fbx, write_world_fbx
@@ -209,6 +211,204 @@ def dangling_substitute(name: str, roots: list[Path]) -> tuple[str, str] | None:
     return None
 
 
+def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None:
+    """Convert one WaW material, writing its files under ``out_root``.
+    None: a BO2 native equivalent, which the caller stages."""
+    roots, rename = context['roots'], context['rename']
+    stock_materials, techset_root = context['stock_materials'], context['techset_root']
+    image_prefix, donors = context['image_prefix'], context['donors']
+    falloff_placement, light_shadows = context['falloff_placement'], context['light_shadows']
+    candidates = sorted(donors)
+    rel = techsets.oat_material_path(name)
+    src = _find(roots, rel)
+    if name in context['native'] or (src is None and name in context['native_fallbacks']):
+        return None
+    out_rel = techsets.oat_material_path(rename.get(name, name))
+    entry = {"name": rename.get(name, name), "file": out_rel.as_posix()}
+    if name in rename:
+        entry["source"] = name
+    notes: list[str] = []
+    local = StageReport("materials")
+    if src is None:
+        sub = dangling_substitute(name, roots)
+        if sub is None:
+            local.errors.append(f"material {name}: no WaW source {rel.as_posix()} in any zone dump")
+            return _material_result(local, None, None, out_root)
+        entry["substituted_from"] = sub[0]
+        notes.append(sub[1])
+        local.warnings.append(sub[1])
+        src = _find(roots, techsets.oat_material_path(sub[0]))
+    t4 = _load_json(src)
+    t4_ts = t4.get("techniqueSet", "")
+    entry["t4_techset"] = t4_ts
+    # The best-named technique set can still be unusable when its donor has
+    # extra slots the source cannot fill; fall back to the next best.
+    remaining = list(candidates)
+    rejected: list[str] = []
+    source_ts = techsets.material_techset(t4)
+    approximations = techsets.last_resort(source_ts)
+    approximated, first_error = None, None
+    while True:
+        try:
+            m = techsets.match(source_ts, remaining)
+        except techsets.TechsetError as exc:
+            first_error = first_error or exc
+            if approximations:
+                # no rule for this WaW technique: keep the material's own
+                # textures on the nearest generic pass instead of failing
+                source_ts, remaining = approximations.pop(0), list(candidates)
+                approximated = source_ts
+                continue
+            local.errors.append(f"material {name} ({t4_ts}): {first_error}" + (f"; rejected: {'; '.join(rejected)}" if rejected else ""))
+            m = None
+            break
+        attempt = notes + m.notes + ([f"APPROXIMATED: no T6 rule for '{t4_ts}', drawn as '{approximated}'"]
+                                     if approximated else [])
+        try:
+            out = techsets.build_material(t4, _load_json(donors[m.target]), attempt)
+        except techsets.TechsetError as exc:
+            rejected.append(f"{m.target}: {exc}")
+            remaining.remove(m.target)
+            continue
+        notes = attempt + [f"{r}, not used" for r in rejected]
+        break
+    if m is None:
+        return _material_result(local, None, None, out_root)
+    if approximated:
+        local.warnings.append(f"APPROXIMATED_MATERIAL {name}: no T6 rule for WaW technique '{t4_ts}'; "
+                               f"drawn with its own textures as '{approximated}' ({m.target})")
+    runtime = shaderruntime.bind_material(t4, out, roots, out_root, techset_root, falloff_placement,
+                                           light_shadows) if techset_root else {'active': [], 'unsupported': ['native technique dump absent']}
+    if t4_ts == 'wc_unlit_distfalloff' and all(
+            any(p.get('slot') == slot and p.get('paired') for p in runtime.get('active', []))
+            for slot in (2, 3)):
+        notes = [n for n in notes if n != 'distance falloff dropped']
+    entry['shader_runtime'] = runtime
+    state_slots = shaderruntime.apply_source_pass_states(t4, out, runtime)
+    if state_slots:
+        notes.append(f"WaW blend/alpha-test state on T6 slots {state_slots}")
+    for texture in out.get('textures', []):
+        image_name = texture.get('image', '')
+        if image_prefix and image_name and not image_name.startswith((',', '$', image_prefix)):
+            texture['image'] = image_prefix + image_name
+    entry.update(t6_techset=out['techniqueSet'], donor=donors[m.target].relative_to(stock_materials).as_posix(),
+                 cost=m.cost, notes=notes)
+    dst = out_root / out_rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    return _material_result(local, entry, out['techniqueSet'], out_root)
+
+
+def _stage_native_material(report: StageReport, name: str, rename: dict[str, str], remaster: dict[str, Path] | None,
+                           native_fallbacks: dict[str, Path] | None, stock_materials: Path, project_root: Path,
+                           image_prefix: str) -> str:
+    """A BO2 native material in place of the WaW one (remaster, or absent
+    from WaW); copies its images. Returns its technique set."""
+    out_rel = techsets.oat_material_path(rename.get(name, name))
+    entry = {"name": rename.get(name, name), "file": out_rel.as_posix()}
+    if name in rename:
+        entry["source"] = name
+    notes: list[str] = []
+    remastered = name in (remaster or {})
+    native_path = remaster[name] if remastered else native_fallbacks[name]
+    out = _load_json(native_path)
+    if out.pop('thermalMaterial', None):
+        # a second BO2 material (thermal-sight view) the WaW material it
+        # replaces never had; the linker would need it and its images
+        # too, and refuses the whole material (and its model) without it
+        notes.append('BO2 thermalMaterial dropped (the WaW material has none)')
+    native_root = stock_materials.parent
+    for texture in out.get('textures', []):
+        image = texture.get('image', '').removeprefix(',')
+        if not image or image.startswith('$'):
+            texture['image'] = techsets.as_reference(image)
+            continue
+        output = (image_prefix or 'waw_image/') + ('bo2_remaster/' if remastered else 'bo2_fallback/') + image
+        # A definition can be present only in BO2 raw while its packed
+        # image is available in the stock-zone dump.
+        material_folder = next(p for p in native_path.parents if p.name == 'materials')
+        image_roots = ([material_folder.parent, native_root] if remastered
+                       else [native_root, material_folder.parent])
+        image_path = _find(image_roots, techsets.oat_image_path(image))
+        if image_path is None and _find(image_roots, techsets.oat_image_path(image, '.dds')) is None:
+            from .all2raw import required_bo2_image
+            image_path = required_bo2_image(native_root, image)
+        dst = project_root / techsets.oat_image_path(output)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if image_path is not None:
+            if image_path.read_bytes()[:4] != b'IWi\x1b':
+                raise StageError(f'BO2 equivalent image {image}: not an IWI27 source')
+            shutil.copy2(image_path, dst)
+        else:
+            image_path = _find(image_roots, techsets.oat_image_path(image, '.dds'))
+            if image_path is None:
+                raise StageError(f'BO2 equivalent material {name}: image {image} missing from {native_root}')
+            iwi.convert_file(image_path, dst)
+        texture['image'] = output
+        report.images.append({'name': output, 'source': str(image_path), 'source_kind': 't6_equivalent'})
+    dst = project_root / out_rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps(out, indent=2) + '\n', encoding='utf-8')
+    why = ('remaster: native BO2 material replaces the WaW one' if remastered
+           else 'original material absent from WaW lookup')
+    entry.update(t4_techset=None, t6_techset=out['techniqueSet'],
+                 native_equivalent=str(native_path), notes=[why, *notes])
+    if remastered:
+        entry['remastered'] = True
+    report.materials.append(entry)
+    report.warnings.append(f'{"REMASTER" if remastered else "BO2_FALLBACK"} material {name} -> '
+                           f'{native_path}: {why}')
+    return out['techniqueSet']
+
+
+def _material_result(local: StageReport, entry: dict | None, techset: str | None, out_root: Path) -> dict:
+    """The material's report lines and the files it wrote (moved out of out_root)."""
+    files = [(path.relative_to(out_root).as_posix(), path.read_bytes())
+             for path in sorted(out_root.rglob('*')) if path.is_file()]
+    for child in out_root.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    return {'entry': entry, 'techset': techset, 'warnings': local.warnings, 'errors': local.errors, 'files': files}
+
+
+def _material_batch(context: dict, names: list[str]) -> list[tuple[str, dict | None]]:
+    # module state of the staging process (this may be it, with one worker)
+    saved = techsets.LAYERED_VERTEX_DATA, shaders.SHARED_COMPILES
+    techsets.LAYERED_VERTEX_DATA = context['layered_vertex_data']
+    shaders.SHARED_COMPILES = context['shared_compiles']
+    try:
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_materials_') as scratch:
+            return [(name, _stage_waw_material(context, name, Path(scratch))) for name in names]
+    finally:
+        techsets.LAYERED_VERTEX_DATA, shaders.SHARED_COMPILES = saved
+
+
+# below this many materials a worker pool costs more than it saves
+PARALLEL_MATERIALS = 64
+MATERIAL_BATCH = 8
+
+
+_DONOR_INDEX: dict[Path, tuple[list, dict[str, Path]]] = {}
+
+
+def material_donors(stock_materials: Path, techset_root: Path | None) -> dict[str, Path]:
+    """techniqueSet -> stock donor material. Dependency extraction can add
+    stock materials during a build, so the parsed index is reused only while
+    the folder lists the same files (names, sizes, times)."""
+    listing = sorted((p.as_posix(), st.st_size, st.st_mtime_ns)
+                     for p in stock_materials.rglob("*.json") for st in (p.stat(),))
+    cached = _DONOR_INDEX.get(stock_materials)
+    if cached is None or cached[0] != listing:
+        cached = _DONOR_INDEX[stock_materials] = (listing, techsets.index_donors(stock_materials))
+    donors = cached[1]
+    if techset_root is not None:
+        # a donor is only usable if its technique set was dumped (not just referenced)
+        donors = {ts: p for ts, p in donors.items() if (techset_root / "techniquesets" / f"{ts}.json").exists()}
+    return donors
+
+
 @progress.phase('Convert materials')
 def stage_materials(report: StageReport, names: set[str], roots: list[Path], stock_materials: Path,
                     project_root: Path, techset_root: Path | None = None,
@@ -222,143 +422,62 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
     ``remaster``: WaW materials drawn with their native BO2 material although
     WaW defines them (remaster.py, opt-in)."""
     rename = rename or {}
-    donors = techsets.index_donors(stock_materials)
-    if techset_root is not None:
-        # a donor is only usable if its technique set was dumped (not just referenced)
-        donors = {ts: p for ts, p in donors.items() if (techset_root / "techniquesets" / f"{ts}.json").exists()}
+    donors = material_donors(stock_materials, techset_root)
     if not donors:
         raise StageError(f"no stock T6 material donors found under {stock_materials}")
-    candidates = sorted(donors)
     used_techsets: set[str] = set()
-    for name in progress.items('Materials', sorted(names)):
-        rel = techsets.oat_material_path(name)
-        src = _find(roots, rel)
-        out_rel = techsets.oat_material_path(rename.get(name, name))
-        entry = {"name": rename.get(name, name), "file": out_rel.as_posix()}
-        if name in rename:
-            entry["source"] = name
-        notes: list[str] = []
-        remastered = name in (remaster or {})
-        if remastered or (src is None and name in (native_fallbacks or {})):
-            native_path = remaster[name] if remastered else native_fallbacks[name]
-            out = _load_json(native_path)
-            if out.pop('thermalMaterial', None):
-                # a second BO2 material (thermal-sight view) the WaW material it
-                # replaces never had; the linker would need it and its images
-                # too, and refuses the whole material (and its model) without it
-                notes.append('BO2 thermalMaterial dropped (the WaW material has none)')
-            native_root = stock_materials.parent
-            for texture in out.get('textures', []):
-                image = texture.get('image', '').removeprefix(',')
-                if not image or image.startswith('$'):
-                    texture['image'] = techsets.as_reference(image)
-                    continue
-                output = (image_prefix or 'waw_image/') + ('bo2_remaster/' if remastered else 'bo2_fallback/') + image
-                # A definition can be present only in BO2 raw while its packed
-                # image is available in the stock-zone dump.
-                material_folder = next(p for p in native_path.parents if p.name == 'materials')
-                image_roots = ([material_folder.parent, native_root] if remastered
-                               else [native_root, material_folder.parent])
-                image_path = _find(image_roots, techsets.oat_image_path(image))
-                if image_path is None and _find(image_roots, techsets.oat_image_path(image, '.dds')) is None:
-                    from .all2raw import required_bo2_image
-                    image_path = required_bo2_image(native_root, image)
-                dst = project_root / techsets.oat_image_path(output)
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if image_path is not None:
-                    if image_path.read_bytes()[:4] != b'IWi\x1b':
-                        raise StageError(f'BO2 equivalent image {image}: not an IWI27 source')
-                    shutil.copy2(image_path, dst)
-                else:
-                    image_path = _find(image_roots, techsets.oat_image_path(image, '.dds'))
-                    if image_path is None:
-                        raise StageError(f'BO2 equivalent material {name}: image {image} missing from {native_root}')
-                    iwi.convert_file(image_path, dst)
-                texture['image'] = output
-                report.images.append({'name': output, 'source': str(image_path), 'source_kind': 't6_equivalent'})
-            dst = project_root / out_rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_text(json.dumps(out, indent=2) + '\n', encoding='utf-8')
-            why = ('remaster: native BO2 material replaces the WaW one' if remastered
-                   else 'original material absent from WaW lookup')
-            entry.update(t4_techset=None, t6_techset=out['techniqueSet'],
-                         native_equivalent=str(native_path), notes=[why, *notes])
-            if remastered:
-                entry['remastered'] = True
-            report.materials.append(entry)
-            report.warnings.append(f'{"REMASTER" if remastered else "BO2_FALLBACK"} material {name} -> '
-                                   f'{native_path}: {why}')
-            used_techsets.add(out['techniqueSet'])
-            continue
-        if src is None:
-            sub = dangling_substitute(name, roots)
-            if sub is None:
-                report.errors.append(f"material {name}: no WaW source {rel.as_posix()} in any zone dump")
+    context = {'roots': roots, 'stock_materials': stock_materials, 'techset_root': techset_root,
+               'rename': rename, 'image_prefix': image_prefix, 'donors': donors,
+               'falloff_placement': falloff_placement, 'light_shadows': light_shadows,
+               'native': frozenset(remaster or {}), 'native_fallbacks': frozenset(native_fallbacks or {}),
+               # set by world staging in this process; spawned workers start from the default
+               'layered_vertex_data': techsets.LAYERED_VERTEX_DATA}
+    # WaW materials convert independently in worker processes (shader
+    # translation is CPU-bound Python); their files and report lines are
+    # applied here in name order, exactly as a serial run writes them.
+    ordered = sorted(names)
+    batches = [ordered] if len(ordered) < PARALLEL_MATERIALS else [
+        ordered[i:i + MATERIAL_BATCH] for i in range(0, len(ordered), MATERIAL_BATCH)]
+    with tempfile.TemporaryDirectory(prefix='waw2bo2_compiled_') as shared:
+        context['shared_compiles'] = Path(shared) if len(batches) > 1 else None
+        used_techsets |= _apply_material_batches(report, context, batches, project_root, rename, remaster,
+                                                 native_fallbacks, stock_materials, image_prefix)
+    return used_techsets
+
+
+def _apply_material_batches(report: StageReport, context: dict, batches: list[list[str]], project_root: Path,
+                            rename: dict[str, str], remaster: dict[str, Path] | None,
+                            native_fallbacks: dict[str, Path] | None, stock_materials: Path,
+                            image_prefix: str) -> set[str]:
+    used_techsets: set[str] = set()
+    # Materials sharing a program write the same content-named files again;
+    # an identical rewrite leaves the same bytes, so it is skipped.
+    written: dict[Path, bytes] = {}
+    folders: set[Path] = set()
+    for batch in parallel.ordered_map(partial(_material_batch, context), batches,
+                                      label='Material batches', processes=True):
+        for name, result in batch:
+            if result is not None:
+                for relative, data in result['files']:
+                    dst = project_root / relative
+                    digest = hashlib.blake2b(data, digest_size=16).digest()
+                    if written.get(dst) == digest:
+                        continue
+                    if dst.parent not in folders:
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        folders.add(dst.parent)
+                    dst.write_bytes(data)
+                    written[dst] = digest
+                report.warnings += result['warnings']
+                report.errors += result['errors']
+                if result['entry'] is not None:
+                    report.materials.append(result['entry'])
+                    used_techsets.add(result['techset'])
                 continue
-            entry["substituted_from"] = sub[0]
-            notes.append(sub[1])
-            report.warnings.append(sub[1])
-            src = _find(roots, techsets.oat_material_path(sub[0]))
-        t4 = _load_json(src)
-        t4_ts = t4.get("techniqueSet", "")
-        entry["t4_techset"] = t4_ts
-        # The best-named technique set can still be unusable when its donor has
-        # extra slots the source cannot fill; fall back to the next best.
-        remaining = list(candidates)
-        rejected: list[str] = []
-        source_ts = techsets.material_techset(t4)
-        approximations = techsets.last_resort(source_ts)
-        approximated, first_error = None, None
-        while True:
-            try:
-                m = techsets.match(source_ts, remaining)
-            except techsets.TechsetError as exc:
-                first_error = first_error or exc
-                if approximations:
-                    # no rule for this WaW technique: keep the material's own
-                    # textures on the nearest generic pass instead of failing
-                    source_ts, remaining = approximations.pop(0), list(candidates)
-                    approximated = source_ts
-                    continue
-                report.errors.append(f"material {name} ({t4_ts}): {first_error}" + (f"; rejected: {'; '.join(rejected)}" if rejected else ""))
-                m = None
-                break
-            attempt = notes + m.notes + ([f"APPROXIMATED: no T6 rule for '{t4_ts}', drawn as '{approximated}'"]
-                                         if approximated else [])
-            try:
-                out = techsets.build_material(t4, _load_json(donors[m.target]), attempt)
-            except techsets.TechsetError as exc:
-                rejected.append(f"{m.target}: {exc}")
-                remaining.remove(m.target)
-                continue
-            notes = attempt + [f"{r}, not used" for r in rejected]
-            break
-        if m is None:
-            continue
-        if approximated:
-            report.warnings.append(f"APPROXIMATED_MATERIAL {name}: no T6 rule for WaW technique '{t4_ts}'; "
-                                   f"drawn with its own textures as '{approximated}' ({m.target})")
-        runtime = shaderruntime.bind_material(t4, out, roots, project_root, techset_root, falloff_placement,
-                                               light_shadows) if techset_root else {'active': [], 'unsupported': ['native technique dump absent']}
-        if t4_ts == 'wc_unlit_distfalloff' and all(
-                any(p.get('slot') == slot and p.get('paired') for p in runtime.get('active', []))
-                for slot in (2, 3)):
-            notes = [n for n in notes if n != 'distance falloff dropped']
-        entry['shader_runtime'] = runtime
-        state_slots = shaderruntime.apply_source_pass_states(t4, out, runtime)
-        if state_slots:
-            notes.append(f"WaW blend/alpha-test state on T6 slots {state_slots}")
-        for texture in out.get('textures', []):
-            image_name = texture.get('image', '')
-            if image_prefix and image_name and not image_name.startswith((',', '$', image_prefix)):
-                texture['image'] = image_prefix + image_name
-        entry.update(t6_techset=out['techniqueSet'], donor=donors[m.target].relative_to(stock_materials).as_posix(),
-                     cost=m.cost, notes=notes)
-        dst = project_root / out_rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
-        used_techsets.add(out['techniqueSet'])
-        report.materials.append(entry)
+            # BO2 native equivalents (remaster, or absent from WaW) copy
+            # images; they stay on this process
+            used_techsets.add(_stage_native_material(report, name, rename, remaster, native_fallbacks,
+                                                     stock_materials, project_root, image_prefix))
     return used_techsets
 
 
