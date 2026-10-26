@@ -410,13 +410,15 @@ def bind_entity_sounds(entities_json: Path, converted: set[str]) -> int:
 
 
 def ambient_emitter_aliases(entities_json: Path) -> set[str]:
-    """Aliases the map's ambient emitters play (script_label line_emitter /
-    looper / random structs), lowercase, without the waw/ prefix. WaW authors
-    them as level ambience; by bus they fell in foley and sat ~8 dB under the
-    weapons once each group took BO2's level."""
+    """Aliases the map's ambient beds play (script_label line_emitter / looper
+    structs), lowercase, without the waw/ prefix. WaW authors them as level
+    ambience; by bus they fell in foley and sat ~8 dB under the weapons once
+    each group took BO2's level. Random one-shot emitters (Shi No Numa's flies,
+    moths, cicadas, birds) keep their group's level: raised with the beds they
+    buzzed over everything (playtest)."""
     if not entities_json.is_file():
         return set()
-    labels = CLIENT_AUDIO_ENTITIES[0][1]
+    labels = ("line_emitter", "looper")
     return {entity["script_sound"].lower().removeprefix("waw/")
             for entity in json.loads(entities_json.read_text(encoding="utf-8"))["entities"]
             if entity.get("script_label") in labels and isinstance(entity.get("script_sound"), str)}

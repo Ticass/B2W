@@ -33,7 +33,8 @@ class AmbientEmitterTests(unittest.TestCase):
                 {"classname": "script_struct", "script_label": "line_emitter", "script_sound": "waw/amb_swamp_01_L"},
                 {"classname": "script_struct", "script_label": "random", "script_sound": "amb_frog"},
                 {"classname": "trigger_multiple", "targetname": "audio_bump_trigger", "script_sound": "waw/perks_rattle"}]}))
-            self.assertEqual(sounds.ambient_emitter_aliases(path), {"amb_swamp_01_l", "amb_frog"})
+            # random one-shots (critters) keep their group's level
+            self.assertEqual(sounds.ambient_emitter_aliases(path), {"amb_swamp_01_l"})
 
 
 class GroupLevelTests(unittest.TestCase):
