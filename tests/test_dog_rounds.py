@@ -174,7 +174,7 @@ class DogRoundTests(unittest.TestCase):
         for name in ("waw_dog_rounds", "waw_dog_spawn_location", "waw_dog_source_health"):
             self.assertIn(name, script.functions)
         fn = script.functions["waw_dog_spawn_location"]
-        self.assertIn("level.enemy_dog_spawns", gsc.emit(script.tokens[fn.body_open:fn.body_close + 1]))
+        self.assertIn("level.waw_enemy_dog_spawns", gsc.emit(script.tokens[fn.body_open:fn.body_close + 1]))
 
     def test_ai_trigger_contacts_include_dogs(self):
         # A WaW AI_AXIS trigger (the Betty's trigger_radius) fires for dogs;

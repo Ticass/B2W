@@ -558,9 +558,12 @@ init()
     level.{speed_up} = ::source_last_zombie;
     {respawn_init}
     {state_init}
-    // Native initialization can register a cached stock round-spawn pointer.
-    // Keep authored custom providers; route the native default to our copy.
-    if ( !isdefined( level.round_spawn_func ) || level.round_spawn_func == {native_round}::round_spawning )
+    // The map's own spawn loop when the port runs it (gscport extract_round_loop);
+    // else native initialization can register a cached stock round-spawn pointer:
+    // keep authored custom providers, route the native default to our copy.
+    if ( isdefined( level.waw2bo2_source_round_spawning ) )
+        level.round_spawn_func = level.waw2bo2_source_round_spawning;
+    else if ( !isdefined( level.round_spawn_func ) || level.round_spawn_func == {native_round}::round_spawning )
         level.round_spawn_func = {owned_round}::round_spawning;
     bound = 0;
     spawners = getentarray( "zombie_spawner", "script_noteworthy" );

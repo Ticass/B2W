@@ -56,8 +56,6 @@
         "spectator_respawn": "T6 player respawn (gametype spawn path)",
         "spawnspectator": "T6 spectator state is the gametype's",
         "store_crumb": "feeds BO2's zombie pathing (the actors are BO2's)",
-        "round_spawn_failsafe": "BO2 actors: BO2's failsafe knows their state",
-        "round_spawning": "T6 actors spawn through BO2's spawner; its rules come from the source hooks (count, health, spawner choice)",
         "end_game": "T6 game over and its LUI screens",
         "player_damage_override": "T6 damage callback",
         "main": "the map entry; BO2's gametype starts the game"
@@ -243,7 +241,8 @@
     "maps\\_zombiemode_perks",
     "maps\\_zombiemode_dogs",
     "maps\\_zombiemode_timer",
-    "maps\\_zombiemode_bowie"
+    "maps\\_zombiemode_bowie",
+    "maps\\_zombiemode_zone_manager"
   ],
   "preserved_template_inits": {
     "doc": "Template map-main lines that set up BO2's counterpart of a WaW framework script the map ports whole (preserved_scripts). The ported script owns the job; the BO2 one would think on the same map entities. Each needs a reason.",
@@ -273,7 +272,6 @@
     "set_hint_string": "maps\\mp\\waw\\_waw2bo2_compat::waw_set_hint_string",
     "include_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_include_weapon",
     "add_zombie_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_add_zombie_weapon",
-    "manage_zones": "maps\\mp\\waw\\_waw2bo2_compat::waw_manage_zones",
     "player_damage_override": "maps\\mp\\waw\\_waw2bo2_compat::waw_player_damage_override",
     "powerup_drop": "maps\\mp\\waw\\_waw2bo2_compat::waw_powerup_drop",
     "create_simple_hud": "maps\\mp\\waw\\_waw2bo2_compat::waw_create_simple_hud"

@@ -419,6 +419,12 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
 # (BO2 powerups such as fire sale iterate level.chests as BO2 structs).
 WAW_LEVEL_FIELDS = {"script": "waw_script", "chests": "waw_chests", "chest_index": "waw_chest_index", "_effect": "waw_effect"}
 WAW_LEVEL_FIELDS["zombie_move_speed"] = API['zombie_runtime']['source_speed']['owned_result_field']
+# The map's own zone manager (preserved _zombiemode_zone_manager) keeps the
+# zones, its init pointer and the dog spawn lists the source spawn and dog
+# code read; BO2's _zm_zonemgr keeps its own for the BO2 triggers still in use.
+WAW_LEVEL_FIELDS.update({"zones": "waw_zones", "zone_manager_init_func": "waw_zone_manager_init_func",
+                         "enemy_dog_locations": "waw_enemy_dog_locations",
+                         "enemy_dog_spawns": "waw_enemy_dog_spawns"})
 WAW_BOX_FLAGS = {'moving_chest_enabled', 'moving_chest_now', 'chest_has_been_used'}
 
 
@@ -1750,6 +1756,50 @@ class Translator:
         self.level_state_parts.append(gsc.emit(tokens))
         return name
 
+    # level lists _zombiemode::main fills for the map's spawn loop and zone manager
+    SPAWNER_LISTS = {"enemy_spawns", "zombie_rise_spawners"}
+
+    def extract_spawner_lists(self) -> str | None:
+        """_zombiemode::main's statements that set up the spawner lists
+        round_spawning and the zone manager read (level.enemy_spawns from the
+        spawners main is given, level.zombie_rise_spawners), as one function
+        taking main's parameters. BO2's _zm::init replaces the rest of main.
+        A statement is kept whole when every assignment in it is to one of the
+        lists and it calls nothing but isdefined/getentarray."""
+        script = self.sources.get(ZOMBIEMODE)
+        fn = script.functions.get("main") if script is not None else None
+        if fn is None:
+            return None
+        toks = script.tokens
+        kept: list[gsc.Token] = []
+        for start, end in top_level_statements(toks, fn.body_open, fn.body_close):
+            stmt = toks[start:end]
+            targets = {stmt[k + 2].low for k in range(len(stmt) - 3)
+                       if stmt[k].low == "level" and stmt[k + 1].text == "." and stmt[k + 3].text == "="}
+            calls = {stmt[k].low for k in range(len(stmt) - 1) if stmt[k].kind == gsc.IDENT and stmt[k + 1].text == "("
+                     and stmt[k].low not in ("if", "else", "while", "for")}
+            if targets and targets <= self.SPAWNER_LISTS and calls <= {"isdefined", "getentarray"}:
+                kept += [gsc.Token(s.kind, s.text, s.pre, s.line) for s in stmt]
+        if not kept:
+            return None
+        name = "zombiemode__main_spawner_lists"
+        params = [p for p in fn.params]
+        head = [gsc.Token(gsc.IDENT, name, f"\n// {ZOMBIEMODE}::main: the spawner lists its spawn loop and zones read\n"),
+                gsc.Token(gsc.PUNCT, "(")]
+        for k, p in enumerate(params):
+            if k:
+                head.append(gsc.Token(gsc.PUNCT, ","))
+            head.append(gsc.Token(gsc.IDENT, p, " "))
+        tokens = [*head, gsc.Token(gsc.PUNCT, ")", " "), gsc.Token(gsc.PUNCT, "{", "\n"),
+                  *kept, gsc.Token(gsc.PUNCT, "}", "\n"), gsc.Token(gsc.EOF, "")]
+        where = self.sources.origin.get(ZOMBIEMODE + ".gsc", ZOMBIEMODE)
+        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
+        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=ZOMBIEMODE)
+        self.report.extracted.append(f"{ZOMBIEMODE}::main (spawner lists)")
+        self.level_state_parts.append(gsc.emit(tokens))
+        return name
+
     def extract_damage_prelude(self, core: str = None, function: str = None) -> str | None:
         """A map's _zombiemode override may put its own rules in front of WaW's
         player_damage_override (e.g. a shield absorbing zombie hits). BO2's _zm
@@ -2239,6 +2289,15 @@ class Translator:
             return text
 
         self.post_patches[(core, function)] = glue
+        # the map's own spawn loop (round_start sets level.round_spawn_func to it;
+        # dog rounds swap it and restore it, as in WaW)
+        spawning = None
+        if "round_spawning" in script.functions and source_drives(core, "round_spawning"):
+            spawning = self.extract_entry(core, "round_spawning")
+        if spawning:
+            self.report.rewrites["WaW drives the spawning: source round_spawning -> round_spawn_func"] += 1
+        spawn_lines = (f"\tlevel.waw2bo2_source_round_spawning = ::{spawning};\n"
+                       f"\tlevel.round_spawn_func = ::{spawning};\n") if spawning else ""
         self.report.rewrites["WaW drives the rounds: source round_think -> round_think_func"] += 1
         self.report.extracted.append(f"{core}::{function} (round loop -> round_think_func)")
         self.level_state_parts.append(
@@ -2249,6 +2308,7 @@ class Translator:
             f"\t{name}();\n}}\n\n"
             f"waw2bo2_source_round_loop()\n{{\n"
             f"\tlevel.waw2bo2_source_round_loop = 1;\n"
+            f"{spawn_lines}"
             f"\tlevel.round_think_func = ::waw2bo2_source_round_think;\n}}\n")
         return "waw2bo2_source_round_loop"
 
@@ -3135,6 +3195,12 @@ class Translator:
         end = i
         while tokens[end].text != ";":
             end += 1
+        # the map's spawner lists first, with the argument it gives _zombiemode::main
+        lists = self.extract_spawner_lists()
+        if lists:
+            close = gsc._match(tokens, split.index + 1, "(", ")")
+            args = gsc.emit(tokens[split.index + 2:close]).strip()
+            hooks = f"\n\t{CORE}::{lists}( {args} );" + hooks
         # WaW's _zombiemode::main() returns only after flag_wait( "all_players_connected" ),
         # so the rest of a WaW map main runs with every player present (maps loop
         # over getPlayers() there). BO2's counterpart flag is set by _zm.

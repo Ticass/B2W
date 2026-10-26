@@ -63,12 +63,18 @@ class Dlc3PowerSwitchTest(unittest.TestCase):
         self.assertIn('who IsTouching(self)', extracted)
         self.assertEqual(translator.report.unsupported, {})
 
-    def test_zone_manager_rename_takes_precedence_over_native_counterpart(self):
-        translator = gscport.Translator(gscport.Sources([], [], None),
-            T6Api({}, {r'maps\mp\zombies\_zm_zonemgr': {'manage_zones': 1}}), gscport.PortReport())
-        self.assertEqual(translator.resolve_core(r'maps\_zombiemode_zone_manager', 'manage_zones',
-                                                1, 'template', set()),
-                         gscport.COMPAT + '::waw_manage_zones')
+    def test_map_zone_manager_is_ported_whole(self):
+        # The map's own zone manager fills level.enemy_spawns for its own spawn
+        # loop; it runs on WaW-owned zone fields beside BO2's _zm_zonemgr.
+        sources = gscport.Sources([], [], None)
+        self.assertFalse(gscport.is_core(r'maps\_zombiemode_zone_manager', sources))
+        self.assertNotIn('manage_zones', gscport.API['function_renames'])
+        tokens = gscport.gsc.tokenize('f() { level.zones[ "a" ] = 1; level.zone_manager_init_func = ::g; '
+                                      'x = level.enemy_dog_locations; }')
+        gscport.rename_level_fields(tokens)
+        text = gscport.gsc.emit(tokens)
+        for field in ('waw_zones', 'waw_zone_manager_init_func', 'waw_enemy_dog_locations'):
+            self.assertIn('level.' + field, text)
 
     def test_template_callback_setup_preserves_native_lifecycle(self):
         translator = gscport.Translator(gscport.Sources([], [], None), T6Api({}, {}), gscport.PortReport())

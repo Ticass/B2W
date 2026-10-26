@@ -2314,10 +2314,11 @@ waw_dog_rounds( spawn_logic, source_health, enable_rounds )
 
 // WaW picks among the dog spawners the map has opened (add_area_dog_spawners
 // fills level.enemy_dog_spawns as areas unlock), not every dog spawner.
+// Ported WaW code reads that list as level.waw_enemy_dog_spawns.
 waw_dog_spawn_location( spawners, favorite_enemy )
 {
-    if ( isdefined( level.enemy_dog_spawns ) && level.enemy_dog_spawns.size > 0 )
-        spawners = level.enemy_dog_spawns;
+    if ( isdefined( level.waw_enemy_dog_spawns ) && level.waw_enemy_dog_spawns.size > 0 )
+        spawners = level.waw_enemy_dog_spawns;
     return [[ level.waw_dog_spawn_logic ]]( spawners, favorite_enemy );
 }
 

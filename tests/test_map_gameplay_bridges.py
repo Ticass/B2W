@@ -224,6 +224,29 @@ class DamagePreludeTests(unittest.TestCase):
             self.assertNotIn('longregentime', tr.level_state_parts[-1])
             self.assertTrue(any('longRegenTime' in e for e in tr.report.unsupported[gscport.FALLBACK]))
 
+    def test_spawner_lists_come_from_source_main(self):
+        # Der Riese: _zombiemode::main( "receiver_zone_spawners" ) picks the
+        # initial spawners its own round_spawning and zone manager use
+        import tempfile
+        from pathlib import Path
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode.gsc').write_text(
+                'main(init_zombie_spawner_name){ precache_shaders(); '
+                'if( !IsDefined( init_zombie_spawner_name) ) { level.enemy_spawns = getEntArray( "zombie_spawner_init", "targetname" ); } '
+                'else { level.enemy_spawns = getEntArray( init_zombie_spawner_name, "targetname" ); } '
+                'level.zombie_rise_spawners = []; level.custom_introscreen = ::intro; maps\\_load::main(); }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.extract_spawner_lists(), 'zombiemode__main_spawner_lists')
+            text = tr.level_state_parts[-1]
+            self.assertIn('zombiemode__main_spawner_lists( init_zombie_spawner_name )', text)
+            self.assertIn('( init_zombie_spawner_name, "targetname" )', text)
+            self.assertIn('level.zombie_rise_spawners = [];', text)
+            self.assertNotIn('custom_introscreen', text)
+            self.assertNotIn('precache_shaders', text)
+
     def test_statement_split_skips_developer_blocks(self):
         # Verruckt round_start: level.chalk_hud1 follows a /# #/ block
         tokens = gscport.gsc.tokenize("{ a = 1; /# b(); #/ level.x = c(); }")
