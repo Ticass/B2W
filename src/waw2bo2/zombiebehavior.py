@@ -379,6 +379,58 @@ def movement_sets(sources, definition: dict, map_name: str | None = None) -> tup
     return fn.animtree, {speed: [entries[i] for i in sorted(entries)] for speed, entries in found.items()}
 
 
+def melee_sets(sources, definition: dict) -> dict[str, list[str]]:
+    """The source's attack tables per native melee state, in authored order.
+
+    WaW animscripts/melee::pick_zombie_melee_anim picks randomly from the
+    combined arrays (standing + walk or run attacks, crawl, stumpy), the
+    same split as the native states; a clip listed twice keeps its weight."""
+    contract = definition['source_melee']
+    script = sources.get(contract['script'])
+    if script is None:
+        return {}
+    fields = {f for names in contract['states'].values() for f in names}
+    fn = script.functions.get(contract['function'])
+    if fn is None:
+        # older/renamed frameworks: the parameterless initializer assigning the tables
+        tokens = script.tokens
+        fn = next((c for c in script.functions.values() if not c.params and any(
+            tokens[i].low == 'level' and tokens[i + 2].low in fields
+            for i in range(c.body_open + 1, c.body_close - 3) if tokens[i + 1].text == '.')), None)
+    if fn is None:
+        return {}
+    tables: dict[str, dict[int, str]] = {}
+    depth = 0
+    tokens = script.tokens
+    for i in range(fn.body_open + 1, fn.body_close):
+        depth += tokens[i].text == '{'
+        depth -= tokens[i].text == '}'
+        words = [t.low for t in tokens[i:i + 13]]
+        if len(words) < 13 or words[:2] != ['level', '.'] or words[2] not in fields:
+            continue
+        if words[3:7] != ['[', '"' + contract['row'] + '"', ']', '['] or words[8:11] != [']', '=', '%'] \
+                or words[12] != ';' or not words[7].isdigit():
+            continue
+        if depth:
+            # a conditional table needs runtime selection: keep the native states
+            return {}
+        tables.setdefault(words[2], {})[int(words[7])] = words[11]
+    states = {}
+    for state, names in contract['states'].items():
+        clips = [clip for name in names for _, clip in sorted(tables.get(name, {}).items())]
+        if clips:
+            states[state] = clips
+    return states
+
+
+def _replace_state(asd: str, state: str, assets: list[str]) -> str:
+    pattern = re.compile(r'(^' + re.escape(state) + r'\s*:[^\n]*\n\{).*?^\}', re.M | re.S)
+    asd, count = pattern.subn(lambda m: m[1] + '\n' + ''.join('\t' + a + '\n' for a in assets) + '}', asd)
+    if count != 1:
+        raise ValueError(f'Native animation state {state}: expected one definition')
+    return asd
+
+
 def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: dict, map_name: str | None = None) -> dict:
     _, sets = movement_sets(sources, definition, map_name)
     if not sets:
@@ -397,13 +449,23 @@ def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: di
             continue
         sets[speed] = kept
         assets = ['waw_anim_' + name for name in kept]
-        state = definition['source_movement']['states'][speed]
-        pattern = re.compile(r'(^' + re.escape(state) + r'\s*:[^\n]*\n\{).*?^\}', re.M | re.S)
-        asd, count = pattern.subn(lambda m: m[1] + '\n' + ''.join('\t' + a + '\n' for a in assets) + '}', asd)
-        if count != 1:
-            raise ValueError(f'Native movement state {state}: expected one definition')
+        asd = _replace_state(asd, definition['source_movement']['states'][speed], assets)
         clips.extend(assets)
-    atr = (bo2_root / 'raw/animtrees/zm_nuked_basic.atr').read_text(encoding='utf-8')
+    # The source's attacks, timing and notetracks: BO2's melee clips carry
+    # "no pain" notes that keep a hit from interrupting the swing, and lack
+    # the source's walk/run attacks entirely.
+    melee, melee_native = {}, []
+    for state, names in melee_sets(sources, definition).items():
+        absent = [name for name in names if not (out_root / 'xanim' / ('waw_anim_' + name)).is_file()]
+        if absent:
+            missing += absent
+            melee_native.append(state)    # the native clips: BO2 instead of nothing
+            continue
+        assets = ['waw_anim_' + name for name in names]
+        asd = _replace_state(asd, state, assets)
+        clips.extend(assets)
+        melee[state] = names
+    atr =(bo2_root / 'raw/animtrees/zm_nuked_basic.atr').read_text(encoding='utf-8')
     atr, count = re.subn(r'(^body\s*\n\{)', lambda m: m[1] + '\n' +
                         ''.join('\t' + c + '\n' for c in sorted(set(clips))), atr, count=1, flags=re.M)
     if count != 1:
@@ -424,11 +486,13 @@ def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: di
                  ''.join(f'    dummy_anim_ref = %{clip};\n' for clip in sorted(set(clips))) +
                  '}\n// END SOURCE MOVEMENT REFS\n')
         actor.write_text(text, encoding='utf-8')
-    result = {'states': sets, 'tree': ACTOR_TREE, 'clips': sorted(set(clips))}
+    result = {'states': sets, 'melee': melee, 'tree': ACTOR_TREE, 'clips': sorted(set(clips))}
     if missing:
         result['missing'] = sorted(set(missing))
     if native:
         result['native_states'] = native
+    if melee_native:
+        result['native_melee_states'] = melee_native
     return result
 
 

@@ -2710,6 +2710,9 @@ def stage_core_animtrees(report: StageReport, sources, roots: list[Path], projec
         movement_tree, movement = zombiebehavior.movement_sets(sources, gscport.API['zombie_runtime'], map_name)
         if movement_tree and movement:
             requirements.setdefault(movement_tree, set()).update(n for names in movement.values() for n in names)
+            # the attack tables the native melee states take (stage_actor_movement)
+            melee = zombiebehavior.melee_sets(sources, gscport.API['zombie_runtime'])
+            requirements[movement_tree].update(n for names in melee.values() for n in names)
     else:
         # Backwards-compatible callers without a map entry point still stage
         # the original box's animation declarations.
@@ -2890,6 +2893,9 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
             for speed in movement.get('native_states', []):
                 report.warnings.append(f"BO2_FALLBACK movement {speed}: none of the WaW clips exist; "
                                        f"the native BO2 clips stay")
+            for state in movement.get('native_melee_states', []):
+                report.warnings.append(f"BO2_FALLBACK melee {state}: a WaW attack clip is missing; "
+                                       f"the native BO2 attacks stay")
     report.scripts["staged_xanims"] = xanims
     report.scripts["staged_animtrees"] = sorted(gscport.animation_tree_name(t) for t in core_trees)
     report.errors += [f"scripts: {e}" for e in port.errors]
