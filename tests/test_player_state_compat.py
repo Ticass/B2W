@@ -35,6 +35,20 @@ class ReviveStateTests(unittest.TestCase):
         self.assertIn('waw_being_revived( team.players[index + 1] )', result)
         gsc.parse(result, 'test')
 
+    def test_waw_drinking_flag_reads_bo2_drink_counter(self):
+        # Der Riese's bowie_think: BO2 keeps is_drinking = 0, always defined
+        tokens = gsc.tokenize('f(player) { if(isdefined(player.is_drinking)) return; '
+                              'self.is_drinking = 1; if(!isdefined( players[i].is_drinking )) x(); '
+                              'self.is_drinking = undefined; if(self.is_drinking > 0) y(); }')
+        self.assertEqual(gscport.bridge_drinking_flag(tokens), 3)
+        result = gsc.emit(tokens)
+        self.assertIn('if(maps\\mp\\waw\\_waw2bo2_compat::waw_is_drinking( player )) return;', result)
+        self.assertIn('!maps\\mp\\waw\\_waw2bo2_compat::waw_is_drinking( players[i] )', result)
+        self.assertIn('self.is_drinking = 1;', result)
+        self.assertIn('self.is_drinking = 0;', result)
+        self.assertIn('if(self.is_drinking > 0) y();', result)
+        gsc.parse(result, 'test')
+
     def test_unrelated_fields_and_strings_are_unchanged(self):
         source = 'f() { self.other = "being_revived"; if (!self.other) ok(); }'
         tokens = gsc.tokenize(source)

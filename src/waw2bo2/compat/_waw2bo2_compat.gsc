@@ -2418,6 +2418,12 @@ waw_stock_solo_revive_bought()
 
 // ---- miscellaneous WaW builtins ----
 
+// WaW's isdefined( player.is_drinking ) on BO2's drink counter (0 = idle).
+waw_is_drinking( player )
+{
+    return isdefined( player.is_drinking ) && player.is_drinking > 0;
+}
+
 waw_being_revived( player )
 {
     // Source custom revive handlers can own this state too.

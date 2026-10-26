@@ -485,6 +485,47 @@ def bridge_revive_reads(tokens: list[gsc.Token]) -> int:
     return count
 
 
+def bridge_drinking_flag(tokens: list[gsc.Token]) -> int:
+    """WaW and BO2 share the player field is_drinking with different meanings.
+
+    WaW: defined (1) while a bottle/flourish plays, undefined otherwise; its
+    scripts test isdefined(). BO2: a counter, 0 when idle, set at spawn and
+    tested with > 0. Under BO2 a WaW isdefined() test is always true (Der
+    Riese's bowie could never be bought), and a WaW reset to undefined breaks
+    BO2's comparisons. WaW tests read the count; WaW resets write 0."""
+    count = 0
+    for i in range(2, len(tokens) - 2):
+        if tokens[i].low != "is_drinking" or tokens[i - 1].text != ".":
+            continue
+        if tokens[i + 1].text == "=" and tokens[i + 2].low == "undefined":
+            tokens[i + 2].text = "0"
+            count += 1
+            continue
+        j, depth = i - 1, 0
+        while j > 0:
+            prev = tokens[j - 1]
+            if depth == 0 and prev.text != "." and not (
+                (prev.kind == gsc.IDENT or prev.text in ("]", ")"))
+                and tokens[j].text in (".", "[")
+            ):
+                break
+            if prev.text in ("]", ")"):
+                depth += 1
+            elif prev.text in ("[", "("):
+                depth -= 1
+            j -= 1
+        if not (j >= 2 and tokens[j - 1].text == "(" and tokens[j - 2].low == "isdefined"
+                and tokens[i + 1].text == ")"):
+            continue
+        receiver = gsc.emit(tokens[j:i - 1]).lstrip()
+        tokens[j - 2].text = f"{COMPAT}::waw_is_drinking( {receiver} )"
+        tokens[j - 2].kind = gsc.PUNCT
+        for t in tokens[j - 1:i + 2]:
+            t.text = t.pre = ""
+        count += 1
+    return count
+
+
 def bridge_player_stat_reads(tokens: list[gsc.Token]) -> int:
     """Read stock WaW session stats from T6's native persistent counters.
 
@@ -1375,6 +1416,7 @@ class Translator:
         self.report.rewrites["WaW contact-kill monitors own AI attacks"] += bridge_contact_kill_attacks(tokens, script)
         self.report.rewrites["WaW being_revived reads bridged to T6 revive state"] += bridge_revive_reads(tokens)
         self.report.rewrites["WaW session stat reads bridged to T6 counters"] += bridge_player_stat_reads(tokens)
+        self.report.rewrites["WaW is_drinking flag bridged to BO2's drink counter"] += bridge_drinking_flag(tokens)
         self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
         self.report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += mirror_team_zombie_vars(tokens)
@@ -3448,7 +3490,14 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     (out_dir / "_waw2bo2_water_bullets.gsc").write_text(waterbullets.water_bullets_source({}), encoding="utf-8")
     if appearance:
         (out_dir / "_waw2bo2_characters.gsc").write_text(characters_source(), encoding="utf-8")
-    (out_dir / "_waw2bo2_weapons.gsc").write_text(weapons_source(registration), encoding="utf-8")
+    # WaW's bowie is the engine perk specialty_altmelee; T6 melees with a
+    # melee weapon, so compat equips BO2's (waw_altmelee_weapon). It must be
+    # included (precached) or giveweapon silently fails and the player keeps no knife.
+    melee = [weapon for perk, weapon in ALTMELEE_WEAPONS.items()
+             if any(perk in text for text in sources.text.values())]
+    for weapon in melee:
+        tr.report.rewrites[f"WaW altmelee perk -> BO2 {weapon} (included, not in the box)"] += 1
+    (out_dir / "_waw2bo2_weapons.gsc").write_text(weapons_source(registration, melee), encoding="utf-8")
     (out_dir / '_waw2bo2_zombie_behavior.gsc').write_text(
         zombiebehavior.runtime_source(API['zombie_runtime'], f'{CORE}::{speed_function}' if speed_function else None,
                                       selection_function, speed_state_function, source_membership,
@@ -3820,6 +3869,8 @@ def top_level_statements(tokens: list[gsc.Token], open_: int, close: int) -> lis
 # knife, default lethal grenade, default last-stand pistol and its solo
 # upgrade). They are included but never put in the box.
 BO2_FRAMEWORK_WEAPONS = ("knife_zm", "frag_grenade_zm", "m1911_zm", "m1911_upgraded_zm")
+# WaW engine melee perks -> the BO2 melee weapon _waw2bo2_compat equips for them
+ALTMELEE_WEAPONS = {"specialty_altmelee": "bowie_knife_zm"}
 
 
 def tesla_callback_source(entries: dict[str, str]) -> str:
@@ -3885,18 +3936,20 @@ waw_tesla_network_choke()
 '''
 
 
-def weapons_source(registration: dict[str, list[str | None]]) -> str:
+def weapons_source(registration: dict[str, list[str | None]], melee: list[str] = ()) -> str:
+    """``melee``: BO2 melee weapons standing in for a WaW engine melee perk."""
     lines = ["// waw2bo2: the map's WaW weapon registration on BO2 _zm_weapons (generated).",
              "// include/add_zombie_weapon calls go through _waw2bo2_compat (WaW -> BO2 arguments).", "",
              "include_weapons()", "{",
              "    // WaW hints are plain text: prompt = display name + cost (see waw_add_zombie_weapon)",
              "    level.monolingustic_prompt_format = 1;"]
-    lines += [f'    maps\\mp\\zombies\\_zm_weapons::include_zombie_weapon( "{w}", 0 );' for w in BO2_FRAMEWORK_WEAPONS]
+    lines += [f'    maps\\mp\\zombies\\_zm_weapons::include_zombie_weapon( "{w}", 0 );'
+              for w in (*BO2_FRAMEWORK_WEAPONS, *melee)]
     lines += [f"    {CORE}::{fn}();" for fn in registration.get("include", []) if fn]
     lines += ["}", "", "add_weapons()", "{",
               '    maps\\mp\\zombies\\_zm_weapons::add_zombie_weapon( "m1911_zm", "m1911_upgraded_zm", '
               '&"ZOMBIE_WEAPON_M1911", 50, "", "", undefined );']
-    lines += [f'    {COMPAT}::waw_native_only_weapon( "{w}" );' for w in BO2_FRAMEWORK_WEAPONS]
+    lines += [f'    {COMPAT}::waw_native_only_weapon( "{w}" );' for w in (*BO2_FRAMEWORK_WEAPONS, *melee)]
     lines += [f"    {CORE}::{fn}();" for fn in registration.get("add", []) if fn]
     lines += ["}", "", "// The WaW mystery box, after BO2 _zm_magicbox::init, with independent chest flags.",
               "start_box()", "{"]
