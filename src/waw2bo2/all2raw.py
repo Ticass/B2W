@@ -16,8 +16,12 @@ import time
 import uuid
 
 SCHEMA = 3
+# Every asset type the patched T4 unlinker can export: the map's own tables
+# (mp/zombiemode.csv overrides script defaults) are as much its content as
+# its scripts.
 WAW_ASSETS = ('clipmap,mapents,gfxworld,gameworldsp,material,image,fx,xmodel,weapon,xanim,sound,'
-              'loadedsound,rawfile,comworld,lightdef,physpreset,snddriverglobals,localize')
+              'loadedsound,rawfile,comworld,lightdef,physpreset,physconstraints,snddriverglobals,localize,'
+              'stringtable')
 
 
 # Only the converter's patched T4 Unlinker (vendor/OpenAssetTools.patch) writes

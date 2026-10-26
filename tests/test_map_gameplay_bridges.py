@@ -203,6 +203,27 @@ class DamagePreludeTests(unittest.TestCase):
             self.assertIn('scales[0] = 0.3225806451612903;', tr.level_state_parts[-1])
             self.assertIn('scales[3] = 0.4608294930875576;', tr.level_state_parts[-1])
 
+    def test_player_regen_timing_comes_from_source_gameskill(self):
+        # a map whose _gameskill regenerates sooner than BO2's 2400 ms constant
+        import tempfile
+        from pathlib import Path
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_gameskill.gsc').write_text(
+                'setskill(){ add_fractional_data_point( "playerHealth_RegularRegenDelay", 0.25, 3000 ); '
+                'add_fractional_data_point( "playerHealth_RegularRegenDelay", 1.0, 1500 ); '
+                'add_fractional_data_point( "healthOverlayCutoff", 0.75, 0.2 ); '
+                'difficulty_starting_frac[ "normal" ] = 0.75; }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.player_health_regen_hook(),
+                             ['maps\\mp\\waw\\_waw2bo2_core::waw2bo2_player_regen_timing();'])
+            self.assertIn('level.playerhealth_regularregendelay = 2000;', tr.level_state_parts[-1])
+            self.assertIn('level.healthoverlaycutoff = 0.2;', tr.level_state_parts[-1])
+            self.assertNotIn('longregentime', tr.level_state_parts[-1])
+            self.assertTrue(any('longRegenTime' in e for e in tr.report.unsupported[gscport.FALLBACK]))
+
     def test_statement_split_skips_developer_blocks(self):
         # Verruckt round_start: level.chalk_hud1 follows a /# #/ block
         tokens = gscport.gsc.tokenize("{ a = 1; /# b(); #/ level.x = c(); }")

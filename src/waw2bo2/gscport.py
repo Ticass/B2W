@@ -2644,6 +2644,52 @@ class Translator:
         self.report.rewrites["WaW player_damageMultiplier -> scaled non-melee player damage"] += 1
         return [f"level thread {CORE}::waw2bo2_player_damage_scale();"]
 
+    # WaW _gameskill::setSkill names -> the level variables BO2's
+    # _zm_playerhealth::playerhealthregen reads (the same SP algorithm).
+    REGEN_SETTINGS = {'playerHealth_RegularRegenDelay': 'playerhealth_regularregendelay',
+                      'longRegenTime': 'longregentime', 'healthOverlayCutoff': 'healthoverlaycutoff',
+                      'invulTime_preShield': 'invultime_preshield', 'invulTime_onShield': 'invultime_onshield',
+                      'invulTime_postShield': 'invultime_postshield', 'worthyDamageRatio': 'worthydamageratio'}
+
+    def player_health_regen_hook(self) -> list[str]:
+        """The map's own player regen timing. WaW threads
+        _gameskill::playerHealthRegen from _load with the values setSkill
+        interpolates at the starting fraction of "normal" (g_gameskill 1).
+        BO2's playerhealthregen is the same algorithm, but _zm_playerhealth::init
+        sets its timing as constants; the source's values replace them."""
+        text = self.sources.text.get(GAMESKILL + ".gsc", "")
+        if not text:
+            return []
+        start = re.search(r'difficulty_starting_frac\s*\[\s*"normal"\s*\]\s*=\s*([\d.]+)\s*;', text)
+        if not start:
+            self.report.unsupported.setdefault(FALLBACK, []).append(
+                f"{GAMESKILL}: no normal starting fraction; player regen keeps BO2's timing")
+            return []
+        frac = float(start[1])
+        lines, missing = [], []
+        for name, variable in self.REGEN_SETTINGS.items():
+            points = sorted((float(f), float(v)) for f, v in re.findall(
+                r'add_fractional_data_point\(\s*"' + name + r'"\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)', text))
+            if not points:
+                missing.append(name)
+                continue
+            value = points[-1][1] if frac >= points[-1][0] else points[0][1]
+            for (f0, v0), (f1, v1) in zip(points, points[1:]):
+                if f0 <= frac <= f1:
+                    value = v0 + (v1 - v0) * ((frac - f0) / (f1 - f0) if f1 > f0 else 0)
+                    break
+            lines.append(f"    level.{variable} = {int(value) if value == int(value) else value!r};\n")
+        if missing:
+            self.report.unsupported.setdefault(FALLBACK, []).append(
+                f"{GAMESKILL}: no setSkill data for {', '.join(missing)}; BO2's value kept for those")
+        if not lines:
+            return []
+        self.level_state_parts.append(
+            f"\n// maps\\_gameskill: player regen timing at normal (starting fraction {frac:g})\n"
+            "waw2bo2_player_regen_timing()\n{\n" + "".join(lines) + "}\n")
+        self.report.rewrites["WaW _gameskill regen timing -> BO2 playerhealthregen"] += 1
+        return [f"{CORE}::waw2bo2_player_regen_timing();"]
+
     def dog_rounds_hook(self) -> str | None:
         """WaW _zombiemode::main starts dog rounds through _zombiemode_dogs::init,
         which returns unless the map set level.dogs_enabled. BO2's _zm::init does
@@ -3191,6 +3237,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.extract_end_game()
     tr.post_calls += tr.juggernog_hooks()
     tr.post_calls += tr.player_damage_scale_hook()
+    tr.post_calls += tr.player_health_regen_hook()
     tr.post_calls += tr.announcer_hook(out_root)
     tr.post_calls += tr.powerup_models_hook()
     tr.post_calls += tr.sound_table_hook()
