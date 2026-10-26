@@ -312,14 +312,16 @@ def _build_mod(args: argparse.Namespace) -> int:
         if lobby_entry not in extra_lines:
             extra_lines.append(lobby_entry)
     if args.linker and args.techset_dump:
-        with modzone.baseline_shader_materials(project_root, args.techset_dump) as active:
+        from . import timeline
+        with modzone.baseline_shader_materials(project_root, args.techset_dump) as active,                 timeline.span('link baseline mod.ff'):
             ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
                 project_root, [project_root/'content_source/pcm', project_root/'content_source', args.techset_dump],
                 stock_dump=args.techset_dump)
         flame_stage = project_root / 'content_source/weapons.stage.json'
         has_flames = flame_stage.is_file() and bool(json.loads(flame_stage.read_text()).get('flame_tables'))
         if active or has_flames:
-            modzone.activate_mod_shaders(ff, project_root, args.work, args.linker, args.unlinker, args.techset_dump)
+            with timeline.span('activate mod shaders'):
+                modzone.activate_mod_shaders(ff, project_root, args.work, args.linker, args.unlinker, args.techset_dump)
     else:
         ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
             project_root, [project_root/'content_source/pcm', project_root/'content_source'], stock_dump=args.techset_dump)
@@ -625,7 +627,12 @@ def main(argv: list[str] | None = None) -> int:
     configure_console()
     try:
         args = parser().parse_args(argv)
-        return args.func(args)
+        from . import timeline
+        command = next((a for a in (argv if argv is not None else sys.argv[1:]) if not a.startswith('-')), '')
+        with timeline.span(f'cli {command}') as counts:
+            result = args.func(args)
+            counts.update(timeline.self_accounting(), returncode=result)
+        return result
     except Exception as exc:
         if os.environ.get("WAW2BO2_TRACEBACK"):
             raise

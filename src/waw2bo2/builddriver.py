@@ -10,7 +10,7 @@ import struct
 import subprocess
 import time
 
-from . import __version__, all2raw, knowledge, modelhitboxes, progress
+from . import __version__, all2raw, knowledge, modelhitboxes, progress, timeline
 from .launcher import BuildPaths, Settings, cli_command
 from .resources import resource_root
 
@@ -130,6 +130,31 @@ def edited_since_staging(stage: Path, project: str) -> tuple[list[str], list[str
 
 def build(settings: Settings, *, redump: bool = False, root: Path | None = None,
           cache_paths: all2raw.CachePaths | None = None) -> int:
+    stage = (root.resolve() / 'stage') if root is not None else BuildPaths.for_settings(settings).stage
+    # an outer caller (a benchmark) may already own the timeline
+    owned = timeline.path() is None
+    if owned:
+        timeline.start(stage / 'build_timeline.jsonl')
+    try:
+        with timeline.span('build', project=settings.project):
+            return _locked_build(settings, redump=redump, root=root, cache_paths=cache_paths)
+    finally:
+        if owned:
+            write_timeline_summary(timeline.path())
+
+
+def write_timeline_summary(source: Path) -> None:
+    try:
+        timeline.merge(source)
+        summary = timeline.summarize(timeline.load(source))
+        source.with_suffix('.json').write_text(json.dumps(summary, indent=1), encoding='utf-8')
+        print(f'== build timeline: {summary.get("wall", 0):.1f}s total; {source.with_suffix(".json")}', flush=True)
+    except Exception as exc:  # noqa: BLE001 - timing never fails a build
+        print(f'build timeline: not summarized ({type(exc).__name__}: {exc})', flush=True)
+
+
+def _locked_build(settings: Settings, *, redump: bool, root: Path | None,
+                  cache_paths: all2raw.CachePaths | None) -> int:
     caches = cache_paths or all2raw.CachePaths.for_settings(settings)
     # Prepare only missing/stale caches before acquiring the read locks.
     # prepare() owns the extraction lock itself and resumes cached zones.
@@ -204,7 +229,8 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
         folder.mkdir(parents=True, exist_ok=True)
     shutil.copy2(stock / 't6api_cache.json', stage / 't6api_cache.json')
     print('== 0. reusing shared game assets and preparing cached map sources', flush=True)
-    sources = all2raw.source_dumps(settings, caches, refresh=redump)
+    with timeline.span('0 map source dumps'):
+        sources = all2raw.source_dumps(settings, caches, refresh=redump)
     source = Path(settings.fastfile).resolve()
     project = settings.project
     mapraw = sources['map']
@@ -251,19 +277,23 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
             print(f'== 2. cannot resume: {reason}; staging again from the WaW sources', flush=True)
         # staging rewrites zone_raw: a half-finished run must never be resumed
         stage_receipt(stage).unlink(missing_ok=True)
-        run(cli_command(*args))
+        with timeline.span('2 stage-bridge'):
+            run(cli_command(*args))
         stage_receipt(stage).write_text(json.dumps({
             'project': project, 'fingerprint': fingerprint,
             'files': editable_files(stage / 'zone_raw' / project)}), encoding='utf-8')
     ensure_laa(linker)
     print('== 3a. linking gameplay mod.ff with the BO2 mod tools linker', flush=True)
-    run(cli_command('build-mod', str(stage), project, '--bo2', str(bo2), '--work', str(mod),
-                    '--unlinker', str(t6), '--linker', str(linker), '--techset-dump', str(stock)))
+    with timeline.span('3a build-mod'):
+        run(cli_command('build-mod', str(stage), project, '--bo2', str(bo2), '--work', str(mod),
+                        '--unlinker', str(t6), '--linker', str(linker), '--techset-dump', str(stock)))
     print('== 3b. compiling map scripts with the BO2 mod tools linker', flush=True)
-    run(cli_command('compile-scripts', str(stage), project, '--bo2', str(bo2), '--unlinker', str(t6)))
+    with timeline.span('3b compile-scripts'):
+        run(cli_command('compile-scripts', str(stage), project, '--bo2', str(bo2), '--unlinker', str(t6)))
     print(f'== 4. linking {project} with the T6 bridge', flush=True)
-    run(cli_command('bridge-link', str(stage), project, '--linker', str(linker),
-                    '--techset-dump', str(stock), '--log', str(stage / (project + '_bridge.log'))))
+    with timeline.span('4 bridge-link'):
+        run(cli_command('bridge-link', str(stage), project, '--linker', str(linker),
+                        '--techset-dump', str(stock), '--log', str(stage / (project + '_bridge.log'))))
     print('== 6. auditing built material arguments', flush=True)
     for ff in (stage / 'zone_out' / project / (project + '.ff'), mod / 'out/mod.ff'):
         if not ff.is_file():
@@ -275,13 +305,16 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
             shutil.rmtree(audit)
         model_source = stage / 'zone_raw' / project
         audit_hitboxes = ff.stem == project and modelhitboxes.has_authored_hitboxes(model_source)
-        run([str(t6), '--no-color', '--search-path', str(bo2 / 'zone/all'), '--include-assets',
-             'material,techniqueset' + (',xmodel' if audit_hitboxes else ''),
-             '--output-folder', str(audit), str(ff)], stage / (audit.name + '.log'))
+        with timeline.span(f'6 audit unlink {ff.name}'):
+            run([str(t6), '--no-color', '--search-path', str(bo2 / 'zone/all'), '--include-assets',
+                 'material,techniqueset' + (',xmodel' if audit_hitboxes else ''),
+                 '--output-folder', str(audit), str(ff)], stage / (audit.name + '.log'))
         from .launcher import python_command
-        run(python_command() + [str(resource_root() / 'tools/audit_material_args.py'), str(audit), str(stock)])
+        with timeline.span(f'6 audit material args {ff.name}'):
+            run(python_command() + [str(resource_root() / 'tools/audit_material_args.py'), str(audit), str(stock)])
         if audit_hitboxes:
-            result = modelhitboxes.audit(model_source, audit)
+            with timeline.span('6 audit bone hitboxes'):
+                result = modelhitboxes.audit(model_source, audit)
             (stage / 'bone_hitbox_audit.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
             if result['errors'] or not result['models']:
                 raise RuntimeError('Authored bone hitboxes changed during linking; see bone_hitbox_audit.json')
