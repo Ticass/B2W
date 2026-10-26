@@ -273,9 +273,29 @@ class EngineMaterialTests(unittest.TestCase):
     def test_setelectrified_draws_the_shock_overlay(self):
         # both executables draw this material by name for SetElectrified
         self.assertEqual(t6bridge.ENGINE_BUILTIN_MATERIALS["setelectrified"], "zombie_electric_shock_overlay")
+
+    def test_waw_bowie_is_ported_and_its_perk_equips_the_t6_melee_weapon(self):
+        # WaW's _zombiemode_bowie runs (buy, flourish, dialog); BO2's melee
+        # wallbuy is not set up on the same triggers; the engine perk it sets
+        # becomes T6's melee weapon
+        self.assertIn("maps\\_zombiemode_bowie", gscport.API["preserved_scripts"])
+        self.assertNotIn("maps\\_zombiemode_bowie", gscport.API["core_scripts"])
         compat = (gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8")
-        # BO2 melee wallbuys charge self.stub.cost; WaW trigger_use wallbuys get one
-        self.assertIn("triggers[j].stub.cost = melee_weapon.cost;", compat)
+        script = gscport.gsc.parse(compat, "compat")
+        self.assertIn("waw_altmelee_weapon", script.functions)
+        self.assertNotIn("melee_wallbuy_costs", script.functions)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "maps/mp/zm_x.gsc"
+            main.parent.mkdir(parents=True)
+            main.write_text("main()\n{\n    maps\\mp\\zombies\\_zm_weap_bowie::init();\n    level.x = 1;\n}\n")
+            self.assertEqual(gscport.drop_preserved_template_inits(main, root), [])    # map does not port it
+            ported = root / "maps/mp/waw/_zombiemode_bowie.gsc"
+            ported.parent.mkdir(parents=True)
+            ported.write_text("bowie_init()\n{\n}\n")
+            self.assertEqual(gscport.drop_preserved_template_inits(main, root),
+                             ["maps\\mp\\zombies\\_zm_weap_bowie::init();"])
+            self.assertNotIn("_zm_weap_bowie", main.read_text())
 
     def test_boarded_windows_are_shut_to_path_finding(self):
         # WaW's clip brush disconnects a boarded window's traversal; T6's

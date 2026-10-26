@@ -22,6 +22,8 @@ from pathlib import Path
 from .progress import captured
 
 TEMPLATE_MAP = "zm_test"
+# its sound bank; not shipped (every sound comes from WaW)
+TEMPLATE_SOUNDBANK = "zmb_test.all"
 # world assets live in the map fastfile (the bridge links skinnedverts too;
 # the engine allows exactly one loaded)
 BSP_TYPES = {"clipmap", "clipmap_pvs", "comworld", "gameworldsp", "gameworldmp", "mapents", "gfxworld",
@@ -323,6 +325,11 @@ def build_mod_zone(template: Path, dropped: list[str]) -> str:
             parts = [p.strip() for p in line.split(",")]
             kind, name = parts[0], parts[-1]
             if kind in BSP_TYPES:
+                dropped.append(line)
+                continue
+            # the template map's BO2 sounds: the map bank carries WaW's under
+            # the names T6 plays (sounds.engine_name_copies)
+            if kind == "soundbank" and name == TEMPLATE_SOUNDBANK:
                 dropped.append(line)
                 continue
             if kind == "script" and re.search(rf"(^|/){TEMPLATE_MAP}[_.]", name):

@@ -63,10 +63,51 @@
         "main": "the map entry; BO2's gametype starts the game"
       }
     },
+    "maps\\_zombiemode_powerups": {
+      "doc": "WaW drives the power-ups: drops, models, effects, grab, effects of each power-up (the carpenter through native_argument_adapters on BO2's zbarrier windows), HUD. Entered through native_replacements.",
+      "glue": {}
+    },
     "maps\\_zombiemode_utility": {
       "doc": "only: the map's calls into these run WaW's function; BO2's same-named _zm_audio one plays BO2's lines (the map threads the kill-streak quote timer on every player)",
       "only": ["player_killstreak_timer"]
     }
+  },
+  "native_replacements": {
+    "doc": "BO2 framework calls where WaW called the map's own function; gscport.native_replacements replacefuncs the map's in, before _zm::init. keep: BO2 calls that still run first, with the reason.",
+    "maps\\_zombiemode_powerups": [
+      {"native": "maps\\mp\\zombies\\_zm_powerups::init", "function": "init",
+       "keep": [
+         {"call": "maps\\mp\\zombies\\_zm_powerups::init_powerups()",
+          "reason": "BO2's registrations: client fields its client scripts mirror, the zombie_drop_powerups flag its spawner tests"},
+         {"call": "maps\\mp\\zombies\\_zm_utility::onplayerconnect_callback( maps\\mp\\zombies\\_zm_powerups::init_player_zombie_vars )",
+          "reason": "per-player vars BO2's weapon code reads"},
+         {"call": "level.zombie_powerup_array = []",
+          "reason": "the map's drops choose from the map's own list only"},
+         {"call": "level.zombie_special_drop_array = []",
+          "reason": "and its own special drops"}
+       ]},
+      {"native": "maps\\mp\\zombies\\_zm_powerups::powerup_drop", "function": "powerup_drop"},
+      {"native": "maps\\mp\\zombies\\_zm_powerups::check_for_instakill", "function": "check_for_instakill"}
+    ]
+  },
+  "zombie_vocals": {
+    "doc": "BO2's zombie actors voice their animation events through level.zmb_vox (do_zombies_playvocals: ambient, sprint, attack, ...); WaW's played the same events from its animation notetracks with its own aliases. Each BO2 category plays the map's alias where the bank holds it (gscport.zombie_vocals_hook).",
+    "zombie": {"ambient": "amb_vocals", "sprint": "sprint_vocals", "attack": "attack_vocals",
+               "teardown": "board_vocals", "taunt": "taunt_vocals", "behind": "behind_vocals",
+               "death": "death_vocals", "crawler": "crawl_vocals", "electrocute": "elec_vocals"}
+  },
+  "native_argument_adapters": {
+    "doc": "WaW calls that resolve to a BO2 function of the same name with different parameters (gscport.adapt_native_arguments). BO2's barrier helpers take the barrier (a zbarrier window) beside its chunks.",
+    "maps\\mp\\zombies\\_zm_utility::all_chunks_intact": {"waw_args": 1, "args": ["owner:0", 0]},
+    "maps\\mp\\zombies\\_zm_utility::all_chunks_destroyed": {"waw_args": 1, "args": ["owner:0", 0]},
+    "maps\\mp\\zombies\\_zm_utility::get_random_destroyed_chunk": {"waw_args": 1, "args": ["owner:0", 0]},
+    "maps\\mp\\zombies\\_zm_blockers::replace_chunk": {"waw_args": 3, "args": ["object", 0, "defined_if:1", "0", 2]}
+  },
+  "team_zombie_vars": {
+    "doc": "Zombie vars BO2 keeps per team (_zm_powerups::init set_zombie_var( ..., 1 )); its scoring and damage read level.zombie_vars[team][name]. WaW keeps them global; gscport.mirror_team_zombie_vars copies each source write to every team.",
+    "names": ["zombie_insta_kill", "zombie_point_scalar", "zombie_powerup_insta_kill_on",
+              "zombie_powerup_insta_kill_time", "zombie_powerup_point_doubler_on",
+              "zombie_powerup_point_doubler_time"]
   },
   "quote_triggers": {
     "doc": "WaW player quotes started from framework code BO2 replaces, ported where BO2 raises the same event (docs/MAP_CONTENT_AUDIT.md)",
@@ -164,7 +205,6 @@
     "maps\\_zombiemode_blockers_new": "maps\\mp\\zombies\\_zm_blockers",
     "maps\\_zombiemode_net": "maps\\mp\\zombies\\_zm_net",
     "maps\\_zombiemode_devgui": "maps\\mp\\zombies\\_zm_devgui",
-    "maps\\_zombiemode_bowie": "maps\\mp\\zombies\\_zm_weap_bowie",
     "maps\\_zombiemode_cymbal_monkey": "maps\\mp\\zombies\\_zm_weap_cymbal_monkey",
     "maps\\_laststand": "maps\\mp\\zombies\\_zm_laststand",
     "maps\\_load": "maps\\mp\\zombies\\_load",
@@ -192,8 +232,17 @@
   },
   "preserved_scripts": [
     "maps\\_zombiemode_perks",
-    "maps\\_zombiemode_dogs"
+    "maps\\_zombiemode_dogs",
+    "maps\\_zombiemode_timer",
+    "maps\\_zombiemode_bowie"
   ],
+  "preserved_template_inits": {
+    "doc": "Template map-main lines that set up BO2's counterpart of a WaW framework script the map ports whole (preserved_scripts). The ported script owns the job; the BO2 one would think on the same map entities. Each needs a reason.",
+    "maps\\_zombiemode_bowie": [
+      {"line": "    maps\\mp\\zombies\\_zm_weap_bowie::init();",
+       "reason": "BO2's melee wallbuy threads on the map's bowie_upgrade triggers (WaW's bowie_think buys)"}
+    ]
+  },
   "core_patterns": [
     "^maps\\\\_zombiemode",
     "^maps\\\\_callback",
@@ -225,6 +274,8 @@
     "maps\\mp\\zombies\\_zm_utility::destroy_hud": "waw_destroy_hud"
   },
   "compat_wrappers": [
+    "connectpaths",
+    "disconnectpaths",
     "bbprint",
     "clientnotify",
     "gettagorigin",

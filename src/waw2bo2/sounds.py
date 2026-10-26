@@ -375,6 +375,53 @@ def entity_aliases(ents: Path | None, defined: set[str]) -> set[str]:
             for value in entity.values() if value.lower() in names}
 
 
+# The map entities BO2's client _audio.csc plays by itself, with the keys it
+# reads as an alias: WaW's _audio conventions, kept by BO2 (emitter structs by
+# script_label; bump and step triggers by targetname).
+CLIENT_AUDIO_ENTITIES = (
+    ("script_label", ("line_emitter", "looper", "random"), ("script_sound",)),
+    ("targetname", ("audio_bump_trigger",), ("script_sound", "script_noteworthy")),
+    ("targetname", ("audio_step_trigger",), ("script_label", "script_sound", "script_noteworthy")),
+)
+
+
+def bind_entity_sounds(entities_json: Path, converted: set[str]) -> int:
+    """Name the converted alias in the entities BO2's client plays itself
+    (_audio.csc soundloopemitter / soundlineemitter / createsoundrandom and
+    its audio triggers). The bank holds WaW's sounds as waw/<name>, so the raw
+    WaW name played nothing: Shi No Numa's 638 swamp, water and machine
+    emitters were silent. Other entities keep the raw name their ported
+    scripts compare (the perk machines' script_sound jingle)."""
+    if not entities_json.is_file():
+        return 0
+    data = json.loads(entities_json.read_text(encoding="utf-8"))
+    names = {name.lower(): name for name in converted}
+    count = 0
+    for entity in data["entities"]:
+        keys = [k for field, values, ks in CLIENT_AUDIO_ENTITIES if entity.get(field) in values for k in ks]
+        for key in keys:
+            value = entity.get(key)
+            if isinstance(value, str) and value.lower() in names:
+                entity[key] = "waw/" + names[value.lower()]
+                count += 1
+    if count:
+        entities_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    return count
+
+
+def ambient_emitter_aliases(entities_json: Path) -> set[str]:
+    """Aliases the map's ambient emitters play (script_label line_emitter /
+    looper / random structs), lowercase, without the waw/ prefix: level
+    ambience, which takes BO2's ambient emitter mix (level, distances, curves;
+    audioremaster.stock_emitters)."""
+    if not entities_json.is_file():
+        return set()
+    labels = CLIENT_AUDIO_ENTITIES[0][1]
+    return {entity["script_sound"].lower().removeprefix("waw/")
+            for entity in json.loads(entities_json.read_text(encoding="utf-8"))["entities"]
+            if entity.get("script_label") in labels and isinstance(entity.get("script_sound"), str)}
+
+
 def decode_flags(flags: int) -> dict:
     """Measured in official T4 linker_pc sub_404D50, not T6 flag layout."""
     if not isinstance(flags, int) or not 0 <= flags <= 0xffffffff:
@@ -1082,28 +1129,147 @@ def _bank_entries(path: Path) -> int:
         return struct.unpack("<8I", f.read(32))[5]
 
 
+def _bank_entry_sizes(path: Path) -> dict[int, int]:
+    """SndAssetBankEntry id -> data size for every entry of a T6 bank."""
+    with path.open("rb") as f:
+        header = struct.unpack("<8I3q", f.read(56))
+        f.seek(header[9])
+        return {entry[0]: entry[1] for entry in (struct.unpack("<4I4b", f.read(20)) for _ in range(header[5]))}
+
+
+def snd_hash(name: str) -> int:
+    """T6 SND_HashName (alias and asset ids)."""
+    result = 0x1505
+    for c in name.lower():
+        result = (ord(c) + 0x1003F * result) & 0xFFFFFFFF
+    return result or 1
+
+
+# Loaded sound data measured on the converted zones (2026-10-25): the 157.6 MB
+# zm_test template bank plus 34 MB of map sounds loads; plus 88 MB (257.2 MB
+# of banks, just under stock Shi No Numa's single 257.7 MB bank) froze the
+# mount on Der Riese and Shi No Numa. The converted zones take more memory
+# than the stock map's, so the stock bank size is no ceiling for ours.
+LOADED_BYTES_MEASURED = int(157.6 * 2**20) + 34 * 2**20
+
+# The template map's own bank. BO2's sounds are not used (every sound comes
+# from WaW): mod.ff drops it, and the names T6's engine plays from it
+# (footsteps, landings, impacts by surface) are WaW copies in the map bank.
+TEMPLATE_SOUNDBANK = "zmb_test.all"
+
+# BO2 engine sound families -> WaW's for the same event, by surface. T6 plays
+# fly_step_run_npc_dirt where T4 played step_run_dirt; the surface names are
+# shared (WaW adds water). First WaW name the map's bank defines wins.
+ENGINE_SOUND_FAMILIES = (
+    (r"fly_step_(walk|run|sprint)_plr_(?P<s>[a-z]+)(_swt)?", (r"step_\1_plr_\g<s>", r"step_\1_\g<s>")),
+    (r"fly_step_(walk|run|sprint)(_npc)?_(?P<s>[a-z]+)", (r"step_\1_\g<s>",)),
+    (r"fly_step_crouch_(walk|run)_plr_(?P<s>[a-z]+)", (r"step_\1_plr_\g<s>", r"step_\1_\g<s>")),
+    (r"fly_step_crouch_(walk|run)(_npc)?_(?P<s>[a-z]+)", (r"step_\1_\g<s>",)),
+    (r"fly_step_prone_plr_(?P<s>[a-z]+)", (r"step_prone_plr_\g<s>", r"step_prone_\g<s>")),
+    (r"fly_step_prone_npc_(?P<s>[a-z]+)", (r"step_prone_\g<s>",)),
+    (r"fly_land_plr_(?P<s>[a-z]+)(_big)?(_sec)?", (r"land_plr_\g<s>", r"land_\g<s>")),
+    (r"fly_land_npc_(?P<s>[a-z]+)(_big)?", (r"land_\g<s>",)),
+    (r"fly_bodyfall_(large|small)_(?P<s>[a-z]+)", (r"bodyfall_\g<s>_\1",)),
+    (r"prj_bullet_impact_(small|large|ap)_(?P<s>[a-z]+)", (r"bullet_\1_\g<s>",)),
+    (r"prj_bullet_impact_xtreme_(?P<s>[a-z]+)", (r"bullet_large_\g<s>",)),
+    (r"prj_bullet_impact_(small|large)_exit_(?P<s>[a-z]+)", (r"bullet_\1_exit_\g<s>",)),
+    (r"prj_bullet_impact_(ap|xtreme)_exit_(?P<s>[a-z]+)", (r"bullet_large_exit_\g<s>",)),
+    (r"prj_bulletspray_small_exit_(?P<s>[a-z]+)", (r"bulletspray_small_exit_\g<s>",)),
+    (r"wpn_grenade_bounce_(?P<s>[a-z]+)", (r"grenade_bounce_\g<s>",)),
+    (r"wpn_grenade_explode_(?P<s>[a-z]+)", (r"grenade_explode_\g<s>",)),
+    (r"wpn_sticky_gren_bounce_(?P<s>[a-z]+)", (r"sticky_gren_bounce_\g<s>",)),
+    (r"zmb_monkey_land_(?P<s>[a-z]+)", (r"monkey_land_\g<s>",)),
+    (r"wpn_melee_hit", ("melee_hit",)),
+    (r"wpn_knife_pull_plr", ("knife_pull_plr",)),
+)
+
+
+def template_alias_names(template_csv: Path | None) -> list[str]:
+    """Alias names of the template's bank (what BO2's engine and template
+    assets can play by name)."""
+    if template_csv is None or not template_csv.is_file():
+        return []
+    with template_csv.open(encoding="utf-8", errors="replace", newline="") as f:
+        return sorted({r["Name"] for r in csv.DictReader(f) if r.get("Name")})
+
+
+def engine_name_copies(rows: list[dict], names: list[str]) -> dict:
+    """Rows under each BO2 engine name, copied from WaW's alias for the same
+    event (ENGINE_SOUND_FAMILIES); the copy shares WaW's file, so no new bank
+    entry. Returns {"copies": {bo2: waw}, "unmatched": [bo2 names with no
+    WaW sound]} and appends the rows."""
+    by_name: dict[str, list[dict]] = {}
+    for row in rows:
+        by_name.setdefault(row["Name"].lower().removeprefix("waw/"), []).append(row)
+    copies, unmatched, added = {}, [], []
+    for name in names:
+        low = name.lower()
+        source = None
+        for pattern, targets in ENGINE_SOUND_FAMILIES:
+            m = re.fullmatch(pattern, low)
+            if m:
+                source = next((t for t in (m.expand(t) for t in targets) if t in by_name), None)
+                break
+        if source is None:
+            unmatched.append(name)
+            continue
+        copies[name] = source
+        added += [dict(row, Name=name) for row in by_name[source]]
+    rows += added
+    return {"copies": copies, "unmatched": unmatched}
+
+
+# T6 keeps every loaded bank's entries (loaded and streamed tables alike) in
+# one pool: a bank whose entries pass 0x4000 fails to load (t6zm sub_911F10).
+T6_SND_ENTRY_POOL = 0x4000
+
+
 def loaded_budget(bo2_root: Path, template_csv: Path | None) -> dict:
     """Loaded-bank headroom for the converted map, measured on stock BO2.
 
     A loaded (.sabl) bank lives whole in the 32-bit game's memory. WaW kept its
     loaded sounds ADPCM/XWMA-compressed; decoded to T6 PCM the same set can
     exceed what any stock level loads (measured freeze at the main menu with
-    ~833 MB of loaded banks). Budget = the largest stock map bank (entries and
-    bytes) minus the template map bank already in mod.ff; the template's bytes
-    are estimated at the stock average bytes per entry."""
+    ~833 MB of loaded banks). Bytes = the largest stock map bank's sound data
+    minus the template map bank already in mod.ff, measured on the stock
+    entries the linker copies the template's sounds from. Entries are no map
+    budget: T6 pools them over every bank, and a sound moved between loaded
+    and streamed keeps its one entry; what is left of the pool is reported.
+    Streaming is what costs: T6 plays 10 streamed voices at once
+    (snd_max_stream_voice, default and maximum 10), so a streamed sound that
+    repeats quickly cuts itself and others off."""
     banks = [p for p in sorted((bo2_root / "sound").glob("*.all.sabl")) if not p.name.startswith(ALWAYS_LOADED_BANKS)]
     if not banks:
         raise SoundError(f"no stock BO2 map sound banks under {bo2_root / 'sound'} to measure a budget")
-    biggest = max(banks, key=lambda p: p.stat().st_size)
-    entries, size = _bank_entries(biggest), biggest.stat().st_size
-    template = 0
+    stock = {p: _bank_entry_sizes(p) for p in sorted((bo2_root / "sound").glob("*.sab?"))}
+    biggest = max(banks, key=lambda p: sum(stock[p].values()))
+    size = sum(stock[biggest].values())
+    always = sum(len(found) for p, found in stock.items() if p.name.startswith(ALWAYS_LOADED_BANKS))
+    sizes = {}
+    for found in stock.values():
+        for key, value in found.items():
+            sizes.setdefault(key, value)
+    template_files, template_entries, unmatched = set(), 0, 0
     if template_csv is not None and template_csv.exists():
         with template_csv.open(encoding="utf-8", errors="replace", newline="") as f:
-            template = len({r["FileSource"] for r in csv.DictReader(f)
-                            if r.get("Storage", "").lower() == "loaded" and r.get("FileSource")})
-    return {"reference_bank": biggest.name, "reference_entries": entries, "reference_bytes": size,
-            "template_entries": template, "entries": max(entries - template, 0),
-            "bytes": max(size - int(template * size / entries), 0)}
+            rows = [r for r in csv.DictReader(f) if r.get("FileSource")]
+        template_entries = len({r["FileSource"] for r in rows})
+        template_files = {r["FileSource"] for r in rows if r.get("Storage", "").lower() == "loaded"}
+    average = size / max(len(stock[biggest]), 1)
+    template_bytes = 0
+    for source in template_files:
+        found = sizes.get(snd_hash(source))
+        if found is None:
+            unmatched += 1
+            found = int(average)
+        template_bytes += found
+    return {"reference_bank": biggest.name, "reference_entries": len(stock[biggest]), "reference_bytes": size,
+            "template_entries": len(template_files), "template_bytes": template_bytes,
+            "template_unmatched": unmatched,
+            "entries": max(T6_SND_ENTRY_POOL - always - template_entries, 0),
+            "entry_pool": {"size": T6_SND_ENTRY_POOL, "always_loaded": always, "template": template_entries},
+            "stock_headroom_bytes": max(size - template_bytes, 0),
+            "bytes": max(min(size, LOADED_BYTES_MEASURED) - template_bytes, 0)}
 
 
 def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
@@ -1113,6 +1279,11 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
     Moving rapid weapon sounds to streaming competes for the engine's scarce
     streaming voices and can cause intermittent silence. Use the actual
     weapon dependency graph, rather than the WaW author's bus/name choices.
+    Then what the map plays (budget "played": its scripts, entities, ambient
+    packages, the zombie voices BO2's events play): the zone also ships sounds
+    nothing reaches (WaW's footstep set, which BO2's own footsteps replace), and
+    smallest-first filled the entries with those while the cash, board and
+    zombie voice sounds streamed and cut each other off.
     """
     sizes = {}
     for row in rows:
@@ -1121,7 +1292,10 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
     keep, used = set(), 0
     weapon_files = {r["FileSource"] for r in rows
                     if r["Name"].removeprefix("waw/") in (weapon_aliases or set())}
-    for source, size in sorted(sizes.items(), key=lambda kv: (kv[0] not in weapon_files, kv[1], kv[0])):
+    played = {name.lower() for name in budget.pop("played", [])}
+    played_files = {r["FileSource"] for r in rows if r["Name"].lower().removeprefix("waw/") in played}
+    for source, size in sorted(sizes.items(), key=lambda kv: (kv[0] not in weapon_files, kv[0] not in played_files,
+                                                              kv[1], kv[0])):
         if len(keep) >= budget["entries"] or used + size > budget["bytes"]:
             continue
         keep.add(source)
@@ -1131,14 +1305,19 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
         if row["Storage"] == "loaded" and row["FileSource"] not in keep:
             row["Storage"] = "streamed"
             streamed.append({"alias": row["Name"], "file": row["FileSource"], "bytes": sizes[row["FileSource"]]})
+    if "entry_pool" in budget:
+        budget["entry_pool"]["map"] = len({r["FileSource"] for r in rows if r.get("FileSource")})
     budget.update(loaded_files=len(keep), loaded_bytes=used, streamed_files=len(sizes) - len(keep),
                   weapon_files_loaded=len(weapon_files & keep),
-                  weapon_files_streamed=len((weapon_files & sizes.keys()) - keep))
+                  weapon_files_streamed=len((weapon_files & sizes.keys()) - keep),
+                  played_files_loaded=len(played_files & keep),
+                  played_files_streamed=len((played_files & sizes.keys()) - keep))
     return streamed
 
 
 def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | None = None,
-                  reverb_send: dict | None = None, remaster: dict | None = None) -> dict:
+                  reverb_send: dict | None = None, remaster: dict | None = None,
+                  engine_names: list[str] | None = None) -> dict:
     """Official BO2 alias CSV for every PCM- and curve-bound alias.
 
     Plays the original WaW audio through BO2's own sound engine. Categories,
@@ -1187,6 +1366,11 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
                                                 remaster.get("announcer_prefix", "waw_"))
         report["remaster"] = audioremaster.remaster(rows, roles, remaster["profiles"])
         report["remaster"]["announcer_copies"] = copies
+    if engine_names:
+        report["engine_names"] = engine_name_copies(rows, engine_names)
+        if budget is not None:
+            # the engine plays these for every step and shot: load them
+            budget["played"] = sorted(set(budget.get("played", [])) | set(report["engine_names"]["copies"].values()))
     report["clamped"] = clamp_t6_ranges(rows)
     if budget is not None:
         report["loaded_to_streamed"] = fit_loaded_budget(rows, project / "pcm", budget, weapon_aliases)

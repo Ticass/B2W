@@ -1759,6 +1759,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 gscport.hook_bo2_characters(main_gsc)
             gscport.hook_bo2_weapons(main_gsc)
             gscport.hook_bo2_box(main_gsc)
+            for line in gscport.drop_preserved_template_inits(main_gsc, project_root):
+                report.warnings.append(f"template init dropped, the ported WaW script owns it: {line}")
             if bo2_root is None:
                 raise ValueError("BO2 runtime sources required to stage WaW perk ownership")
             gscport.stage_bo2_perk_support(project_root, bo2_root, bo2_stock_perks=bo2_stock_perks)
@@ -1867,6 +1869,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     report.content['entity_sound_dependencies'] = sorted(entity_sounds)
     sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
     sound_names = {n["name"] for n in sound_graph["nodes"] if n["kind"] == "sound"}
+    report.content['entity_sounds_bound'] = sounds.bind_entity_sounds(project_root / "BSP" / "entities.json", sound_names)
     unreferenced = sorted(zone_sound_names - sound_names)
     (project_root / "content_source").mkdir(parents=True, exist_ok=True)
     (project_root / "content_source/sounds.unreferenced.json").write_text(
@@ -1882,8 +1885,16 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         t6_sound_driver = techset_dump / "sounddriverglobals/singleton.w2bsdg"
     curve_report = sounds.bind_curves(project_root / "content_source", t6_sound_driver, approximate_sound_curves)
     bank = f"waw_{project}.all"
-    budget = sounds.loaded_budget(bo2_root, bo2_root / "mods" / "zm_test" / "soundbank" / "zmb_test.all.aliases.csv") \
+    # mod.ff drops the template's bank (sounds.TEMPLATE_SOUNDBANK): no BO2
+    # sound is loaded beside the map's, and its engine names get WaW copies
+    template_bank_csv = bo2_root / "mods" / "zm_test" / "soundbank" / f"{sounds.TEMPLATE_SOUNDBANK}.aliases.csv" \
         if bo2_root is not None else None
+    budget = sounds.loaded_budget(bo2_root, None) if bo2_root is not None else None
+    if budget is not None:
+        # what the map plays: its scripts, entities and ambient packages, and
+        # the zombie voices BO2's events play (gsc_api zombie_vocals)
+        vocals = {a for actor, cats in gscport.API["zombie_vocals"].items() if actor != "doc" for a in cats.values()}
+        budget["played"] = sorted(script_sounds | entity_sounds | vocals)
     reverb_send = progress.timed('Measure reverb send convention', measure_reverb_send, bo2_root, stock_waw)
     if reverb_send["status"] != "measured":
         report.warnings.append(f"SOUND_REVERB_SEND unmeasured: {reverb_send['reason']}; "
@@ -1897,11 +1908,19 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         events_file = project_root / "content_source/announcer_events.json"
         remaster = {"profiles": audioremaster.stock_profiles(bo2_root),
                     "music": audioremaster.music_table_aliases(amb_text),
-                    "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)},
+                    "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)}
+                                | sounds.ambient_emitter_aliases(project_root / "BSP" / "entities.json"),
                     "announcer_events": json.loads(events_file.read_text()) if events_file.is_file() else {},
                     "announcer_prefix": gscport.API["audio_remaster"]["announcer_alias_prefix"]}
     bank_report = progress.timed('Build sound bank', sounds.write_t6_bank, project_root / "content_source", bank,
-                                 project_root / "soundbank", budget, reverb_send, remaster)
+                                 project_root / "soundbank", budget, reverb_send, remaster,
+                                 sounds.template_alias_names(template_bank_csv))
+    if bank_report.get("engine_names"):
+        engine = bank_report["engine_names"]
+        report.content["engine_sound_names"] = {"copies": len(engine["copies"]), "unmatched": engine["unmatched"]}
+        report.warnings.append(f"SOUND_ENGINE_NAMES {len(engine['copies'])} BO2 engine sound names play WaW's "
+                               f"sound; {len(engine['unmatched'])} template names have no WaW sound and are "
+                               f"silent (BO2's bank is not shipped). List: content_source/sounds.bank.json")
     if bank_report.get("remaster"):
         report.content["audio_remaster"] = bank_report["remaster"]
         for r, info in sorted(bank_report["remaster"]["roles"].items()):
@@ -1913,9 +1932,13 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if budget is not None:
         report.warnings.append(
             f"SOUND_LOADED_TO_STREAMED {budget['streamed_files']} WaW loaded sounds streamed: loaded-bank budget "
-            f"{budget['entries']} files / {budget['bytes'] // 2**20} MB (largest stock map bank "
-            f"{budget['reference_bank']} minus the template bank); kept {budget['loaded_files']} loaded files, prioritizing weapon dependencies "
-            f"({budget['loaded_bytes'] // 2**20} MB). List: content_source/sounds.bank.json")
+            f"{budget['bytes'] // 2**20} MB (largest stock map bank {budget['reference_bank']} minus the template "
+            f"bank's {budget['template_bytes'] // 2**20} MB); kept {budget['loaded_files']} loaded files, weapon "
+            f"dependencies, then played sounds ({budget['loaded_bytes'] // 2**20} MB); {budget['played_files_streamed']} "
+            f"played files still stream (10 stream voices). List: content_source/sounds.bank.json")
+        pool = budget.get("entry_pool", {})
+        if pool and pool["always_loaded"] + pool["template"] + pool.get("map", 0) > pool["size"]:
+            report.warnings.append(f"SOUND_ENTRY_POOL {pool}: T6 cannot load the map bank (entry pool full)")
     if bank_report["variants"]:
         with (project_root / MOD_EXTRA_ZONE).open("a", encoding="utf-8") as zone:
             zone.write(f"soundbank,{bank}\n")
@@ -2820,21 +2843,27 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     # map script names them (for example the teammate revive waypoint).
     shaders = set(SCRIPT_SHADER_RE.findall(
         (gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8")))
-    shaders |= set(SCRIPT_SHADER_RE.findall(core_text))
-    shaders |= {m for b, m in ENGINE_BUILTIN_MATERIALS.items() if re.search(rf"\b{b}\s*\(", core_text, re.I)}
+    # the names the map's own code draws (ported scripts, stock ones too, and
+    # the framework functions extracted from it)
+    source_shaders = set(SCRIPT_SHADER_RE.findall(core_text))
     for path in port.ported:
-        text = sources.text.get(path + ".gsc", "")
-        shaders |= set(SCRIPT_SHADER_RE.findall(text))
+        text = sources.text.get(path + ".gsc") or sources.stock.get(path + ".gsc", "")
+        source_shaders |= set(SCRIPT_SHADER_RE.findall(text))
         shaders |= {m for b, m in ENGINE_BUILTIN_MATERIALS.items() if re.search(rf"\b{b}\s*\(", text, re.I)}
+    shaders |= {m for b, m in ENGINE_BUILTIN_MATERIALS.items() if re.search(rf"\b{b}\s*\(", core_text, re.I)}
+    shaders |= source_shaders
     stock_materials = api.stock_assets.get("material", set())
     hud = []
-    # a stock policy's WaW HUD (round counter chalk) is converted even when
-    # BO2 ships a material of that name; materialisolation renames it
+    # WaW's material wins over BO2's of the same name when the map's code
+    # draws it and WaW ships it (Der Riese's teleporter stopwatch: BO2's
+    # zombie_stopwatch drew a checkerboard); materialisolation renames it.
+    # Names only the compat runtime draws stay BO2's.
     waw_hud = set(port.waw_hud_materials)
     for name in sorted(shaders):
-        if name.lower() in stock_materials and name not in waw_hud:
+        waw_has = any((r / techsets.oat_material_path(name)).exists() for r in model_roots)
+        if name.lower() in stock_materials and name not in waw_hud and not (name in source_shaders and waw_has):
             continue
-        if any((r / techsets.oat_material_path(name)).exists() for r in model_roots):
+        if waw_has:
             hud.append(name)
         else:
             report.warnings.append(f"UNSUPPORTED_ASSET material {name}: drawn by the map scripts, not in any WaW "

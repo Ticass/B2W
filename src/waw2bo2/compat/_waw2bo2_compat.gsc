@@ -93,7 +93,21 @@ init()
     level thread stuck_zombie_monitor();
     level thread waw_window_paths();
     level thread power_bridge();
-    level thread melee_wallbuy_costs();
+}
+
+// WaW cuts and restores a window's paths through its clip brush, which BO2's
+// blocker_init deletes beside a zbarrier (the carpenter's windows.clip);
+// waw_window_paths then follows the chunks instead.
+waw_connectpaths()
+{
+    if ( isdefined( self ) )
+        self connectpaths();
+}
+
+waw_disconnectpaths()
+{
+    if ( isdefined( self ) )
+        self disconnectpaths();
 }
 
 // WaW keeps a boarded window shut to path-finding: its clip brush
@@ -128,30 +142,6 @@ waw_window_paths()
             setenablenode( goal.neg_end, open );
         }
         wait 0.05;
-    }
-}
-
-// BO2's melee wallbuy (_zm_melee_weapon::melee_weapon_think) charges
-// self.stub.cost, which only BO2's struct wallbuys carry. A WaW map's
-// trigger_use (bowie_upgrade) has no stub, so the price is undefined and
-// minus_to_player_score returns without charging. Give each such trigger a
-// stub holding its registered cost once the think threads have started.
-melee_wallbuy_costs()
-{
-    while ( !isdefined( level._melee_weapons ) )
-        wait 0.05;
-    waittillframeend;
-    for ( i = 0; i < level._melee_weapons.size; i++ )
-    {
-        melee_weapon = level._melee_weapons[i];
-        triggers = getentarray( melee_weapon.wallbuy_targetname, "targetname" );
-        for ( j = 0; j < triggers.size; j++ )
-        {
-            if ( isdefined( triggers[j].stub ) )
-                continue;
-            triggers[j].stub = spawnstruct();
-            triggers[j].stub.cost = melee_weapon.cost;
-        }
     }
 }
 
@@ -238,6 +228,9 @@ wait_network_frame()
 // Restoring only their origin leaves T6's use trigger hidden after relocation.
 waw_enable_trigger()
 {
+    // a window's clip: BO2's blocker_init deletes it beside a zbarrier
+    if ( !isdefined( self ) )
+        return;
     self maps\mp\zombies\_zm_utility::enable_trigger();
     if ( isdefined( self.classname ) && self.classname == "trigger_use" )
         self show();
@@ -544,6 +537,20 @@ waw_set_zombie_var( var, value, div, is_float )
     level.zombie_vars[var] = value;
 }
 
+// BO2 keeps some zombie vars per team and reads level.zombie_vars[team][var];
+// the map's code keeps them global. Called after each source write of one.
+waw_team_zombie_var( var )
+{
+    if ( !isdefined( level.teams ) )
+        return;
+    foreach ( team in level.teams )
+    {
+        if ( !isdefined( level.zombie_vars[team] ) )
+            level.zombie_vars[team] = [];
+        level.zombie_vars[team][var] = level.zombie_vars[var];
+    }
+}
+
 // T6 MP's entity rope anchors are visual followers, not physical joints.
 // Fixed-world source suspensions use an authoritative pendulum. Other models
 // retain native physics. This does not replace general rigid-body collision.
@@ -683,6 +690,14 @@ waw_playfxontag( fx, ent, tag )
 {
     if ( !isdefined( fx ) || !isdefined( ent ) )
         return;
+    // WaW plays on "tag_origin" of models without that bone (the power-ups'
+    // glow on zombie_bomb, whose only bone is fatman); in T6 a missing tag is
+    // a runtime error. Play on a tag_origin carrier riding the entity instead.
+    if ( isdefined( tag ) && isdefined( ent.model ) && ent.model != "" && !waw_entity_has_tag( ent, tag ) )
+    {
+        ent = waw_tag_carrier( ent );
+        tag = "tag_origin";
+    }
     if ( isdefined( level.waw2bo2_bolted_loops ) && isdefined( level.waw2bo2_bolted_loops[fx] ) )
     {
         // T6's transient PlayFXOnTag event cannot own an indefinitely looping
@@ -694,6 +709,39 @@ waw_playfxontag( fx, ent, tag )
         return carrier;
     }
     playfxontag( fx, ent, tag );
+}
+
+waw_entity_has_tag( ent, tag )
+{
+    if ( waw_model_has_tag( ent.model, tag ) )
+        return 1;
+    for ( i = 0; i < ent getattachsize(); i++ )
+    {
+        if ( waw_model_has_tag( ent getattachmodelname( i ), tag ) )
+            return 1;
+    }
+    return 0;
+}
+
+waw_tag_carrier( ent )
+{
+    if ( isdefined( ent.waw_tag_carrier ) )
+        return ent.waw_tag_carrier;
+    carrier = spawn( "script_model", ent.origin );
+    carrier.angles = ent.angles;
+    carrier setmodel( "tag_origin" );
+    carrier linkto( ent );
+    ent.waw_tag_carrier = carrier;
+    level thread waw_tag_carrier_lifetime( carrier, ent );
+    return carrier;
+}
+
+waw_tag_carrier_lifetime( carrier, ent )
+{
+    while ( isdefined( ent ) )
+        wait 0.1;
+    if ( isdefined( carrier ) )
+        carrier delete();
 }
 
 waw_bolted_fx_lifetime( carrier, parent, tag )
@@ -1655,6 +1703,14 @@ waw_player_stats()
         self thread waw_grenade_diagnostics();
         self thread waw_inventory_size();
     }
+    // WaW sets score_total when a player connects (_zombiemode::onPlayerConnect),
+    // BO2 only at spawn; the map's power-up drop watcher sums it meanwhile
+    if ( !isdefined( self.score_total ) )
+    {
+        self.score_total = 0;
+        if ( isdefined( self.score ) )
+            self.score_total = self.score;
+    }
     if ( isdefined( self.stats ) )
         return;
     self.stats = [];
@@ -2036,6 +2092,23 @@ waw_setperk( perk )
     if ( !isdefined( self.waw2bo2_perks ) )
         self.waw2bo2_perks = [];
     self.waw2bo2_perks[perk] = 1;
+    if ( perk == "specialty_altmelee" )
+        self waw_altmelee_weapon();
+}
+
+// WaW's engine reads specialty_altmelee to melee with the bowie (the map's
+// _zombiemode_bowie only sets the perk). T6 melees with the player's melee
+// weapon instead: equip BO2's bowie the way BO2's flourish end does
+// (_zm_melee_weapon::do_melee_weapon_flourish_end).
+waw_altmelee_weapon()
+{
+    weapon = "bowie_knife_zm";
+    if ( self hasweapon( weapon ) )
+        return;
+    self giveweapon( weapon );
+    self maps\mp\zombies\_zm_melee_weapon::change_melee_weapon( weapon, self getcurrentweapon() );
+    if ( self hasweapon( "knife_zm" ) )
+        self takeweapon( "knife_zm" );
 }
 
 // WaW's HUD netfield -86 sends round((scale - 1) * 10) in six bits.
