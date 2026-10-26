@@ -33,8 +33,27 @@ class AmbientEmitterTests(unittest.TestCase):
                 {"classname": "script_struct", "script_label": "line_emitter", "script_sound": "waw/amb_swamp_01_L"},
                 {"classname": "script_struct", "script_label": "random", "script_sound": "amb_frog"},
                 {"classname": "trigger_multiple", "targetname": "audio_bump_trigger", "script_sound": "waw/perks_rattle"}]}))
-            # random one-shots (critters) keep their group's level
-            self.assertEqual(sounds.ambient_emitter_aliases(path), {"amb_swamp_01_l"})
+            self.assertEqual(sounds.ambient_emitter_aliases(path), {"amb_swamp_01_l", "amb_frog"})
+
+    def test_ambient_emitters_carry_as_far_as_bo2s(self):
+        stock = [{"Name": "amb_a", "PanType": "3d", "Looping": "looping", "DistMin": "100", "DistMaxDry": "400",
+                  "DistMaxWet": "450", "DryMinCurve": "allon", "DryMaxCurve": "default", "WetMinCurve": "allon",
+                  "WetMaxCurve": "default"}]
+        emitters = audioremaster.stock_emitters(stock)
+        self.assertEqual(emitters["looping"]["columns"]["DistMaxDry"], "400")
+        rows = [{"Name": "waw/cicada_drone_loop", "VolumeGroup": "grp_ambience", "PanType": "3d", "Looping": "looping",
+                 "VolMin": "80", "VolMax": "80", "DistMin": "3000", "DistMaxDry": "8500", "DistMaxWet": "9000",
+                 "DryMinCurve": "defaultmin", "DryMaxCurve": "cos"},
+                {"Name": "waw/amb_spooky_2d", "VolumeGroup": "grp_ambience", "PanType": "2d", "Looping": "looping",
+                 "VolMin": "80", "VolMax": "80", "DistMin": "50", "DistMaxDry": "1250"}]
+        profiles = {"groups": {}, "ambience": {"mix": {"Bus": "bus_fx", "VolumeGroup": "grp_ambience"},
+                                               "volume": 78.0, "rows": 500, "emitters": emitters}}
+        report = audioremaster.remaster(rows, {"waw/cicada_drone_loop": "ambience", "waw/amb_spooky_2d": "ambience"},
+                                        profiles)
+        # WaW's drone was full to 3000 and audible to 8500: BO2's loops end at 400
+        self.assertEqual((rows[0]["DistMin"], rows[0]["DistMaxDry"], rows[0]["DryMaxCurve"]), ("100", "400", "default"))
+        self.assertEqual(rows[1]["DistMaxDry"], "1250")    # a 2D bed is not placed
+        self.assertEqual(report["roles"]["ambience"]["stock_emitter_rows"], 1)
 
 
 class GroupLevelTests(unittest.TestCase):

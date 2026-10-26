@@ -62,8 +62,33 @@ def stock_profiles(bo2_root: Path) -> dict[str, dict]:
                    for v in [_number(r.get("VolMax"))] if v is not None]
         profiles[role] = {"mix": dict(zip(MIX_COLUMNS, mix)), "volume": _median(volumes) if volumes else None,
                           "rows": count}
+    if rows.get("ambience"):
+        profiles["ambience"]["emitters"] = stock_emitters(rows["ambience"])
     profiles["groups"] = stock_group_levels(bo2_root)
     return profiles
+
+
+# What places a 3D sound in the level: BO2's values replace WaW's for ambience.
+EMITTER_DISTANCE_COLUMNS = ("DistMin", "DistMaxDry", "DistMaxWet")
+EMITTER_CURVE_COLUMNS = ("DryMinCurve", "DryMaxCurve", "WetMinCurve", "WetMaxCurve")
+
+
+def stock_emitters(ambience_rows: list[dict]) -> dict[str, dict]:
+    """Looping value -> BO2's 3D ambient emitter placement: median distances
+    and most common curves of the stock amb_ rows. Measured (2026-10-25): loops
+    full to 100 units and silent by 400, one-shots 75 / 550; WaW's Shi No Numa
+    cicada drone was full to 3000 and audible to 8500 (buzzed over the map)."""
+    emitters = {}
+    for looping in ("looping", "nonlooping"):
+        found = [r for r in ambience_rows if r.get("PanType") == "3d" and r.get("Looping") == looping]
+        if not found:
+            continue
+        values = {c: _median([v for r in found for v in [_number(r.get(c))] if v is not None])
+                  for c in EMITTER_DISTANCE_COLUMNS}
+        values.update({c: Counter(r.get(c, "") for r in found).most_common(1)[0][0] for c in EMITTER_CURVE_COLUMNS})
+        emitters[looping] = {"columns": {k: f"{v:g}" if isinstance(v, float) else v for k, v in values.items()},
+                             "rows": len(found)}
+    return emitters
 
 
 # A group needs this many stock rows to give a level (BO2's 2D voice group
@@ -165,17 +190,22 @@ def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict])
             continue
         waw_volumes = [v for row in members for v in [_number(row.get("VolMax"))] if v is not None]
         shift = (profile["volume"] - _median(waw_volumes)) if profile["volume"] is not None and waw_volumes else 0.0
-        # Ambience sits at BO2's ambience median like every other role. At
-        # WaW's level against the weapons (the bank's typical shift, ~6 dB
-        # higher) Shi No Numa's cicada drones, full volume out to 3000 units,
-        # buzzed over the whole map (playtest, 2026-10-25).
         # Ambience keeps WaW's authored panning: a 2D bed (amb_spooky_2d) is
         # not a point emitter. Music and announcer lines are 2D by role.
         mix = {k: v for k, v in profile["mix"].items() if not (r == "ambience" and k == "PanType")}
+        placed = 0
         for row in members:
             row.update(mix)
+            # BO2 is king for the mix: a 3D ambient sound carries as far as
+            # BO2's own emitters of that kind, not as far as WaW authored it
+            emitter = profile.get("emitters", {}).get(row.get("Looping", "")) if r == "ambience" else None
+            if emitter is not None and row.get("PanType") == "3d":
+                row.update(emitter["columns"])
+                placed += 1
         _shift(members, shift)
         report["roles"][r] = {"aliases": len({row["Name"] for row in members}), "rows": len(members),
                               "stock_mix": profile["mix"], "volume_shift": round(shift, 2),
                               "stock_rows": profile["rows"]}
+        if placed:
+            report["roles"][r]["stock_emitter_rows"] = placed
     return report
