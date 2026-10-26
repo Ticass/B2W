@@ -49,17 +49,17 @@ class GroupLevelTests(unittest.TestCase):
         self.assertEqual(report["groups"]["grp_voice|3d"]["volume_shift"], -16.0)
         self.assertEqual(rows[2]["VolMax"], "90")    # a role row is not a group row
 
-    def test_ambience_keeps_its_waw_level_against_the_rest_of_the_bank(self):
+    def test_ambience_sits_at_bo2s_ambience_level(self):
         rows = [{"Name": "waw/gun", "VolumeGroup": "grp_weapon", "PanType": "3d", "VolMin": "95", "VolMax": "95"},
                 {"Name": "waw/amb_swamp", "VolumeGroup": "grp_foley", "PanType": "3d", "VolMin": "95", "VolMax": "95"}]
         profiles = {"groups": {"grp_weapon|3d": {"volume": 81.0, "rows": 4000}},
                     "ambience": {"mix": {"Bus": "bus_fx", "VolumeGroup": "grp_ambience", "PanType": "3d"},
                                  "volume": 70.0, "rows": 500}}
         report = audioremaster.remaster(rows, {"waw/amb_swamp": "ambience"}, profiles)
-        # level with the gun as in WaW, not at BO2's ambience median (70)
-        self.assertEqual([r["VolMax"] for r in rows], ["81", "81"])
+        # at BO2's ambience median (70), under the gun
+        self.assertEqual([r["VolMax"] for r in rows], ["81", "70"])
         self.assertEqual(rows[1]["VolumeGroup"], "grp_ambience")
-        self.assertEqual(report["roles"]["ambience"]["volume_shift"], -14.0)
+        self.assertEqual(report["roles"]["ambience"]["volume_shift"], -25.0)
 
 
 class LoadedBudgetTests(unittest.TestCase):
