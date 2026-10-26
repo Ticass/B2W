@@ -264,9 +264,35 @@ def index_scripts(bo2_root: Path):
     return functions, methods, scripts
 
 
+# Parameter names of the BO2 scripts WaW's framework scripts map to (gsc_api
+# core_scripts): where a map's own function takes its arguments in other
+# positions than BO2's counterpart, the map's runs (gscport.signature_differs).
+PARAMS_SNAPSHOT = Path(__file__).with_name("compat") / "bo2_core_params.json"
+
+
+def write_params_snapshot(bo2_root: Path, scripts: list[str], target: Path = PARAMS_SNAPSHOT) -> dict:
+    raw = bo2_root / "raw"
+    data = {}
+    for name in sorted(set(scripts)):
+        path = raw / (name.replace("\\", "/") + ".gsc")
+        if path.is_file():
+            script = gsc.parse(path.read_text(encoding="utf-8", errors="replace"), str(path))
+            data[name.lower()] = {n: [p.lower() for p in fn.params] for n, fn in sorted(script.functions.items())}
+    target.write_text(json.dumps(data, sort_keys=True, indent=0) + "\n", encoding="utf-8")
+    return data
+
+
+def load_params_snapshot() -> dict:
+    return json.loads(PARAMS_SNAPSHOT.read_text(encoding="utf-8")) if PARAMS_SNAPSHOT.is_file() else {}
+
+
 if __name__ == "__main__":
     import sys
     # python -m waw2bo2.t6api "<BO2 install>"  regenerates compat/t6_script_api.json
+    # and compat/bo2_core_params.json
     written = write_snapshot(Path(sys.argv[1]))
     print(f"{SNAPSHOT}: {len(written['builtins'])} functions, {len(written['methods'])} methods, "
           f"{len(written['scripts'])} scripts")
+    core = json.loads((Path(__file__).with_name("compat") / "gsc_api.json").read_text(encoding="utf-8"))["core_scripts"]
+    params = write_params_snapshot(Path(sys.argv[1]), [v for v in core.values() if v])
+    print(f"{PARAMS_SNAPSHOT}: {len(params)} scripts")

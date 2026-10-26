@@ -313,5 +313,41 @@ class EngineMaterialTests(unittest.TestCase):
                       gscport.gsc.emit(script.tokens[init.body_open:init.body_close + 1]))
 
 
+class FrameworkSignatureTests(unittest.TestCase):
+    def test_a_maps_own_function_runs_when_bo2s_takes_other_arguments(self):
+        # Shi No Numa's _zombiemode_net: network_safe_spawn( classname, origin );
+        # BO2's _zm_net (and Der Riese's WaW) take ( id, max, classname, origin )
+        self.assertEqual(gscport.BO2_PARAMS["maps\\mp\\zombies\\_zm_net"]["network_safe_spawn"],
+                         ["id", "max", "classname", "origin"])
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode_net.gsc").write_text(
+                "network_safe_spawn( classname, origin ) { return Spawn( classname, origin ); }\n"
+                "network_choke_init( id ) { }\n")
+            # Der Riese's WaW takes BO2's ( id, max, classname, origin ): BO2's runs
+            (root / "maps/_zombiemode_utility.gsc").write_text(
+                "all_chunks_intact( barrier_chunks ) { }\nflag_init( message ) { }\n")
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertTrue(tr.signature_differs("maps\\_zombiemode_net", "network_safe_spawn"))
+            self.assertFalse(tr.signature_differs("maps\\_zombiemode_net", "network_choke_init"))
+            self.assertFalse(tr.signature_differs("maps\\_zombiemode_net", "not_in_bo2"))
+            # barrier helpers keep BO2's routing and its argument adapters
+            self.assertFalse(tr.signature_differs("maps\\_zombiemode_utility", "all_chunks_intact"))
+
+    def test_the_maps_net_init_runs_where_bo2_has_none(self):
+        # its network_safe_spawn reads the counters init sets
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode_net.gsc").write_text(
+                "init() { level.zombie_network_num_spawns = 0; }\n"
+                "network_safe_spawn( classname, origin ) { return Spawn( classname, origin ); }\n")
+            (root / "maps/_zombiemode.gsc").write_text("main() { maps\\_zombiemode_net::init(); }\n")
+            api = T6Api({}, {"maps\\mp\\zombies\\_zm_net": {"network_safe_spawn": 4}})
+            tr = gscport.Translator(gscport.Sources([root], [], None), api, gscport.PortReport())
+            self.assertEqual(tr.framework_hooks(), ["maps\\mp\\waw\\_waw2bo2_core::zombiemode_net__init();"])
+
+
 if __name__ == "__main__":
     unittest.main()

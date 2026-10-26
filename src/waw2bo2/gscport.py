@@ -37,10 +37,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import gsc, oneway, stockperks, waterbullets, zombieappearance, zombiebehavior
-from .t6api import T6Api
+from .t6api import T6Api, load_params_snapshot
 
 COMPAT_DIR = Path(__file__).parent / "compat"
 API = json.loads((COMPAT_DIR / "gsc_api.json").read_text(encoding="utf-8"))
+# BO2 parameter names of the scripts core_scripts maps to (signature_differs)
+BO2_PARAMS = load_params_snapshot()
 COMPAT = "maps\\mp\\waw\\_waw2bo2_compat"
 STUBS = "maps\\mp\\waw\\_waw2bo2_stubs"
 ASSETS = "maps\\mp\\waw\\_waw2bo2_assets"
@@ -1223,6 +1225,16 @@ class Translator:
             if extracted:
                 self.report.rewrites[f"{core}::{name} -> source (WaW drives)"] += 1
                 return extracted
+        # The map ships its own framework script, and its function takes other
+        # arguments than BO2's counterpart: older WaW maps call
+        # network_safe_spawn( classname, origin ) where BO2's _zm_net (and Der
+        # Riese's WaW) takes ( id, max, classname, origin ). BO2's errored every
+        # frame on Shi No Numa's fire dogs, whose death explosion never spawned.
+        if self.signature_differs(core, name):
+            extracted = self.extract(core, name)
+            if extracted:
+                self.report.rewrites[f"{core}::{name} -> source (signature differs from BO2's)"] += 1
+                return extracted
         if any(self.api.defines(inc, name) for inc in included):
             self.report.rewrites[f"{core}::{name} -> included BO2 script"] += 1
             return None
@@ -1587,6 +1599,21 @@ class Translator:
                     tok.text = repl if "::" in repl else f"::{repl}"
                 else:
                     tok.text = repl
+
+    def signature_differs(self, core: str, name: str) -> bool:
+        """The map's own core function takes an argument in another position
+        than BO2's counterpart (a parameter of the same name at a different
+        index). Extra optional parameters on either side do not count: BO2's
+        flag_init( message, val ) still takes WaW's flag_init( message )."""
+        mapped = API["core_scripts"].get(core)
+        if not mapped or core not in API.get("signature_source_scripts", {}):
+            return False
+        bo2 = BO2_PARAMS.get(mapped.lower(), {}).get(name)
+        script = self.sources.get(core)
+        own = script.functions.get(name) if script is not None else None
+        if bo2 is None or own is None:
+            return False
+        return any(p.lower() in bo2 and bo2.index(p.lower()) != i for i, p in enumerate(own.params))
 
     def extract(self, core: str, name: str) -> str | None:
         """Port one WaW framework function BO2 has no counterpart for."""
@@ -2953,6 +2980,18 @@ class Translator:
                 for name in self.client_fog_monitors(dogs['client_notifies']):
                     calls.append(f"level thread {CORE}::{name}();")
                 self.report.rewrites["WaW drives the dog rounds: source _zombiemode_dogs"] += 1
+            # A framework script whose map functions run where BO2's take other
+            # arguments (signature_source_scripts) keeps the map's init when
+            # BO2's counterpart has none: Shi No Numa's _zombiemode_net::init
+            # sets the spawn counters its network_safe_spawn reads.
+            mapped = API["core_scripts"].get(target)
+            if target in API.get("signature_source_scripts", {}) and mapped \
+                    and not self.api.defines(mapped, ref.name.lower()) and not _argc(zm.tokens, ref.index):
+                extracted = self.extract(target, ref.name.lower())
+                if extracted and f"{extracted}();" not in calls:
+                    calls.append(f"{extracted}();")
+                    self.report.rewrites[f"framework hook {target}::{ref.name} -> source (BO2 has none)"] += 1
+                continue
             if is_core(target, self.sources):
                 continue
             dep = self.sources.get(target)

@@ -230,6 +230,10 @@
     "maps\\_collectibles": null,
     "maps\\_collectibles_game": null
   },
+  "signature_source_scripts": {
+    "doc": "Framework scripts whose BO2 counterpart is plain plumbing: where the map's own version takes an argument in another position than BO2's (gscport.signature_differs), the map's function runs. Others (weapons, power-ups, barrier helpers) keep their BO2 routing and adapters.",
+    "maps\\_zombiemode_net": "older maps (Shi No Numa) call network_safe_spawn( classname, origin ); BO2's _zm_net takes ( id, max, classname, origin ) and errored every frame, so fire dogs' death explosions never spawned"
+  },
   "preserved_scripts": [
     "maps\\_zombiemode_perks",
     "maps\\_zombiemode_dogs",
