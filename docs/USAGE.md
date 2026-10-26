@@ -55,6 +55,16 @@ and raw files from `vendor/`.
 Use Developer PowerShell for Visual Studio 2022 so `MSBuild.exe` is on PATH.
 Build x86 Release configurations: the driver expects `build/bin/Release_x86/`.
 
+To restore everything below in one step (fresh clone, or after the ignored
+`vendor/OpenAssetTools` or `vendor/OpenAssetToolsT6/build` folders are lost):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\restore_native.ps1
+```
+
+It skips whatever is already built and continues after a partial failure.
+The manual steps it automates follow.
+
 ### T4 extractor
 
 Use the supplied patch against its pinned upstream commit. In a fresh checkout:
