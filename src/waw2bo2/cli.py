@@ -327,6 +327,12 @@ def _build_mod(args: argparse.Namespace) -> int:
         ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
             project_root, [project_root/'content_source/pcm', project_root/'content_source'], stock_dump=args.techset_dump)
     print(f"mod.ff: {ff}")
+    from . import ipakfix
+    for pack in sorted(ff.parent.glob("*.ipak")):
+        moved = ipakfix.repair(pack)
+        if moved:
+            print(f"warning: IPAK_WINDOW_REPAIRED {pack.name}: {len(moved)} block(s) moved to a streaming window "
+                  f"start (the BO2 mod tools linker let them cross one; t6zm overruns its buffer there)", flush=True)
     lobby = modzone.link_lobby(args.bo2.resolve(), project_root, args.project, args.work,
                               args.linker or args.bo2.resolve() / "bin/Linker.exe", args.techset_dump)
     for zone in (ff, lobby):

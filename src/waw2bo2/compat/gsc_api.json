@@ -292,6 +292,7 @@
   },
   "compat_wrappers": [
     "isnotarget",
+    "precachestring",
     "setorigin",
     "tablelookup",
     "tablelookupistring",

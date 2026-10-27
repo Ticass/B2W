@@ -878,6 +878,15 @@ waw_add_zombie_hint( ref, text )
     level.waw2bo2_hints[ref] = text;
 }
 
+// WaW PrecacheString with an undefined string precaches nothing and the
+// caller goes on (School registers most powerups with no hint); in T6 it is a
+// runtime error that ended the map's init_powerups
+waw_precachestring( text )
+{
+    if ( isdefined( text ) )
+        precachestring( text );
+}
+
 waw_get_zombie_hint( ref )
 {
     if ( isdefined( level.waw2bo2_hints ) && isdefined( level.waw2bo2_hints[ref] ) )

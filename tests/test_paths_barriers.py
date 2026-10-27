@@ -102,6 +102,20 @@ class SpawnerTests(unittest.TestCase):
                           summary["dropped"])
 
 
+    def test_a_stray_window_goal_gets_a_target_that_finds_nothing(self):
+        # School: five exterior_goal structs without a target; T6 zone_init
+        # getentarray(undefined) ended the zone manager
+        ents = '{\n"classname" "script_struct"\n"targetname" "exterior_goal"\n"origin" "1 2 3"\n}'
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "map.ents"
+            path.write_text(ents)
+            entities.write_entities(path, "proj", Path(temp) / "BSP")
+            out = json.loads((Path(temp) / "BSP/entities.json").read_text())["entities"]
+            goal = next(e for e in out if e.get("targetname") == "exterior_goal")
+            self.assertEqual(goal["target"], "waw2bo2_exterior_goal_without_target")
+            self.assertFalse(any(e.get("targetname") == goal["target"] for e in out))
+
+
 class BarrierTests(unittest.TestCase):
     def test_goal_target_group_gets_the_inward_window_traversal(self):
         with tempfile.TemporaryDirectory() as temp:
