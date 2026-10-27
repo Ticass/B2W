@@ -48,7 +48,8 @@ namespace BSP
     private:
         void LoadBoxData(T6::clipMap_t& clipMap) const;
         void LoadVisibility(T6::clipMap_t& clipMap) const;
-        void LoadDynEnts(T6::clipMap_t& clipMap) const;
+        bool LoadDynEnts(T6::clipMap_t& clipMap);
+        [[nodiscard]] size_t MapDynEntCount() const;
         bool LoadRopesAndConstraints(T6::clipMap_t& clipMap);
         void LoadSubModelCollision(T6::clipMap_t& clipMap, const BSPData& bsp) const;
         bool LoadXModelCollision(T6::clipMap_t& clipMap) const;

@@ -1632,9 +1632,10 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
 
     world = progress.timed('Read map world', read_gfx_world, gfx_bin)
     clip = progress.timed('Read map collision', read_collision, clip_bin)
-    from . import constraints
+    from . import constraints, dynents
+    map_dynents = dynents.read(clip_bin.with_name(clip_bin.name.removesuffix('.clip.bin') + '.dynents.json'))
     map_constraints = constraints.stage(clip_bin.with_name(
-        clip_bin.name.removesuffix('.clip.bin') + '.constraints.json'), project_root)
+        clip_bin.name.removesuffix('.clip.bin') + '.constraints.json'), project_root, map_dynents)
     report.content['physics_constraints'] = map_constraints
     sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw)
     ents_file = source_entities(gfx_bin, stage, roots)
@@ -1727,6 +1728,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             report.warnings.append(f"CLIENT_MODELS_NETWORKED {', '.join(networked)}: client-side script_models "
                                    f"driven by WaW client listeners, which the port runs on the server")
         fx_names = list(report.scripts.get("fx", [])) if report.scripts else []
+        # the dynents' destroy effects convert with the map's own
+        fx_names += sorted({e['destroyFx'] for e in map_dynents if e['destroyFx']} - set(fx_names))
         # Weapons first: their resolution widens the roots (stock WaW dumps for
         # script models too) and their effects join the map zone's conversion.
         weapon_report, roots = _stage_weapons(report, roots, project_root, compiled_weapon_names, script_models,
@@ -1775,6 +1778,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                     zone.write("".join(f"xanim,{n}\n" for n in native_tree_xanims(atr)))
     # clipmap static models reference their xmodel (collSurfs) in the map zone
     clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
+    # the clipmap's dynents reference their xmodel in the map zone too
+    clip_models |= {e['xModel'] for e in map_dynents}
     # Entity placements need the same complete lookup as script-only models.
     resolved = recover_script_models(report, script_models | clip_models | {m.name for m in world.static_models},
                                      roots, stock_waw, source_waw)
@@ -1793,6 +1798,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                    f"{count} entities keep no model (WaW draws its default model)")
     model_materials = stage_models(report, world, project, stage, project_root, script_models | clip_models, roots,
                                    entity_box_models)
+    stage_dynents(report, project_root, map_dynents, roots, stock_waw)
     projectile_models = projectilecollision.recover(report, world, clip, project_root, roots)
     fx_models = stage_fx_models(report, project_root, effects.models)
     hud_materials = sorted(report.scripts.get("hud_materials", [])) if report.scripts else []
@@ -2269,6 +2275,23 @@ class EffectsResult:
 
 
 @progress.phase('Convert effects')
+def stage_dynents(report: StageReport, project_root: Path, map_dynents: list[dict], roots: list[Path],
+                  stock_waw) -> None:
+    """BSP/dynents.json: the map's physics clutter/destructibles with their
+    own physics presets (stock WaW presets come from the stock zones)."""
+    from . import dynents
+    presets, staged = {}, {}
+    for name in sorted({dynents.preset_name(e) for e in map_dynents} - {''}):
+        preset_roots = list(roots)
+        hit = stock_waw.root_for('physpreset', name) if stock_waw is not None else None
+        if hit is not None:
+            preset_roots.append(hit[1])
+        presets[name] = weapons.stage_physpreset(preset_roots, project_root, name, staged)
+    summary = dynents.write(project_root, map_dynents, presets, fx.OUTPUT_PREFIX)
+    summary['physpresets'] = sorted(presets.values())
+    report.content['dynents'] = summary
+
+
 def stage_effects(report: StageReport, names: list[str], roots: list[Path], stock_waw, project_root: Path,
                   stock_materials: Path, techset_dump: Path | None, bo2_root: Path,
                   iwd_dirs: list[Path] = (), source_waw=None,

@@ -132,6 +132,34 @@ class ConstraintTests(unittest.TestCase):
             self.assertEqual(native['material'], 'waw_rope/rope_material')
             self.assertEqual((project / 'materials/mc/waw_rope/rope_material.json').read_bytes(), source.read_bytes())
 
+    def test_rope_hanging_a_dynent_binds_by_index_and_targetname(self):
+        # Afterwar's test_hanging_corpse / Collingwood: a rope from the world
+        # to a dynent (attach_point_type 1, target_index = dynent index)
+        corpse = dict(type=1, quat=[0, 0, 0.7071068, 0.7071068], origin=[10, 20, 30], xModel='corpse',
+                      targetname='pf_corpse')
+        entry = dict(rope(), attach_point_type1=1, target_ent1='', target_index1=0,
+                     targetname='', flags=0, timeout=0, pos=[1, 0, 0], pos2=[10, 20, 100])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(ValueError, 'outside the map dynents'):
+                self.stage([entry], root)
+            source = root / 'source.json'
+            source.write_text(json.dumps(dict(version=1, constraints=[entry])))
+            constraints.stage(source, root / 'project', [corpse])
+            project = root / 'project'
+            staged = json.loads((project / 'BSP/constraints.json').read_text())['constraints'][0]
+            self.assertEqual((staged['attach_point_type1'], staged['target_index1']), (1, 0))
+            (project / 'BSP/dynents.json').write_text(json.dumps({'version': 1, 'dynents': [corpse]}))
+            (project / 'BSP/entities.json').write_text(json.dumps({'entities': []}))
+            (project / 'materials').mkdir()
+            (project / 'materials/rope_material.json').write_text('{}')
+            constraints.stage_entities(project)
+            out = json.loads((project / 'BSP/entities.json').read_text())['entities']
+            end = next(e for e in out if e['classname'] == 'info_null')
+            # yaw 90: the dynent's local +x is world +y
+            self.assertEqual([round(float(v), 4) for v in end['origin'].split()], [10, 21, 30])
+            self.assertEqual(end['target'], 'pf_corpse')
+
 
 if __name__ == '__main__':
     unittest.main()

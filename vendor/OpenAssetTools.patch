@@ -1,5 +1,5 @@
 diff --git a/src/Common/Game/T4/T4_Assets.h b/src/Common/Game/T4/T4_Assets.h
-index 4b572bf..487d8ae 100644
+index 4b572bfd..487d8ae5 100644
 --- a/src/Common/Game/T4/T4_Assets.h
 +++ b/src/Common/Game/T4/T4_Assets.h
 @@ -1774,11 +1774,11 @@ namespace T4
@@ -38,10 +38,10 @@ index 4b572bf..487d8ae 100644
  
      struct snd_alias_list_t
 diff --git a/src/ObjCommon/XModel/JsonXModel.h.template b/src/ObjCommon/XModel/JsonXModel.h.template
-index 124fd59..fbdba09 100644
+index 124fd59e..ff4228ad 100644
 --- a/src/ObjCommon/XModel/JsonXModel.h.template
 +++ b/src/ObjCommon/XModel/JsonXModel.h.template
-@@ -55,6 +55,32 @@ namespace GAME
+@@ -55,6 +55,78 @@ namespace GAME
          {JsonXModelType::VIEWHANDS, "viewhands" }
      });
  
@@ -71,235 +71,81 @@ index 124fd59..fbdba09 100644
 +
 +    NLOHMANN_DEFINE_TYPE_EXTENSION(JsonXModelCollSurf, tris, mins, maxs, bone, contents, surfFlags);
 +
++    // Physics geometry (PhysGeomList / PhysGeomInfo): dynents and launched
++    // models simulate with it. Brush geoms keep their planes and corners;
++    // sides carry the source material number. waw2bo2 addition.
++    class JsonXModelPhysBrushSide
++    {
++    public:
++        std::vector<float> plane;
++        int materialNum;
++    };
++
++    NLOHMANN_DEFINE_TYPE_EXTENSION(JsonXModelPhysBrushSide, plane, materialNum);
++
++    class JsonXModelPhysBrush
++    {
++    public:
++        std::vector<float> mins;
++        std::vector<float> maxs;
++        int contents;
++        std::vector<int> axialMaterialNum;
++        std::vector<JsonXModelPhysBrushSide> sides;
++        std::vector<float> verts;
++    };
++
++    NLOHMANN_DEFINE_TYPE_EXTENSION(JsonXModelPhysBrush, mins, maxs, contents, axialMaterialNum, sides, verts);
++
++    class JsonXModelPhysGeom
++    {
++    public:
++        int type;
++        std::vector<float> orientation;
++        std::vector<float> offset;
++        std::vector<float> halfLengths;
++        std::optional<JsonXModelPhysBrush> brush;
++    };
++
++    NLOHMANN_DEFINE_TYPE_EXTENSION(JsonXModelPhysGeom, type, orientation, offset, halfLengths, brush);
++
++    class JsonXModelPhysGeomList
++    {
++    public:
++        std::vector<JsonXModelPhysGeom> geoms;
++        std::vector<float> centerOfMass;
++    };
++
++    NLOHMANN_DEFINE_TYPE_EXTENSION(JsonXModelPhysGeomList, geoms, centerOfMass);
++
      class JsonXModel
      {
      public:
-@@ -73,6 +99,8 @@ namespace GAME
+@@ -73,6 +145,10 @@ namespace GAME
          float lightingOriginRange;
  #endif
          unsigned flags;
 +        std::optional<std::vector<JsonXModelCollSurf>> collSurfs;
 +        std::optional<int> contents;
++        std::optional<JsonXModelPhysGeomList> physGeoms;
++        std::optional<JsonXModelPhysGeomList> physCollmapGeoms;
      };
  
      NLOHMANN_DEFINE_TYPE_EXTENSION(
-@@ -91,6 +119,8 @@ namespace GAME
+@@ -91,6 +167,10 @@ namespace GAME
          lightingOriginOffset,
          lightingOriginRange,
  #endif
 -        flags
 +        flags,
 +        collSurfs,
-+        contents
++        contents,
++        physGeoms,
++        physCollmapGeoms
      );
  } // namespace GAME
-diff --git a/src/ObjWriting/Game/T4/ObjWriterT4.cpp b/src/ObjWriting/Game/T4/ObjWriterT4.cpp
-index de5cd74..98f85e0 100644
---- a/src/ObjWriting/Game/T4/ObjWriterT4.cpp
-+++ b/src/ObjWriting/Game/T4/ObjWriterT4.cpp
-@@ -1,8 +1,10 @@
- #include "ObjWriterT4.h"
- 
-+#include "Fx/FxJsonDumperT4.h"
- #include "Game/T4/Font/FontDumperT4.h"
- #include "Game/T4/Image/ImageDumperT4.h"
- #include "Game/T4/Maps/MapEntsDumperT4.h"
-+#include "Game/T4/Maps/WorldConverterDumperT4.h"
- #include "Game/T4/Material/MaterialJsonDumperT4.h"
- #include "Game/T4/XAnim/XAnimDumperT4.h"
- #include "Game/T4/XModel/XModelDumperT4.h"
-@@ -11,6 +13,7 @@
- #include "PhysPreset/PhysPresetInfoStringDumperT4.h"
- #include "RawFile/RawFileDumperT4.h"
- #include "Sound/LoadedSoundDumperT4.h"
-+#include "Sound/SoundAliasJsonDumperT4.h"
- #include "StringTable/StringTableDumperT4.h"
- #include "Weapon/WeaponDumperT4.h"
- 
-@@ -25,10 +28,18 @@ void ObjWriter::RegisterAssetDumpers(AssetDumpingContext& context)
-     RegisterAssetDumper(std::make_unique<material::JsonDumperT4>());
-     RegisterAssetDumper(std::make_unique<image::DumperT4>());
-     RegisterAssetDumper(std::make_unique<sound::LoadedSoundDumperT4>());
-+    RegisterAssetDumper(std::make_unique<sound::AliasJsonDumperT4>());
-+    RegisterAssetDumper(std::make_unique<sound::DriverGlobalsJsonDumperT4>());
-     RegisterAssetDumper(std::make_unique<map_ents::DumperT4>());
-+    RegisterAssetDumper(std::make_unique<world_converter::GfxWorldDumperT4>());
-+    RegisterAssetDumper(std::make_unique<world_converter::ComWorldDumperT4>());
-+    RegisterAssetDumper(std::make_unique<world_converter::LightDefDumperT4>());
-+    RegisterAssetDumper(std::make_unique<world_converter::ClipMapDumperT4>());
-+    RegisterAssetDumper(std::make_unique<world_converter::PathDataDumperT4>());
-     RegisterAssetDumper(std::make_unique<font::JsonDumperT4>());
-     RegisterAssetDumper(std::make_unique<localize::DumperT4>());
-     RegisterAssetDumper(std::make_unique<weapon::DumperT4>());
-     RegisterAssetDumper(std::make_unique<raw_file::DumperT4>());
-+    RegisterAssetDumper(std::make_unique<fx::JsonDumperT4>());
-     RegisterAssetDumper(std::make_unique<string_table::DumperT4>());
- }
-diff --git a/src/ObjWriting/Material/MaterialJsonDumper.cpp.template b/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
-index 592e20e..1ba27c2 100644
---- a/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
-+++ b/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
-@@ -381,6 +381,75 @@ namespace material
-             return;
- 
-         const auto* material = asset.Asset();
-+#if defined(FEATURE_T4)
-+        // Preserve native shader bytecode for measured cross-engine translation.
-+        if (material->techniqueSet)
-+        {
-+            nlohmann::json sourceSet;
-+            sourceSet["name"] = material->techniqueSet->name;
-+            sourceSet["techniques"] = nlohmann::json::array();
-+            for (const auto* technique : material->techniqueSet->techniques)
-+            {
-+                nlohmann::json techJs = nlohmann::json::object();
-+                if (!technique)
-+                {
-+                    sourceSet["techniques"].push_back(techJs);
-+                    continue;
-+                }
-+                techJs["name"] = technique->name;
-+                techJs["passes"] = nlohmann::json::array();
-+                for (unsigned p = 0; p < technique->passCount; ++p)
-+                {
-+                    const auto& pass = technique->passArray[p];
-+                    nlohmann::json passJs;
-+                    passJs["pixelShader"] = pass.pixelShader ? pass.pixelShader->name : "";
-+                    passJs["vertexShader"] = pass.vertexShader ? pass.vertexShader->name : "";
-+                    passJs["args"] = nlohmann::json::array();
-+                    const unsigned count = pass.perPrimArgCount + pass.perObjArgCount + pass.stableArgCount;
-+                    for (unsigned a = 0; a < count; ++a)
-+                    {
-+                        const auto& arg = pass.args[a];
-+                        nlohmann::json aj;
-+                        aj["type"] = arg.type;
-+                        aj["dest"] = arg.dest;
-+                        aj["frequency"] = a < pass.perPrimArgCount ? 0 : a < static_cast<unsigned>(pass.perPrimArgCount + pass.perObjArgCount) ? 1 : 2;
-+                        if (arg.type == MTL_ARG_LITERAL_VERTEX_CONST || arg.type == MTL_ARG_LITERAL_PIXEL_CONST)
-+                            aj["literal"] = {(*arg.u.literalConst)[0], (*arg.u.literalConst)[1], (*arg.u.literalConst)[2], (*arg.u.literalConst)[3]};
-+                        else if (arg.type == MTL_ARG_CODE_VERTEX_CONST || arg.type == MTL_ARG_CODE_PIXEL_CONST)
-+                        {
-+                            aj["index"] = arg.u.codeConst.index;
-+                            aj["firstRow"] = arg.u.codeConst.firstRow;
-+                            aj["rowCount"] = arg.u.codeConst.rowCount;
-+                        }
-+                        else
-+                            aj["value"] = arg.u.nameHash;
-+                        passJs["args"].push_back(aj);
-+                    }
-+                    techJs["passes"].push_back(passJs);
-+                    const auto* shader = technique->passArray[p].pixelShader;
-+                    if (shader && shader->name && shader->prog.loadDef.program)
-+                    {
-+                        const auto file = context.OpenAssetFile(std::string("shader_bin/ps_") + shader->name + ".cso");
-+                        if (file)
-+                            file->write(reinterpret_cast<const char*>(shader->prog.loadDef.program),
-+                                        shader->prog.loadDef.programSize * sizeof(unsigned int));
-+                    }
-+                    const auto* vertexShader = technique->passArray[p].vertexShader;
-+                    if (vertexShader && vertexShader->name && vertexShader->prog.loadDef.program)
-+                    {
-+                        const auto file = context.OpenAssetFile(std::string("shader_bin/vs_") + vertexShader->name + ".cso");
-+                        if (file)
-+                            file->write(reinterpret_cast<const char*>(vertexShader->prog.loadDef.program),
-+                                        vertexShader->prog.loadDef.programSize * sizeof(unsigned int));
-+                    }
-+                }
-+                sourceSet["techniques"].push_back(techJs);
-+            }
-+            const auto sourceFile = context.OpenAssetFile(std::string("waw_techniquesets/") + material->techniqueSet->name + ".json");
-+            if (sourceFile)
-+                *sourceFile << sourceSet.dump(2);
-+        }
-+#endif
- #if defined(FEATURE_T5)
-         assert(material->info.gameFlags < 0x400);
-         assert(material->maxStreamedMips == 0);
-diff --git a/src/ObjWriting/XModel/XModelDumper.cpp.template b/src/ObjWriting/XModel/XModelDumper.cpp.template
-index 9398f998..c5c4e05a 100644
---- a/src/ObjWriting/XModel/XModelDumper.cpp.template
-+++ b/src/ObjWriting/XModel/XModelDumper.cpp.template
-@@ -393,6 +393,39 @@ namespace
-             jXModel.lods.emplace_back(std::move(lod));
-         }
- 
-+#if defined(FEATURE_T4)
-+        // waw2bo2: the model's collision triangles, losslessly (identical T6 layout).
-+        // Entities (script_model, brush-less props) collide through them.
-+        jXModel.contents = model.contents;
-+        if (model.collSurfs && model.numCollSurfs > 0)
-+        {
-+            std::vector<JsonXModelCollSurf> surfs;
-+            for (auto s = 0; s < model.numCollSurfs; s++)
-+            {
-+                const auto& surf = model.collSurfs[s];
-+                JsonXModelCollSurf jSurf;
-+                jSurf.mins.assign(surf.mins, surf.mins + 3);
-+                jSurf.maxs.assign(surf.maxs, surf.maxs + 3);
-+                jSurf.contents = surf.contents;
-+                jSurf.surfFlags = surf.surfFlags;
-+                if (model.boneNames && surf.boneIdx >= 0 && surf.boneIdx < model.numBones
-+                    && model.boneNames[surf.boneIdx] < context.m_zone.m_script_strings.Count())
-+                    jSurf.bone = context.m_zone.m_script_strings[model.boneNames[surf.boneIdx]];
-+                for (auto t = 0; t < surf.numCollTris; t++)
-+                {
-+                    const auto& tri = surf.collTris[t];
-+                    JsonXModelCollTri jTri;
-+                    jTri.plane.assign(tri.plane, tri.plane + 4);
-+                    jTri.svec.assign(tri.svec, tri.svec + 4);
-+                    jTri.tvec.assign(tri.tvec, tri.tvec + 4);
-+                    jSurf.tris.emplace_back(std::move(jTri));
-+                }
-+                surfs.emplace_back(std::move(jSurf));
-+            }
-+            jXModel.collSurfs = std::move(surfs);
-+        }
-+#endif
-+
-         if (model.physPreset && model.physPreset->name)
-             jXModel.physPreset = AssetName(model.physPreset->name);
- 
-@@ -427,7 +460,36 @@ namespace
-         JsonXModel jsonXModel;
-         CreateJsonXModel(context, jsonXModel, model);
-         nlohmann::json jRoot = jsonXModel;
--
-+#if defined(FEATURE_T4)
-+        // Preserve authored hitboxes, including bones without visible geometry
-+        // (headless bodies with collision-disabled head attachments).
-+        static constexpr const char* hitlocNames[]{
-+            "none", "helmet", "head", "neck", "torso_upper", "torso_lower",
-+            "right_arm_upper", "left_arm_upper", "right_arm_lower", "left_arm_lower",
-+            "right_hand", "left_hand", "right_leg_upper", "left_leg_upper",
-+            "right_leg_lower", "left_leg_lower", "right_foot", "left_foot", "gun"
-+        };
-+        static_assert(std::size(hitlocNames) == HITLOC_COUNT);
-+        if (model.boneInfo && model.boneNames)
-+        {
-+            jRoot["boneInfo"] = nlohmann::json::array();
-+            for (auto bone = 0u; bone < model.numBones; ++bone)
-+            {
-+                if (model.boneNames[bone] >= context.m_zone.m_script_strings.Count())
-+                    continue;
-+                const auto& info = model.boneInfo[bone];
-+                const auto hitloc = model.partClassification ? model.partClassification[bone] : HITLOC_NONE;
-+                jRoot["boneInfo"].push_back({
-+                    {"bone", context.m_zone.m_script_strings[model.boneNames[bone]]},
-+                    {"mins", {info.bounds[0].x, info.bounds[0].y, info.bounds[0].z}},
-+                    {"maxs", {info.bounds[1].x, info.bounds[1].y, info.bounds[1].z}},
-+                    {"offset", {info.offset.x, info.offset.y, info.offset.z}},
-+                    {"radiusSquared", info.radiusSquared},
-+                    {"hitloc", hitlocNames[hitloc < HITLOC_COUNT ? hitloc : HITLOC_NONE]}
-+                });
-+            }
-+        }
-+#endif
-         jRoot["$schema"] = "http://openassettools.dev/schema/xmodel.v1.json";
-         jRoot["_type"] = "xmodel";
-         jRoot["_version"] = 2;
 diff --git a/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp
 new file mode 100644
-index 0000000..1d86b29
+index 00000000..1d86b29c
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp
 @@ -0,0 +1,221 @@
@@ -526,7 +372,7 @@ index 0000000..1d86b29
 +} // namespace fx
 diff --git a/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h
 new file mode 100644
-index 0000000..c04a708
+index 00000000..c04a7086
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.h
 @@ -0,0 +1,16 @@
@@ -548,10 +394,10 @@ index 0000000..c04a708
 +} // namespace fx
 diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
 new file mode 100644
-index 0000000..e6b3211
+index 00000000..5bc4d5c5
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
-@@ -0,0 +1,578 @@
+@@ -0,0 +1,628 @@
 +#include "WorldConverterDumperT4.h"
 +
 +#include <array>
@@ -836,6 +682,56 @@ index 0000000..e6b3211
 +                entries.push_back(std::move(j));
 +            }
 +            *constraintFile << nlohmann::json({{"version",1},{"constraints",entries}}).dump(2);
++        }
++
++        // Map dynamic entities (physics clutter and destructibles), per draw
++        // list: 0 draws an xmodel, 1 a brush model. Constraints name them by
++        // (list, index) through attach_point_type 1 / target_index.
++        const auto dynentFile = context.OpenAssetFile(OutputName(asset.m_name, ".dynents.json"));
++        if (dynentFile) {
++            const auto& strings = context.m_zone.m_script_strings;
++            const auto str = [&strings](unsigned id) { return id && id < strings.Count() ? strings.Value(id) : std::string(); };
++            const auto vec = [](const float* v, int n) { nlohmann::json a = nlohmann::json::array(); for(int k=0;k<n;k++) a.push_back(v[k]); return a; };
++            nlohmann::json lists = nlohmann::json::array();
++            for (int list = 0; list < 2; list++) {
++                nlohmann::json entries = nlohmann::json::array();
++                const auto* defs = clip->dynEntDefList[list];
++                for (int i = 0; defs && i < clip->dynEntCount[list]; i++) {
++                    const auto& d = defs[i];
++                    nlohmann::json preset = nullptr;
++                    if (d.physPreset) {
++                        const auto& p = *d.physPreset;
++                        preset = {{"name",p.name?p.name:""},{"type",p.type},{"mass",p.mass},{"bounce",p.bounce},
++                            {"friction",p.friction},{"bulletForceScale",p.bulletForceScale},
++                            {"explosiveForceScale",p.explosiveForceScale},{"sndAliasPrefix",p.sndAliasPrefix?p.sndAliasPrefix:""},
++                            {"piecesSpreadFraction",p.piecesSpreadFraction},{"piecesUpwardVelocity",p.piecesUpwardVelocity},
++                            {"canFloat",p.canFloat},{"gravityScale",p.gravityScale}};
++                    }
++                    nlohmann::json pieces = nullptr;
++                    if (d.destroyPieces) {
++                        nlohmann::json parts = nlohmann::json::array();
++                        for (int k = 0; k < d.destroyPieces->numpieces; k++) {
++                            const auto& piece = d.destroyPieces->pieces[k];
++                            parts.push_back({{"model",piece.model&&piece.model->name?piece.model->name:""},{"offset",vec(piece.offset,3)}});
++                        }
++                        pieces = {{"name",d.destroyPieces->name?d.destroyPieces->name:""},{"pieces",parts}};
++                    }
++                    nlohmann::json constraints = nlohmann::json::array();
++                    for (int k = 0; k < 4; k++) constraints.push_back(static_cast<int>(d.physConstraints[k]));
++                    entries.push_back({{"type",static_cast<int>(d.type)},
++                        {"quat",vec(d.pose.quat,4)},{"origin",vec(d.pose.origin,3)},
++                        {"xModel",d.xModel&&d.xModel->name?d.xModel->name:""},
++                        {"brushModel",d.brushModel},{"physicsBrushModel",d.physicsBrushModel},
++                        {"destroyFx",d.destroyFx&&d.destroyFx->name?d.destroyFx->name:""},
++                        {"destroyPieces",pieces},{"physPreset",preset},{"physConstraints",constraints},
++                        {"health",d.health},{"centerOfMass",vec(d.mass.centerOfMass,3)},
++                        {"flags",d.flags},{"contents",d.contents},{"targetname",str(d.targetname)}});
++                }
++                lists.push_back(std::move(entries));
++            }
++            *dynentFile << nlohmann::json({{"version",1},{"originalDynEntCount",clip->originalDynEntCount},
++                {"dynEntCount",{clip->dynEntCount[0],clip->dynEntCount[1],clip->dynEntCount[2],clip->dynEntCount[3]}},
++                {"lists",lists}}).dump(2);
 +        }
 +
 +        const auto file = context.OpenAssetFile(OutputName(asset.m_name, ".clip.bin"));
@@ -1132,7 +1028,7 @@ index 0000000..e6b3211
 +} // namespace world_converter
 diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h
 new file mode 100644
-index 0000000..4d755f6
+index 00000000..4d755f6e
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.h
 @@ -0,0 +1,37 @@
@@ -1173,9 +1069,51 @@ index 0000000..4d755f6
 +        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::GameWorldSp>& asset) override;
 +    };
 +} // namespace world_converter
+diff --git a/src/ObjWriting/Game/T4/ObjWriterT4.cpp b/src/ObjWriting/Game/T4/ObjWriterT4.cpp
+index de5cd741..98f85e01 100644
+--- a/src/ObjWriting/Game/T4/ObjWriterT4.cpp
++++ b/src/ObjWriting/Game/T4/ObjWriterT4.cpp
+@@ -1,8 +1,10 @@
+ #include "ObjWriterT4.h"
+ 
++#include "Fx/FxJsonDumperT4.h"
+ #include "Game/T4/Font/FontDumperT4.h"
+ #include "Game/T4/Image/ImageDumperT4.h"
+ #include "Game/T4/Maps/MapEntsDumperT4.h"
++#include "Game/T4/Maps/WorldConverterDumperT4.h"
+ #include "Game/T4/Material/MaterialJsonDumperT4.h"
+ #include "Game/T4/XAnim/XAnimDumperT4.h"
+ #include "Game/T4/XModel/XModelDumperT4.h"
+@@ -11,6 +13,7 @@
+ #include "PhysPreset/PhysPresetInfoStringDumperT4.h"
+ #include "RawFile/RawFileDumperT4.h"
+ #include "Sound/LoadedSoundDumperT4.h"
++#include "Sound/SoundAliasJsonDumperT4.h"
+ #include "StringTable/StringTableDumperT4.h"
+ #include "Weapon/WeaponDumperT4.h"
+ 
+@@ -25,10 +28,18 @@ void ObjWriter::RegisterAssetDumpers(AssetDumpingContext& context)
+     RegisterAssetDumper(std::make_unique<material::JsonDumperT4>());
+     RegisterAssetDumper(std::make_unique<image::DumperT4>());
+     RegisterAssetDumper(std::make_unique<sound::LoadedSoundDumperT4>());
++    RegisterAssetDumper(std::make_unique<sound::AliasJsonDumperT4>());
++    RegisterAssetDumper(std::make_unique<sound::DriverGlobalsJsonDumperT4>());
+     RegisterAssetDumper(std::make_unique<map_ents::DumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::GfxWorldDumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::ComWorldDumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::LightDefDumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::ClipMapDumperT4>());
++    RegisterAssetDumper(std::make_unique<world_converter::PathDataDumperT4>());
+     RegisterAssetDumper(std::make_unique<font::JsonDumperT4>());
+     RegisterAssetDumper(std::make_unique<localize::DumperT4>());
+     RegisterAssetDumper(std::make_unique<weapon::DumperT4>());
+     RegisterAssetDumper(std::make_unique<raw_file::DumperT4>());
++    RegisterAssetDumper(std::make_unique<fx::JsonDumperT4>());
+     RegisterAssetDumper(std::make_unique<string_table::DumperT4>());
+ }
 diff --git a/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp
 new file mode 100644
-index 0000000..59edb7d
+index 00000000..59edb7d1
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp
 @@ -0,0 +1,114 @@
@@ -1295,7 +1233,7 @@ index 0000000..59edb7d
 +}
 diff --git a/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h
 new file mode 100644
-index 0000000..64ce35b
+index 00000000..64ce35b2
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.h
 @@ -0,0 +1,17 @@
@@ -1316,3 +1254,211 @@ index 0000000..64ce35b
 +        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::snd_alias_list_t>& asset) override;
 +    };
 +}
+diff --git a/src/ObjWriting/Material/MaterialJsonDumper.cpp.template b/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
+index 592e20e3..1ba27c20 100644
+--- a/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
++++ b/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
+@@ -381,6 +381,75 @@ namespace material
+             return;
+ 
+         const auto* material = asset.Asset();
++#if defined(FEATURE_T4)
++        // Preserve native shader bytecode for measured cross-engine translation.
++        if (material->techniqueSet)
++        {
++            nlohmann::json sourceSet;
++            sourceSet["name"] = material->techniqueSet->name;
++            sourceSet["techniques"] = nlohmann::json::array();
++            for (const auto* technique : material->techniqueSet->techniques)
++            {
++                nlohmann::json techJs = nlohmann::json::object();
++                if (!technique)
++                {
++                    sourceSet["techniques"].push_back(techJs);
++                    continue;
++                }
++                techJs["name"] = technique->name;
++                techJs["passes"] = nlohmann::json::array();
++                for (unsigned p = 0; p < technique->passCount; ++p)
++                {
++                    const auto& pass = technique->passArray[p];
++                    nlohmann::json passJs;
++                    passJs["pixelShader"] = pass.pixelShader ? pass.pixelShader->name : "";
++                    passJs["vertexShader"] = pass.vertexShader ? pass.vertexShader->name : "";
++                    passJs["args"] = nlohmann::json::array();
++                    const unsigned count = pass.perPrimArgCount + pass.perObjArgCount + pass.stableArgCount;
++                    for (unsigned a = 0; a < count; ++a)
++                    {
++                        const auto& arg = pass.args[a];
++                        nlohmann::json aj;
++                        aj["type"] = arg.type;
++                        aj["dest"] = arg.dest;
++                        aj["frequency"] = a < pass.perPrimArgCount ? 0 : a < static_cast<unsigned>(pass.perPrimArgCount + pass.perObjArgCount) ? 1 : 2;
++                        if (arg.type == MTL_ARG_LITERAL_VERTEX_CONST || arg.type == MTL_ARG_LITERAL_PIXEL_CONST)
++                            aj["literal"] = {(*arg.u.literalConst)[0], (*arg.u.literalConst)[1], (*arg.u.literalConst)[2], (*arg.u.literalConst)[3]};
++                        else if (arg.type == MTL_ARG_CODE_VERTEX_CONST || arg.type == MTL_ARG_CODE_PIXEL_CONST)
++                        {
++                            aj["index"] = arg.u.codeConst.index;
++                            aj["firstRow"] = arg.u.codeConst.firstRow;
++                            aj["rowCount"] = arg.u.codeConst.rowCount;
++                        }
++                        else
++                            aj["value"] = arg.u.nameHash;
++                        passJs["args"].push_back(aj);
++                    }
++                    techJs["passes"].push_back(passJs);
++                    const auto* shader = technique->passArray[p].pixelShader;
++                    if (shader && shader->name && shader->prog.loadDef.program)
++                    {
++                        const auto file = context.OpenAssetFile(std::string("shader_bin/ps_") + shader->name + ".cso");
++                        if (file)
++                            file->write(reinterpret_cast<const char*>(shader->prog.loadDef.program),
++                                        shader->prog.loadDef.programSize * sizeof(unsigned int));
++                    }
++                    const auto* vertexShader = technique->passArray[p].vertexShader;
++                    if (vertexShader && vertexShader->name && vertexShader->prog.loadDef.program)
++                    {
++                        const auto file = context.OpenAssetFile(std::string("shader_bin/vs_") + vertexShader->name + ".cso");
++                        if (file)
++                            file->write(reinterpret_cast<const char*>(vertexShader->prog.loadDef.program),
++                                        vertexShader->prog.loadDef.programSize * sizeof(unsigned int));
++                    }
++                }
++                sourceSet["techniques"].push_back(techJs);
++            }
++            const auto sourceFile = context.OpenAssetFile(std::string("waw_techniquesets/") + material->techniqueSet->name + ".json");
++            if (sourceFile)
++                *sourceFile << sourceSet.dump(2);
++        }
++#endif
+ #if defined(FEATURE_T5)
+         assert(material->info.gameFlags < 0x400);
+         assert(material->maxStreamedMips == 0);
+diff --git a/src/ObjWriting/XModel/XModelDumper.cpp.template b/src/ObjWriting/XModel/XModelDumper.cpp.template
+index 9398f998..fb91a168 100644
+--- a/src/ObjWriting/XModel/XModelDumper.cpp.template
++++ b/src/ObjWriting/XModel/XModelDumper.cpp.template
+@@ -393,6 +393,85 @@ namespace
+             jXModel.lods.emplace_back(std::move(lod));
+         }
+ 
++#if defined(FEATURE_T4)
++        // waw2bo2: the model's collision triangles, losslessly (identical T6 layout).
++        // Entities (script_model, brush-less props) collide through them.
++        jXModel.contents = model.contents;
++        if (model.collSurfs && model.numCollSurfs > 0)
++        {
++            std::vector<JsonXModelCollSurf> surfs;
++            for (auto s = 0; s < model.numCollSurfs; s++)
++            {
++                const auto& surf = model.collSurfs[s];
++                JsonXModelCollSurf jSurf;
++                jSurf.mins.assign(surf.mins, surf.mins + 3);
++                jSurf.maxs.assign(surf.maxs, surf.maxs + 3);
++                jSurf.contents = surf.contents;
++                jSurf.surfFlags = surf.surfFlags;
++                if (model.boneNames && surf.boneIdx >= 0 && surf.boneIdx < model.numBones
++                    && model.boneNames[surf.boneIdx] < context.m_zone.m_script_strings.Count())
++                    jSurf.bone = context.m_zone.m_script_strings[model.boneNames[surf.boneIdx]];
++                for (auto t = 0; t < surf.numCollTris; t++)
++                {
++                    const auto& tri = surf.collTris[t];
++                    JsonXModelCollTri jTri;
++                    jTri.plane.assign(tri.plane, tri.plane + 4);
++                    jTri.svec.assign(tri.svec, tri.svec + 4);
++                    jTri.tvec.assign(tri.tvec, tri.tvec + 4);
++                    jSurf.tris.emplace_back(std::move(jTri));
++                }
++                surfs.emplace_back(std::move(jSurf));
++            }
++            jXModel.collSurfs = std::move(surfs);
++        }
++
++        // waw2bo2: physics geometry (dynents, launched models), losslessly.
++        const auto physList = [](const PhysGeomList* list)
++        {
++            JsonXModelPhysGeomList jList;
++            jList.centerOfMass.assign(list->mass.centerOfMass, list->mass.centerOfMass + 3);
++            for (auto g = 0u; list->geoms && g < list->count; g++)
++            {
++                const auto& geom = list->geoms[g];
++                JsonXModelPhysGeom jGeom;
++                jGeom.type = geom.type;
++                for (auto r = 0; r < 3; r++)
++                    jGeom.orientation.insert(jGeom.orientation.end(), geom.orientation[r], geom.orientation[r] + 3);
++                jGeom.offset.assign(geom.offset, geom.offset + 3);
++                jGeom.halfLengths.assign(geom.halfLengths, geom.halfLengths + 3);
++                if (geom.brush)
++                {
++                    const auto& brush = *geom.brush;
++                    JsonXModelPhysBrush jBrush;
++                    jBrush.mins.assign(brush.mins, brush.mins + 3);
++                    jBrush.maxs.assign(brush.maxs, brush.maxs + 3);
++                    jBrush.contents = brush.contents;
++                    for (auto a = 0; a < 2; a++)
++                        for (auto k = 0; k < 3; k++)
++                            jBrush.axialMaterialNum.push_back(brush.axialMaterialNum[a][k]);
++                    for (auto s = 0u; brush.sides && s < brush.numsides; s++)
++                    {
++                        JsonXModelPhysBrushSide jSide;
++                        const auto* plane = brush.sides[s].plane;
++                        if (plane)
++                            jSide.plane = {plane->normal[0], plane->normal[1], plane->normal[2], plane->dist};
++                        jSide.materialNum = static_cast<int>(brush.sides[s].materialNum);
++                        jBrush.sides.emplace_back(std::move(jSide));
++                    }
++                    for (auto v = 0u; brush.verts && v < brush.numverts; v++)
++                        jBrush.verts.insert(jBrush.verts.end(), brush.verts[v].v, brush.verts[v].v + 3);
++                    jGeom.brush = std::move(jBrush);
++                }
++                jList.geoms.emplace_back(std::move(jGeom));
++            }
++            return jList;
++        };
++        if (model.physGeoms)
++            jXModel.physGeoms = physList(model.physGeoms);
++        if (model.collmap)
++            jXModel.physCollmapGeoms = physList(model.collmap);
++#endif
++
+         if (model.physPreset && model.physPreset->name)
+             jXModel.physPreset = AssetName(model.physPreset->name);
+ 
+@@ -427,7 +506,36 @@ namespace
+         JsonXModel jsonXModel;
+         CreateJsonXModel(context, jsonXModel, model);
+         nlohmann::json jRoot = jsonXModel;
+-
++#if defined(FEATURE_T4)
++        // Preserve authored hitboxes, including bones without visible geometry
++        // (headless bodies with collision-disabled head attachments).
++        static constexpr const char* hitlocNames[]{
++            "none", "helmet", "head", "neck", "torso_upper", "torso_lower",
++            "right_arm_upper", "left_arm_upper", "right_arm_lower", "left_arm_lower",
++            "right_hand", "left_hand", "right_leg_upper", "left_leg_upper",
++            "right_leg_lower", "left_leg_lower", "right_foot", "left_foot", "gun"
++        };
++        static_assert(std::size(hitlocNames) == HITLOC_COUNT);
++        if (model.boneInfo && model.boneNames)
++        {
++            jRoot["boneInfo"] = nlohmann::json::array();
++            for (auto bone = 0u; bone < model.numBones; ++bone)
++            {
++                if (model.boneNames[bone] >= context.m_zone.m_script_strings.Count())
++                    continue;
++                const auto& info = model.boneInfo[bone];
++                const auto hitloc = model.partClassification ? model.partClassification[bone] : HITLOC_NONE;
++                jRoot["boneInfo"].push_back({
++                    {"bone", context.m_zone.m_script_strings[model.boneNames[bone]]},
++                    {"mins", {info.bounds[0].x, info.bounds[0].y, info.bounds[0].z}},
++                    {"maxs", {info.bounds[1].x, info.bounds[1].y, info.bounds[1].z}},
++                    {"offset", {info.offset.x, info.offset.y, info.offset.z}},
++                    {"radiusSquared", info.radiusSquared},
++                    {"hitloc", hitlocNames[hitloc < HITLOC_COUNT ? hitloc : HITLOC_NONE]}
++                });
++            }
++        }
++#endif
+         jRoot["$schema"] = "http://openassettools.dev/schema/xmodel.v1.json";
+         jRoot["_type"] = "xmodel";
+         jRoot["_version"] = 2;
