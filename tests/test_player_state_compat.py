@@ -49,6 +49,18 @@ class ReviveStateTests(unittest.TestCase):
         self.assertIn('if(self.is_drinking > 0) y();', result)
         gsc.parse(result, 'test')
 
+    def test_waw_score_writes_keep_the_persistent_score(self):
+        # T6 restores score from pers["score"] and its scoreboard reads it
+        tokens = gsc.tokenize('f() { self.score += points; if (x) players[i].score = 0; '
+                              'if (self.score >= cost) y(); self.score_total += 1; }')
+        self.assertEqual(gscport.bridge_score_writes(tokens), 2)
+        result = gsc.emit(tokens)
+        self.assertIn('self.score += points; self.pers["score"] = self.score;', result)
+        self.assertIn('players[i].score = 0; players[i].pers["score"] = players[i].score;', result)
+        self.assertIn('if (self.score >= cost) y();', result)
+        self.assertIn('self.score_total += 1;', result)
+        gsc.parse(result, 'test')
+
     def test_unrelated_fields_and_strings_are_unchanged(self):
         source = 'f() { self.other = "being_revived"; if (!self.other) ok(); }'
         tokens = gsc.tokenize(source)

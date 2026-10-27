@@ -54,6 +54,7 @@ ZOMBIEMODE = "maps\\_zombiemode"
 PERKS = "maps\\_zombiemode_perks"
 GAMESKILL = "maps\\_gameskill"
 WEAPONS_FRAMEWORK = "maps\\_zombiemode_weapons"
+SCORE_FRAMEWORK = "maps\\_zombiemode_score"
 # the owned copy of BO2's _zm (stage_bo2_perk_support)
 OWNED_ZM = "maps\\mp\\waw\\_waw2bo2_zm"
 CORE_INCLUDES = ("common_scripts\\utility", "maps\\mp\\_utility", "maps\\mp\\zombies\\_zm_utility")
@@ -557,6 +558,45 @@ def bridge_drinking_flag(tokens: list[gsc.Token]) -> int:
         tokens[j - 2].kind = gsc.PUNCT
         for t in tokens[j - 1:i + 2]:
             t.text = t.pre = ""
+        count += 1
+    return count
+
+
+def bridge_score_writes(tokens: list[gsc.Token]) -> int:
+    """T6 keeps a player's score in pers["score"] too: the scoreboard reads it
+    and a (re)connect restores score from it (BO2's _zm_score writes both).
+    After each WaW statement assigning <player>.score, the persistent copy
+    follows (an idempotent copy, so a braceless if needs no block)."""
+    count = 0
+    for i in range(2, len(tokens) - 2):
+        if tokens[i].low != "score" or tokens[i - 1].text != "." or \
+                tokens[i + 1].text not in ("=", "+=", "-=", "*=", "/=", "++", "--"):
+            continue
+        j, depth = i - 1, 0
+        while j > 0:
+            prev = tokens[j - 1]
+            if depth == 0 and prev.text != "." and not (
+                (prev.kind == gsc.IDENT or prev.text in ("]", ")"))
+                and tokens[j].text in (".", "[")
+            ):
+                break
+            if prev.text in ("]", ")"):
+                depth += 1
+            elif prev.text in ("[", "("):
+                depth -= 1
+            j -= 1
+        receiver = gsc.emit(tokens[j:i - 1]).strip()
+        if not receiver or "(" in receiver:
+            continue
+        end = i + 1
+        depth = 0
+        while end < len(tokens) and not (tokens[end].text == ";" and depth == 0):
+            depth += tokens[end].text in ("(", "[")
+            depth -= tokens[end].text in (")", "]")
+            end += 1
+        if end >= len(tokens):
+            continue
+        tokens[end].text = f'; {receiver}.pers["score"] = {receiver}.score;'
         count += 1
     return count
 
@@ -1452,6 +1492,7 @@ class Translator:
         self.report.rewrites["WaW being_revived reads bridged to T6 revive state"] += bridge_revive_reads(tokens)
         self.report.rewrites["WaW session stat reads bridged to T6 counters"] += bridge_player_stat_reads(tokens)
         self.report.rewrites["WaW is_drinking flag bridged to BO2's drink counter"] += bridge_drinking_flag(tokens)
+        self.report.rewrites["WaW score writes keep T6's persistent score"] += bridge_score_writes(tokens)
         self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
         self.report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += mirror_team_zombie_vars(tokens)
@@ -1826,6 +1867,45 @@ class Translator:
         self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=ZOMBIEMODE)
         self.report.extracted.append(f"{ZOMBIEMODE}::main (spawner lists)")
+        self.level_state_parts.append(gsc.emit(tokens))
+        return name
+
+    def extract_player_connect_fields(self) -> str | None:
+        """The player fields _zombiemode::onPlayerConnect assigns on each
+        connecting player (entity_num the map's VO and weapon code index by,
+        its starting score, score_total/old_score its scorer reads, ...), as a
+        connect loop of their own. BO2's gametype owns the rest of connect.
+        Returns the CORE function to thread before players connect."""
+        script = self.sources.get(ZOMBIEMODE)
+        fn = script.functions.get("onplayerconnect") if script is not None else None
+        if fn is None:
+            return None
+        toks = script.tokens
+        loop_var, kept = None, []
+        for i in range(fn.body_open, fn.body_close - 6):
+            if [t.low for t in toks[i:i + 4]] == ["level", "waittill", "(", '"connecting"'] and \
+                    toks[i + 4].text == "," and toks[i + 5].kind == gsc.IDENT:
+                loop_var = toks[i + 5].low
+                start = gsc._match(toks, i + 2, "(", ")") + 2   # after "...);"
+                end = next(k for k in range(start, fn.body_close) if toks[k].text == "}")
+                for a, b in top_level_statements(toks, start - 1, end):
+                    stmt = toks[a:b]
+                    if len(stmt) > 4 and stmt[0].low == loop_var and stmt[1].text == "." and stmt[3].text == "=" \
+                            and not any(t.low in ("thread", "waittill", "wait") for t in stmt):
+                        kept += [gsc.Token(s.kind, s.text, s.pre, s.line) for s in stmt]
+                break
+        if not kept:
+            return None
+        name = "zombiemode__onplayerconnect_fields"
+        body = gsc.tokenize(f'{name}()\n{{\n\tfor ( ;; )\n\t{{\n\t\tlevel waittill( "connecting", {loop_var} );\n')[:-1]
+        body[0].pre = f"\n// {ZOMBIEMODE}::onPlayerConnect: the player fields its scripts read\n"
+        tokens = [*body, *kept, *gsc.tokenize("\n\t}\n}\n")]
+        where = self.sources.origin.get(ZOMBIEMODE + ".gsc", ZOMBIEMODE)
+        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
+        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.report.rewrites["WaW score writes keep T6's persistent score"] += bridge_score_writes(tokens)
+        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=ZOMBIEMODE)
+        self.report.extracted.append(f"{ZOMBIEMODE}::onplayerconnect (player fields)")
         self.level_state_parts.append(gsc.emit(tokens))
         return name
 
@@ -3216,6 +3296,16 @@ class Translator:
             self.want(WEAPONS_FRAMEWORK)
             self.pre_calls.insert(0, f"level.waw_include_zombie_weapon = "
                                      f"{ported_path(WEAPONS_FRAMEWORK)}::include_zombie_weapon;")
+        score = self.sources.get(SCORE_FRAMEWORK)
+        if score is not None and "player_add_points" in score.functions:
+            # compat waw_player_add_points: the native AI's kill and hit awards
+            # go to the map's own scorer
+            self.want(SCORE_FRAMEWORK)
+            self.pre_calls.insert(0, f"level.waw_player_add_points = "
+                                     f"{ported_path(SCORE_FRAMEWORK)}::player_add_points;")
+        connect = self.extract_player_connect_fields()
+        if connect:
+            self.pre_calls.insert(0, f"level thread {CORE}::{connect}();")
         pre = "".join(f"\n\t{call}" for call in self.pre_calls)
         if pre:
             pre = "\n\t// the map's functions in place of BO2's, before _zm::init calls them" + pre

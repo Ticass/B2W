@@ -244,7 +244,8 @@
     "maps\\_zombiemode_bowie",
     "maps\\_zombiemode_zone_manager",
     "maps\\_zombiemode_weapons",
-    "maps\\_zombiemode_weapons_sumpf"
+    "maps\\_zombiemode_weapons_sumpf",
+    "maps\\_zombiemode_score"
   ],
   "preserved_template_inits": {
     "doc": "Template map-main lines that set up BO2's counterpart of a WaW framework script the map ports whole (preserved_scripts). The ported script owns the job; the BO2 one would think on the same map entities. Each needs a reason.",

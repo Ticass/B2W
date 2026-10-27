@@ -2443,6 +2443,28 @@ waw_tablelookupistring( table, search_column, search_value, return_column )
     return tablelookupistring( waw_table( table ), search_column, search_value, return_column );
 }
 
+// The native AI's point awards (owned _waw2bo2_spawner) go to the map's own
+// _zombiemode_score::player_add_points for the events WaW scores: a kill and
+// a hit (WaW has one hit event; BO2's light-hit split is its own). Events WaW
+// never scores (BO2 barrier rebuild, power-up grants) stay BO2's.
+waw_player_add_points( event, mod, hit_location, is_dog, zombie_team, damage_weapon )
+{
+    if ( isdefined( level.waw_player_add_points ) )
+    {
+        if ( event == "death" || event == "damage" || event == "damage_ads" )
+        {
+            self [[ level.waw_player_add_points ]]( event, mod, hit_location, is_dog );
+            return;
+        }
+        if ( event == "damage_light" )
+        {
+            self [[ level.waw_player_add_points ]]( "damage", mod, hit_location, is_dog );
+            return;
+        }
+    }
+    self maps\mp\zombies\_zm_score::player_add_points( event, mod, hit_location, is_dog, zombie_team, damage_weapon );
+}
+
 // WaW's isdefined( player.is_drinking ) on BO2's drink counter (0 = idle).
 waw_is_drinking( player )
 {

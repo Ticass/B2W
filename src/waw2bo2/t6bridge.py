@@ -2915,7 +2915,10 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
         gscport.zombieappearance.bind_actor_types(project_root, actor_types)
     report.scripts = port.to_json()
     rule_path = project_root / (scorebehavior.RULES.replace('\\', '/') + '.gsc')
-    rules = None if bo2_stock_perks else scorebehavior.source_rules(sources.get(r'maps\_zombiemode_score'))
+    # The map's whole _zombiemode_score runs (preserved; the native AI's
+    # awards reach it through compat waw_player_add_points), so its perk point
+    # rules are no longer copied into BO2's scorer.
+    rules = None
     if rules:
         rule_sources = copy.copy(sources)
         rule_sources.text = dict(sources.text)

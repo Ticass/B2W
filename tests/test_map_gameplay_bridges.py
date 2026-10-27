@@ -247,6 +247,26 @@ class DamagePreludeTests(unittest.TestCase):
             self.assertNotIn('custom_introscreen', text)
             self.assertNotIn('precache_shaders', text)
 
+    def test_player_connect_fields_come_from_source_onplayerconnect(self):
+        import tempfile
+        from pathlib import Path
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode.gsc').write_text(
+                'onPlayerConnect() { for( ;; ) { level waittill( "connecting", player ); '
+                'player.entity_num = player GetEntityNumber(); player thread onPlayerSpawned(); '
+                'player.score = level.zombie_vars["zombie_score_start"]; player.old_score = player.score; } }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.extract_player_connect_fields(), 'zombiemode__onplayerconnect_fields')
+            text = tr.level_state_parts[-1]
+            self.assertIn('level waittill( "connecting", player );', text)
+            self.assertIn('player.entity_num =', text)
+            self.assertIn('player.pers["score"] = player.score;', text)
+            self.assertIn('player.old_score = player.score;', text)
+            self.assertNotIn('onPlayerSpawned', text)
+
     def test_statement_split_skips_developer_blocks(self):
         # Verruckt round_start: level.chalk_hud1 follows a /# #/ block
         tokens = gscport.gsc.tokenize("{ a = 1; /# b(); #/ level.x = c(); }")

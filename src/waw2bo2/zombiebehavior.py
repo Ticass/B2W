@@ -952,6 +952,9 @@ def stage_native_support(out_root: Path, bo2_root: Path, definition: dict) -> No
     text = waw_drop_rules(gsc.emit(script.tokens), native)
     if core.is_file():
         text = waw_quote_rules(text, native, core.read_text(encoding='utf-8'))
+    # kill and hit points come from the map's own scorer (compat adapter)
+    text = text.replace('maps\\mp\\zombies\\_zm_score::player_add_points(',
+                        'maps\\mp\\waw\\_waw2bo2_compat::waw_player_add_points(')
     dest = out_root / (owned.replace('\\', '/') + '.gsc')
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text('// waw2bo2: native AI with source spawn/speed adapters.\n' + text, encoding='utf-8')
