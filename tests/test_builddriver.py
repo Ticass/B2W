@@ -242,3 +242,18 @@ class ResumeTests(BuildWorkspace, unittest.TestCase):
         path = self.root / 'settings.json'
         Settings(resume=True).save(path)
         self.assertTrue(Settings.load(path).resume)
+
+
+
+class ModFrameworkTests(unittest.TestCase):
+    def test_zct_and_ugx_maps_are_named_not_refused(self):
+        # Yote Tribute ships zct_mod2_mw.iwd; its scripts port like any map's
+        with tempfile.TemporaryDirectory() as tmp:
+            mod = Path(tmp) / 'yote_tribute'
+            mod.mkdir()
+            (mod / 'Zct_mod2_mw.iwd').write_bytes(b'')
+            (mod / 'other.iwd').write_bytes(b'')
+            self.assertEqual(builddriver.mod_frameworks(mod / 'yote_tribute.ff'), ['ZCT'])
+            (mod / 'ugx_mod.iwd').write_bytes(b'')
+            self.assertEqual(builddriver.mod_frameworks(mod / 'yote_tribute.ff'), ['UGX', 'ZCT'])
+            self.assertFalse(hasattr(Settings(), 'allow_zct'))

@@ -203,9 +203,30 @@ def remember(settings: Settings, root: Path | None, outcome: str, error: str = '
         print(f'knowledge: not recorded ({type(exc).__name__}: {exc})', flush=True)
 
 
+def mod_frameworks(fastfile: Path) -> list[str]:
+    """Mod frameworks a map ships beside its fastfile (ZCT's zct_*.iwd, UGX's
+    ugx*.iwd). Their scripts are the map's scripts and port like any other;
+    this only names them in the build log."""
+    folder = Path(fastfile).parent
+    if not folder.is_dir():
+        return []
+    found = set()
+    for path in folder.iterdir():
+        name = path.name.lower()
+        if path.suffix.lower() == '.iwd':
+            if name.startswith('zct'):
+                found.add('ZCT')
+            elif name.startswith('ugx'):
+                found.add('UGX')
+    return sorted(found)
+
+
 def _build(settings: Settings, *, redump: bool = False, root: Path | None = None,
            cache_paths: all2raw.CachePaths | None = None) -> int:
     import os
+    frameworks = mod_frameworks(Path(settings.fastfile)) if settings.fastfile else []
+    if frameworks:
+        print(f"map framework: {', '.join(frameworks)} (its scripts drive the map, like any map's)", flush=True)
     os.environ['WAW2BO2_VERBOSE'] = '1' if settings.verbose else '0'
     paths = BuildPaths.for_settings(settings)
     if root is not None:

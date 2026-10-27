@@ -367,7 +367,8 @@ Installed 2026-10-16 (ff backup `work/shi_no_numa_dlc2/build/installed_backup_20
   get BO-style solo QR (500, self revive, 3 buys). Custom maps lost the old
   automatic solo life. Insta-kill rounds (WaW 32-bit health wrap -> round-1
   health) are a stock policy except Der Riese (user's explicit list).
-- Round count = source `round_spawning` formula as `level.max_zombie_func`.
+- Round count: (obsolete, removed 2026-10-27) was the source `round_spawning` formula lifted into
+  `level.max_zombie_func`. The map's own `round_spawning` now runs and sets `level.zombie_total`.
 - Earlier claim "BO2 does not rotate attached triggers" was wrong (measured).
 - WaW round counter (commit 6f28487): source chalk HUD replaces BO2's 8-bit
   setroundsplayed display and the 255 round clamp on stock maps; WaW chalk

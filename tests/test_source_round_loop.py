@@ -95,6 +95,15 @@ class SourceRoundLoopTests(unittest.TestCase):
         self.assertIn("round_spawn_func = level.round_spawn_func;", core)
         self.assertIn("_waw2bo2_zm::waw2bo2_round_started();", core)
 
+    def test_the_maps_spawning_sets_its_own_count(self):
+        # Yote Tribute: round_spawning sets zombie_total from an expression;
+        # the map's spawning runs as is
+        spawning = ZOMBIEMODE + "round_spawning()\n{\n\tlevel.zombie_total = level.round_number * 6;\n}\n"
+        tr, name, core = self._translate(spawning)
+        self.assertEqual(name, "waw2bo2_source_round_loop")
+        self.assertIn("level.round_spawn_func = ::zombiemode__round_spawning;", core)
+        self.assertFalse(tr.report.unsupported)
+
     def test_a_loop_without_the_anchors_keeps_bo2(self):
         tr, name, _ = self._translate("round_think() { for(;;) { wait( 1 ); } }")
         self.assertIsNone(name)

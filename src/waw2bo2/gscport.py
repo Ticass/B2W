@@ -2039,79 +2039,6 @@ class Translator:
                                       f"\tmaps\\mp\\zombies\\_zm::register_player_damage_callback( ::{name} );\n}}\n")
         return f"{name}_register"
 
-    def extract_round_total(self, core: str = None, function: str = None) -> str | None:
-        """WaW's round_spawning computes the round's zombie count inline
-        (solo stays at zombie_max_ai, ramped by 0.2/0.4/0.6/0.8 on rounds 1-4);
-        BO2's _zm adds its own per-player term and ramp, then asks
-        level.max_zombie_func. The source statements from the first assignment
-        of the variable stored into level.zombie_total up to that store become
-        the BO2 max function, so the map's (or stock) formula decides the count.
-        Returns the registration function's name in CORE."""
-        core = core or ZOMBIEMODE
-        function = function or ROUND_SPAWNING
-        script = self.sources.get(core)
-        fn = script.functions.get(function) if script else None
-        if fn is None:
-            return None
-        toks = script.tokens
-        where = self.sources.origin.get(core + ".gsc", core)
-        spans = top_level_statements(toks, fn.body_open, fn.body_close)
-        store = None
-        for i, (start, end) in enumerate(spans):
-            words = [t.low for t in toks[start:end]]
-            if words[:4] == ["level", ".", "zombie_total", "="] and len(words) == 6 and words[5] == ";" \
-                    and toks[start + 4].kind == gsc.IDENT:
-                store = i
-                break
-        if store is None:
-            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {function} sets no level.zombie_total from a local; the "
-                                      f"source round count formula is not ported")
-            return None
-        total = toks[spans[store][0] + 4].low
-        first = next((i for i, (start, end) in enumerate(spans[:store])
-                      if toks[start].low == total and toks[start + 1].text == "="), None)
-        if first is None:
-            return None
-        # Locals set before the formula (players, count) would be undefined here.
-        earlier = {toks[start].low for start, end in spans[:first]
-                   if toks[start].kind == gsc.IDENT and toks[start + 1].text == "="}
-        body = [t for start, end in spans[first:store] for t in toks[start:end]]
-        used = {t.low for i, t in enumerate(body) if t.kind == gsc.IDENT and (i == 0 or body[i - 1].text != ".")}
-        # A local the formula sets itself before any read, with every use inside
-        # the block holding that assignment, never sees the earlier value
-        # (Verruckt: players = get_players(); in the dog-round branch).
-        for name in sorted(earlier & used):
-            at = [i for i, t in enumerate(body) if t.low == name and (i == 0 or body[i - 1].text != ".")]
-            if body[at[0] + 1].text != "=":
-                continue
-            depth, open_ = 0, None
-            for i in range(at[0] - 1, -1, -1):
-                if body[i].text == "}":
-                    depth += 1
-                elif body[i].text == "{":
-                    if depth == 0:
-                        open_ = i
-                        break
-                    depth -= 1
-            if open_ is not None and at[-1] < gsc._match(body, open_, "{", "}"):
-                used.discard(name)
-        if earlier & used:
-            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {function} count formula reads earlier locals "
-                                      f"{', '.join(sorted(earlier & used))}; not ported")
-            return None
-        name = f"{core.split(chr(92))[-1].lstrip('_')}__{function}_total"
-        source = (f"{name}( bo2_max )\n{{\n" + gsc.emit([gsc.Token(t.kind, t.text, t.pre, t.line) for t in body])
-                  + f"\n\treturn {toks[spans[store][0] + 4].text};\n}}\n")
-        tokens = gsc.tokenize(source)
-        tokens[0].pre = f"\n// {core}::{function}: the source round count formula, as BO2's max_zombie_func\n"
-        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
-        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
-        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
-        self.report.extracted.append(f"{core}::{function} (round count formula -> max_zombie_func)")
-        self.level_state_parts.append(gsc.emit(tokens) + f"\n{name}_register()\n{{\n"
-                                      f"\tlevel.max_zombie_func = ::{name};\n}}\n")
-        return f"{name}_register"
-
     def extract_round_health(self, core: str = None, function: str = None, source_loop: bool = False) -> str | None:
         """WaW's round_spawning calls the framework's health step (stock:
         ai_calculate_health, one increment of level.zombie_health per call).
@@ -3618,10 +3545,8 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         damage_prelude = tr.extract_damage_prelude(core, function)
         if damage_prelude:
             framework_state.append(damage_prelude)
-    round_total = tr.extract_round_total()
-    if round_total:
-        framework_state.append(round_total)
     # WaW drives the rounds: the map's own round loop (its display included)
+    # and its round_spawning, which sets level.zombie_total itself
     round_loop = tr.extract_round_loop()
     if round_loop:
         framework_state.append(round_loop)
