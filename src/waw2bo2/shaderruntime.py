@@ -194,6 +194,23 @@ def pixel_contract(source_assembly, source_pass, native_pass, native_root, sourc
 #  has no T6 field; the T6 world sun PS drives its sun specular with
 #  sunDiffuse (cb0[19] in both its diffuse and specular terms).
 CODE_UNIFORM_ALIASES = {'baseLightingCoords': 'gridLightingCoordsAndVis', 'sunSpecular': 'sunDiffuse'}
+# WaW code matrices T6 binds only the inverse of: rebuilt in the program.
+AFFINE_INVERSES = {'inverseWorldMatrix': 'worldMatrix', 'viewMatrix': 'inverseViewMatrix'}
+
+
+def affine_inverse_row(field, row):
+    """Constant contract for one row of the inverse of the affine matrix in a
+    native uniform ``field`` (buffer, offset, size): adjugate rows over the
+    determinant, translation -A^-1 t; row 3 is (0, 0, 0, 1)."""
+    if row >= 3:
+        return {'expr': 'float4(0, 0, 0, 1)', 'uses': []}
+    m = [f't6_cb{field[0]}[{field[1]//16+i}]' for i in range(3)]
+    columns = [f'float3({m[0]}.{c}, {m[1]}.{c}, {m[2]}.{c})' for c in 'xyz']
+    translation = f'float3({m[0]}.w, {m[1]}.w, {m[2]}.w)'
+    cofactor = f'cross({columns[(row+1)%3]}, {columns[(row+2)%3]})'
+    determinant = f'dot({columns[0]}, cross({columns[1]}, {columns[2]}))'
+    return {'expr': f'float4({cofactor}, -dot({cofactor}, {translation})) / {determinant}',
+            'uses': [[field[0], field[1]//16+i] for i in range(3)]}
 # WaW-only code uniforms with a measured neutral value in T6, where the WaW
 # system they drive does not exist. destructibleParms.z fades vertex alpha
 # of WaW destructible pieces (o.w = v.w - v.w * z); 0 keeps it unchanged.
@@ -265,6 +282,8 @@ SHADOWED_LIT_SLOTS = (8, 14, 19, 25)
 # the technique they extend. They read the surface lightmap too; without a
 # dynamic-light adapter they draw the WaW program of their base technique.
 DLIGHT_BASE_SLOTS = {15: 4, 16: 5, 17: 6, 18: 7, 19: 8, 24: 13, 25: 14}
+# T6 slots from here on are editor/debug views (wireframe, normals, performance).
+DEBUG_SLOTS_START = 32
 # T6 world lit draws bind these per-surface textures at fixed slots, outside
 # the pass arguments (stock world lit programs: lightmap t13, probe t15 cube).
 WORLD_SURFACE_TEXTURE_SLOTS = {'lightmapSamplerSecondary': (13, '2d'), 'reflectionProbeSampler': (15, 'cube')}
@@ -857,6 +876,16 @@ def vertex_contract(source_assembly, source_pass, native_pass, native_root, pair
                 'uses': [[wm[0], wm[1]//16+i] for i in range(3)] +
                         [[iv[0], iv[1]//16+i] for i in range(3)]}
             continue
+        if arg is not None and source_name in AFFINE_INVERSES and source_name not in fields:
+            # WaW's projected decals carry scene points into the decal box
+            # (inverseWorldMatrix, viewMatrix). T6 binds only the opposite
+            # transform: invert its affine part in the program.
+            row = arg.get('firstRow', 0) + int(reg[1:]) - arg['dest']
+            inverse = fields.get(AFFINE_INVERSES[source_name])
+            if not inverse or inverse[2] != 64:
+                raise shaders.ShaderError(f'{source_name} input absent')
+            contract['constants'][reg] = affine_inverse_row(inverse, row)
+            continue
         if arg is not None and source_name in ('clipSpaceLookupScale', 'clipSpaceLookupOffset'):
             # D3D11 pixel centres need no D3D9 half-texel bias. The source
             # computes projected texture coordinates scale*clip + offset*clip.w.
@@ -1395,6 +1424,26 @@ def bind_material(source_material, output_material, roots, project_root, native_
         except shaders.ShaderError as exc:
             result['unsupported'].append(f'slot {slot}: {exc}' + (f' (paired: {paired_error})' if paired_error else ''))
     bound_slots = {a['slot']: a for a in result['active']}
+    if 'projected_decal' in source_material.get('techniqueSet', '') and 4 in bound_slots:
+        # A WaW projected decal's model is the decal volume: any donor pass
+        # draws the box itself. WaW's techset has no depth or shadow pass;
+        # every other drawing slot the adapter cannot carry (sun visibility
+        # with no free varying, light probes) draws the WaW lit pass.
+        entries = output_material.get('stateBitsEntry', [])
+        for slot, technique in enumerate(pristine['techniques'][:DEBUG_SLOTS_START]):
+            # dynamic-light variants take their own base's pass (below)
+            if slot in bound_slots or not technique or slot in DLIGHT_BASE_SLOTS:
+                continue
+            if slot in (0, 1):
+                native['techniques'][slot] = None
+                if slot < len(entries):
+                    entries[slot] = -1
+                result['unsupported'].append(f'slot {slot}: dropped (WaW projected decals cast no depth or shadow)')
+                continue
+            native['techniques'][slot] = copy.deepcopy(native['techniques'][4])
+            bound_slots[slot] = {**bound_slots[4], 'slot': slot, 'decal_base': 4}
+            result['active'].append(bound_slots[slot])
+            result['unsupported'].append(f'slot {slot}: projected decal draws the WaW pass of slot 4')
     for slot, base in DLIGHT_BASE_SLOTS.items():
         if base in bound_slots and pristine['techniques'][slot] and slot not in bound_slots:
             native['techniques'][slot] = copy.deepcopy(native['techniques'][base])

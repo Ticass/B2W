@@ -280,7 +280,10 @@ power_bridge()
 // The map's own zone manager owns level.zones (BO2's never starts). BO2 glue
 // still running (zbarrier windows, its zone lookups) reads the bookkeeping
 // BO2's manager kept beside it: the zone key list, the zones_initialized
-// flag and zone_scanning_active. Mirror the map's zones for those readers.
+// flag and zone_scanning_active, and the active zone names BO2's unitrigger
+// loop waits for (the zbarrier windows' repair triggers never activated
+// without it). Mirror the map's zones for those readers, refreshed every
+// second like BO2's manager does.
 waw_zone_bookkeeping()
 {
     level.zone_scanning_active = 0;
@@ -298,6 +301,8 @@ waw_zone_bookkeeping()
         // a map without zones has an empty key list, not a wait forever
         if ( isdefined( level.zone_keys ) && !flag( "zones_initialized" ) )
             flag_set( "zones_initialized" );
+        if ( isdefined( level.zone_keys ) )
+            level.active_zone_names = maps\mp\zombies\_zm_zonemgr::get_active_zone_names();
         wait 1;
     }
 }

@@ -403,3 +403,31 @@ class HashedMaterialTextureTests(unittest.TestCase):
         self.assertEqual(output['textures'], [texture])
         self.assertEqual(native['stableArgCount'], 1)
         self.assertIsNone(runtime.add_material_texture(native, output, source, 123, ''))
+
+
+class AffineInverseTests(unittest.TestCase):
+    def test_rows_invert_the_native_matrix(self):
+        # WaW projected decals read inverseWorldMatrix / viewMatrix; T6 binds
+        # worldMatrix / inverseViewMatrix, inverted in the program
+        import re
+        import numpy as np
+        rng = np.random.default_rng(3)
+        matrix = np.eye(4)
+        matrix[:3, :3] = rng.normal(size=(3, 3))
+        matrix[:3, 3] = rng.normal(size=3)
+        cb = {f't6_cb1[{4 + i}]': matrix[i] for i in range(4)}
+
+        def evaluate(expr):
+            for name, value in cb.items():
+                expr = expr.replace(name, f'np.array({list(value)})')
+            for c, i in zip('xyzw', range(4)):
+                expr = re.sub(r'(np\.array\(\[[^]]*\]\))\.' + c + r'\b', rf'\1[{i}]', expr)
+            expr = expr.replace('float3', 'F').replace('float4', 'F')
+            return eval(expr, {'np': np, 'cross': np.cross, 'dot': np.dot,
+                               'F': lambda *a: np.hstack([np.atleast_1d(x) for x in a])})
+
+        inverse = np.linalg.inv(matrix)
+        for row in range(4):
+            contract = runtime.affine_inverse_row((1, 64, 64), row)
+            self.assertTrue(np.allclose(evaluate(contract['expr']), inverse[row]))
+        self.assertEqual(runtime.AFFINE_INVERSES['viewMatrix'], 'inverseViewMatrix')

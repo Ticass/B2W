@@ -64,6 +64,16 @@ class HealthLoweringTests(unittest.TestCase):
         self.assertIn("self setmaxhealth( value );", body)
 
 
+class ZoneBookkeepingTests(unittest.TestCase):
+    def test_active_zone_names_feed_bo2_unitriggers(self):
+        # BO2's unitrigger loop waits for level.active_zone_names, which only
+        # BO2's zone manager set: window repair triggers never activated
+        script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
+        fn = script.functions["waw_zone_bookkeeping"]
+        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
+        self.assertIn("level.active_zone_names = maps\\mp\\zombies\\_zm_zonemgr::get_active_zone_names();", body)
+
+
 class HudFieldLoweringTests(unittest.TestCase):
     def test_edge_anchors_use_safe_area_and_hud_hides_in_menus(self):
         source = ('f()\n{\n\thud.alignX = "left";\n\thud.horzAlign = "left";\n\thud.vertAlign = "bottom";\n'
