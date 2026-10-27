@@ -123,12 +123,12 @@ def convert_entities(ents: list[dict[str, str]], project: str,
         ent = dict(ent)
         struct_defaults(ent)
         if cls == "script_struct" and ent.get("targetname") == "exterior_goal" and not ent.get("target"):
-            # A stray goal with no window pieces (School has five). WaW's lookups
-            # of its pieces find nothing; T6's zone_init getentarray(undefined)
-            # is a runtime error that ends the zone manager. An unmatched
-            # target finds nothing in both.
-            ent["target"] = "waw2bo2_exterior_goal_without_target"
-            renamed["exterior_goal without target -> unmatched target"] += 1
+            # A stray goal with no window pieces (School has five). T6's
+            # zone_init getentarray(undefined) is a runtime error that ends the
+            # zone manager, and with any target _zm_blockers builds attack
+            # spots on a window without a zbarrier (endless loop). No window.
+            dropped["exterior_goal without target (a window marker with no window)"] += 1
+            continue
         if cls == "script_struct" and ent.get("targetname") == "exterior_goal":
             # WaW goals target brush planks, a "clip" brush and a struct inside;
             # T6 requires a native zbarrier. The zbarrier joins the goal's

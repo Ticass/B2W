@@ -102,18 +102,18 @@ class SpawnerTests(unittest.TestCase):
                           summary["dropped"])
 
 
-    def test_a_stray_window_goal_gets_a_target_that_finds_nothing(self):
+    def test_a_stray_window_goal_without_a_window_is_dropped(self):
         # School: five exterior_goal structs without a target; T6 zone_init
-        # getentarray(undefined) ended the zone manager
+        # getentarray(undefined) ended the zone manager, and with a target
+        # _zm_blockers looped building attack spots without a zbarrier
         ents = '{\n"classname" "script_struct"\n"targetname" "exterior_goal"\n"origin" "1 2 3"\n}'
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "map.ents"
             path.write_text(ents)
-            entities.write_entities(path, "proj", Path(temp) / "BSP")
+            summary, _ = entities.write_entities(path, "proj", Path(temp) / "BSP")
             out = json.loads((Path(temp) / "BSP/entities.json").read_text())["entities"]
-            goal = next(e for e in out if e.get("targetname") == "exterior_goal")
-            self.assertEqual(goal["target"], "waw2bo2_exterior_goal_without_target")
-            self.assertFalse(any(e.get("targetname") == goal["target"] for e in out))
+            self.assertFalse(any(e.get("targetname") == "exterior_goal" for e in out))
+            self.assertEqual(summary["dropped"]["exterior_goal without target (a window marker with no window)"], 1)
 
 
 class BarrierTests(unittest.TestCase):
