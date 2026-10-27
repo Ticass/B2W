@@ -94,8 +94,8 @@ class PerkOwnershipTests(unittest.TestCase):
                 + gscport.WAW_SELF_DAMAGE_CAP[0] + '    }\n' + gscport.WAW_PLAYER_DAMAGE_SCALE[0] + '}\n'
                 'init_levelvars()\n{\n    set_zombie_var( "zombie_spawn_delay", 2.0, 1, column );\n}\n'
                 'round_spawning()\n{\n' + gscport.WAW_ROUND_HEALTH[0] + '}\n'
-                'callback_playerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint )\n'
-                '{\n    finish();\n}\n')
+                + gscport.WAW_SOURCE_PLAYER_DAMAGE[0] + '    finish();\n}\n'
+                'callback_playerlaststand()\n{\n' + gscport.WAW_SOURCE_PLAYER_LASTSTAND[0] + '}\n')
             out = root / 'out'
             client_stock = self.write_client_stock(root)
             gscport.stage_bo2_perk_support(out, root / 'bo2')
@@ -117,6 +117,10 @@ class PerkOwnershipTests(unittest.TestCase):
             self.assertNotIn('level.put_timed_out_zombies_back_in_queue = 1;', owned_zm)
             # WaW has no out-of-playable-area killer
             self.assertIn('level.player_out_of_playable_area_monitor = 0;', owned_zm)
+            # WaW drives damage and last stand: T6's callbacks run the map's entries
+            self.assertIn('self [[ level.waw2bo2_source_player_damage ]]( einflictor, eattacker, idamage, idflags, '
+                          'smeansofdeath, sweapon, vpoint, vdir, shitloc, undefined, psoffsettime );', owned_zm)
+            self.assertIn('self [[ level.waw2bo2_source_player_laststand ]](', owned_zm)
             self.assertNotIn('perk_machine_spawn_init();', text)
             self.assertNotIn('array_thread(x,::buy)', text)
             self.assertNotIn('unpause_machine();', text)

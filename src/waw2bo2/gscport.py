@@ -450,6 +450,10 @@ WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
     "zombie_treasure_chest_cost", "chest_accessed", "chest_min_move_usage", "open_chest_location",
     "verify_chest", "random_pandora_box_start", "pulls_since_last_ray_gun", "pulls_since_last_tesla_gun",
     "player_drops_tesla_gun", "player_seen_tesla_gun")})
+# The map's own damage and last stand (source_player_damage): BO2's _zm sets
+# the same names to its functions for the BO2 code still running.
+WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
+    "overrideplayerdamage", "playerlaststand_func", "player_becomes_zombie", "laststandpistol")})
 WAW_LEVEL_FIELDS.update({"zones": "waw_zones", "zone_manager_init_func": "waw_zone_manager_init_func",
                          "enemy_dog_locations": "waw_enemy_dog_locations",
                          "enemy_dog_spawns": "waw_enemy_dog_spawns"})
@@ -2039,6 +2043,39 @@ class Translator:
                                       f"\tmaps\\mp\\zombies\\_zm::register_player_damage_callback( ::{name} );\n}}\n")
         return f"{name}_register"
 
+    def extract_source_player_damage(self) -> str | None:
+        """WaW drives player damage and last stand (docs/CONVERT_THE_WHOLE_MAP.md):
+        T6's damage and last stand callbacks run the map's own engine entries,
+        maps\\_callbackglobal Callback_PlayerDamage / Callback_PlayerLastStand,
+        as WaW's engine does. They reach the map's overridePlayerDamage (its down
+        and game-over rules), finishPlayerDamageWrapper and _laststand. The
+        level fields _zombiemode::main points at them (renamed level.waw_*:
+        BO2's _zm sets the same names) and _laststand::init are registered.
+        Returns the registration function's name in CORE (None: BO2's damage
+        and last stand stay, reported)."""
+        script = self.sources.get(CALLBACKGLOBAL)
+        entries = ("callback_playerdamage", "callback_playerlaststand")
+        if script is None or any(entry not in script.functions for entry in entries):
+            self.report.unsupported.setdefault(FALLBACK, []).append(
+                f"{CALLBACKGLOBAL}: no Callback_PlayerDamage/Callback_PlayerLastStand source; "
+                f"BO2's player damage and last stand run")
+            return None
+        damage, laststand = (self.extract_entry(CALLBACKGLOBAL, entry) for entry in entries)
+        lines = [f"\tlevel.waw2bo2_source_player_damage = ::{damage};",
+                 f"\tlevel.waw2bo2_source_player_laststand = ::{laststand};"]
+        state = self.extract_level_state(ZOMBIEMODE, "main", set(SOURCE_DAMAGE_FIELDS))
+        if state:
+            lines.append(f"\t{state}();")
+        init = self.extract_entry(LASTSTAND, "init")
+        if init:
+            lines.append(f"\t{init}();")
+        name = "waw2bo2_source_player_damage"
+        self.level_state_parts.append(
+            f"\n// WaW drives player damage and last stand: the map's engine entries\n{name}()\n{{\n"
+            + "\n".join(lines) + "\n}\n")
+        self.report.rewrites["player damage and last stand -> source (WaW drives)"] += 1
+        return name
+
     def extract_round_health(self, core: str = None, function: str = None, source_loop: bool = False) -> str | None:
         """WaW's round_spawning calls the framework's health step (stock:
         ai_calculate_health, one increment of level.zombie_health per call).
@@ -3595,10 +3632,14 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         respawn_function = tr.extract_entry(respawn_contract['script'], respawn_contract['function'])
     if hint_registry:
         framework_state.append(hint_registry)
-    for core, function in DAMAGE_PRELUDES:
-        damage_prelude = tr.extract_damage_prelude(core, function)
-        if damage_prelude:
-            framework_state.append(damage_prelude)
+    source_damage = tr.extract_source_player_damage()
+    if source_damage:
+        framework_state.append(source_damage)
+    else:
+        for core, function in DAMAGE_PRELUDES:
+            damage_prelude = tr.extract_damage_prelude(core, function)
+            if damage_prelude:
+                framework_state.append(damage_prelude)
     # WaW drives the rounds: the map's own round loop (its display included)
     # and its round_spawning, which sets level.zombie_total itself
     round_loop = tr.extract_round_loop()
@@ -3963,6 +4004,10 @@ DAMAGE_OVERRIDE = "player_damage_override"
 ROUND_SPAWNING = "round_spawning"
 # WaW player damage entry points a map may override with leading rules of its own
 DAMAGE_PRELUDES = [(ZOMBIEMODE, DAMAGE_OVERRIDE), ("maps\\_callbackglobal", "callback_playerdamage")]
+CALLBACKGLOBAL = "maps\\_callbackglobal"
+LASTSTAND = "maps\\_laststand"
+# _zombiemode::main points these at the map's damage and last stand functions
+SOURCE_DAMAGE_FIELDS = ("overrideplayerdamage", "playerlaststand_func", "player_becomes_zombie", "laststandpistol")
 # s: BO2 end_game's intermission wait while a map's own end_game wait runs
 END_GAME_FALLBACK = 30
 
@@ -4426,6 +4471,31 @@ WAW_START_LOCATION = (
 # zombies into rounds the source formula had already counted.
 WAW_FAILSAFE_NO_REQUEUE = ("level.put_timed_out_zombies_back_in_queue = 1;",
                            "level.put_timed_out_zombies_back_in_queue = 0; // waw2bo2: WaW never requeues")
+# WaW drives player damage and last stand (Translator.extract_source_player_damage):
+# T6's callbacks run the map's _callbackglobal entries, whose override finishes
+# the damage itself. WaW's engine applies player_damageMultiplier to non-melee
+# hits before its callback (WAW_PLAYER_DAMAGE_SCALE keeps it for BO2's path).
+WAW_SOURCE_PLAYER_DAMAGE = (
+    "callback_playerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, "
+    "psoffsettime, boneindex )\n{\n",
+    "callback_playerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, "
+    "psoffsettime, boneindex )\n{\n"
+    "    // waw2bo2: WaW drives player damage: the map's Callback_PlayerDamage\n"
+    "    if ( isdefined( level.waw2bo2_source_player_damage ) )\n    {\n"
+    "        if ( isdefined( level.waw2bo2_player_damage_scale ) && idamage > 0 && smeansofdeath != \"MOD_MELEE\"\n"
+    "            && smeansofdeath != \"MOD_FALLING\" && !( isdefined( eattacker ) && isdefined( eattacker.is_zombie ) && eattacker.is_zombie ) )\n"
+    "            idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );\n\n"
+    "        self [[ level.waw2bo2_source_player_damage ]]( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, "
+    "vpoint, vdir, shitloc, undefined, psoffsettime );\n        return;\n    }\n\n")
+WAW_SOURCE_PLAYER_LASTSTAND = (
+    "    [[ maps\\mp\\zombies\\_zm_laststand::playerlaststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
+    "vdir, shitloc, psoffsettime, deathanimduration );\n",
+    "    // waw2bo2: WaW drives last stand: the map's Callback_PlayerLastStand\n"
+    "    if ( isdefined( level.waw2bo2_source_player_laststand ) )\n    {\n"
+    "        self [[ level.waw2bo2_source_player_laststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
+    "vdir, shitloc, psoffsettime, deathanimduration );\n        return;\n    }\n\n"
+    "    [[ maps\\mp\\zombies\\_zm_laststand::playerlaststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
+    "vdir, shitloc, psoffsettime, deathanimduration );\n")
 # WaW has no out-of-playable-area killer: its zones only gate spawning. BO2's
 # per-player monitor is a BO2 game rule, so it never starts.
 WAW_NO_PLAYABLE_AREA_MONITOR = ("level.player_out_of_playable_area_monitor = 1;",
@@ -4841,6 +4911,11 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: b
     if bootstrap.count(WAW_NO_PLAYABLE_AREA_MONITOR[0]) != 1:
         raise ValueError("BO2 server bootstrap playable area monitor changed")
     bootstrap = bootstrap.replace(*WAW_NO_PLAYABLE_AREA_MONITOR)
+    for patch, what in ((WAW_SOURCE_PLAYER_DAMAGE, "player damage callback"),
+                        (WAW_SOURCE_PLAYER_LASTSTAND, "last stand callback")):
+        if bootstrap.count(patch[0]) != 1:
+            raise ValueError(f"BO2 server bootstrap {what} changed")
+        bootstrap = bootstrap.replace(*patch)
     if bootstrap.count(WAW_ROUND_HEALTH[0]) != 1:
         raise ValueError("BO2 server bootstrap round health call changed")
     bootstrap = bootstrap.replace(*WAW_ROUND_HEALTH)

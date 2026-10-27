@@ -57,9 +57,16 @@
         "spawnspectator": "T6 spectator state is the gametype's",
         "store_crumb": "feeds BO2's zombie pathing (the actors are BO2's)",
         "end_game": "T6 game over and its LUI screens",
-        "player_damage_override": "T6 damage callback",
         "main": "the map entry; BO2's gametype starts the game"
       }
+    },
+    "maps\\_laststand": {
+      "doc": "WaW drives last stand: downs, the revive trigger and HUD, bleedout, pistol and weapons. T6's last stand callback runs the map's _callbackglobal entry (source_player_damage).",
+      "glue": {}
+    },
+    "maps\\_callbackglobal": {
+      "doc": "only: the engine damage and last stand entries. T6's own callbacks run the map's (source_player_damage); the rest of WaW's callback setup is the gametype's.",
+      "only": ["callback_playerdamage", "callback_playerlaststand", "finishplayerdamagewrapper"]
     },
     "maps\\_zombiemode_powerups": {
       "doc": "WaW drives the power-ups: drops, models, effects, grab, effects of each power-up (the carpenter through native_argument_adapters on BO2's zbarrier windows), HUD. Entered through native_replacements.",
@@ -292,6 +299,7 @@
   },
   "compat_wrappers": [
     "isnotarget",
+    "finishplayerdamage",
     "precachestring",
     "setorigin",
     "tablelookup",

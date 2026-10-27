@@ -2213,6 +2213,15 @@ waw_hasperk( perk )
     return isdefined( self.waw2bo2_perks ) && isdefined( self.waw2bo2_perks[perk] );
 }
 
+// WaW FinishPlayerDamage( ..., sHitLoc, modelIndex, psOffsetTime ); T6's ends
+// ( ..., shitloc, psoffsettime, boneindex ) with the same 11 arguments.
+waw_finishplayerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, modelindex, psoffsettime )
+{
+    if ( !isdefined( psoffsettime ) )
+        psoffsettime = 0;
+    self finishplayerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, psoffsettime, 0 );
+}
+
 // WaW SetOrigin on a player is a teleport its client never interpolates
 // (the teleporter's black room -> mainframe core); see waw_linkto.
 waw_setorigin( origin )

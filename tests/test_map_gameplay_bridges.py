@@ -19,6 +19,53 @@ def _api() -> T6Api:
                  methods={"hasweapon": (1, 1)})
 
 
+class SourcePlayerDamageTests(unittest.TestCase):
+    def test_t6_callbacks_run_the_maps_own_damage_and_last_stand(self):
+        callbacks = ("Callback_PlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
+                     "vDir, sHitLoc, modelIndex, psOffsetTime )\n{\n"
+                     "\tif( IsDefined( level.overridePlayerDamage ) )\n\t{\n"
+                     "\t\tself [[level.overridePlayerDamage]]( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, "
+                     "sWeapon, vPoint, vDir, sHitLoc, modelIndex, psOffsetTime );\n\t\treturn;\n\t}\n"
+                     "\tself finishPlayerDamageWrapper( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, "
+                     "vPoint, vDir, sHitLoc, modelIndex, psOffsetTime );\n}\n"
+                     "Callback_PlayerLastStand( eInflictor, eAttacker, iDamage, sMeansOfDeath, sWeapon, vDir, sHitLoc, "
+                     "psOffsetTime, deathAnimDuration )\n{\n"
+                     "\t[[maps\\_laststand::PlayerLastStand]]( eInflictor, eAttacker, iDamage, sMeansOfDeath, sWeapon, "
+                     "vDir, sHitLoc, psOffsetTime, deathAnimDuration );\n}\n"
+                     "finishPlayerDamageWrapper( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
+                     "vDir, sHitLoc, modelIndex, psOffsetTime )\n{\n"
+                     "\tself finishPlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
+                     "vDir, sHitLoc, modelIndex, psOffsetTime );\n}\n")
+        zombiemode = ("main()\n{\n\tlevel.overridePlayerDamage = ::player_damage_override;\n"
+                      "\tlevel.player_becomes_zombie = ::zombify_player;\n\tlevel.other = 1;\n}\n"
+                      "zombify_player()\n{\n\tself.is_zombie = true;\n}\n" + STOCK_DAMAGE)
+        laststand = ("init()\n{\n\tif( !IsDefined( level.laststandpistol ) )\n\t\tlevel.laststandpistol = \"m9a1\";\n}\n"
+                     "PlayerLastStand( eInflictor, attacker, iDamage, sMeansOfDeath, sWeapon, vDir, sHitLoc, "
+                     "psOffsetTime, deathAnimDuration )\n{\n\tself [[level.player_becomes_zombie]]();\n}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            for name, text in (("_callbackglobal", callbacks), ("_zombiemode", zombiemode), ("_laststand", laststand)):
+                (root / f"maps/{name}.gsc").write_text(text)
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            name = tr.extract_source_player_damage()
+            while tr.core_queue:
+                tr.level_state_parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
+            core = "\n".join(tr.level_state_parts)
+        self.assertEqual(name, "waw2bo2_source_player_damage")
+        self.assertIn("level.waw2bo2_source_player_damage = ::callbackglobal__callback_playerdamage;", core)
+        self.assertIn("level.waw2bo2_source_player_laststand = ::callbackglobal__callback_playerlaststand;", core)
+        # the map's main points its own fields (BO2's _zm owns the same names)
+        self.assertIn("level.waw_overrideplayerdamage = ", core)
+        self.assertIn("level.waw_player_becomes_zombie = ", core)
+        self.assertNotIn("level.other", core)
+        self.assertIn("level.waw_laststandpistol = \"m9a1\";", core)
+        # WaW's finishPlayerDamage reaches T6's through compat (argument order)
+        self.assertIn("_waw2bo2_compat::waw_finishplayerdamage(", core)
+        self.assertNotIn("_zm_laststand", core)
+        self.assertFalse(tr.report.unsupported.get(gscport.FALLBACK))
+
+
 class DamagePreludeTests(unittest.TestCase):
     def test_catalogued_new_stock_damage_body_is_not_a_custom_prelude(self):
         head = STOCK_DAMAGE.split('{\n', 1)[0]
@@ -108,7 +155,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertNotIn("MOD_FALLING", core)             # BO2 _zm keeps the stock damage logic
         self.assertIn("register_player_damage_callback( ::zombiemode__player_damage_override_prelude )", core)
         self.assertIn("\tzombiemode__player_damage_override_prelude_register();", core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e and "no Callback_PlayerDamage" not in e])
 
     def test_map_edited_from_the_raw_release_matches_it_not_the_zone_one(self):
         # stock zones carry an older _zombiemode than the raw scripts maps start from
@@ -117,7 +164,7 @@ class DamagePreludeTests(unittest.TestCase):
         body = STOCK_DAMAGE.split("{\n", 1)
         core, report = self.port(body[0] + "{\n\tif( self.shielded )\n\t\treturn;\n" + body[1], older)
         self.assertIn("if( self.shielded )\n\t\treturn 0;", core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e and "no Callback_PlayerDamage" not in e])
 
     def port_callbackglobal(self, prelude: str, bo2_stock_perks: bool = False) -> tuple[str, gscport.PortReport]:
         stock = ("Callback_PlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
@@ -154,7 +201,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertNotIn("isPlayer( eAttacker )", core)   # stock body stays BO2's
         self.assertIn("register_player_damage_callback( ::callbackglobal__callback_playerdamage_prelude )", core)
         self.assertIn("\tcallbackglobal__callback_playerdamage_prelude_register();", core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e.lower()])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e.lower() and "no Callback_PlayerDamage" not in e])
 
     def test_perk_damage_rules_are_dropped_when_bo2_owns_the_perks(self):
         # BO2's own PhD Flopper (_zm_perk_divetonuke) replaces the WaW one
@@ -176,7 +223,7 @@ class DamagePreludeTests(unittest.TestCase):
         core, report = self.port(body[0] + '{\n\tif ( self.self_revive ) return;\n' + edited)
         self.assertIn('if ( self.self_revive ) return 0;', core)
         self.assertNotIn('easter_egg', core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e and "no Callback_PlayerDamage" not in e])
 
     def test_statement_split_keeps_if_else_chains_whole(self):
         tokens = gscport.gsc.tokenize("{ if ( a ) { b(); } else c(); d = 1; for ( i = 0; i < 2; i++ ) e(); }")
@@ -284,7 +331,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertIn('iDamage = 0;', core)
         self.assertIn('return 0;', core)
         self.assertNotIn('finishPlayerDamageWrapper', core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e and "no Callback_PlayerDamage" not in e])
 
     def test_positive_damage_finish_is_still_rejected(self):
         body = STOCK_DAMAGE.split("{\n", 1)
