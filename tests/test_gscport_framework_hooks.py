@@ -334,6 +334,13 @@ class FrameworkHookTests(unittest.TestCase):
         for weapon in gscport.BO2_FRAMEWORK_WEAPONS:
             self.assertIn(f'waw_native_only_weapon( "{weapon}" );', registration)
         self.assertNotIn('bowie_knife_zm', registration)
+        # the map's registry is renamed beside BO2's: the keys come from it
+        compat = (gscport.COMPAT_DIR / '_waw2bo2_compat.gsc').read_text()
+        keys = compat[compat.index('waw_zombie_weapon_keys()'):]
+        keys = keys[:keys.index('\n}\n')]
+        self.assertEqual(gscport.WAW_LEVEL_FIELDS['zombie_weapons'], 'waw_zombie_weapons')
+        self.assertIn('getarraykeys( level.waw_zombie_weapons )', keys)
+        self.assertNotIn('level.zombie_weapons', keys)
 
     def test_altmelee_maps_include_the_equipped_melee_weapon(self):
         # Der Riese: giveweapon of an unincluded bowie_knife_zm failed silently

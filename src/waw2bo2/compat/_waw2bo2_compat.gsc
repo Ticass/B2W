@@ -1632,9 +1632,11 @@ waw_powerup_drop( drop_point )
     maps\mp\zombies\_zm_powerups::powerup_drop( drop_point );
 }
 
-// level.zombie_weapons also holds entries only BO2 needs (its framework
-// last-stand pistol, native tactical helpers). WaW scripts never registered
-// them, so their key lists (the mystery box chooser) must not see them.
+// The map's GetArrayKeys( level.zombie_weapons ): its own registry is
+// level.waw_zombie_weapons (gscport.WAW_LEVEL_FIELDS); BO2's level.zombie_weapons
+// holds BO2's names, which the map's box cannot show or give. Entries only
+// BO2 needs (its framework last-stand pistol, native tactical helpers, the
+// equipped alt melee) stay out of the map's key lists (the box chooser).
 waw_native_only_weapon( name )
 {
     if ( !isdefined( level.waw2bo2_native_only_weapons ) )
@@ -1644,7 +1646,9 @@ waw_native_only_weapon( name )
 
 waw_zombie_weapon_keys()
 {
-    keys = getarraykeys( level.zombie_weapons );
+    if ( !isdefined( level.waw_zombie_weapons ) )
+        return [];
+    keys = getarraykeys( level.waw_zombie_weapons );
     if ( !isdefined( level.waw2bo2_native_only_weapons ) )
         return keys;
     out = [];
