@@ -176,7 +176,7 @@ class WawBoxExtractionTests(unittest.TestCase):
         "                        array_thread( level.chests, ::treasure_chest_think ); }\n"
         "treasure_chest_think() { self useanimtree( #animtree ); self setanim( level.boxAnim[\"open\"] ); }\n")
 
-    def test_box_extracts_its_siblings_animations_and_level_state(self):
+    def test_the_map_weapon_script_ports_whole_with_its_box(self):
         from waw2bo2.t6api import T6Api
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -187,24 +187,14 @@ class WawBoxExtractionTests(unittest.TestCase):
             api = T6Api({"getentarray": (2, 2)}, {"maps\\mp\\zombies\\_zm_magicbox": {"treasure_chest_think": 0}},
                         methods={"useanimtree": (1, 1), "setanim": (1, 4)})
             tr = gscport.Translator(sources, api, gscport.PortReport())
-            tr.core_animtrees = {"nuketown": {"box_open"}}
-            entry = tr.extract_entry("maps\\_zombiemode_weapons", "treasure_chest_init")
-            parts = []
-            while tr.core_queue:
-                parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
-            state = tr.extract_level_state("maps\\_zombiemode_weapons", "init")
-        code = "\n".join(parts)
-        self.assertEqual(entry, "zombiemode_weapons__treasure_chest_init")
-        self.assertIn("::zombiemode_weapons__treasure_chest_think", code)
+            tr.animtrees = {"nuketown"}
+            self.assertFalse(gscport.is_core("maps\\_zombiemode_weapons", sources))
+            code = tr.translate("maps\\_zombiemode_weapons")
+        # the map's own init (weapons, box) and box functions, never BO2's box
+        self.assertIn("init_weapons();", code)
+        self.assertIn("::treasure_chest_think", code)
         self.assertNotIn("_zm_magicbox", code)
         self.assertIn("level.waw_chests", code)
-        self.assertIn('#using_animtree( "waw2bo2_nuketown" );\nzombiemode_weapons__treasure_chest_think', code)
-        self.assertEqual(state, "zombiemode_weapons__init_level_state")
-        state_code = tr.level_state_parts[0]
-        self.assertIn("level.boxAnim[\"open\"] = %waw_anim_box_open;", state_code)
-        self.assertIn("level.boxAnim[\"fake\"] = undefined;", state_code)    # no WaW xanim
-        self.assertNotIn("level.unused", state_code)    # not read by the box
-        self.assertNotIn("init_weapons", state_code)    # BO2 owns the rest of init
 
 
 class ExtractedAnimtreeTests(unittest.TestCase):
