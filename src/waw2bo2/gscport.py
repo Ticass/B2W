@@ -4577,9 +4577,8 @@ waw2bo2_round_think_begin( restart )
 
 waw2bo2_round_spawn_ready()
 {
-    // waw2bo2: BO2's spawner needs an active spawn location
-    while ( level.zombie_spawn_locations.size <= 0 )
-        wait 0.1;
+    // waw2bo2: the map's own spawners place its zombies (WaW DoSpawn);
+    // nothing waits on BO2's zone location lists
 }
 
 waw2bo2_round_started()

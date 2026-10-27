@@ -276,8 +276,9 @@ power_bridge()
 waw_zone_bookkeeping()
 {
     level.zone_scanning_active = 0;
-    if ( !isdefined( level.flag ) || !isdefined( level.flag["zones_initialized"] ) )
-        flag_init( "zones_initialized" );
+    // BO2's _zm_zonemgr::init declares the flag (a second flag_init asserts)
+    while ( !isdefined( level.flag ) || !isdefined( level.flag["zones_initialized"] ) )
+        wait 0.05;
     count = -1;
     while ( true )
     {
@@ -285,9 +286,10 @@ waw_zone_bookkeeping()
         {
             count = level.zones.size;
             level.zone_keys = getarraykeys( level.zones );
-            if ( count && !flag( "zones_initialized" ) )
-                flag_set( "zones_initialized" );
         }
+        // a map without zones has an empty key list, not a wait forever
+        if ( isdefined( level.zone_keys ) && !flag( "zones_initialized" ) )
+            flag_set( "zones_initialized" );
         wait 1;
     }
 }
