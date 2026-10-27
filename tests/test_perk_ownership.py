@@ -102,7 +102,7 @@ class PerkOwnershipTests(unittest.TestCase):
             text = (out / name).read_text()
             owned_zm = (out / 'maps/mp/waw/_waw2bo2_zm.gsc').read_text()
             self.assertNotIn('return 75;', owned_zm)
-            self.assertIn('idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );', owned_zm)
+            self.assertIn('idamage = int( max( 1, idamage * getdvarfloat( "player_damageMultiplier" ) ) );', owned_zm)
             self.assertIn('waw2bo2_set_zombie_var( "zombie_spawn_delay", 2.0, 1, column );', owned_zm)
             self.assertIn('waw2bo2_set_zombie_var( var, value, is_float, column, is_team_based )', owned_zm)
             # the source health step replaces BO2's round-number rebuild

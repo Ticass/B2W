@@ -104,6 +104,14 @@ waw_isnotarget()
     return false;
 }
 
+// WaW HasCollectible( unlock ) answers whether the host turned that campaign
+// collectible cheat on (ui_hostOptions). T6 has no collectibles or host
+// options, so none is ever on.
+waw_hascollectible( unlock )
+{
+    return false;
+}
+
 waw_connectpaths()
 {
     if ( isdefined( self ) )
@@ -2090,13 +2098,9 @@ waw_setperk( perk )
     }
     if ( !waw_perk_emulated( perk ) )
     {
+        // WaW's native Quick Revive only speeds up reviving another player;
+        // solo it does nothing, as in WaW (a map's own solo revive is script).
         self setperk( perk );
-        // WaW's native perk only speeds up reviving another player; a custom
-        // map's own solo revive (if any) stays in its scripts. Only retail
-        // maps get the BO-style solo life (stock_map_policies).
-        if ( isdefined( level.waw2bo2_solo_revive ) && perk == level.waw2bo2_solo_revive["perk"]
-            && flag( "solo_game" ) && !( isdefined( level.waw2bo2_stock_perks ) && level.waw2bo2_stock_perks ) )
-            self waw_stock_solo_revive_bought();
         return;
     }
     if ( !isdefined( self.waw2bo2_perks ) )
@@ -2365,69 +2369,6 @@ waw_dog_source_health()
 }
 
 // ---- WaW framework calls with WaW semantics ----
-
-// ---- stock WaW map policies (gscport stock_map_policies; never custom maps) ----
-
-waw_stock_perk_cost( perk, cost )
-{
-    policy = level.waw2bo2_solo_revive;
-    if ( isdefined( policy ) && perk == policy["perk"] && flag( "solo_game" ) )
-        return policy["cost"];
-    return cost;
-}
-
-// BO-style solo Quick Revive on retail WaW maps: the machine's hint shows
-// the solo price, each purchase registers the one life BO2's last stand
-// spends on a self revive, and after the limit the machine stops selling.
-waw_stock_solo_revive()
-{
-    policy = level.waw2bo2_solo_revive;
-    flag_wait( "initial_players_connected" );
-    if ( !flag( "solo_game" ) )
-        return;
-    if ( !isdefined( level.solo_lives_given ) )
-        level.solo_lives_given = 0;
-    machines = getentarray( "zombie_vending", "targetname" );
-    foreach ( machine in machines )
-        if ( isdefined( machine.script_noteworthy ) && machine.script_noteworthy == policy["perk"] )
-            machine thread waw_stock_solo_revive_machine( policy );
-}
-
-waw_stock_solo_revive_machine( policy )
-{
-    self endon( "death" );
-    level endon( "waw2bo2_solo_revive_spent" );
-    self thread waw_stock_solo_revive_spent();
-    for ( ;; )
-    {
-        // after the source's own power-on hint
-        level waittill( policy["perk"] + "_power_on" );
-        waittillframeend;
-        if ( level.solo_lives_given < policy["limit"] )
-            self sethintstring( policy["hint"], policy["cost"] );
-    }
-}
-
-waw_stock_solo_revive_spent()
-{
-    self endon( "death" );
-    level waittill( "waw2bo2_solo_revive_spent" );
-    self sethintstring( "" );
-    // trigger_off moves the trigger 10000 units down, which a linked trigger
-    // ignores: Shi No Numa links each vending trigger to the script_origin
-    // its random spot moves (nazi_zombie_sumpf_perks), so the machine kept
-    // selling. Unlink first; the source never moves it again after that.
-    self unlink();
-    self trigger_off();
-}
-
-waw_stock_solo_revive_bought()
-{
-    self.lives = 1;
-    level.solo_lives_given++;
-    if ( level.solo_lives_given >= level.waw2bo2_solo_revive["limit"] )
-        level notify( "waw2bo2_solo_revive_spent" );
-}
 
 // ---- miscellaneous WaW builtins ----
 

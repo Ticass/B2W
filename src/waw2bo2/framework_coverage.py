@@ -22,7 +22,7 @@ import re
 
 from . import gsc
 
-FRAMEWORK = re.compile(r"^maps[\\/]_(zombiemode\w*|laststand|zombiemode)\.gsc$", re.IGNORECASE)
+FRAMEWORK = re.compile(r"^maps[\\/]_(zombiemode\w*|laststand|gameskill)\.gsc$", re.IGNORECASE)
 REDIRECT = re.compile(r"^(maps\\_\w+)::(\w+) -> (.+)$", re.IGNORECASE)
 
 

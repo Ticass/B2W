@@ -36,9 +36,9 @@
     "library_functions: functions of third-party WaW map libraries -> compat waw_<value>, where BO2 has the native",
     "  feature the library worked around (e.g. treminaor's trem_hintstrings drew hints through a WaW menu).",
     "stock_map_policies: behaviour applied ONLY when the source is a retail WaW level (its fastfile is in the WaW",
-    "  install's zone folder; --waw-stock-map). Custom maps keep their own logic. solo_quick_revive (user request",
-    "  2026-10-14): BO-style solo Quick Revive (solo_cost, one self-revive life per purchase, solo_purchase_limit",
-    "  purchases, BO2's own solo_hint key). Zombie health is not a policy: every map runs its source health step",
+    "  install's zone folder; --waw-stock-map). Custom maps keep their own logic. No game rule is a policy: solo",
+    "  Quick Revive does nothing on a retail map, as in WaW (the BO-style solo life was removed 2026-10-27, user:",
+    "  mechanics 1:1 like WaW). Zombie health is not a policy: every map runs its source health step",
     "  (Translator.extract_round_health), wrap and dog rounds included (docs/CONVERT_THE_WHOLE_MAP.md).",
     "  waw_round_counter (user request 2026-10-14): the source round display functions replace BO2's 8-bit",
     "  setroundsplayed counter and its 255 round clamp; their HUD materials stay WaW (isolated from BO2's names).",
@@ -67,6 +67,14 @@
         "zombie_eye_glow_stop": "the eyes are made by BO2's actor setup (zombie_spawn_init); only its stop removes them",
         "is_spawner_targeted_by_blocker": "windows are BO2 zbarriers until the map's blockers drive"
       }
+    },
+    "maps\\_gameskill": {
+      "doc": "WaW drives difficulty and player health: setSkill (regen timing, player_damageMultiplier, threat bias, co-op scaling) runs in place of BO2's _zm_playerhealth::init, and the map's playerHealthRegen with its own overlay, breathing and invulnerability in place of BO2's (native_replacements).",
+      "glue": {}
+    },
+    "maps\\_collectibles": {
+      "doc": "only: the map's has_collectible, which _gameskill (vampire regen, sticks-and-stones damage) and the map's scripts ask. Its stub returned nothing, which the co-op scaling took as Sticks and Stones (player damage halved).",
+      "only": ["has_collectible"]
     },
     "maps\\_laststand": {
       "doc": "WaW drives last stand: downs, the revive trigger and HUD, bleedout, pistol and weapons. T6's last stand callback runs the map's _callbackglobal entry (source_player_damage).",
@@ -98,6 +106,18 @@
   },
   "native_replacements": {
     "doc": "BO2 framework calls where WaW called the map's own function; gscport.native_replacements replacefuncs the map's in, before _zm::init. keep: BO2 calls that still run first, with the reason.",
+    "maps\\_gameskill": [
+      {"native": "maps\\mp\\zombies\\_zm_playerhealth::init", "function": "setskill",
+       "keep": [
+         {"call": "if ( getdvar( \"g_gameskill\" ) == \"\" ) setdvar( \"g_gameskill\", \"1\" )",
+          "reason": "T6 leaves g_gameskill empty (setSkill would read easy); WaW's zombie lobby hides difficulty and keeps the profile's, Regular (1) by default"},
+         {"call": "precacheshader( \"overlay_low_health\" )",
+          "reason": "the map's healthOverlay draws it; WaW's _load precaches it, which BO2's load replaces"},
+         {"call": "maps\\mp\\zombies\\_zm_utility::onplayerconnect_callback( maps\\mp\\zombies\\_zm_playerhealth::onplayerconnect )",
+          "reason": "T6 player spawn: WaW's _load threads playerHealthRegen on each spawned player; BO2's spawn hook does (the map's loop replaces BO2's below)"}
+       ]},
+      {"native": "maps\\mp\\zombies\\_zm_playerhealth::playerhealthregen", "function": "playerhealthregen"}
+    ],
     "maps\\_zombiemode_powerups": [
       {"native": "maps\\mp\\zombies\\_zm_powerups::init", "function": "init",
        "keep": [
@@ -155,8 +175,6 @@
     "sound_table": {"script": "maps\\_zombiemode", "register": "add_sound"}
   },
   "stock_map_policies": {
-    "solo_quick_revive": {"perk": "specialty_quickrevive", "solo_cost": 500, "solo_purchase_limit": 3,
-                          "solo_hint": "ZOMBIE_PERK_QUICKREVIVE_SOLO"},
     "waw_round_counter": {"round_start": "chalk_one_up", "round_end": "chalk_round_hint",
                           "state_init": "round_start", "precache_functions": ["precache_shaders", "init", "main"]}
   },
@@ -306,6 +324,7 @@
   },
   "compat_wrappers": [
     "isnotarget",
+    "hascollectible",
     "finishplayerdamage",
     "precachestring",
     "setorigin",

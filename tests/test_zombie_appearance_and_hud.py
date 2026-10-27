@@ -136,20 +136,17 @@ class ZombieAppearanceAndHudTests(unittest.TestCase):
         self.assertIn('::waw_fontscale( base + offset )', result)
         self.assertIn('label = "fontscale = 8.0";', result)
 
-    def test_solo_quick_revive_life_is_a_stock_map_policy_only(self):
+    def test_quick_revive_gives_no_solo_life(self):
         source = (gscport.COMPAT_DIR / '_waw2bo2_compat.gsc').read_text()
         script = gsc.parse(source, 'compat')
         fn = script.functions['waw_setperk']
         body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
-        # custom maps keep their own solo revive logic: the life is only
-        # registered when the stock map policy is present
-        self.assertIn('isdefined( level.waw2bo2_solo_revive )', body)
-        self.assertIn('waw_stock_solo_revive_bought()', body)
+        # WaW's Quick Revive gives no solo life on any map
+        self.assertNotIn('waw2bo2_solo_revive', body)
         self.assertNotIn('self.lives = 1;', body)
         self.assertLess(body.index('::give_perk'), body.index('self setperk'))
         self.assertIn('return;', body[body.index('::give_perk'):body.index('self setperk')])
-        bought = script.functions['waw_stock_solo_revive_bought']
-        self.assertIn('self.lives = 1;', gsc.emit(script.tokens[bought.body_open:bought.body_close + 1]))
+        self.assertNotIn('waw_stock_solo_revive_bought', script.functions)
 
     def test_revive_waypoint_uses_t6_objpoint_base_size(self):
         source = (gscport.COMPAT_DIR / '_waw2bo2_compat.gsc').read_text()

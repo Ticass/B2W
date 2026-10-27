@@ -66,13 +66,13 @@ class NativeReplacementTests(unittest.TestCase):
             tr = gscport.Translator(gscport.Sources([root], [], None), api, gscport.PortReport())
             calls = tr.native_replacements()
             self.assertIn('replacefunc( maps\\mp\\zombies\\_zm_powerups::powerup_drop, '
-                          'maps\\mp\\waw\\_waw2bo2_core::waw2bo2_native_powerup_drop );', calls)
+                          'maps\\mp\\waw\\_waw2bo2_core::waw2bo2_native_zm_powerups_powerup_drop );', calls)
             body = tr.level_state_parts[-1]
             # BO2's arity in, the map's arguments on
-            self.assertIn('waw2bo2_native_check_for_instakill( arg0, arg1, arg2 )', body)
+            self.assertIn('waw2bo2_native_zm_powerups_check_for_instakill( arg0, arg1, arg2 )', body)
             self.assertIn('return self maps\\mp\\waw\\_waw2bo2_core::zombiemode_powerups__check_for_instakill( arg0 );', body)
             # BO2's registrations run before the map's init
-            init = body[body.index('waw2bo2_native_init('):]
+            init = body[body.index('waw2bo2_native_zm_powerups_init('):]
             self.assertLess(init.index('_zm_powerups::init_powerups()'), init.index('zombiemode_powerups__init('))
 
 

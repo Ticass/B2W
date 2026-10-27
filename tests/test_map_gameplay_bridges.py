@@ -235,8 +235,9 @@ class DamagePreludeTests(unittest.TestCase):
         tokens = gscport.gsc.tokenize("{ if ( a ) { b(); } else c(); d = 1; for ( i = 0; i < 2; i++ ) e(); }")
         self.assertEqual(len(gscport.top_level_statements(tokens, 0, len(tokens) - 2)), 3)
 
-    def test_player_damage_multiplier_comes_from_source_gameskill(self):
-        # Verruckt's trap DoDamage( 50 ) lands as 16 in WaW solo (100 / 310)
+    def test_the_maps_gameskill_drives_health_and_damage_scale(self):
+        # WaW: setSkill sets the regen timing and player_damageMultiplier; its
+        # co-op scaling waits for _load's all_players_spawned
         import tempfile
         from pathlib import Path
         from waw2bo2.t6api import T6Api
@@ -244,38 +245,21 @@ class DamagePreludeTests(unittest.TestCase):
             root = Path(temp)
             (root / 'maps').mkdir()
             (root / 'maps/_gameskill.gsc').write_text(
-                'setskill(){ add_fractional_data_point( "playerDifficultyHealth", 0.25, 475 ); '
-                'add_fractional_data_point( "playerDifficultyHealth", 0.75, 310 ); '
-                'add_fractional_data_point( "playerDifficultyHealth", 1.0, 210 ); '
-                + ''.join(f'level.difficultySettings[ "coopPlayerDifficultyHealth" ][ "normal" ][{i}] = {v}; '
-                          for i, v in enumerate((1.0, 0.9, 0.8, 0.7)))
-                + 'difficulty_starting_frac[ "normal" ] = 0.75; }')
+                'setskill( reset, skill_override ){ level.x = 1; }\nplayerhealthregen(){ healthoverlay(); }\n'
+                'healthoverlay(){ }\n')
+            (root / 'maps/_load.gsc').write_text(
+                'all_players_spawned(){ flag_set( "all_players_spawned" ); }\n')
             tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
-            self.assertEqual(tr.player_damage_scale_hook(),
-                             ['level thread maps\\mp\\waw\\_waw2bo2_core::waw2bo2_player_damage_scale();'])
-            self.assertIn('scales[0] = 0.3225806451612903;', tr.level_state_parts[-1])
-            self.assertIn('scales[3] = 0.4608294930875576;', tr.level_state_parts[-1])
-
-    def test_player_regen_timing_comes_from_source_gameskill(self):
-        # a map whose _gameskill regenerates sooner than BO2's 2400 ms constant
-        import tempfile
-        from pathlib import Path
-        from waw2bo2.t6api import T6Api
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            (root / 'maps').mkdir()
-            (root / 'maps/_gameskill.gsc').write_text(
-                'setskill(){ add_fractional_data_point( "playerHealth_RegularRegenDelay", 0.25, 3000 ); '
-                'add_fractional_data_point( "playerHealth_RegularRegenDelay", 1.0, 1500 ); '
-                'add_fractional_data_point( "healthOverlayCutoff", 0.75, 0.2 ); '
-                'difficulty_starting_frac[ "normal" ] = 0.75; }')
-            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
-            self.assertEqual(tr.player_health_regen_hook(),
-                             ['maps\\mp\\waw\\_waw2bo2_core::waw2bo2_player_regen_timing();'])
-            self.assertIn('level.playerhealth_regularregendelay = 2000;', tr.level_state_parts[-1])
-            self.assertIn('level.healthoverlaycutoff = 0.2;', tr.level_state_parts[-1])
-            self.assertNotIn('longregentime', tr.level_state_parts[-1])
-            self.assertTrue(any('longRegenTime' in e for e in tr.report.unsupported[gscport.FALLBACK]))
+            self.assertEqual(tr.skill_signals_hook(),
+                             ['maps\\mp\\waw\\_waw2bo2_core::waw2bo2_all_players_spawned();'])
+            self.assertIn('level thread maps\\mp\\waw\\_waw2bo2_core::load__all_players_spawned();',
+                          tr.level_state_parts[-1])
+            self.assertTrue(gscport.source_drives('maps\\_gameskill', 'healthoverlay'))
+            replaced = {e['native'] for e in gscport.API['native_replacements']['maps\\_gameskill']}
+            self.assertIn('maps\\mp\\zombies\\_zm_playerhealth::init', replaced)
+            self.assertIn('maps\\mp\\zombies\\_zm_playerhealth::playerhealthregen', replaced)
+            self.assertFalse(hasattr(gscport.Translator, 'player_damage_scale_hook'))
+            self.assertFalse(hasattr(gscport.Translator, 'player_health_regen_hook'))
 
     def test_spawner_lists_come_from_source_main(self):
         # Der Riese: _zombiemode::main( "receiver_zone_spawners" ) picks the

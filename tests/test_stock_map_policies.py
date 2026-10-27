@@ -82,33 +82,6 @@ def _port(root: Path, stock_map: bool, level: str = "testmap") -> tuple[str, str
 
 
 class StockMapPolicyTests(unittest.TestCase):
-    def test_quick_revive_policy_preserves_bottle_selection_and_cleanup(self):
-        source = '''
-        purchase(perk) { switch(perk) {
-            case "specialty_quickrevive": cost = 1500; break;
-        } }
-        bottle_begin(perk) { switch(perk) {
-            case "specialty_quickrevive": weapon = "zombie_perk_bottle_revive"; break;
-        } self GiveWeapon(weapon); self SwitchToWeapon(weapon); }
-        bottle_end(perk) { switch(perk) {
-            case "specialty_quickrevive": weapon = "zombie_perk_bottle_revive"; break;
-        } self TakeWeapon(weapon); }
-        hint(perk) { switch(perk) {
-            case "specialty_quickrevive": hint = &"ZOMBIE_PERK_QUICKREVIVE"; break;
-        } }
-        sting(perk) { switch(perk) {
-            case "specialty_quickrevive": sound = "mx_revive_sting"; break;
-        } }
-        '''
-        script = gsc.parse(source, "perks")
-        self.assertEqual(gscport.bridge_stock_perk_costs(
-            script.tokens, gscport.API["stock_map_policies"]), 1)
-        converted = gsc.emit(script.tokens)
-        self.assertEqual(converted.count("waw_stock_perk_cost("), 1)
-        self.assertEqual(converted.count('weapon = "zombie_perk_bottle_revive";'), 2)
-        self.assertIn('hint = &"ZOMBIE_PERK_QUICKREVIVE";', converted)
-        self.assertIn('sound = "mx_revive_sting";', converted)
-
     def test_the_maps_spawning_sets_its_own_count(self):
         # WaW drives: no BO2 count formula is installed beside the map's spawning
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,16 +96,15 @@ class StockMapPolicyTests(unittest.TestCase):
             self.assertNotIn("waw_stock_perk_cost", perks)
             self.assertIn("cost = 1500;", perks)
 
-    def test_stock_maps_price_solo_quick_revive_through_the_policy(self):
+    def test_stock_maps_keep_waws_quick_revive(self):
+        # WaW: Quick Revive solo does nothing; no BO-style solo life or price
         with tempfile.TemporaryDirectory() as tmp:
             core, perks = _port(Path(tmp), stock_map=True, level="nazi_zombie_sumpf")
-            self.assertIn('cost = maps\\mp\\waw\\_waw2bo2_compat::waw_stock_perk_cost( '
-                          '"specialty_quickrevive", 1500 );', perks)
-            self.assertIn("cost = 2500;", perks)   # other perks keep the source price
-            self.assertIn('level.waw2bo2_solo_revive["cost"] = 500;', core)
-            self.assertIn('level.waw2bo2_solo_revive["limit"] = 3;', core)
-            self.assertIn('&"ZOMBIE_PERK_QUICKREVIVE_SOLO"', core)
-            self.assertIn("\twaw2bo2_stock_map_policies();", core)
+            self.assertIn("cost = 1500;", perks)
+            self.assertIn("cost = 2500;", perks)
+            self.assertNotIn("waw_stock_perk_cost", perks)
+            self.assertNotIn("waw2bo2_solo_revive", core)
+            self.assertNotIn("waw2bo2_stock_map_policies", core)
 
     def test_health_comes_from_the_source_step_on_every_map(self):
         # WaW: round_spawning calls ai_calculate_health; dog rounds run
@@ -148,10 +120,6 @@ class StockMapPolicyTests(unittest.TestCase):
             core = "\n".join(tr.level_state_parts)
             self.assertIn("level.waw2bo2_round_health_func = ::zombiemode__ai_calculate_health;", core)
             self.assertIn('level.zombie_vars["zombie_health_increase_percent"]', core)
-        for level in ("nazi_zombie_factory", "nazi_zombie_sumpf"):
-            policy = gscport.stock_map_policy(gscport.API["stock_map_policies"], level)
-            self.assertIn("waw_stock_solo_revive()", policy)
-            self.assertNotIn("zombie_health", policy)
 
     def test_round_spawning_without_a_health_step_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -209,11 +177,12 @@ class StockMapPolicyTests(unittest.TestCase):
             self.assertIn('level.waw2bo2_zombie_var_defaults["zombie_score_start"] = 500;', core)
             self.assertIn('level.waw2bo2_zombie_var_defaults["zombie_score_kill"] = 50;', core)
 
-    def test_compat_runtime_defines_the_policy_functions(self):
+    def test_compat_runtime_has_no_solo_revive_rule(self):
         script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
-        for name in ("waw_stock_perk_cost", "waw_stock_solo_revive", "waw_stock_solo_revive_bought",
-                     "waw_linkto", "waw_linked_trigger_contacts"):
+        for name in ("waw_linkto", "waw_linked_trigger_contacts"):
             self.assertIn(name, script.functions)
+        for name in ("waw_stock_perk_cost", "waw_stock_solo_revive", "waw_stock_solo_revive_bought"):
+            self.assertNotIn(name, script.functions)
         self.assertNotIn("waw_round_health", script.functions)
 
     def test_stock_maps_draw_the_source_round_counter(self):

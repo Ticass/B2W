@@ -53,6 +53,7 @@ WATER_BULLETS = "maps\\mp\\waw\\_waw2bo2_water_bullets"
 ZOMBIEMODE = "maps\\_zombiemode"
 PERKS = "maps\\_zombiemode_perks"
 GAMESKILL = "maps\\_gameskill"
+LOAD = "maps\\_load"
 WEAPONS_FRAMEWORK = "maps\\_zombiemode_weapons"
 SCORE_FRAMEWORK = "maps\\_zombiemode_score"
 # the owned copy of BO2's _zm (stage_bo2_perk_support)
@@ -725,46 +726,6 @@ def hud_material_table_source(renamed: dict[str, str]) -> str:
     for old, new in sorted(renamed.items()):
         lines.append(f'\tmaterials["{old[:1]}" + "{old[1:]}"] = "{new}";')
     return "\n".join(lines + ["\treturn materials;", "}", ""])
-
-
-def bridge_stock_perk_costs(tokens: list[gsc.Token], policies: dict) -> int:
-    """Stock WaW maps only: a perk machine's cost assignment under its case
-    label (``case "specialty_quickrevive": cost = 1500;``) asks the stock map
-    policy, which keeps the source cost unless a policy (BO-style solo Quick
-    Revive) prices that perk differently for the current game."""
-    perks = {p["perk"] for name, p in policies.items() if not name.startswith("_") and "solo_cost" in p}
-    rewrites = 0
-    for i in range(len(tokens) - 5):
-        if tokens[i].low != "case" or tokens[i + 1].kind != gsc.STRING or tokens[i + 1].text.strip('"') not in perks:
-            continue
-        # The same perk cases also select bottle weapons and hint strings.
-        # Only the machine's cost local is subject to pricing policy.
-        if (tokens[i + 2].text != ":" or tokens[i + 3].kind != gsc.IDENT
-                or tokens[i + 3].low != "cost" or tokens[i + 4].text != "="):
-            continue
-        end = next((j for j in range(i + 5, len(tokens)) if tokens[j].text == ";"), None)
-        if end is None or end == i + 5:
-            continue
-        tokens[i + 5].text = f"{COMPAT}::waw_stock_perk_cost( {tokens[i + 1].text}, {tokens[i + 5].text}"
-        tokens[end - 1].text += " )"
-        rewrites += 1
-    return rewrites
-
-
-def stock_map_policy(policies: dict, level: str) -> str:
-    """Level state for gsc_api.json stock_map_policies (stock WaW maps only).
-    ``level``: the source level name (WaW level.script)."""
-    revive = policies["solo_quick_revive"]
-    lines = ["", "// stock WaW map policies (gsc_api.json stock_map_policies); custom maps keep their own logic",
-             "waw2bo2_stock_map_policies()", "{",
-             "\tlevel.waw2bo2_solo_revive = [];",
-             f'\tlevel.waw2bo2_solo_revive["perk"] = "{revive["perk"]}";',
-             f'\tlevel.waw2bo2_solo_revive["cost"] = {int(revive["solo_cost"])};',
-             f'\tlevel.waw2bo2_solo_revive["limit"] = {int(revive["solo_purchase_limit"])};',
-             f'\tlevel.waw2bo2_solo_revive["hint"] = &"{revive["solo_hint"]}";',
-             f'\tprecachestring( &"{revive["solo_hint"]}" );',
-             f"\tlevel thread {COMPAT}::waw_stock_solo_revive();"]
-    return "\n".join(lines + ["}", ""])
 
 
 def bridge_font_scales(tokens: list[gsc.Token]) -> int:
@@ -1510,8 +1471,6 @@ class Translator:
         self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
         self.report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += mirror_team_zombie_vars(tokens)
-        if self.stock_map:
-            self.report.rewrites["stock WaW map perk costs -> stock map policy"] +=                 bridge_stock_perk_costs(tokens, API["stock_map_policies"])
         header = (f"// Translated from World at War by waw2bo2 (gscport). Source: {where_file}\n")
         return header + gsc.emit(tokens)
 
@@ -2719,7 +2678,9 @@ class Translator:
                 name = self.extract_entry(core, entry["function"])
                 params = [f"arg{i}" for i in range(arity)]
                 passed = ", ".join(params[:len(fn.params)])
-                wrapper = f"waw2bo2_native_{native}"
+                # named by BO2's script too: _zm_powerups::init and
+                # _zm_playerhealth::init are both replaced
+                wrapper = f"waw2bo2_native_{native_script.split(chr(92))[-1].lstrip('_')}_{native}"
                 keep = "".join(f"    // {k['reason']}\n    {k['call']};\n" for k in entry.get("keep", []))
                 parts.append(f"// {core}::{entry['function']} in place of {entry['native']}\n"
                              f"{wrapper}( {', '.join(params)} )\n{{\n{keep}"
@@ -2861,93 +2822,28 @@ class Translator:
         self.report.rewrites["WaW power-up announcer lines -> BO2 announcer events"] += len(lines)
         return [f"{CORE}::waw2bo2_announcer_events();"]
 
-    def player_damage_scale_hook(self) -> list[str]:
-        """WaW's player_damageMultiplier, which the engine applies to every
-        non-melee hit on a player (scripted DoDamage and radiusdamage too: stock
-        _zombiemode divides a DoDamage by it to land an exact 60). _gameskill
-        sets it once all players spawned: 100 / (playerDifficultyHealth at the
-        "normal" starting fraction, g_gameskill 1, * coopPlayerDifficultyHealth
-        for the player count). Unported, Verruckt's electric trap (50 per touch)
-        hit three times as hard and downed a Juggernog player at once."""
-        text = self.sources.text.get(GAMESKILL + ".gsc", "")
-        if not text:
-            return []   # no WaW framework skill script (synthetic sources)
-        start = re.search(r'difficulty_starting_frac\s*\[\s*"normal"\s*\]\s*=\s*([\d.]+)\s*;', text)
-        points = sorted((float(f), float(v)) for f, v in re.findall(
-            r'add_fractional_data_point\(\s*"playerDifficultyHealth"\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)', text))
-        coop = dict((int(i), float(v)) for i, v in re.findall(
-            r'level\.difficultySettings\s*\[\s*"coopPlayerDifficultyHealth"\s*\]\s*\[\s*"normal"\s*\]\s*'
-            r'\[\s*(\d)\s*\]\s*=\s*([\d.]+)\s*;', text))
-        if not start or len(points) < 2 or sorted(coop) != [0, 1, 2, 3]:
-            self.report.unsupported.setdefault(FALLBACK, []).append(f"{GAMESKILL}: playerDifficultyHealth data not found; "
-                                      "player damage keeps BO2's scale (1)")
+    def skill_signals_hook(self) -> list[str]:
+        """WaW drives difficulty (gsc_api source_driven maps\\_gameskill): the
+        map's setSkill runs in place of BO2's _zm_playerhealth::init
+        (native_replacements). Its co-op scaling, which sets
+        player_damageMultiplier, waits for _load's "all_players_spawned";
+        BO2's load never sets that flag, so the map's own _load function that
+        does starts here, where WaW's _load threads it."""
+        if self.sources.get(GAMESKILL) is None:
             return []
-        frac = float(start[1])
-        health = points[-1][1]
-        for (f0, v0), (f1, v1) in zip(points, points[1:]):
-            if f0 <= frac <= f1:
-                health = v0 + (v1 - v0) * ((frac - f0) / (f1 - f0) if f1 > f0 else 0)
-                break
-        scales = [100 / (health * coop[i]) for i in range(4)]
-        body = "".join(f"    scales[{i}] = {s!r};\n" for i, s in enumerate(scales))
-        self.level_state_parts.append(
-            f"\n// maps\\_gameskill: player_damageMultiplier (normal: playerDifficultyHealth {health:g}, "
-            f"coop scalars {[coop[i] for i in range(4)]})\n"
-            "waw2bo2_player_damage_scale()\n{\n"
-            '    common_scripts\\utility::flag_wait( "initial_players_connected" );\n'
-            f"    scales = [];\n{body}"
-            "    count = get_players().size;\n"
-            "    if ( count < 1 )\n        count = 1;\n"
-            "    if ( count > 4 )\n        count = 4;\n"
-            "    level.waw2bo2_player_damage_scale = scales[count - 1];\n}\n")
-        self.report.rewrites["WaW player_damageMultiplier -> scaled non-melee player damage"] += 1
-        return [f"level thread {CORE}::waw2bo2_player_damage_scale();"]
-
-    # WaW _gameskill::setSkill names -> the level variables BO2's
-    # _zm_playerhealth::playerhealthregen reads (the same SP algorithm).
-    REGEN_SETTINGS = {'playerHealth_RegularRegenDelay': 'playerhealth_regularregendelay',
-                      'longRegenTime': 'longregentime', 'healthOverlayCutoff': 'healthoverlaycutoff',
-                      'invulTime_preShield': 'invultime_preshield', 'invulTime_onShield': 'invultime_onshield',
-                      'invulTime_postShield': 'invultime_postshield', 'worthyDamageRatio': 'worthydamageratio'}
-
-    def player_health_regen_hook(self) -> list[str]:
-        """The map's own player regen timing. WaW threads
-        _gameskill::playerHealthRegen from _load with the values setSkill
-        interpolates at the starting fraction of "normal" (g_gameskill 1).
-        BO2's playerhealthregen is the same algorithm, but _zm_playerhealth::init
-        sets its timing as constants; the source's values replace them."""
-        text = self.sources.text.get(GAMESKILL + ".gsc", "")
-        if not text:
-            return []
-        start = re.search(r'difficulty_starting_frac\s*\[\s*"normal"\s*\]\s*=\s*([\d.]+)\s*;', text)
-        if not start:
+        name = self.extract_entry(LOAD, "all_players_spawned")
+        if name is None:
             self.report.unsupported.setdefault(FALLBACK, []).append(
-                f"{GAMESKILL}: no normal starting fraction; player regen keeps BO2's timing")
-            return []
-        frac = float(start[1])
-        lines, missing = [], []
-        for name, variable in self.REGEN_SETTINGS.items():
-            points = sorted((float(f), float(v)) for f, v in re.findall(
-                r'add_fractional_data_point\(\s*"' + name + r'"\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)', text))
-            if not points:
-                missing.append(name)
-                continue
-            value = points[-1][1] if frac >= points[-1][0] else points[0][1]
-            for (f0, v0), (f1, v1) in zip(points, points[1:]):
-                if f0 <= frac <= f1:
-                    value = v0 + (v1 - v0) * ((frac - f0) / (f1 - f0) if f1 > f0 else 0)
-                    break
-            lines.append(f"    level.{variable} = {int(value) if value == int(value) else value!r};\n")
-        if missing:
-            self.report.unsupported.setdefault(FALLBACK, []).append(
-                f"{GAMESKILL}: no setSkill data for {', '.join(missing)}; BO2's value kept for those")
-        if not lines:
+                f"{LOAD}: no all_players_spawned source; {GAMESKILL} co-op scaling never runs")
             return []
         self.level_state_parts.append(
-            f"\n// maps\\_gameskill: player regen timing at normal (starting fraction {frac:g})\n"
-            "waw2bo2_player_regen_timing()\n{\n" + "".join(lines) + "}\n")
-        self.report.rewrites["WaW _gameskill regen timing -> BO2 playerhealthregen"] += 1
-        return [f"{CORE}::waw2bo2_player_regen_timing();"]
+            "\n// maps\\_load: the all_players_spawned flag _gameskill's co-op scaling waits for\n"
+            "waw2bo2_all_players_spawned()\n{\n"
+            '    if ( !isdefined( level.flag ) || !isdefined( level.flag["all_players_spawned"] ) )\n'
+            '        common_scripts\\utility::flag_init( "all_players_spawned" );\n'
+            f"    level thread {CORE}::{name}();\n}}\n")
+        self.report.rewrites["WaW _load all_players_spawned -> source"] += 1
+        return [f"{CORE}::waw2bo2_all_players_spawned();"]
 
     def dog_rounds_hook(self) -> str | None:
         """WaW _zombiemode::main starts dog rounds through _zombiemode_dogs::init,
@@ -3523,14 +3419,13 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.extract_custom_intermission()
     tr.extract_end_game()
     tr.post_calls += tr.juggernog_hooks()
-    tr.post_calls += tr.player_damage_scale_hook()
-    tr.post_calls += tr.player_health_regen_hook()
     tr.post_calls += tr.announcer_hook(out_root)
     tr.post_calls += tr.powerup_models_hook()
     tr.post_calls += tr.sound_table_hook()
     tr.post_calls += tr.zombie_vocals_hook()
     tr.post_calls += tr.quote_hooks()
     tr.pre_calls += tr.native_replacements()
+    tr.pre_calls += tr.skill_signals_hook()
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")
@@ -3694,11 +3589,6 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         counter = tr.extract_round_counter(source_loop=bool(round_loop))
         if counter:
             framework_state.append(counter)
-    if stock_map:
-        policy = stock_map_policy(API["stock_map_policies"], map_name.lower())
-        core_parts.append(policy)
-        framework_state.append("waw2bo2_stock_map_policies")
-        report.rewrites["stock WaW map policies (solo Quick Revive)"] += 1
     # Effects of WaW's framework FX init (BO2 replaces _zombiemode): the box
     # glow, eye glow, window chunks... registered for the keys ported scripts
     # read and never assign.
@@ -4489,15 +4379,16 @@ WAW_SELF_DAMAGE_CAP = (
     "        if ( self.health > 75 && !( isdefined( self.is_zombie ) && self.is_zombie ) )\n"
     "            return 75;\n",
     "        // waw2bo2: WaW applies the player's own explosive damage in full.\n")
-# WaW scales non-melee damage to players by player_damageMultiplier
-# (Translator.player_damage_scale_hook). Zombie and dog hits are WaW's measured
+# WaW's engine scales non-melee damage to players by the dvar
+# player_damageMultiplier, which the map's own _gameskill::setSkill sets (T6 has
+# no such dvar, so the glue applies it). Zombie and dog hits are WaW's measured
 # melee values already (see WAW_SELF_DAMAGE_CAP); falling damage keeps BO2's.
 WAW_PLAYER_DAMAGE_SCALE = (
     "\n    finaldamage = idamage;\n",
     "\n    // waw2bo2: WaW's player_damageMultiplier on non-melee hits\n"
-    "    if ( isdefined( level.waw2bo2_player_damage_scale ) && idamage > 0 && smeansofdeath != \"MOD_MELEE\"\n"
+    "    if ( getdvarfloat( \"player_damageMultiplier\" ) > 0 && idamage > 0 && smeansofdeath != \"MOD_MELEE\"\n"
     "        && smeansofdeath != \"MOD_FALLING\" && !( isdefined( eattacker ) && isdefined( eattacker.is_zombie ) && eattacker.is_zombie ) )\n"
-    "        idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );\n\n"
+    "        idamage = int( max( 1, idamage * getdvarfloat( \"player_damageMultiplier\" ) ) );\n\n"
     "    finaldamage = idamage;\n")
 # A map started directly (devmap, no lobby) leaves ui_zm_mapstartlocation
 # empty. The scripts read "" as "default", but the lobby the game returns to
@@ -4533,9 +4424,9 @@ WAW_SOURCE_PLAYER_DAMAGE = (
     "        if ( smeansofdeath == \"MOD_MELEE\" && isdefined( eattacker ) && isai( eattacker )\n"
     "            && isdefined( eattacker.meleedamage ) )\n"
     "            idamage = eattacker.meleedamage;\n\n"
-    "        if ( isdefined( level.waw2bo2_player_damage_scale ) && idamage > 0 && smeansofdeath != \"MOD_MELEE\"\n"
+    "        if ( getdvarfloat( \"player_damageMultiplier\" ) > 0 && idamage > 0 && smeansofdeath != \"MOD_MELEE\"\n"
     "            && smeansofdeath != \"MOD_FALLING\" && !( isdefined( eattacker ) && isdefined( eattacker.is_zombie ) && eattacker.is_zombie ) )\n"
-    "            idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );\n\n"
+    "            idamage = int( max( 1, idamage * getdvarfloat( \"player_damageMultiplier\" ) ) );\n\n"
     "        self [[ level.waw2bo2_source_player_damage ]]( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, "
     "vpoint, vdir, shitloc, undefined, psoffsettime );\n        return;\n    }\n\n")
 WAW_SOURCE_PLAYER_LASTSTAND = (
