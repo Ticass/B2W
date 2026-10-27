@@ -163,8 +163,10 @@ class SynthesizedZoneTests(unittest.TestCase):
         self.assertNotIn("zone_manager_init_func", out)
         self.assertIn("level.zones = [];", out)
         self.assertIn("level.zombie_ai_limit = 24;", out)
+        # a main staged by an earlier build is already done
+        self.assertEqual(zones.drop_bo2_zone_manager(out), out)
         with self.assertRaises(zones.ZoneError):
-            zones.drop_bo2_zone_manager(out)
+            zones.drop_bo2_zone_manager("main()\n{\n}\n")
 
 
 if __name__ == "__main__":

@@ -133,13 +133,17 @@ BO2_ZONE_MANAGER = re.compile(
     r'\s*level thread maps\\mp\\zombies\\_zm_zonemgr::manage_zones\( init_zones \);\n', re.MULTILINE)
 
 
+BO2_ZONE_MANAGER_GONE = "// waw2bo2: WaW drives zones: the map's own zone manager runs (none here: BO2's never starts)"
+
+
 def drop_bo2_zone_manager(bo2_gsc: str) -> str:
     """WaW drives zones: the map's own zone manager (the preserved
     _zombiemode_zone_manager, started by the map's own code) keeps level.zones;
-    BO2's is never started beside it. A map without one has none in WaW either."""
-    out, n = BO2_ZONE_MANAGER.subn(
-        "    // waw2bo2: WaW drives zones: the map's own zone manager runs (none here: BO2's never starts)\n",
-        bo2_gsc, count=1)
+    BO2's is never started beside it. A map without one has none in WaW either.
+    A main staged by an earlier build already carries the marker."""
+    if BO2_ZONE_MANAGER_GONE in bo2_gsc and "_zm_zonemgr::manage_zones" not in bo2_gsc:
+        return bo2_gsc
+    out, n = BO2_ZONE_MANAGER.subn(f"    {BO2_ZONE_MANAGER_GONE}\n", bo2_gsc, count=1)
     if n != 1:
         raise ZoneError("template zone manager start not found in the map script")
     return out
