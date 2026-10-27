@@ -491,6 +491,14 @@ def level_fields_read(tokens: list[gsc.Token], start: int = 2, end: int | None =
             if tokens[i].kind == gsc.IDENT and tokens[i - 1].text == "." and tokens[i - 2].low == "level"}
 
 
+def level_fields_assigned(tokens: list[gsc.Token], start: int = 2, end: int | None = None) -> set[str]:
+    """``level.<field> = ...`` names (lower-case) assigned in tokens[start:end]."""
+    end = len(tokens) if end is None else end
+    return {tokens[i].low for i in range(max(start, 2), min(end, len(tokens) - 1))
+            if tokens[i].kind == gsc.IDENT and tokens[i - 1].text == "." and tokens[i - 2].low == "level"
+            and tokens[i + 1].text == "="}
+
+
 def bridge_revive_reads(tokens: list[gsc.Token]) -> int:
     """WaW's player being_revived field is absent from T6's player schema.
 
@@ -2045,6 +2053,33 @@ class Translator:
                                       f"\tmaps\\mp\\zombies\\_zm::register_player_damage_callback( ::{name} );\n}}\n")
         return f"{name}_register"
 
+    def extract_main_level_state(self) -> str | None:
+        """WaW's _zombiemode::main sets level state the map's scripts read
+        (level.hudelem_count for create_simple_hud, the damage and last stand
+        pointers). BO2 replaces that main, so its level.X assignments run from
+        framework_level_state, first: every field main assigns that the map's
+        scripts read and no other script assigns, plus SOURCE_DAMAGE_FIELDS.
+        Fields BO2 owns under the same name are the map's level.waw_* ones."""
+        script = self.sources.get(ZOMBIEMODE)
+        main = script.functions.get("main") if script else None
+        if main is None:
+            return None
+        toks = script.tokens
+        main_assigned = level_fields_assigned(toks, main.body_open, main.body_close)
+        read, elsewhere = set(), set()
+        for path, text in self.sources.text.items():
+            tokens = gsc.tokenize(text)
+            read |= {tokens[i].low for i in range(2, len(tokens) - 1)
+                     if tokens[i].kind == gsc.IDENT and tokens[i - 1].text == "." and tokens[i - 2].low == "level"
+                     and tokens[i + 1].text != "="}
+            if norm(path) == ZOMBIEMODE:
+                elsewhere |= (level_fields_assigned(tokens, 2, main.body_open)
+                              | level_fields_assigned(tokens, main.body_close))
+            else:
+                elsewhere |= level_fields_assigned(tokens)
+        fields = (read & main_assigned) - elsewhere | set(SOURCE_DAMAGE_FIELDS)
+        return self.extract_level_state(ZOMBIEMODE, "main", fields)
+
     def extract_source_player_damage(self) -> str | None:
         """WaW drives player damage and last stand (docs/CONVERT_THE_WHOLE_MAP.md):
         T6's damage and last stand callbacks run the map's own engine entries,
@@ -2065,9 +2100,8 @@ class Translator:
         damage, laststand = (self.extract_entry(CALLBACKGLOBAL, entry) for entry in entries)
         lines = [f"\tlevel.waw2bo2_source_player_damage = ::{damage};",
                  f"\tlevel.waw2bo2_source_player_laststand = ::{laststand};"]
-        state = self.extract_level_state(ZOMBIEMODE, "main", set(SOURCE_DAMAGE_FIELDS))
-        if state:
-            lines.append(f"\t{state}();")
+        # the level fields _zombiemode::main points at them come from
+        # extract_main_level_state (SOURCE_DAMAGE_FIELDS), registered first
         init = self.extract_entry(LASTSTAND, "init")
         if init:
             lines.append(f"\t{init}();")
@@ -3634,6 +3668,10 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         respawn_function = tr.extract_entry(respawn_contract['script'], respawn_contract['function'])
     if hint_registry:
         framework_state.append(hint_registry)
+    # the map's _zombiemode::main level state first: later inits read it
+    main_state = tr.extract_main_level_state()
+    if main_state:
+        framework_state.insert(0, main_state)
     source_damage = tr.extract_source_player_damage()
     if source_damage:
         framework_state.append(source_damage)

@@ -36,7 +36,7 @@ class SourcePlayerDamageTests(unittest.TestCase):
                      "vDir, sHitLoc, modelIndex, psOffsetTime )\n{\n"
                      "\tself finishPlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
                      "vDir, sHitLoc, modelIndex, psOffsetTime );\n}\n")
-        zombiemode = ("main()\n{\n\tlevel.overridePlayerDamage = ::player_damage_override;\n"
+        zombiemode = ("main()\n{\n\tlevel.hudelem_count = 0;\n\tlevel.overridePlayerDamage = ::player_damage_override;\n"
                       "\tlevel.player_becomes_zombie = ::zombify_player;\n\tlevel.other = 1;\n}\n"
                       "zombify_player()\n{\n\tself.is_zombie = true;\n}\n" + STOCK_DAMAGE)
         laststand = ("init()\n{\n\tif( !IsDefined( level.laststandpistol ) )\n\t\tlevel.laststandpistol = \"m9a1\";\n}\n"
@@ -45,20 +45,26 @@ class SourcePlayerDamageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "maps").mkdir()
-            for name, text in (("_callbackglobal", callbacks), ("_zombiemode", zombiemode), ("_laststand", laststand)):
+            utility = "create_simple_hud()\n{\n\tlevel.hudelem_count++;\n}\n"
+            for name, text in (("_callbackglobal", callbacks), ("_zombiemode", zombiemode), ("_laststand", laststand),
+                               ("_zombiemode_utility", utility)):
                 (root / f"maps/{name}.gsc").write_text(text)
             tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            state = tr.extract_main_level_state()
             name = tr.extract_source_player_damage()
             while tr.core_queue:
                 tr.level_state_parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
             core = "\n".join(tr.level_state_parts)
         self.assertEqual(name, "waw2bo2_source_player_damage")
+        self.assertEqual(state, "zombiemode__main_level_state")
         self.assertIn("level.waw2bo2_source_player_damage = ::callbackglobal__callback_playerdamage;", core)
         self.assertIn("level.waw2bo2_source_player_laststand = ::callbackglobal__callback_playerlaststand;", core)
         # the map's main points its own fields (BO2's _zm owns the same names)
         self.assertIn("level.waw_overrideplayerdamage = ", core)
         self.assertIn("level.waw_player_becomes_zombie = ", core)
         self.assertNotIn("level.other", core)
+        # main's state the map's scripts read (create_simple_hud's counter)
+        self.assertIn("level.hudelem_count = 0;", core)
         self.assertIn("level.waw_laststandpistol = \"m9a1\";", core)
         # WaW's finishPlayerDamage reaches T6's through compat (argument order)
         self.assertIn("_waw2bo2_compat::waw_finishplayerdamage(", core)
