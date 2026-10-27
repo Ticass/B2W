@@ -60,6 +60,10 @@ def output_name(kind: str, name: str) -> str:
     name = name.replace("\\", "/")
     if name.startswith("/") or ".." in name.split("/") or any(c in name for c in ":,\r\n\0"):
         raise WeaponError(f"unsafe {kind} name: {name!r}")
+    # A WaW asset name can carry a control or Windows-reserved character
+    # (ORBiT's model material "mc/g\x1a"): no file can hold it. The T6 asset
+    # takes an escaped name, the same one in its file and every reference.
+    name = "".join(f"_x{ord(c):02x}" if ord(c) < 0x20 or c in '<>"|?*' else c for c in name)
     # Weapons keep their WaW names: scripts name them (giveweapon, wallbuys) and
     # no always-loaded BO2 zone carries a weapon of a WaW name (checked against
     # the stock asset lists in stage_runtime). Everything else is namespaced:

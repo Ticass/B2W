@@ -2281,6 +2281,17 @@ class Translator:
         patch = self.post_patches.get((core, name))
         return patch(text) if patch else text
 
+    def round_loop_missing_anchors(self, core: str = None, function: str = "round_think") -> list[str] | None:
+        """The SOURCE_ROUND_ANCHORS the map's round loop lacks ([] when it can
+        drive the rounds, None when the map has no such loop)."""
+        script = self.sources.get(core or ZOMBIEMODE)
+        fn = script.functions.get(function) if script else None
+        if fn is None:
+            return None
+        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
+        return [label for label, pattern in SOURCE_ROUND_ANCHORS
+                if len(re.findall(pattern.replace("ROUND_WAIT", r"round_wait"), body, re.IGNORECASE)) != 1]
+
     def extract_round_loop(self, core: str = None, function: str = "round_think") -> str | None:
         """WaW drives the rounds (docs/CONVERT_THE_WHOLE_MAP.md): the map's own
         round loop (_zombiemode::round_think and what it calls: round_wait,
@@ -2296,9 +2307,7 @@ class Translator:
         if fn is None:
             return None
         where = self.sources.origin.get(core + ".gsc", core)
-        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
-        missing = [label for label, pattern in SOURCE_ROUND_ANCHORS
-                   if len(re.findall(pattern.replace("ROUND_WAIT", r"round_wait"), body, re.IGNORECASE)) != 1]
+        missing = self.round_loop_missing_anchors(core, function)
         if missing:
             self.report.unsupported.setdefault(
                 f"GSC {core}::{function} round loop (no anchors {missing}; BO2's loop runs)", []).append(where)
@@ -3426,7 +3435,12 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
             report.rewrites['source WaW zombie speed selector -> native spawn callback'] += 1
     tr.post_calls.insert(0, zombiebehavior.RUNTIME + '::init();')
     speed_state_function = None
-    speed_state_source = zombiebehavior.source_speed_state(sources, API['zombie_runtime'])
+    # The map's own round loop and spawning update their speed state each
+    # round; a replay for BO2's loop would apply it twice (and conditional
+    # updates, Berlin Bank's, cannot be replayed at all). The selector
+    # script's initial values stay (its init does not run yet).
+    source_loop = tr.round_loop_missing_anchors() == [] and source_drives(ZOMBIEMODE, "round_spawning")
+    speed_state_source = zombiebehavior.source_speed_state(sources, API['zombie_runtime'], rounds=not source_loop)
     if speed_state_source:
         sources.text = dict(sources.text)
         sources._parsed = dict(sources._parsed)

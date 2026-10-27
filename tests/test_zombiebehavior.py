@@ -78,6 +78,14 @@ class ZombieBehaviorTests(unittest.TestCase):
                 p=root/name; p.parent.mkdir(parents=True,exist_ok=True); p.write_text(text)
             with self.assertRaisesRegex(ValueError, 'conditional source speed state'):
                 zombiebehavior.source_speed_state(gscport.Sources([root], [], None), gscport.API['zombie_runtime'])
+            # Berlin Bank: the map's own loop runs and updates it; only the
+            # selector script's initial value is kept
+            (root / 'maps/_zombiemode_spawner.gsc').write_text(
+                'init(){level.zombie_move_speed=1;}set_run_speed(){self.zombie_move_speed=level.zombie_move_speed;}')
+            state = zombiebehavior.source_speed_state(gscport.Sources([root], [], None),
+                                                      gscport.API['zombie_runtime'], rounds=False)
+            self.assertIn('level.zombie_move_speed=1;', state.replace(' ', ''))
+            self.assertNotIn('100', state)
 
     def test_source_actor_speed_writes_cannot_be_clobbered_by_native_field(self):
         tokens = gsc.tokenize('f(){self.zombie_move_speed="sprint"; '

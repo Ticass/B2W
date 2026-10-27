@@ -104,6 +104,21 @@ class SourceRoundLoopTests(unittest.TestCase):
         self.assertIn("level.round_spawn_func = ::zombiemode__round_spawning;", core)
         self.assertFalse(tr.report.unsupported)
 
+    def test_the_maps_loop_updates_its_own_speed_state(self):
+        # Berlin Bank: round_think updates speed state under a condition; the
+        # replay for BO2's loop could not slice it. The map's loop runs it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode.gsc").write_text(ZOMBIEMODE)
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertEqual(tr.round_loop_missing_anchors(), [])
+            (root / "maps/_zombiemode.gsc").write_text("round_think() { for(;;) { wait( 1 ); } }")
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertTrue(tr.round_loop_missing_anchors())
+        source = Path(gscport.__file__).read_text(encoding="utf-8")
+        self.assertIn("rounds=not source_loop)", source)
+
     def test_a_loop_without_the_anchors_keeps_bo2(self):
         tr, name, _ = self._translate("round_think() { for(;;) { wait( 1 ); } }")
         self.assertIsNone(name)

@@ -188,5 +188,16 @@ class WeaponTests(unittest.TestCase):
             self.assertEqual(json.loads((project / "weapons.stage.json").read_text())["missing_animations"], [])
 
 
+
+
+class OutputNameTests(unittest.TestCase):
+    def test_control_characters_become_file_safe_names(self):
+        # ORBiT: model material "mc/g\x1a" crashed writing its JSON (Errno 22)
+        self.assertEqual(weapons.output_name("material", "mc/g\x1a"), "waw_material/mc/g_x1a")
+        self.assertEqual(weapons.output_name("material", 'a?b*"'), "waw_material/a_x3fb_x2a_x22")
+        self.assertEqual(weapons.output_name("material", "mc/gun_steel"), "waw_material/mc/gun_steel")
+        with self.assertRaises(weapons.WeaponError):
+            weapons.output_name("material", "a:b")
+
 if __name__ == "__main__":
     unittest.main()

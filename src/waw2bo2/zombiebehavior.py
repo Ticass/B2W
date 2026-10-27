@@ -64,12 +64,14 @@ def source_chase_policy(sources, definition: dict) -> str | None:
     return None
 
 
-def source_speed_state(sources, definition: dict) -> str | None:
+def source_speed_state(sources, definition: dict, rounds: bool = True) -> str | None:
     """Keep initialization and round inputs read by the actual source selector.
 
     Round-spawn helpers may initialize speed bounds as a side effect of choosing
     the round population. Preserve those calls before choosing a zombie's speed,
     without starting a second WaW spawning loop on the native AI runtime.
+    With rounds=False the map's own round loop and spawning run and update the
+    state themselves: only the selector script's initial values are kept.
     """
     from .gscport import top_level_statements
     contract = definition['source_speed']
@@ -116,7 +118,7 @@ def source_speed_state(sources, definition: dict) -> str | None:
             stmt = speed.tokens[a:b]
             if len(stmt) > 3 and [t.low for t in stmt[:2]] == ['level', '.'] and stmt[2].low in reads:
                 initial.append(gsc.emit(stmt))
-    framework = sources.get(round_contract['script'])
+    framework = sources.get(round_contract['script']) if rounds else None
     begin = framework.functions.get(round_contract['start_function']) if framework else None
     if begin:
         for a, b in top_level_statements(framework.tokens, begin.body_open, begin.body_close):
