@@ -121,6 +121,8 @@ class PerkOwnershipTests(unittest.TestCase):
             self.assertIn('self [[ level.waw2bo2_source_player_damage ]]( einflictor, eattacker, idamage, idflags, '
                           'smeansofdeath, sweapon, vpoint, vdir, shitloc, undefined, psoffsettime );', owned_zm)
             self.assertIn('self [[ level.waw2bo2_source_player_laststand ]](', owned_zm)
+            # an AI's melee lands WaW's value (zombie 60, dog 40), not T6's
+            self.assertIn('            idamage = eattacker.meleedamage;\n', owned_zm)
             self.assertNotIn('perk_machine_spawn_init();', text)
             self.assertNotIn('array_thread(x,::buy)', text)
             self.assertNotIn('unpause_machine();', text)

@@ -4481,9 +4481,10 @@ waw2bo2_setroundsplayed( round )
 # WaW's Callback_PlayerDamage passes the player's own explosive/projectile
 # damage through in full (a point-blank Wunderwaffe or grenade can down you).
 # BO2's player_damage_override caps it at 75 above 75 health. Zombie and dog
-# hits already match: WaW's weaponless zombies melee with defaultweapon
+# hits match there: WaW's weaponless zombies melee with defaultweapon
 # (meleeDamage 150) and dogs with dog_MeleeDamage 100, both times
-# player_meleeDamageMultiplier 0.4 (60 and 40, BO2's values).
+# player_meleeDamageMultiplier 0.4 (60 and 40, the attacker's meleedamage,
+# which BO2's override substitutes for T6's own melee damage).
 WAW_SELF_DAMAGE_CAP = (
     "        if ( self.health > 75 && !( isdefined( self.is_zombie ) && self.is_zombie ) )\n"
     "            return 75;\n",
@@ -4518,6 +4519,10 @@ WAW_FAILSAFE_NO_REQUEUE = ("level.put_timed_out_zombies_back_in_queue = 1;",
 # T6's callbacks run the map's _callbackglobal entries, whose override finishes
 # the damage itself. WaW's engine applies player_damageMultiplier to non-melee
 # hits before its callback (WAW_PLAYER_DAMAGE_SCALE keeps it for BO2's path).
+# An AI's melee reaches WaW's callback as its weapon's meleeDamage times
+# player_meleeDamageMultiplier (zombie 60, dog 40: the attacker's meleedamage);
+# T6's engine hands over its own value (measured 100-104 on Der Riese, a
+# one-hit down at 100 health), so the AI's WaW value replaces it.
 WAW_SOURCE_PLAYER_DAMAGE = (
     "callback_playerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, "
     "psoffsettime, boneindex )\n{\n",
@@ -4525,6 +4530,9 @@ WAW_SOURCE_PLAYER_DAMAGE = (
     "psoffsettime, boneindex )\n{\n"
     "    // waw2bo2: WaW drives player damage: the map's Callback_PlayerDamage\n"
     "    if ( isdefined( level.waw2bo2_source_player_damage ) )\n    {\n"
+    "        if ( smeansofdeath == \"MOD_MELEE\" && isdefined( eattacker ) && isai( eattacker )\n"
+    "            && isdefined( eattacker.meleedamage ) )\n"
+    "            idamage = eattacker.meleedamage;\n\n"
     "        if ( isdefined( level.waw2bo2_player_damage_scale ) && idamage > 0 && smeansofdeath != \"MOD_MELEE\"\n"
     "            && smeansofdeath != \"MOD_FALLING\" && !( isdefined( eattacker ) && isdefined( eattacker.is_zombie ) && eattacker.is_zombie ) )\n"
     "            idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );\n\n"
