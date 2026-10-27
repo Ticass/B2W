@@ -406,6 +406,8 @@ def light_falloff_placement(primary_lights: Path, roots) -> tuple[float, float, 
 # T6 code textures bound through type-4 pass arguments (value = T6 code
 # texture index, measured on stock spot passes: attenuation 15 at slot 12).
 CODE_TEXTURE_ARGS = {'attenuationSampler': 15, 'floatZSampler': 18, 'refractSampler': 9}
+# Technique flag of every stock technique that samples the floatZ code texture.
+TECHNIQUE_FLAG_FLOATZ = 0x40
 
 
 @lru_cache(maxsize=32)
@@ -1480,6 +1482,15 @@ def bind_material(source_material, output_material, roots, project_root, native_
                     entries[slot] = -1
                 result['unsupported'].append(f'slot {slot}: dropped for the WaW alpha test (cut-out casts no shadow-map shadow)')
     if result['active']:
+        # T6 resolves the scene depth texture only for techniques flagged as
+        # reading it: every stock technique binding code texture 18 (soft
+        # particles, distortion) carries 0x40, no other does. A WaW pass that
+        # samples floatZ in a donor technique without it read stale depth
+        # (the projected blood decal drew a see-through box).
+        for technique in native['techniques']:
+            if technique and any(a['type'] == 4 and a['u'].get('value') == CODE_TEXTURE_ARGS['floatZSampler']
+                                 for p in technique['passArray'] for a in p['args']):
+                technique['flags'] |= TECHNIQUE_FLAG_FLOATZ
         # Named by content: embedded material constants make programs per material.
         # The whole technique set is hashed, arguments included: two materials
         # can bind identical programs with different arguments (an added
