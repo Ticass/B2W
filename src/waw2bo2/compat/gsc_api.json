@@ -66,8 +66,15 @@
       "glue": {}
     },
     "maps\\_zombiemode_utility": {
-      "doc": "only: the map's calls into these run WaW's function; BO2's same-named _zm_audio one plays BO2's lines (the map threads the kill-streak quote timer on every player)",
-      "only": ["player_killstreak_timer"]
+      "doc": "The map's helpers run (its VO and response lines play its own aliases, not BO2's; its player/enemy tests read its own state). glue: BO2 owns the job below.",
+      "glue": {
+        "spawn_zombie": "T6 actor creation: WaW's StalingradSpawn/DoSpawn do not exist in T6; BO2's helper spawns the actor and runs its spawn functions",
+        "add_spawner": "T6 spawner spawn-function registry used by the native actor glue",
+        "destroy_hud": "compat waw_destroy_hud: T6 may already have freed the HUD element (a destroyed receiver is a runtime error)",
+        "all_chunks_intact": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)",
+        "all_chunks_destroyed": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)",
+        "get_random_destroyed_chunk": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)"
+      }
     },
     "maps\\_utility": {
       "doc": "only: WaW's magic bullet shield holds the actor's health at 100000000 until stop restores it; BO2's _zm_utility one only lowers attacker accuracy, so Shi No Numa's dogs died during their spawn lightning and _zombiemode_dogs started their behind-you audio on a dead dog (its endon('death') had passed: an endless runtime error loop)",
@@ -284,6 +291,7 @@
     "maps\\mp\\zombies\\_zm_utility::destroy_hud": "waw_destroy_hud"
   },
   "compat_wrappers": [
+    "isnotarget",
     "tablelookup",
     "tablelookupistring",
     "connectpaths",

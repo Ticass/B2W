@@ -98,6 +98,15 @@ init()
 // WaW cuts and restores a window's paths through its clip brush, which BO2's
 // blocker_init deletes beside a zbarrier (the carpenter's windows.clip);
 // waw_window_paths then follows the chunks instead.
+// WaW IsNoTarget reads the entity's FL_NOTARGET flag, which only the notarget
+// cheat sets; T6 script cannot read it. An undefined result is a runtime error
+// in a T6 condition (it aborted the map's is_player_valid callers), so answer
+// what WaW answers outside that cheat.
+waw_isnotarget()
+{
+    return false;
+}
+
 waw_connectpaths()
 {
     if ( isdefined( self ) )

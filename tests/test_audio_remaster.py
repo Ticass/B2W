@@ -167,7 +167,7 @@ class QuoteTriggerTests(unittest.TestCase):
 
     def test_killstreak_timer_runs_the_maps(self):
         self.assertTrue(gscport.source_drives('maps\\_zombiemode_utility', 'player_killstreak_timer'))
-        self.assertFalse(gscport.source_drives('maps\\_zombiemode_utility', 'get_players'))
+        self.assertFalse(gscport.source_drives('maps\\_zombiemode_utility', 'spawn_zombie'))
         self.assertTrue(gscport.source_drives('maps\\_zombiemode', 'round_think'))
         self.assertFalse(gscport.source_drives('maps\\_zombiemode', 'end_game'))
 
