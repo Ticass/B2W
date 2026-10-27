@@ -84,6 +84,24 @@ class SpawnerTests(unittest.TestCase):
             self.assertTrue(any(e.get("targetname") == "zone_a_spawners_dog" for e in out))
 
 
+    def test_waw_human_ai_is_dropped_and_zombie_spawners_of_any_aitype_stay(self):
+        # 420: allied marines (rank_ai) crash T6 zombies registering the actor
+        ents = "\n".join([
+            '{\n"classname" "actor_ally_us_usmc_roebuck_bar"\n"targetname" "rank_ai"\n"origin" "1 2 3"\n}',
+            '{\n"classname" "actor_axis_ger_ber_wehr_reg"\n"targetname" "zone_a_spawners"\n'
+            '"script_noteworthy" "zombie_spawner"\n"origin" "4 5 6"\n}',
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "map.ents"
+            path.write_text(ents)
+            summary, _ = entities.write_entities(path, "proj", Path(temp) / "BSP")
+            out = json.loads((Path(temp) / "BSP/entities.json").read_text())["entities"]
+            self.assertFalse(any(e.get("targetname") == "rank_ai" for e in out))
+            self.assertTrue(any(e["classname"] == entities.ZOMBIE_ACTOR_CLASS for e in out))
+            self.assertIn("actor_ally_us_usmc_roebuck_bar (WaW human AI; T6 zombies has no aitype for it)",
+                          summary["dropped"])
+
+
 class BarrierTests(unittest.TestCase):
     def test_goal_target_group_gets_the_inward_window_traversal(self):
         with tempfile.TemporaryDirectory() as temp:

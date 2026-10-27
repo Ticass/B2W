@@ -39,7 +39,9 @@ class ZoneGraphTests(unittest.TestCase):
         actors = [e for e in out if e['classname'] == entities.ZOMBIE_ACTOR_CLASS]
         self.assertEqual([e['script_forcespawn'] for e in actors], ['1', '1', '1'])
         self.assertEqual(actors[1]['script_string'], 'riser')
-        self.assertEqual(next(e for e in out if e['classname'] == 'actor_ally')['script_forcespawn'], '0')
+        # WaW human AI has no T6 zombies aitype (it crashes the map): dropped, reported
+        self.assertFalse(any(e['classname'] == 'actor_ally' for e in out))
+        self.assertIn('actor_ally (WaW human AI; T6 zombies has no aitype for it)', summary['dropped'])
         self.assertEqual(summary['renamed']['WaW DoSpawn -> T6 spawnactor spawner flag'], 2)
     def test_spawn_structs_chase_like_waw(self):
         spawner = {"classname": "actor_zombie_ger_ber_sshonor", "script_noteworthy": "zombie_spawner",

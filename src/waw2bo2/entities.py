@@ -176,7 +176,13 @@ def convert_entities(ents: list[dict[str, str]], project: str,
             # no zone volume, only in these triggers.
             ent["script_noteworthy"] = "life_brush"
             renamed["trigger_multiple playable_area -> life_brush"] += 1
-        if cls.startswith("actor_") and "zombie" in cls:
+        if cls.startswith("actor_") and "zombie" not in cls and ent.get("script_noteworthy") != "zombie_spawner":
+            # WaW campaign AI (420's allied marines "rank_ai"): T6 zombies has
+            # no aitype for it and crashes registering the actor (its weapon
+            # resolves to index 0, BG_GetWeaponDef 0x41A535)
+            dropped[f"{cls} (WaW human AI; T6 zombies has no aitype for it)"] += 1
+            continue
+        if cls.startswith("actor_"):
             renamed[f"{cls} -> {ZOMBIE_ACTOR_CLASS}"] += 1
             ent["classname"] = ZOMBIE_ACTOR_CLASS
             ent["waw_actor_type"] = cls.removeprefix("actor_")
