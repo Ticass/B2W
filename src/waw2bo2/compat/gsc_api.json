@@ -65,7 +65,7 @@
       "glue": {
         "zombie_spawn_init": "T6 actor setup on BO2's spawned actor (ASD animations, traversals); the converter's actor glue calls it",
         "zombie_eye_glow_stop": "the eyes are made by BO2's actor setup (zombie_spawn_init); only its stop removes them",
-        "is_spawner_targeted_by_blocker": "windows are BO2 zbarriers until the map's blockers drive"
+        "is_spawner_targeted_by_blocker": "windows are BO2 zbarriers: T6's entity budget (912 map entities) cannot hold WaW's board chunks; the one exception the user approved (2026-10-27)"
       }
     },
     "maps\\_gameskill": {
@@ -94,9 +94,9 @@
         "spawn_zombie": "T6 actor creation: WaW's StalingradSpawn/DoSpawn do not exist in T6; BO2's helper spawns the actor and runs its spawn functions",
         "add_spawner": "T6 spawner spawn-function registry used by the native actor glue",
         "destroy_hud": "compat waw_destroy_hud: T6 may already have freed the HUD element (a destroyed receiver is a runtime error)",
-        "all_chunks_intact": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)",
-        "all_chunks_destroyed": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)",
-        "get_random_destroyed_chunk": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)"
+        "all_chunks_intact": "windows are BO2 zbarriers: T6's entity budget (912 map entities) cannot hold WaW's board chunks; the one exception the user approved (2026-10-27) (chunk state lives in the zbarrier)",
+        "all_chunks_destroyed": "windows are BO2 zbarriers: T6's entity budget (912 map entities) cannot hold WaW's board chunks; the one exception the user approved (2026-10-27) (chunk state lives in the zbarrier)",
+        "get_random_destroyed_chunk": "windows are BO2 zbarriers: T6's entity budget (912 map entities) cannot hold WaW's board chunks; the one exception the user approved (2026-10-27) (chunk state lives in the zbarrier)"
       }
     },
     "maps\\_utility": {
