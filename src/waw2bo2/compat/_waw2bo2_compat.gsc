@@ -90,6 +90,43 @@ init()
     level thread waw_window_paths();
     level thread power_bridge();
     level thread waw_zone_bookkeeping();
+    level thread waw_window_board_visibility();
+}
+
+// Windows are BO2 zbarriers (the approved entity-budget exception). WaW's
+// remove_chunk flings a torn board and hides it; BO2 leaves it lying under the
+// window in its "open" pose until repaired. Hide a window board once it has
+// landed open; BO2's repair (replace_chunk) shows it again and flies it back.
+waw_window_board_visibility()
+{
+    level endon( "end_game" );
+    while ( !isdefined( level.exterior_goals ) )
+        wait 0.5;
+    for ( ;; )
+    {
+        foreach ( goal in level.exterior_goals )
+        {
+            barrier = goal.zbarrier;
+            if ( !isdefined( barrier ) )
+                continue;
+            if ( !isdefined( barrier.waw2bo2_hidden ) )
+                barrier.waw2bo2_hidden = [];
+            for ( i = 0; i < barrier getnumzbarrierpieces(); i++ )
+            {
+                if ( barrier getzbarrierpiecestate( i ) == "open" )
+                {
+                    if ( !isdefined( barrier.waw2bo2_hidden[i] ) )
+                    {
+                        barrier hidezbarrierpiece( i );
+                        barrier.waw2bo2_hidden[i] = 1;
+                    }
+                }
+                else
+                    barrier.waw2bo2_hidden[i] = undefined;
+            }
+        }
+        wait 0.25;
+    }
 }
 
 // WaW cuts and restores a window's paths through its clip brush, which BO2's

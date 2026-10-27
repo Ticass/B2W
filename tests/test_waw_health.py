@@ -74,6 +74,17 @@ class ZoneBookkeepingTests(unittest.TestCase):
         self.assertIn("level.active_zone_names = maps\\mp\\zombies\\_zm_zonemgr::get_active_zone_names();", body)
 
 
+class WindowBoardVisibilityTests(unittest.TestCase):
+    def test_landed_window_boards_are_hidden_like_waw(self):
+        # WaW hides a flung board; BO2 left torn boards lying under the window
+        script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
+        fn = script.functions["waw_window_board_visibility"]
+        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
+        self.assertIn('getzbarrierpiecestate( i ) == "open"', body)
+        self.assertIn("barrier hidezbarrierpiece( i );", body)
+        self.assertIn("goal.zbarrier", body)   # window barricades only, never the box
+
+
 class HudFieldLoweringTests(unittest.TestCase):
     def test_edge_anchors_use_safe_area_and_hud_hides_in_menus(self):
         source = ('f()\n{\n\thud.alignX = "left";\n\thud.horzAlign = "left";\n\thud.vertAlign = "bottom";\n'
