@@ -2215,6 +2215,18 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     write_zone(stage, project, images, ipak, sorted(script_models | fx_models | projectile_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
                [m for m in hud_materials if m in staged] + rope_runtime['materials'], [localization_report['asset']], rumble_report['files'])
 
+    # CLAUDE.md: the map's own framework runs; every function BO2 runs in its
+    # place without a documented glue reason is reported, on every build
+    from . import framework_coverage
+    coverage_roots = [*(waw_patch_script_roots or []), *([waw_map_script.parent.parent] if waw_map_script else []),
+                      *(waw_script_roots or []), *([waw_stock_scripts] if waw_stock_scripts else [])]
+    coverage = framework_coverage.coverage(json.loads(report.to_json()), coverage_roots)
+    report.content["framework_coverage"] = framework_coverage.totals(coverage)
+    report.warnings += framework_coverage.undocumented_bo2(coverage, gscport.API)
+    (project_root / "framework_coverage.json").write_text(json.dumps(coverage, indent=1) + "\n", encoding="utf-8")
+    (project_root / "framework_coverage.md").write_text(framework_coverage.markdown(project, coverage), encoding="utf-8")
+    print(f"framework coverage: {framework_coverage.totals(coverage)} (framework_coverage.md)", flush=True)
+
     (project_root / "bridge_stage.report.json").write_text(report.to_json(), encoding="utf-8")
     return report
 
