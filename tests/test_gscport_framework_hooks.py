@@ -333,6 +333,20 @@ class FrameworkHookTests(unittest.TestCase):
         registration = gscport.weapons_source({})
         for weapon in gscport.BO2_FRAMEWORK_WEAPONS:
             self.assertIn(f'waw_native_only_weapon( "{weapon}" );', registration)
+        self.assertNotIn('bowie_knife_zm', registration)
+        # the map's registry is renamed beside BO2's: the keys come from it
+        compat = (gscport.COMPAT_DIR / '_waw2bo2_compat.gsc').read_text()
+        keys = compat[compat.index('waw_zombie_weapon_keys()'):]
+        keys = keys[:keys.index('\n}\n')]
+        self.assertEqual(gscport.WAW_LEVEL_FIELDS['zombie_weapons'], 'waw_zombie_weapons')
+        self.assertIn('getarraykeys( level.waw_zombie_weapons )', keys)
+        self.assertNotIn('level.zombie_weapons', keys)
+
+    def test_altmelee_maps_include_the_equipped_melee_weapon(self):
+        # Der Riese: giveweapon of an unincluded bowie_knife_zm failed silently
+        registration = gscport.weapons_source({}, ['bowie_knife_zm'])
+        self.assertIn('include_zombie_weapon( "bowie_knife_zm", 0 );', registration)
+        self.assertIn('waw_native_only_weapon( "bowie_knife_zm" );', registration)
 
     def test_box_weapon_keys_survive_map_and_framework_translation(self):
         # Exercise reference resolution, not just the token rewrite: a stub

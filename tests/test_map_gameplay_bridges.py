@@ -19,6 +19,59 @@ def _api() -> T6Api:
                  methods={"hasweapon": (1, 1)})
 
 
+class SourcePlayerDamageTests(unittest.TestCase):
+    def test_t6_callbacks_run_the_maps_own_damage_and_last_stand(self):
+        callbacks = ("Callback_PlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
+                     "vDir, sHitLoc, modelIndex, psOffsetTime )\n{\n"
+                     "\tif( IsDefined( level.overridePlayerDamage ) )\n\t{\n"
+                     "\t\tself [[level.overridePlayerDamage]]( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, "
+                     "sWeapon, vPoint, vDir, sHitLoc, modelIndex, psOffsetTime );\n\t\treturn;\n\t}\n"
+                     "\tself finishPlayerDamageWrapper( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, "
+                     "vPoint, vDir, sHitLoc, modelIndex, psOffsetTime );\n}\n"
+                     "Callback_PlayerLastStand( eInflictor, eAttacker, iDamage, sMeansOfDeath, sWeapon, vDir, sHitLoc, "
+                     "psOffsetTime, deathAnimDuration )\n{\n"
+                     "\t[[maps\\_laststand::PlayerLastStand]]( eInflictor, eAttacker, iDamage, sMeansOfDeath, sWeapon, "
+                     "vDir, sHitLoc, psOffsetTime, deathAnimDuration );\n}\n"
+                     "finishPlayerDamageWrapper( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
+                     "vDir, sHitLoc, modelIndex, psOffsetTime )\n{\n"
+                     "\tself finishPlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
+                     "vDir, sHitLoc, modelIndex, psOffsetTime );\n}\n")
+        zombiemode = ("main()\n{\n\tlevel.hudelem_count = 0;\n\tlevel.overridePlayerDamage = ::player_damage_override;\n"
+                      "\tlevel.player_becomes_zombie = ::zombify_player;\n\tlevel.other = 1;\n}\n"
+                      "zombify_player()\n{\n\tself.is_zombie = true;\n}\n" + STOCK_DAMAGE)
+        laststand = ("init()\n{\n\tif( !IsDefined( level.laststandpistol ) )\n\t\tlevel.laststandpistol = \"m9a1\";\n}\n"
+                     "PlayerLastStand( eInflictor, attacker, iDamage, sMeansOfDeath, sWeapon, vDir, sHitLoc, "
+                     "psOffsetTime, deathAnimDuration )\n{\n\tself [[level.player_becomes_zombie]]();\n}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            utility = "create_simple_hud()\n{\n\tlevel.hudelem_count++;\n}\n"
+            for name, text in (("_callbackglobal", callbacks), ("_zombiemode", zombiemode), ("_laststand", laststand),
+                               ("_zombiemode_utility", utility)):
+                (root / f"maps/{name}.gsc").write_text(text)
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            state = tr.extract_main_level_state()
+            name = tr.extract_source_player_damage()
+            while tr.core_queue:
+                tr.level_state_parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
+            core = "\n".join(tr.level_state_parts)
+        self.assertEqual(name, "waw2bo2_source_player_damage")
+        self.assertEqual(state, "zombiemode__main_level_state")
+        self.assertIn("level.waw2bo2_source_player_damage = ::callbackglobal__callback_playerdamage;", core)
+        self.assertIn("level.waw2bo2_source_player_laststand = ::callbackglobal__callback_playerlaststand;", core)
+        # the map's main points its own fields (BO2's _zm owns the same names)
+        self.assertIn("level.waw_overrideplayerdamage = ", core)
+        self.assertIn("level.waw_player_becomes_zombie = ", core)
+        self.assertNotIn("level.other", core)
+        # main's state the map's scripts read (create_simple_hud's counter)
+        self.assertIn("level.hudelem_count = 0;", core)
+        self.assertIn("level.waw_laststandpistol = \"m9a1\";", core)
+        # WaW's finishPlayerDamage reaches T6's through compat (argument order)
+        self.assertIn("_waw2bo2_compat::waw_finishplayerdamage(", core)
+        self.assertNotIn("_zm_laststand", core)
+        self.assertFalse(tr.report.unsupported.get(gscport.FALLBACK))
+
+
 class DamagePreludeTests(unittest.TestCase):
     def test_catalogued_new_stock_damage_body_is_not_a_custom_prelude(self):
         head = STOCK_DAMAGE.split('{\n', 1)[0]
@@ -108,7 +161,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertNotIn("MOD_FALLING", core)             # BO2 _zm keeps the stock damage logic
         self.assertIn("register_player_damage_callback( ::zombiemode__player_damage_override_prelude )", core)
         self.assertIn("\tzombiemode__player_damage_override_prelude_register();", core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e and "no Callback_PlayerDamage" not in e])
 
     def test_map_edited_from_the_raw_release_matches_it_not_the_zone_one(self):
         # stock zones carry an older _zombiemode than the raw scripts maps start from
@@ -117,7 +170,7 @@ class DamagePreludeTests(unittest.TestCase):
         body = STOCK_DAMAGE.split("{\n", 1)
         core, report = self.port(body[0] + "{\n\tif( self.shielded )\n\t\treturn;\n" + body[1], older)
         self.assertIn("if( self.shielded )\n\t\treturn 0;", core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e and "no Callback_PlayerDamage" not in e])
 
     def port_callbackglobal(self, prelude: str, bo2_stock_perks: bool = False) -> tuple[str, gscport.PortReport]:
         stock = ("Callback_PlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
@@ -154,7 +207,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertNotIn("isPlayer( eAttacker )", core)   # stock body stays BO2's
         self.assertIn("register_player_damage_callback( ::callbackglobal__callback_playerdamage_prelude )", core)
         self.assertIn("\tcallbackglobal__callback_playerdamage_prelude_register();", core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e.lower()])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if "damage" in e.lower() and "no Callback_PlayerDamage" not in e])
 
     def test_perk_damage_rules_are_dropped_when_bo2_owns_the_perks(self):
         # BO2's own PhD Flopper (_zm_perk_divetonuke) replaces the WaW one
@@ -176,7 +229,7 @@ class DamagePreludeTests(unittest.TestCase):
         core, report = self.port(body[0] + '{\n\tif ( self.self_revive ) return;\n' + edited)
         self.assertIn('if ( self.self_revive ) return 0;', core)
         self.assertNotIn('easter_egg', core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e and "no Callback_PlayerDamage" not in e])
 
     def test_statement_split_keeps_if_else_chains_whole(self):
         tokens = gscport.gsc.tokenize("{ if ( a ) { b(); } else c(); d = 1; for ( i = 0; i < 2; i++ ) e(); }")
@@ -203,6 +256,70 @@ class DamagePreludeTests(unittest.TestCase):
             self.assertIn('scales[0] = 0.3225806451612903;', tr.level_state_parts[-1])
             self.assertIn('scales[3] = 0.4608294930875576;', tr.level_state_parts[-1])
 
+    def test_player_regen_timing_comes_from_source_gameskill(self):
+        # a map whose _gameskill regenerates sooner than BO2's 2400 ms constant
+        import tempfile
+        from pathlib import Path
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_gameskill.gsc').write_text(
+                'setskill(){ add_fractional_data_point( "playerHealth_RegularRegenDelay", 0.25, 3000 ); '
+                'add_fractional_data_point( "playerHealth_RegularRegenDelay", 1.0, 1500 ); '
+                'add_fractional_data_point( "healthOverlayCutoff", 0.75, 0.2 ); '
+                'difficulty_starting_frac[ "normal" ] = 0.75; }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.player_health_regen_hook(),
+                             ['maps\\mp\\waw\\_waw2bo2_core::waw2bo2_player_regen_timing();'])
+            self.assertIn('level.playerhealth_regularregendelay = 2000;', tr.level_state_parts[-1])
+            self.assertIn('level.healthoverlaycutoff = 0.2;', tr.level_state_parts[-1])
+            self.assertNotIn('longregentime', tr.level_state_parts[-1])
+            self.assertTrue(any('longRegenTime' in e for e in tr.report.unsupported[gscport.FALLBACK]))
+
+    def test_spawner_lists_come_from_source_main(self):
+        # Der Riese: _zombiemode::main( "receiver_zone_spawners" ) picks the
+        # initial spawners its own round_spawning and zone manager use
+        import tempfile
+        from pathlib import Path
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode.gsc').write_text(
+                'main(init_zombie_spawner_name){ precache_shaders(); '
+                'if( !IsDefined( init_zombie_spawner_name) ) { level.enemy_spawns = getEntArray( "zombie_spawner_init", "targetname" ); } '
+                'else { level.enemy_spawns = getEntArray( init_zombie_spawner_name, "targetname" ); } '
+                'level.zombie_rise_spawners = []; level.custom_introscreen = ::intro; maps\\_load::main(); }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.extract_spawner_lists(), 'zombiemode__main_spawner_lists')
+            text = tr.level_state_parts[-1]
+            self.assertIn('zombiemode__main_spawner_lists( init_zombie_spawner_name )', text)
+            self.assertIn('( init_zombie_spawner_name, "targetname" )', text)
+            self.assertIn('level.zombie_rise_spawners = [];', text)
+            self.assertNotIn('custom_introscreen', text)
+            self.assertNotIn('precache_shaders', text)
+
+    def test_player_connect_fields_come_from_source_onplayerconnect(self):
+        import tempfile
+        from pathlib import Path
+        from waw2bo2.t6api import T6Api
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode.gsc').write_text(
+                'onPlayerConnect() { for( ;; ) { level waittill( "connecting", player ); '
+                'player.entity_num = player GetEntityNumber(); player thread onPlayerSpawned(); '
+                'player.score = level.zombie_vars["zombie_score_start"]; player.old_score = player.score; } }')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.extract_player_connect_fields(), 'zombiemode__onplayerconnect_fields')
+            text = tr.level_state_parts[-1]
+            self.assertIn('level waittill( "connecting", player );', text)
+            self.assertIn('player.entity_num =', text)
+            self.assertIn('player.pers["score"] = player.score;', text)
+            self.assertIn('player.old_score = player.score;', text)
+            self.assertNotIn('onPlayerSpawned', text)
+
     def test_statement_split_skips_developer_blocks(self):
         # Verruckt round_start: level.chalk_hud1 follows a /# #/ block
         tokens = gscport.gsc.tokenize("{ a = 1; /# b(); #/ level.x = c(); }")
@@ -220,7 +337,7 @@ class DamagePreludeTests(unittest.TestCase):
         self.assertIn('iDamage = 0;', core)
         self.assertIn('return 0;', core)
         self.assertNotIn('finishPlayerDamageWrapper', core)
-        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e])
+        self.assertFalse([e for e in report.unsupported.get(gscport.FALLBACK, []) if 'damage' in e and "no Callback_PlayerDamage" not in e])
 
     def test_positive_damage_finish_is_still_rejected(self):
         body = STOCK_DAMAGE.split("{\n", 1)
@@ -311,6 +428,68 @@ class EngineMaterialTests(unittest.TestCase):
         init = script.functions["init"]
         self.assertIn("level thread waw_window_paths();",
                       gscport.gsc.emit(script.tokens[init.body_open:init.body_close + 1]))
+
+
+class FrameworkSignatureTests(unittest.TestCase):
+    def test_a_maps_own_function_runs_when_bo2s_takes_other_arguments(self):
+        # Shi No Numa's _zombiemode_net: network_safe_spawn( classname, origin );
+        # BO2's _zm_net (and Der Riese's WaW) take ( id, max, classname, origin )
+        self.assertEqual(gscport.BO2_PARAMS["maps\\mp\\zombies\\_zm_net"]["network_safe_spawn"],
+                         ["id", "max", "classname", "origin"])
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode_net.gsc").write_text(
+                "network_safe_spawn( classname, origin ) { return Spawn( classname, origin ); }\n"
+                "network_choke_init( id ) { }\n")
+            # Der Riese's WaW takes BO2's ( id, max, classname, origin ): BO2's runs
+            (root / "maps/_zombiemode_utility.gsc").write_text(
+                "all_chunks_intact( barrier_chunks ) { }\nflag_init( message ) { }\n")
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertTrue(tr.signature_differs("maps\\_zombiemode_net", "network_safe_spawn"))
+            self.assertFalse(tr.signature_differs("maps\\_zombiemode_net", "network_choke_init"))
+            self.assertFalse(tr.signature_differs("maps\\_zombiemode_net", "not_in_bo2"))
+            # barrier helpers keep BO2's routing and its argument adapters
+            self.assertFalse(tr.signature_differs("maps\\_zombiemode_utility", "all_chunks_intact"))
+
+    def test_waws_magic_bullet_shield_runs(self):
+        # BO2's only lowers attacker accuracy: dogs died during their spawn
+        # lightning and the dog script carried on with a dead dog
+        self.assertTrue(gscport.source_drives("maps\\_utility", "magic_bullet_shield"))
+        self.assertTrue(gscport.source_drives("maps\\_utility", "stop_magic_bullet_shield"))
+        self.assertFalse(gscport.source_drives("maps\\_utility", "array_thread"))
+        # its BloodImpact( bool ) takes T6's mode names, else the shield's
+        # thread ends before its health loop
+        self.assertIn("bloodimpact", gscport.API["compat_wrappers"])
+        compat = gscport.gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8"), "compat")
+        body = gscport.gsc.emit(compat.tokens[compat.functions["waw_bloodimpact"].body_open:
+                                              compat.functions["waw_bloodimpact"].body_close + 1])
+        self.assertIn('"none"', body)
+        self.assertIn('"normal"', body)
+
+    def test_player_teleports_are_not_interpolated(self):
+        # Der Riese's teleporter: link to a script_origin, move it to the
+        # black room, setorigin to the core; T6's client slid the view there
+        self.assertIn("linkto", gscport.API["compat_wrappers"])
+        self.assertIn("setorigin", gscport.API["compat_wrappers"])
+        compat = gscport.gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8"), "compat")
+        for name in ("waw_linkto", "waw_setorigin"):
+            body = gscport.gsc.emit(compat.tokens[compat.functions[name].body_open:
+                                                  compat.functions[name].body_close + 1])
+            self.assertIn("self dontinterpolate();", body)
+
+    def test_the_maps_net_init_runs_where_bo2_has_none(self):
+        # its network_safe_spawn reads the counters init sets
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode_net.gsc").write_text(
+                "init() { level.zombie_network_num_spawns = 0; }\n"
+                "network_safe_spawn( classname, origin ) { return Spawn( classname, origin ); }\n")
+            (root / "maps/_zombiemode.gsc").write_text("main() { maps\\_zombiemode_net::init(); }\n")
+            api = T6Api({}, {"maps\\mp\\zombies\\_zm_net": {"network_safe_spawn": 4}})
+            tr = gscport.Translator(gscport.Sources([root], [], None), api, gscport.PortReport())
+            self.assertEqual(tr.framework_hooks(), ["maps\\mp\\waw\\_waw2bo2_core::zombiemode_net__init();"])
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import shutil
 import re
 
 
-def stage(source: Path, project: Path) -> dict:
+def stage(source: Path, project: Path, dynents: list[dict] = ()) -> dict:
     target = project / 'BSP/constraints.json'
     if not source.is_file():
         target.unlink(missing_ok=True)
@@ -25,9 +25,9 @@ def stage(source: Path, project: Path) -> dict:
         ropes += entry['type'] == 8
         for number in (1, 2):
             attachment = entry[f'attach_point_type{number}']
-            if attachment == 1:
-                raise ValueError('map physics dynent attachment requires native dynent staging')
-            if attachment not in (0, 2, 3):
+            if attachment == 1 and not 0 <= entry[f'target_index{number}'] < len(dynents):
+                raise ValueError('map physics dynent attachment outside the map dynents')
+            if attachment not in (0, 1, 2, 3):
                 raise ValueError('unknown WaW physics attachment type')
             if attachment in (2, 3):
                 if not entry[f'target_ent{number}']:
@@ -51,6 +51,14 @@ def stage(source: Path, project: Path) -> dict:
     return {'count': len(entries), 'ropes': ropes, 'materials': sorted(materials), 'exported': True}
 
 
+def quat_axis(q) -> tuple:
+    """Rows of the rotation of a WaW/T6 GfxPlacement quaternion (x, y, z, w)."""
+    x, y, z, w = q
+    return ((1 - 2*(y*y + z*z), 2*(x*y + w*z), 2*(x*z - w*y)),
+            (2*(x*y - w*z), 1 - 2*(x*x + z*z), 2*(y*z + w*x)),
+            (2*(x*z + w*y), 2*(y*z - w*x), 1 - 2*(x*x + y*y)))
+
+
 def stage_entities(project: Path) -> dict:
     """T6 MP builds runtime joints from entity text, not the compiled clip table.
 
@@ -65,6 +73,8 @@ def stage_entities(project: Path) -> dict:
     entries = json.loads(manifest.read_text())['constraints']
     if not entries:
         return {'ropes': 0, 'endpoints': 0, 'materials': []}
+    dynent_file = project / 'BSP/dynents.json'
+    dynents = json.loads(dynent_file.read_text())['dynents'] if dynent_file.is_file() else []
     path = project / 'BSP/entities.json'
     data = json.loads(path.read_text())
     entities = data['entities']
@@ -77,6 +87,15 @@ def stage_entities(project: Path) -> dict:
         attachment = entry[f'attach_point_type{number}']
         if attachment == 0:
             return point, None
+        if attachment == 1:
+            # a rope hanging a dynent: its point is in the dynent's frame and
+            # the native rope parser finds the dynent by its targetname
+            dynent = dynents[entry[f'target_index{number}']]
+            if not dynent.get('targetname'):
+                raise ValueError(f"native rope dynent attachment {entry[f'target_index{number}']}: no targetname")
+            axis = quat_axis(dynent['quat'])
+            origin = dynent['origin']
+            return [origin[k] + sum(point[j]*axis[j][k] for j in range(3)) for k in range(3)], dynent['targetname']
         if attachment != 2:
             raise ValueError('native rope entity translation requires world or entity attachment')
         name = entry[f'target_ent{number}']

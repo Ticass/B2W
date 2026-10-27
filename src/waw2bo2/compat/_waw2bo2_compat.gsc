@@ -57,11 +57,6 @@ init()
     if ( !isdefined( level.isPlutonium ) )
         level.isPlutonium = 1;
     precacheshader( "waypoint_revive" );
-    // WaW zones control spawning; they are not lethal player boundaries.
-    // BO2 otherwise queues a kill during scripted teleports above a zone.
-    if ( isdefined( level.player_out_of_playable_area_monitor_callback ) )
-        level.waw2bo2_out_of_playable_area_callback = level.player_out_of_playable_area_monitor_callback;
-    level.player_out_of_playable_area_monitor_callback = ::waw_out_of_playable_area;
     if ( !isdefined( level.get_player_weapon_limit ) )
         level.get_player_weapon_limit = ::waw_player_weapon_limit;
     level.waw2bo2_reported = [];
@@ -81,6 +76,7 @@ init()
     maps\mp\waw\_waw2bo2_hint_defaults::init();
     maps\mp\waw\_waw2bo2_bo2weapons::init();
     maps\mp\waw\_waw2bo2_visions::init();
+    maps\mp\waw\_waw2bo2_perk_table::init();
     maps\mp\_utility::registerclientsys( "waw_sun" );
     maps\mp\_utility::registerclientsys( "waw_vision_global" );
     maps\mp\_utility::registerclientsys( "waw_vision_player" );
@@ -93,11 +89,21 @@ init()
     level thread stuck_zombie_monitor();
     level thread waw_window_paths();
     level thread power_bridge();
+    level thread waw_zone_bookkeeping();
 }
 
 // WaW cuts and restores a window's paths through its clip brush, which BO2's
 // blocker_init deletes beside a zbarrier (the carpenter's windows.clip);
 // waw_window_paths then follows the chunks instead.
+// WaW IsNoTarget reads the entity's FL_NOTARGET flag, which only the notarget
+// cheat sets; T6 script cannot read it. An undefined result is a runtime error
+// in a T6 condition (it aborted the map's is_player_valid callers), so answer
+// what WaW answers outside that cheat.
+waw_isnotarget()
+{
+    return false;
+}
+
 waw_connectpaths()
 {
     if ( isdefined( self ) )
@@ -205,18 +211,6 @@ waw_contact_kill_damage( victim )
     return 0;
 }
 
-waw_out_of_playable_area()
-{
-    // Called by BO2's native monitor with the player as self. Preserve
-    // intentional kill brushes, but do not turn absent/disabled WaW spawn
-    // volumes into new death barriers. Source trigger damage stays native.
-    if ( !self maps\mp\zombies\_zm::in_kill_brush() )
-        return false;
-    if ( isdefined( level.waw2bo2_out_of_playable_area_callback ) )
-        return self [[ level.waw2bo2_out_of_playable_area_callback ]]();
-    return true;
-}
-
 // WaW utility helper used by the power bridge; BO2 has no function by
 // this name. Wait one standard 20 Hz server frame between its notifies.
 wait_network_frame()
@@ -275,12 +269,29 @@ power_bridge()
     level thread maps\mp\waw\_waw2bo2_perks::perk_unpause_all_perks();
 }
 
-// WaW maps (the DLC3 template's DLC3_threadCalls2 among them) start the zone
-// manager themselves. The generated BO2 map main already runs
-// _zm_zonemgr::manage_zones with the zones read from the map script; a second
-// manager would double every zone's spawner bookkeeping.
-waw_manage_zones( initial_zones )
+// The map's own zone manager owns level.zones (BO2's never starts). BO2 glue
+// still running (zbarrier windows, its zone lookups) reads the bookkeeping
+// BO2's manager kept beside it: the zone key list, the zones_initialized
+// flag and zone_scanning_active. Mirror the map's zones for those readers.
+waw_zone_bookkeeping()
 {
+    level.zone_scanning_active = 0;
+    // BO2's _zm_zonemgr::init declares the flag (a second flag_init asserts)
+    while ( !isdefined( level.flag ) || !isdefined( level.flag["zones_initialized"] ) )
+        wait 0.05;
+    count = -1;
+    while ( true )
+    {
+        if ( isdefined( level.zones ) && level.zones.size != count )
+        {
+            count = level.zones.size;
+            level.zone_keys = getarraykeys( level.zones );
+        }
+        // a map without zones has an empty key list, not a wait forever
+        if ( isdefined( level.zone_keys ) && !flag( "zones_initialized" ) )
+            flag_set( "zones_initialized" );
+        wait 1;
+    }
 }
 
 // WaW's template installs the SP/coop engine callbacks here. T6's Zombies
@@ -869,6 +880,15 @@ waw_add_zombie_hint( ref, text )
     level.waw2bo2_hints[ref] = text;
 }
 
+// WaW PrecacheString with an undefined string precaches nothing and the
+// caller goes on (School registers most powerups with no hint); in T6 it is a
+// runtime error that ended the map's init_powerups
+waw_precachestring( text )
+{
+    if ( isdefined( text ) )
+        precachestring( text );
+}
+
 waw_get_zombie_hint( ref )
 {
     if ( isdefined( level.waw2bo2_hints ) && isdefined( level.waw2bo2_hints[ref] ) )
@@ -1147,8 +1167,10 @@ stuck_zombie_monitor()
 
 waw_weapon( name )
 {
-    if ( !isdefined( name ) )
-        return name;
+    // WaW's "none" is weapon 0, an empty def (clip 0, class "none"); T6
+    // weapon queries reject the name ("Weapon name "none" is not valid")
+    if ( !isdefined( name ) || name == "none" )
+        return undefined;
     if ( isdefined( level.waw2bo2_weapons ) && isdefined( level.waw2bo2_weapons[name] ) )
     {
         if ( level.waw2bo2_weapons[name] == "" )
@@ -1476,6 +1498,10 @@ waw_include_weapon( name, in_box, collector, weighting_func )
     if ( !isdefined( in_box ) )
         in_box = 1;
     maps\mp\zombies\_zm_weapons::include_zombie_weapon( weapon, in_box, collector, weighting_func );
+    // the map's own registry (its _zombiemode_weapons::include_zombie_weapon,
+    // keyed by WaW name) for its box, wall buys and Pack-a-Punch
+    if ( isdefined( level.waw_include_zombie_weapon ) )
+        [[ level.waw_include_zombie_weapon ]]( name, in_box, weighting_func );
     // Native tactical helpers use a different inventory name. Precache and
     // include it for their startup guards, without a second mystery-box entry.
     if ( isdefined( level.waw2bo2_runtime_weapons ) && isdefined( level.waw2bo2_runtime_weapons[name] ) )
@@ -1619,9 +1645,11 @@ waw_powerup_drop( drop_point )
     maps\mp\zombies\_zm_powerups::powerup_drop( drop_point );
 }
 
-// level.zombie_weapons also holds entries only BO2 needs (its framework
-// last-stand pistol, native tactical helpers). WaW scripts never registered
-// them, so their key lists (the mystery box chooser) must not see them.
+// The map's GetArrayKeys( level.zombie_weapons ): its own registry is
+// level.waw_zombie_weapons (gscport.WAW_LEVEL_FIELDS); BO2's level.zombie_weapons
+// holds BO2's names, which the map's box cannot show or give. Entries only
+// BO2 needs (its framework last-stand pistol, native tactical helpers, the
+// equipped alt melee) stay out of the map's key lists (the box chooser).
 waw_native_only_weapon( name )
 {
     if ( !isdefined( level.waw2bo2_native_only_weapons ) )
@@ -1631,7 +1659,9 @@ waw_native_only_weapon( name )
 
 waw_zombie_weapon_keys()
 {
-    keys = getarraykeys( level.zombie_weapons );
+    if ( !isdefined( level.waw_zombie_weapons ) )
+        return [];
+    keys = getarraykeys( level.waw_zombie_weapons );
     if ( !isdefined( level.waw2bo2_native_only_weapons ) )
         return keys;
     out = [];
@@ -2037,33 +2067,13 @@ waw_missing_model( name )
     report( "XMODEL", name );
 }
 
-// WaW's perk table has names T6's lacks (measured from both executables;
-// T6 SetPerk/HasPerk/UnsetPerk raise "Unknown perk"). Custom perk scripts use
-// them as markers (specialty_boost = Electric Cherry, specialty_shades = Who's
-// Who, specialty_altmelee = bowie): they carry no engine effect the scripts
-// rely on, so the player keeps them in a script-side table instead.
+// T6 SetPerk/HasPerk/UnsetPerk raise "Unknown perk" for a name outside the
+// engine's perk table. The build detects the map's names T6 lacks
+// (perktable.py: the installed T6 executable's table against the ported
+// scripts); the player keeps those in a script-side table instead.
 waw_perk_emulated( perk )
 {
-    switch ( perk )
-    {
-        case "specialty_altmelee":
-        case "specialty_boost":
-        case "specialty_exposeenemy":
-        case "specialty_fraggrenade":
-        case "specialty_gas_mask":
-        case "specialty_greased_barrings":
-        case "specialty_leadfoot":
-        case "specialty_null":
-        case "specialty_ordinance":
-        case "specialty_shades":
-        case "specialty_specialgrenade":
-        case "specialty_water_cooled":
-        case "specialty_weapon_bazooka":
-        case "specialty_weapon_bouncing_betty":
-        case "specialty_weapon_flamethrower":
-            return 1;
-    }
-    return 0;
+    return isdefined( level.waw2bo2_emulated_perks ) && isdefined( level.waw2bo2_emulated_perks[perk] );
 }
 
 waw_setperk( perk )
@@ -2137,6 +2147,18 @@ waw_set_maxhealth( value )
         self.maxhealth = value;
 }
 
+// WaW BloodImpact( bool ); T6 takes "normal", "hero" or "none" and errors on
+// anything else, which ended WaW's magic_bullet_shield before its health loop.
+waw_bloodimpact( on )
+{
+    if ( isstring( on ) )
+        self bloodimpact( on );
+    else if ( on )
+        self bloodimpact( "normal" );
+    else
+        self bloodimpact( "none" );
+}
+
 waw_hasperk( perk )
 {
     if ( !waw_perk_emulated( perk ) )
@@ -2144,10 +2166,35 @@ waw_hasperk( perk )
     return isdefined( self.waw2bo2_perks ) && isdefined( self.waw2bo2_perks[perk] );
 }
 
+// WaW FinishPlayerDamage( ..., sHitLoc, modelIndex, psOffsetTime ); T6's ends
+// ( ..., shitloc, psoffsettime, boneindex ) with the same 11 arguments.
+waw_finishplayerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, modelindex, psoffsettime )
+{
+    if ( !isdefined( psoffsettime ) )
+        psoffsettime = 0;
+    self finishplayerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, psoffsettime, 0 );
+}
+
+// WaW SetOrigin on a player is a teleport its client never interpolates
+// (the teleporter's black room -> mainframe core); see waw_linkto.
+waw_setorigin( origin )
+{
+    if ( isplayer( self ) )
+        self dontinterpolate();
+    self setorigin( origin );
+}
+
 // ---- linked trigger volumes ----
 
+// WaW teleports players by linking them to a script_origin and assigning its
+// origin in the same frame (Der Riese's black room); its client shows the jump.
+// T6's client interpolates a linked player's move: the view slid ~2000 units
+// through the walls in one snapshot. dontinterpolate marks this frame's move
+// a teleport, as T6's own scripts do before moving players.
 waw_linkto( parent, tag, origin, angles )
 {
+    if ( isplayer( self ) )
+        self dontinterpolate();
     if ( isdefined( angles ) )
         self linkto( parent, tag, origin, angles );
     else if ( isdefined( origin ) )
@@ -2302,10 +2349,11 @@ waw_dog_rounds( spawn_logic, source_health, enable_rounds )
 
 // WaW picks among the dog spawners the map has opened (add_area_dog_spawners
 // fills level.enemy_dog_spawns as areas unlock), not every dog spawner.
+// Ported WaW code reads that list as level.waw_enemy_dog_spawns.
 waw_dog_spawn_location( spawners, favorite_enemy )
 {
-    if ( isdefined( level.enemy_dog_spawns ) && level.enemy_dog_spawns.size > 0 )
-        spawners = level.enemy_dog_spawns;
+    if ( isdefined( level.waw_enemy_dog_spawns ) && level.waw_enemy_dog_spawns.size > 0 )
+        spawners = level.waw_enemy_dog_spawns;
     return [[ level.waw_dog_spawn_logic ]]( spawners, favorite_enemy );
 }
 
@@ -2317,29 +2365,6 @@ waw_dog_source_health()
 }
 
 // ---- WaW framework calls with WaW semantics ----
-
-// A script calling WaW's _zombiemode::player_damage_override directly (Shi
-// No Numa's flogger in solo) asks "does this hit down the player?". WaW's
-// stock body never takes health: a hit below current health only marks the
-// attacker and returns; otherwise the player goes down. BO2's function of
-// that name is its damage callback (it needs a weapon name and returns the
-// damage to apply), so a downing hit goes through native damage instead,
-// letting BO2's last stand, solo revive and game over decide the rest.
-waw_player_damage_override( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, modelindex, psoffsettime )
-{
-    if ( !isdefined( idamage ) || idamage < self.health )
-    {
-        if ( isdefined( eattacker ) )
-            eattacker.sound_damage_player = self;
-        return;
-    }
-    if ( self maps\mp\zombies\_zm_laststand::player_is_in_laststand() )
-        return;
-    origin = self.origin;
-    if ( isdefined( vpoint ) )
-        origin = vpoint;
-    self dodamage( self.health + 100, origin );
-}
 
 // ---- stock WaW map policies (gscport stock_map_policies; never custom maps) ----
 
@@ -2405,6 +2430,54 @@ waw_stock_solo_revive_bought()
 }
 
 // ---- miscellaneous WaW builtins ----
+
+// The map's own string tables (its zones and patch: mp/zombiemode.csv holds
+// costs and zombie vars) ship as waw/<path>; WaW code reads them, never BO2's
+// table of the same name (level.waw2bo2_tables, _waw2bo2_assets).
+waw_table( table )
+{
+    if ( isdefined( level.waw2bo2_tables ) && isdefined( table ) && isdefined( level.waw2bo2_tables[tolower( table )] ) )
+        return level.waw2bo2_tables[tolower( table )];
+    return table;
+}
+
+waw_tablelookup( table, search_column, search_value, return_column )
+{
+    return tablelookup( waw_table( table ), search_column, search_value, return_column );
+}
+
+waw_tablelookupistring( table, search_column, search_value, return_column )
+{
+    return tablelookupistring( waw_table( table ), search_column, search_value, return_column );
+}
+
+// The native AI's point awards (owned _waw2bo2_spawner) go to the map's own
+// _zombiemode_score::player_add_points for the events WaW scores: a kill and
+// a hit (WaW has one hit event; BO2's light-hit split is its own). Events WaW
+// never scores (BO2 barrier rebuild, power-up grants) stay BO2's.
+waw_player_add_points( event, mod, hit_location, is_dog, zombie_team, damage_weapon )
+{
+    if ( isdefined( level.waw_player_add_points ) )
+    {
+        if ( event == "death" || event == "damage" || event == "damage_ads" )
+        {
+            self [[ level.waw_player_add_points ]]( event, mod, hit_location, is_dog );
+            return;
+        }
+        if ( event == "damage_light" )
+        {
+            self [[ level.waw_player_add_points ]]( "damage", mod, hit_location, is_dog );
+            return;
+        }
+    }
+    self maps\mp\zombies\_zm_score::player_add_points( event, mod, hit_location, is_dog, zombie_team, damage_weapon );
+}
+
+// WaW's isdefined( player.is_drinking ) on BO2's drink counter (0 = idle).
+waw_is_drinking( player )
+{
+    return isdefined( player.is_drinking ) && player.is_drinking > 0;
+}
 
 waw_being_revived( player )
 {

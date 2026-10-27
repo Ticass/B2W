@@ -53,9 +53,50 @@ namespace BSP
     {
     }
 
-    void ClipMapLinker::LoadDynEnts(clipMap_t& clipMap) const
+    // BSP/dynents.json: the source map's dynamic entities (WaW clutter and
+    // destructibles drawn as xmodels), in source order so constraints can
+    // index them. { "dynents": [ { "type", "quat": [4], "origin": [3],
+    // "xModel", "physPreset", "destroyFx", "health", "flags", "contents",
+    // "targetname", "physConstraints": [4] } ] }
+    size_t ClipMapLinker::MapDynEntCount() const
     {
-        uint16_t dynEntCount = 0;
+        const auto file = m_search_path.Open(GetFileNameForBSPAsset("dynents.json"));
+        if (!file.IsOpen())
+            return 0;
+        try
+        {
+            return json::parse(*file.m_stream).at("dynents").size();
+        }
+        catch (const std::exception&)
+        {
+            return 0;
+        }
+    }
+
+    bool ClipMapLinker::LoadDynEnts(clipMap_t& clipMap)
+    {
+        json entries = json::array();
+        const auto path = GetFileNameForBSPAsset("dynents.json");
+        const auto file = m_search_path.Open(path);
+        if (file.IsOpen())
+        {
+            try
+            {
+                const auto data = json::parse(*file.m_stream);
+                if (data.at("version").get<int>() != 1)
+                    throw std::runtime_error("unsupported map dynent schema");
+                entries = data.at("dynents");
+                if (entries.size() + 256 > std::numeric_limits<uint16_t>::max())
+                    throw std::runtime_error("map dynent count exceeds the uint16 limit");
+            }
+            catch (const std::exception& e)
+            {
+                con::error("Map dynents {}: {}", path, e.what());
+                return false;
+            }
+        }
+
+        const auto dynEntCount = static_cast<uint16_t>(entries.size());
         clipMap.originalDynEntCount = dynEntCount;
         clipMap.dynEntCount[0] = clipMap.originalDynEntCount + 256; // the game allocs 256 empty dynents, as they may be used ingame
         clipMap.dynEntCount[1] = 0;
@@ -78,6 +119,74 @@ namespace BSP
 
         clipMap.dynEntDefList[0] = m_memory.Alloc<DynEntityDef>(clipMap.dynEntCount[0]);
         clipMap.dynEntDefList[1] = nullptr;
+
+        try
+        {
+            const auto string = [this](const std::string& value) -> uint16_t {
+                if (value.empty()) return 0;
+                const auto id = m_zone.m_script_strings.AddOrGetScriptString(value);
+                if (id > std::numeric_limits<uint16_t>::max())
+                    throw std::runtime_error("map dynent script string overflow");
+                m_script_strings.push_back(id);
+                return static_cast<uint16_t>(id);
+            };
+            const auto floats = [](const json& v, float* out, size_t n, const char* field) {
+                if (v.size() != n) throw std::runtime_error(std::string("invalid dynent vector ") + field);
+                for (size_t k = 0; k < n; k++) {
+                    out[k] = v[k].get<float>();
+                    if (!std::isfinite(out[k])) throw std::runtime_error(std::string("non-finite dynent vector ") + field);
+                }
+            };
+            for (size_t i = 0; i < entries.size(); i++)
+            {
+                const auto& j = entries[i];
+                auto& def = clipMap.dynEntDefList[0][i];
+                const auto type = j.at("type").get<int>();
+                if (type != DYNENT_TYPE_CLUTTER && type != DYNENT_TYPE_DESTRUCT)
+                    throw std::runtime_error("unknown dynent type " + std::to_string(type));
+                def.type = static_cast<DynEntityType>(type);
+                floats(j.at("quat"), def.pose.quat.v, 4, "quat");
+                floats(j.at("origin"), def.pose.origin.v, 3, "origin");
+                const auto modelName = j.at("xModel").get<std::string>();
+                auto* model = m_context.LoadDependency<AssetXModel>(modelName);
+                if (!model) throw std::runtime_error("dynent xmodel not found: " + modelName);
+                def.xModel = model->Asset();
+                const auto presetName = j.at("physPreset").get<std::string>();
+                if (!presetName.empty())
+                {
+                    auto* preset = m_context.LoadDependency<AssetPhysPreset>(presetName);
+                    if (!preset) throw std::runtime_error("dynent physics preset not found: " + presetName);
+                    def.physPreset = preset->Asset();
+                }
+                const auto fxName = j.at("destroyFx").get<std::string>();
+                if (!fxName.empty())
+                {
+                    auto* fx = m_context.LoadDependency<AssetFx>(fxName);
+                    if (!fx) throw std::runtime_error("dynent destroy fx not found: " + fxName);
+                    def.destroyFx = fx->Asset();
+                }
+                const auto& constraints = j.at("physConstraints");
+                for (size_t k = 0; k < 4; k++)
+                    def.physConstraints[k] = static_cast<int16_t>(constraints.at(k).get<int>());
+                def.health = j.at("health").get<int>();
+                def.flags = j.at("flags").get<int>();
+                def.contents = j.at("contents").get<int>();
+                def.targetname = string(j.at("targetname").get<std::string>());
+
+                clipMap.dynEntPoseList[0][i].pose = def.pose;
+                clipMap.dynEntPoseList[0][i].radius = def.xModel->radius;
+                clipMap.dynEntClientList[0][i].health = def.health;
+                clipMap.dynEntCollList[0][i].contents = def.contents;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            con::error("Map dynents {}: {}", path, e.what());
+            return false;
+        }
+        if (!entries.empty())
+            con::info("Linked {} source map dynents", entries.size());
+        return true;
     }
 
     void ClipMapLinker::LoadVisibility(clipMap_t& clipMap) const
@@ -160,6 +269,7 @@ namespace BSP
         const auto path = GetFileNameForBSPAsset("constraints.json");
         const auto file = m_search_path.Open(path);
         int ropes = 0;
+        const int dynEntCount = static_cast<int>(MapDynEntCount());
         if (file.IsOpen())
         {
             try
@@ -190,16 +300,18 @@ namespace BSP
                     c.targetname = string(j.at("targetname").get<std::string>());
                     c.target_ent1 = string(j.at("target_ent1").get<std::string>());
                     c.target_ent2 = string(j.at("target_ent2").get<std::string>());
-                    const auto attachment = [](int type, uint16_t entity) {
-                        if (type == 1) throw std::runtime_error("dynent constraint attachment requires dynent staging");
-                        if (type != 0 && type != 2 && type != 3) throw std::runtime_error("unknown constraint attachment type");
-                        if (type != 0 && !entity) throw std::runtime_error("entity constraint attachment requires target name");
+                    // Dynent attachments index the map's dynents (BSP/dynents.json,
+                    // linked in the same order); entity/bone ones bind by name.
+                    const auto attachment = [&dynEntCount](int type, uint16_t entity, int index) {
+                        if (type != 0 && type != 1 && type != 2 && type != 3) throw std::runtime_error("unknown constraint attachment type");
+                        if ((type == 2 || type == 3) && !entity) throw std::runtime_error("entity constraint attachment requires target name");
+                        if (type == 1 && (index < 0 || index >= dynEntCount)) throw std::runtime_error("dynent constraint attachment outside the map dynents");
                         return static_cast<AttachPointType>(type);
                     };
-                    c.attach_point_type1 = attachment(j.at("attach_point_type1").get<int>(), c.target_ent1);
-                    c.attach_point_type2 = attachment(j.at("attach_point_type2").get<int>(), c.target_ent2);
-                    c.target_index1 = c.attach_point_type1 == 0 ? j.at("target_index1").get<int>() : -1;
-                    c.target_index2 = c.attach_point_type2 == 0 ? j.at("target_index2").get<int>() : -1;
+                    c.attach_point_type1 = attachment(j.at("attach_point_type1").get<int>(), c.target_ent1, j.at("target_index1").get<int>());
+                    c.attach_point_type2 = attachment(j.at("attach_point_type2").get<int>(), c.target_ent2, j.at("target_index2").get<int>());
+                    c.target_index1 = c.attach_point_type1 <= 1 ? j.at("target_index1").get<int>() : -1;
+                    c.target_index2 = c.attach_point_type2 <= 1 ? j.at("target_index2").get<int>() : -1;
                     const auto bone1 = j.at("target_bone1").get<std::string>();
                     const auto bone2 = j.at("target_bone2").get<std::string>();
                     c.target_bone1 = bone1.empty() ? nullptr : m_memory.Dup(bone1.c_str());
@@ -1602,7 +1714,8 @@ namespace BSP
 
         LoadSubModelCollision(*clipMap, bsp);
 
-        LoadDynEnts(*clipMap);
+        if (!LoadDynEnts(*clipMap))
+            return nullptr;
 
         if (!LoadXModelCollision(*clipMap))
             return nullptr;

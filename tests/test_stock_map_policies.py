@@ -109,42 +109,12 @@ class StockMapPolicyTests(unittest.TestCase):
         self.assertIn('hint = &"ZOMBIE_PERK_QUICKREVIVE";', converted)
         self.assertIn('sound = "mx_revive_sting";', converted)
 
-    def test_source_round_count_formula_becomes_bo2_max_zombie_func(self):
+    def test_the_maps_spawning_sets_its_own_count(self):
+        # WaW drives: no BO2 count formula is installed beside the map's spawning
         with tempfile.TemporaryDirectory() as tmp:
             core, _ = _port(Path(tmp), stock_map=False)
-            fn = core[core.index("zombiemode__round_spawning_total( bo2_max )"):]
-            fn = fn[:fn.index("\n}") + 2]
-            self.assertIn('max = level.zombie_vars["zombie_max_ai"];', fn)
-            self.assertIn("max = int( max * 0.2 );", fn)
-            self.assertIn("level.waw_script", fn)   # level.script is the WaW level name
-            self.assertIn("return max;", fn)
-            self.assertNotIn("count", fn)
-            self.assertNotIn("ai_calculate_health", fn)
-            self.assertIn("level.max_zombie_func = ::zombiemode__round_spawning_total;", core)
-            self.assertIn("zombiemode__round_spawning_total_register();", core)
-
-    def test_round_formula_reading_earlier_locals_is_reported_not_ported(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "maps").mkdir()
-            (root / "maps/_zombiemode.gsc").write_text(
-                "round_spawning() { players = get_players(); max = players.size * 6; level.zombie_total = max; }")
-            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
-            self.assertIsNone(tr.extract_round_total())
-            self.assertTrue(any("earlier locals players" in e for e in tr.report.unsupported.get(gscport.FALLBACK, [])))
-
-    def test_round_formula_resetting_an_earlier_local_in_its_block_is_ported(self):
-        # Verruckt: the dog-round branch sets players itself before reading it
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "maps").mkdir()
-            (root / "maps/_zombiemode.gsc").write_text(
-                "round_spawning() { players = get_players(); max = 24;"
-                " if ( flag( \"dog_round\" ) ) { players = get_players(); max = int( max / players.size ); }"
-                " level.zombie_total = max; }")
-            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
-            self.assertEqual(tr.extract_round_total(), "zombiemode__round_spawning_total_register")
-            self.assertFalse(tr.report.errors)
+            self.assertNotIn("max_zombie_func", core)
+            self.assertFalse(hasattr(gscport.Translator, "extract_round_total"))
 
     def test_custom_maps_keep_their_own_quick_revive_logic(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -242,7 +212,6 @@ class StockMapPolicyTests(unittest.TestCase):
     def test_compat_runtime_defines_the_policy_functions(self):
         script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
         for name in ("waw_stock_perk_cost", "waw_stock_solo_revive", "waw_stock_solo_revive_bought",
-                     "waw_player_damage_override",
                      "waw_linkto", "waw_linked_trigger_contacts"):
             self.assertIn(name, script.functions)
         self.assertNotIn("waw_round_health", script.functions)
@@ -307,10 +276,11 @@ class StockMapPolicyTests(unittest.TestCase):
         self.assertIn("if ( !isdefined( self ) )", gsc.emit(script.tokens[guard.body_open:guard.body_close + 1]))
         self.assertIn("dodamage", gscport.API["compat_wrappers"])
 
-    def test_explicit_waw_damage_override_call_keeps_waw_semantics(self):
-        self.assertEqual(gscport.API["function_renames"]["player_damage_override"],
-                         "maps\\mp\\waw\\_waw2bo2_compat::waw_player_damage_override")
-
+    def test_explicit_waw_damage_override_call_runs_the_maps_own(self):
+        # Shi No Numa's flogger calls player_damage_override directly: the map's
+        # own function runs (source-driven), no compat stand-in
+        self.assertNotIn("player_damage_override", gscport.API["function_renames"])
+        self.assertTrue(gscport.source_drives(gscport.ZOMBIEMODE, "player_damage_override"))
 
 if __name__ == "__main__":
     unittest.main()

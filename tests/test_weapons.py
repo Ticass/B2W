@@ -56,6 +56,16 @@ class WeaponTests(unittest.TestCase):
         plain = weapons.convert("gun", {"adsOverlayReticle": "none"}, t4, t6)
         self.assertNotIn("adsOverlayAlphaScale", plain.fields)
 
+    def test_view_kick_recentres_while_crouched_and_prone(self):
+        # Der Riese: crouched, the camera kept the kick (T6 scale omitted = 0)
+        t4 = {"hipViewKickPitchMin": "CSPFT_FLOAT", "adsViewKickPitchMin": "CSPFT_FLOAT"}
+        t6 = dict(t4, adsViewKickCenterDuckedScale="CSPFT_FLOAT", adsViewKickCenterProneScale="CSPFT_FLOAT")
+        gun = weapons.convert("zombie_thompson", {"hipViewKickPitchMin": "35", "adsViewKickPitchMin": "60"}, t4, t6)
+        self.assertEqual(gun.fields["adsViewKickCenterDuckedScale"], "1")
+        self.assertEqual(gun.fields["adsViewKickCenterProneScale"], "1")
+        grenade = weapons.convert("stielhandgranate", {"hipViewKickPitchMin": "0"}, t4, t6)
+        self.assertNotIn("adsViewKickCenterDuckedScale", grenade.fields)
+
     def test_waw_offhand_class_gets_t6_inventory_slot(self):
         schema = {"offhandClass": "WFT_OFFHAND_CLASS"}
         for cls, slot in (("Frag Grenade", "Lethal grenade"),
@@ -177,6 +187,17 @@ class WeaponTests(unittest.TestCase):
             self.assertEqual(report["status"], "partial_source_stage")
             self.assertEqual(json.loads((project / "weapons.stage.json").read_text())["missing_animations"], [])
 
+
+
+
+class OutputNameTests(unittest.TestCase):
+    def test_control_characters_become_file_safe_names(self):
+        # ORBiT: model material "mc/g\x1a" crashed writing its JSON (Errno 22)
+        self.assertEqual(weapons.output_name("material", "mc/g\x1a"), "waw_material/mc/g_x1a")
+        self.assertEqual(weapons.output_name("material", 'a?b*"'), "waw_material/a_x3fb_x2a_x22")
+        self.assertEqual(weapons.output_name("material", "mc/gun_steel"), "waw_material/mc/gun_steel")
+        with self.assertRaises(weapons.WeaponError):
+            weapons.output_name("material", "a:b")
 
 if __name__ == "__main__":
     unittest.main()

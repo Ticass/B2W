@@ -122,6 +122,13 @@ def convert_entities(ents: list[dict[str, str]], project: str,
             continue
         ent = dict(ent)
         struct_defaults(ent)
+        if cls == "script_struct" and ent.get("targetname") == "exterior_goal" and not ent.get("target"):
+            # A stray goal with no window pieces (School has five). T6's
+            # zone_init getentarray(undefined) is a runtime error that ends the
+            # zone manager, and with any target _zm_blockers builds attack
+            # spots on a window without a zbarrier (endless loop). No window.
+            dropped["exterior_goal without target (a window marker with no window)"] += 1
+            continue
         if cls == "script_struct" and ent.get("targetname") == "exterior_goal":
             # WaW goals target brush planks, a "clip" brush and a struct inside;
             # T6 requires a native zbarrier. The zbarrier joins the goal's
@@ -152,14 +159,16 @@ def convert_entities(ents: list[dict[str, str]], project: str,
                         **{f"zbarriertearanim{i}": f"o_zombie_board_{i}_pull" for i in range(1, 7)},
                     })
                     renamed["WaW brush barricades -> T6 zbarriers"] += 1
-        if cls == "info_volume":
-            # BO2 _zm kills any player not touching a "player_volume" in an
-            # enabled zone (player_out_of_playable_area_monitor). WaW's zone
-            # manager counts every info_volume named after a zone, whatever its
-            # script_noteworthy ("player_zone", "player_spawners" or none, as on
-            # initial_zone). Non-zone volumes stay harmless: the zone must be enabled.
-            renamed[f"info_volume script_noteworthy {ent.get('script_noteworthy')} -> player_volume"] += 1
-            ent["script_noteworthy"] = "player_volume"
+        twin = None
+        if cls == "info_volume" and ent.get("script_noteworthy") != "player_volume":
+            # The map's own scripts find its volumes by their script_noteworthy
+            # (School's isOutdoors reads "player_zone" volumes every tick); it
+            # stays. BO2's glue (in_enabled_playable_area, powerup drop points,
+            # _zm_spawner's playable areas) looks for "player_volume": a twin on
+            # the same brush model, after the original so the zone's volumes[0]
+            # is still the map's.
+            twin = {**ent, "script_noteworthy": "player_volume"}
+            renamed[f"info_volume script_noteworthy {ent.get('script_noteworthy')} + player_volume twin"] += 1
         if cls == 'script_struct' and ent.get('targetname') == 'player_respawn_point' and \
                 not ent.get('script_noteworthy') and not ent.get('script_string'):
             # WaW nearby-team anchors target indexed player locations. T6's
@@ -176,7 +185,13 @@ def convert_entities(ents: list[dict[str, str]], project: str,
             # no zone volume, only in these triggers.
             ent["script_noteworthy"] = "life_brush"
             renamed["trigger_multiple playable_area -> life_brush"] += 1
-        if cls.startswith("actor_") and "zombie" in cls:
+        if cls.startswith("actor_") and "zombie" not in cls and ent.get("script_noteworthy") != "zombie_spawner":
+            # WaW campaign AI (420's allied marines "rank_ai"): T6 zombies has
+            # no aitype for it and crashes registering the actor (its weapon
+            # resolves to index 0, BG_GetWeaponDef 0x41A535)
+            dropped[f"{cls} (WaW human AI; T6 zombies has no aitype for it)"] += 1
+            continue
+        if cls.startswith("actor_"):
             renamed[f"{cls} -> {ZOMBIE_ACTOR_CLASS}"] += 1
             ent["classname"] = ZOMBIE_ACTOR_CLASS
             ent["waw_actor_type"] = cls.removeprefix("actor_")
@@ -228,6 +243,8 @@ def convert_entities(ents: list[dict[str, str]], project: str,
                         "script_noteworthy": "dog_location"})
             renamed["WaW dog struct -> dog_location struct"] += 1
         out.append(ent)
+        if twin is not None:
+            out.append(twin)
 
     wall_buy_null_targets(out, renamed)
     _unique_wall_buy_targets(out, renamed)
@@ -474,6 +491,32 @@ def placed_models(entities_json: Path) -> set[str]:
     return {e["model"] for e in data["entities"] if e.get("model") and not e["model"].startswith("*")}
 
 
+def entity_weapon(ent: dict) -> str | None:
+    """The weapon an entity spawns with: a ``weapon_<name>`` item or a turret's
+    ``weaponinfo``. T6 resolves it at spawn and crashes on an unknown one."""
+    cls = ent.get("classname", "")
+    if cls.startswith("weapon_"):
+        return cls[len("weapon_"):]
+    if cls == "misc_turret":
+        return ent.get("weaponinfo")
+    return None
+
+
+def placed_weapons(entities_json: Path) -> set[str]:
+    data = json.loads(entities_json.read_text(encoding="utf-8"))
+    return {w for w in map(entity_weapon, data["entities"]) if w}
+
+
+def strip_weapons(entities_json: Path, names: set[str]) -> int:
+    """Remove the entities spawning one of ``names``; returns the count."""
+    data = json.loads(entities_json.read_text(encoding="utf-8"))
+    kept = [e for e in data["entities"] if entity_weapon(e) not in names]
+    count = len(data["entities"]) - len(kept)
+    data["entities"] = kept
+    entities_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    return count
+
+
 def strip_models(entities_json: Path, names: set[str]) -> int:
     """Remove ``model`` from entities placing one of ``names``; returns the count."""
     data = json.loads(entities_json.read_text(encoding="utf-8"))
@@ -509,22 +552,28 @@ def network_client_models(entities_json: Path, names: set[str]) -> list[str]:
     return [f"{name} ({count})" for name, count in sorted(changed.items())]
 
 
+# The map's own _zombiemode_weapons buys from its wall-buy triggers; under
+# this name BO2's _zm_weapons::init_weapon_upgrade never finds them
+# (gscport renames the scripts' "weapon_upgrade" lookups the same way).
+WAW_WALL_BUY_TARGETNAME = "waw_weapon_upgrade"
+
+
 def map_wall_buys(entities_json: Path, table: dict[str, str]) -> list[str]:
-    """Point WaW wall buys at the weapons mod.ff carries (``table``: WaW name ->
-    BO2 name, "" = not carried). A wall buy for an uncarried weapon is removed:
-    BO2's wall-buy setup requires a registered weapon. Returns report lines."""
+    """The map's wall buys for its own weapon code (``table``: WaW name -> BO2
+    name, "" = not carried). They keep the WaW weapon name its registry is
+    keyed by (giving goes through the compat name map) and take the WaW-owned
+    targetname. A wall buy for an uncarried weapon is removed. Returns report
+    lines."""
     data = json.loads(entities_json.read_text(encoding="utf-8"))
     notes, kept = [], []
     for ent in data["entities"]:
         weapon = ent.get("zombie_weapon_upgrade")
-        if ent.get("targetname") == "weapon_upgrade" and weapon in table:
-            if not table[weapon]:
+        if ent.get("targetname") == "weapon_upgrade":
+            if weapon in table and not table[weapon]:
                 notes.append(f"UNSUPPORTED_WALLBUY {weapon} at {ent.get('origin')}: weapon not carried in mod.ff; "
                              f"trigger removed")
                 continue
-            if table[weapon] != weapon:
-                ent["zombie_weapon_upgrade"] = table[weapon]
-                notes.append(f"wall buy {weapon} -> {table[weapon]} (renamed weapon)")
+            ent["targetname"] = WAW_WALL_BUY_TARGETNAME
         kept.append(ent)
     data["entities"] = kept
     entities_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")

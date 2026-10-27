@@ -51,7 +51,7 @@ class SpawnerTests(unittest.TestCase):
             '{\n"classname" "script_struct"\n"targetname" "zone_a_spawners_rise"\n"script_noteworthy" "riser_door"\n'
             '"origin" "20 20 0"\n}',
             '{\n"classname" "script_struct"\n"targetname" "unrelated_rise"\n"origin" "30 30 0"\n}',
-            '{\n"classname" "script_struct"\n"targetname" "exterior_goal"\n"origin" "40 40 0"\n}',
+            '{\n"classname" "script_struct"\n"targetname" "exterior_goal"\n"target" "window"\n"origin" "40 40 0"\n}',
         ])
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "map.ents"
@@ -82,6 +82,38 @@ class SpawnerTests(unittest.TestCase):
             self.assertEqual(dogs, [("zone_a_spawners", "5 6 7")])
             # the source struct stays for the map's own lookups
             self.assertTrue(any(e.get("targetname") == "zone_a_spawners_dog" for e in out))
+
+
+    def test_waw_human_ai_is_dropped_and_zombie_spawners_of_any_aitype_stay(self):
+        # 420: allied marines (rank_ai) crash T6 zombies registering the actor
+        ents = "\n".join([
+            '{\n"classname" "actor_ally_us_usmc_roebuck_bar"\n"targetname" "rank_ai"\n"origin" "1 2 3"\n}',
+            '{\n"classname" "actor_axis_ger_ber_wehr_reg"\n"targetname" "zone_a_spawners"\n'
+            '"script_noteworthy" "zombie_spawner"\n"origin" "4 5 6"\n}',
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "map.ents"
+            path.write_text(ents)
+            summary, _ = entities.write_entities(path, "proj", Path(temp) / "BSP")
+            out = json.loads((Path(temp) / "BSP/entities.json").read_text())["entities"]
+            self.assertFalse(any(e.get("targetname") == "rank_ai" for e in out))
+            self.assertTrue(any(e["classname"] == entities.ZOMBIE_ACTOR_CLASS for e in out))
+            self.assertIn("actor_ally_us_usmc_roebuck_bar (WaW human AI; T6 zombies has no aitype for it)",
+                          summary["dropped"])
+
+
+    def test_a_stray_window_goal_without_a_window_is_dropped(self):
+        # School: five exterior_goal structs without a target; T6 zone_init
+        # getentarray(undefined) ended the zone manager, and with a target
+        # _zm_blockers looped building attack spots without a zbarrier
+        ents = '{\n"classname" "script_struct"\n"targetname" "exterior_goal"\n"origin" "1 2 3"\n}'
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "map.ents"
+            path.write_text(ents)
+            summary, _ = entities.write_entities(path, "proj", Path(temp) / "BSP")
+            out = json.loads((Path(temp) / "BSP/entities.json").read_text())["entities"]
+            self.assertFalse(any(e.get("targetname") == "exterior_goal" for e in out))
+            self.assertEqual(summary["dropped"]["exterior_goal without target (a window marker with no window)"], 1)
 
 
 class BarrierTests(unittest.TestCase):

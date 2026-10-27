@@ -29,6 +29,13 @@ class LocalizationTests(unittest.TestCase):
                          'Press ^3[{+activate}]^7 to buy Jugger-Nog [Cost: 2500]')
         self.assertEqual(values['HUD_SCORE'], 'Score: &&1')
 
+    def test_a_hint_the_map_formats_itself_keeps_its_arguments(self):
+        # wall buys: SetHintString( &"ZOMBIE_WEAPONCOSTAMMO", cost, ammo_cost )
+        self.script.write_text('f(){self SetHintString(&"ZOMBIE_WEAPONCOSTAMMO", cost, ammo_cost);}')
+        self.strings(self.root, 'map', {'ZOMBIE_WEAPONCOSTAMMO': 'For Weapon [Cost: &&1], For Ammo [Cost: &&2]'})
+        report = self.stage()
+        self.assertEqual(report['entries'][0]['value'], 'For Weapon [Cost: &&1], For Ammo [Cost: &&2]')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

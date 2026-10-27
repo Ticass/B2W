@@ -1,0 +1,4687 @@
+{
+"common_scripts\\utility": {
+"_delay_notify_proc": [
+"str_notify",
+"n_delay",
+"str_endon"
+],
+"_delay_thread_proc": [
+"func",
+"timer",
+"param1",
+"param2",
+"param3",
+"param4",
+"param5",
+"param6"
+],
+"_disableusability": [],
+"_disableweapon": [],
+"_enableusability": [],
+"_enableweapon": [],
+"_timeout": [
+"delay"
+],
+"_trigger_wait": [
+"e_entity"
+],
+"_trigger_wait_think": [
+"s_tracker",
+"e_entity"
+],
+"add_to_array": [
+"array",
+"item",
+"allow_dupes"
+],
+"alert_notify_wrapper": [],
+"angle_dif": [
+"oldangle",
+"newangle"
+],
+"array_average": [
+"array"
+],
+"array_check_for_dupes": [
+"array",
+"single"
+],
+"array_copy": [
+"array"
+],
+"array_delete": [
+"array",
+"is_struct"
+],
+"array_ent_thread": [
+"entities",
+"func",
+"arg1",
+"arg2",
+"arg3",
+"arg4",
+"arg5"
+],
+"array_exclude": [
+"array",
+"arrayexclude"
+],
+"array_func": [
+"entities",
+"func",
+"arg1",
+"arg2",
+"arg3",
+"arg4",
+"arg5",
+"arg6"
+],
+"array_notify": [
+"ents",
+"notifier"
+],
+"array_randomize": [
+"array"
+],
+"array_reverse": [
+"array"
+],
+"array_std_deviation": [
+"array",
+"mean"
+],
+"array_swap": [
+"array",
+"index1",
+"index2"
+],
+"array_thread": [
+"entities",
+"func",
+"arg1",
+"arg2",
+"arg3",
+"arg4",
+"arg5",
+"arg6"
+],
+"array_wait": [
+"array",
+"msg",
+"timeout"
+],
+"array_wait_any": [
+"array",
+"msg",
+"timeout"
+],
+"array_waitlogic1": [
+"ent",
+"msg",
+"timeout"
+],
+"array_waitlogic2": [
+"ent",
+"msg",
+"timeout"
+],
+"array_waitlogic3": [
+"ent",
+"msg",
+"internal_msg",
+"timeout"
+],
+"call_func": [
+"s_func"
+],
+"clamp": [
+"val",
+"val_min",
+"val_max"
+],
+"clear_exception": [
+"type"
+],
+"cointoss": [],
+"create_flags_and_return_tokens": [
+"flags"
+],
+"damage_notify_wrapper": [
+"damage",
+"attacker",
+"direction_vec",
+"point",
+"type",
+"modelname",
+"tagname",
+"partname",
+"idflags"
+],
+"death_notify_wrapper": [
+"attacker",
+"damagetype"
+],
+"delay_notify": [
+"str_notify",
+"n_delay",
+"str_endon"
+],
+"delay_thread": [
+"timer",
+"func",
+"param1",
+"param2",
+"param3",
+"param4",
+"param5",
+"param6"
+],
+"draw_debug_line": [
+"start",
+"end",
+"timer"
+],
+"empty": [
+"a",
+"b",
+"c",
+"d",
+"e"
+],
+"explode_notify_wrapper": [],
+"fileprint_chk": [
+"file",
+"str"
+],
+"fileprint_end": [],
+"fileprint_map_entity_end": [],
+"fileprint_map_entity_start": [],
+"fileprint_map_header": [
+"binclude_blank_worldspawn"
+],
+"fileprint_map_keypairprint": [
+"key1",
+"key2"
+],
+"fileprint_map_start": [
+"file"
+],
+"fileprint_radiant_vec": [
+"vector"
+],
+"fileprint_start": [
+"file"
+],
+"flag": [
+"flagname"
+],
+"flag_clear": [
+"flagname"
+],
+"flag_delete": [
+"flagname"
+],
+"flag_exists": [
+"flagname"
+],
+"flag_init": [
+"flagname",
+"val",
+"b_is_trigger"
+],
+"flag_set": [
+"flagname"
+],
+"flag_set_for_time": [
+"n_time",
+"str_flag"
+],
+"flag_toggle": [
+"flagname"
+],
+"flag_wait": [
+"flagname"
+],
+"flag_wait_any": [
+"str_flag1",
+"str_flag2",
+"str_flag3",
+"str_flag4",
+"str_flag5"
+],
+"flag_wait_any_array": [
+"a_flags"
+],
+"flag_waitopen": [
+"flagname"
+],
+"flag_waitopen_array": [
+"a_flags"
+],
+"get_players": [
+"str_team"
+],
+"getstruct": [
+"name",
+"type"
+],
+"getstructarray": [
+"name",
+"type"
+],
+"has_spawnflag": [
+"spawnflags"
+],
+"init_session_mode_flags": [],
+"init_trigger_flags": [],
+"is_false": [
+"check"
+],
+"is_german_build": [],
+"is_gib_restricted_build": [],
+"is_look_trigger": [
+"trig"
+],
+"is_mature": [],
+"is_prefix": [
+"msg",
+"prefix"
+],
+"is_suffix": [
+"msg",
+"suffix"
+],
+"is_trigger_once": [
+"trig"
+],
+"is_true": [
+"check"
+],
+"isflashed": [],
+"isstunned": [],
+"isusabilityenabled": [],
+"isweaponenabled": [],
+"lag": [
+"desired",
+"curr",
+"k",
+"dt"
+],
+"linear_map": [
+"num",
+"min_a",
+"max_a",
+"min_b",
+"max_b"
+],
+"melee_notify_wrapper": [],
+"new_func": [
+"func",
+"arg1",
+"arg2",
+"arg3",
+"arg4",
+"arg5",
+"arg6"
+],
+"notify_delay_with_ender": [
+"snotifystring",
+"fdelay",
+"ender"
+],
+"random": [
+"array"
+],
+"random_normal_distribution": [
+"mean",
+"std_deviation",
+"lower_bound",
+"upper_bound"
+],
+"random_vector": [
+"max_length"
+],
+"remove_undefined_from_array": [
+"array"
+],
+"resetusability": [],
+"script_gen_dump_addline": [
+"string",
+"signature"
+],
+"set_all_exceptions": [
+"exceptionfunc"
+],
+"set_exception": [
+"type",
+"func"
+],
+"set_trigger_flag_permissions": [
+"msg"
+],
+"shoot_notify_wrapper": [],
+"sign": [
+"x"
+],
+"single_func": [
+"entity",
+"func",
+"arg1",
+"arg2",
+"arg3",
+"arg4",
+"arg5",
+"arg6"
+],
+"single_thread": [
+"entity",
+"func",
+"arg1",
+"arg2",
+"arg3",
+"arg4",
+"arg5",
+"arg6"
+],
+"struct_class_init": [],
+"structdelete": [],
+"track": [
+"spot_to_track"
+],
+"trigger_off": [
+"name",
+"type"
+],
+"trigger_off_proc": [],
+"trigger_on": [
+"name",
+"type"
+],
+"trigger_on_proc": [],
+"trigger_use": [
+"str_name",
+"str_key",
+"ent",
+"b_assert"
+],
+"trigger_wait": [
+"str_name",
+"str_key",
+"e_entity"
+],
+"update_trigger_based_on_flags": [],
+"vector_compare": [
+"vec1",
+"vec2"
+],
+"waittill_any": [
+"str_notify1",
+"str_notify2",
+"str_notify3",
+"str_notify4",
+"str_notify5"
+],
+"waittill_any_array": [
+"a_notifies"
+],
+"waittill_any_array_return": [
+"a_notifies"
+],
+"waittill_any_ents": [
+"ent1",
+"string1",
+"ent2",
+"string2",
+"ent3",
+"string3",
+"ent4",
+"string4",
+"ent5",
+"string5",
+"ent6",
+"string6",
+"ent7",
+"string7"
+],
+"waittill_any_ents_two": [
+"ent1",
+"string1",
+"ent2",
+"string2"
+],
+"waittill_any_return": [
+"string1",
+"string2",
+"string3",
+"string4",
+"string5",
+"string6",
+"string7"
+],
+"waittill_any_timeout": [
+"n_timeout",
+"string1",
+"string2",
+"string3",
+"string4",
+"string5"
+],
+"waittill_flag_exists": [
+"msg"
+],
+"waittill_multiple": [
+"string1",
+"string2",
+"string3",
+"string4",
+"string5"
+],
+"waittill_multiple_ents": [
+"ent1",
+"string1",
+"ent2",
+"string2",
+"ent3",
+"string3",
+"ent4",
+"string4"
+],
+"waittill_string": [
+"msg",
+"ent"
+],
+"waittillend": [
+"msg"
+]
+},
+"maps\\mp\\_ambientpackage": {},
+"maps\\mp\\_art": {
+"artfxprintln": [
+"file",
+"string"
+],
+"create_reflection_object": [
+"model"
+],
+"create_reflection_objects": [],
+"debug_color_pallete": [],
+"debug_reflection": [],
+"debug_reflection_buttons": [],
+"debug_reflection_matte": [],
+"dumpsettings": [],
+"fovslidercheck": [],
+"main": [],
+"remove_reflection_objects": [],
+"setfogsliders": [],
+"strtok_loc": [
+"string",
+"par1"
+],
+"tweakart": []
+},
+"maps\\mp\\_audio": {
+"disable_bump_trigger": [
+"triggername"
+],
+"get_player_index_number": [
+"player"
+],
+"init": [],
+"monitor_player_movement": [],
+"monitor_player_sprint": [],
+"stand_think": [
+"trig"
+],
+"thread_enter_exit_sound": [
+"trig"
+],
+"thread_step_trigger": [],
+"wait_until_first_player": []
+},
+"maps\\mp\\_createfx": {
+"add_and_select_entity": [
+"ent",
+"skip_undo"
+],
+"add_button": [
+"name"
+],
+"add_effect": [
+"name",
+"effect"
+],
+"add_kb_button": [
+"name"
+],
+"button_is_clicked": [
+"name",
+"name2"
+],
+"button_is_held": [
+"name",
+"name2"
+],
+"buttondown": [
+"button",
+"button2"
+],
+"buttonpressed_internal": [
+"button"
+],
+"callback_playerconnect": [],
+"camera_hud_toggle": [
+"text"
+],
+"center_text_add": [
+"text"
+],
+"center_text_clear": [],
+"center_text_init": [],
+"cfxprintln": [
+"file",
+"string"
+],
+"clear_entity_selection": [
+"skip_undo"
+],
+"clear_fx_hudelements": [],
+"clear_settable_fx": [],
+"copy_angles_of_selected_ents": [],
+"copy_ents": [],
+"createeffect": [
+"type",
+"fxid"
+],
+"createfx": [],
+"createfx_autosave": [],
+"createfx_emergency_backup": [],
+"createfx_save": [
+"autosave"
+],
+"createfx_showorigin": [
+"id",
+"org",
+"delay",
+"org2",
+"type",
+"exploder",
+"id2",
+"firefx",
+"firefxdelay",
+"firefxsound",
+"fxsound",
+"fxquake",
+"fxdamage",
+"soundalias",
+"repeat",
+"delay_min",
+"delay_max",
+"damage_radius",
+"firefxtimeout"
+],
+"createfxdelay": [],
+"createfxlogic": [],
+"createloopsound": [],
+"damage_void": [
+"einflictor",
+"eattacker",
+"idamage",
+"idflags",
+"smeansofdeath",
+"sweapon",
+"vpoint",
+"vdir",
+"shitloc",
+"timeoffset",
+"boneindex"
+],
+"delete_arrays_in_sp": [],
+"delete_pressed": [],
+"delete_selection": [],
+"delete_spawns": [],
+"deselect_entity": [
+"index",
+"ent"
+],
+"dot_changed": [
+"old",
+"new"
+],
+"draw_axis": [],
+"draw_axis_think": [
+"axis_parent"
+],
+"draw_distance": [],
+"drop_selection_to_ground": [],
+"ent_is_highlighted": [
+"ent"
+],
+"ent_is_selected": [
+"ent"
+],
+"entity_highlight_disable": [],
+"entity_highlight_enable": [],
+"fx_init": [],
+"generate_fx_log": [
+"type",
+"autosave"
+],
+"get_center_of_array": [
+"array"
+],
+"get_ent_index": [
+"ent"
+],
+"get_fx_options": [
+"ent"
+],
+"get_next_ent_with_same_id": [
+"index",
+"ent_id"
+],
+"get_previous_ent_with_same_id": [
+"index",
+"ent_id"
+],
+"get_selected_move_vector": [],
+"handle_camera": [],
+"index_is_selected": [
+"index"
+],
+"init_client_mp_variables": [],
+"init_client_sp_variables": [],
+"init_mp_paths": [],
+"init_sp_paths": [],
+"insert_effect": [],
+"kb_locked": [
+"name"
+],
+"last_selected_entity_has_changed": [
+"lastselectentity"
+],
+"locked": [
+"name"
+],
+"make_sp_player_invulnerable": [
+"player"
+],
+"manipulate_createfx_ents": [
+"highlightedent",
+"leftclick",
+"leftheld",
+"ctrlheld",
+"colors",
+"right"
+],
+"move_player_around_map_fast": [],
+"move_player_to_next_same_effect": [
+"forward_search",
+"lastselectentity"
+],
+"move_selection_to_cursor": [
+"skip_undo"
+],
+"paste_ents": [],
+"paste_ents_onto_ents": [],
+"post_entity_creation_function": [],
+"print_ambient_fx_inventory": [],
+"process_button_held_and_clicked": [],
+"process_fx_rotater": [],
+"remove_option": [
+"name"
+],
+"remove_selected_option": [],
+"reset_axis_of_selected_ents": [],
+"reset_fx_hud_colors": [],
+"restart_fx_looper": [],
+"rotate_over_time": [
+"org",
+"rotater"
+],
+"rotation_is_occuring": [],
+"select_entity": [
+"index",
+"ent",
+"skip_undo"
+],
+"select_ents_by_property": [
+"property",
+"add_to_selection"
+],
+"select_last_entity": [
+"skip_undo"
+],
+"set_anglemod_move_vector": [],
+"set_forward_and_up_vectors": [],
+"set_fx_hudelement": [
+"text"
+],
+"set_off_exploders": [],
+"show_help": [],
+"spawn_axis_model": [
+"origin",
+"angles"
+],
+"stop_drawing_axis_models": [],
+"stop_fx_looper": [],
+"toggle_createfx_drawing": [],
+"toggle_entity_selection": [
+"index",
+"ent"
+],
+"turn_off_exploders": [],
+"update_save_bar": [
+"number"
+],
+"update_selected_entities": [],
+"used_in_animation": [
+"sp"
+],
+"vector_changed": [
+"old",
+"new"
+],
+"write_error_msg": [
+"filename"
+]
+},
+"maps\\mp\\_fx": {
+"blenddelete": [
+"blend"
+],
+"create_looper": [],
+"create_loopsound": [],
+"create_triggerfx": [],
+"exploderfx": [
+"num",
+"fxid",
+"fxpos",
+"waittime",
+"fxpos2",
+"firefx",
+"firefxdelay",
+"firefxsound",
+"fxsound",
+"fxquake",
+"fxdamage",
+"soundalias",
+"repeat",
+"delay_min",
+"delay_max",
+"damage_radius",
+"firefxtimeout",
+"exploder_group"
+],
+"grenadeexplosionfx": [
+"pos"
+],
+"gunfireloopfx": [
+"fxid",
+"fxpos",
+"shotsmin",
+"shotsmax",
+"shotdelaymin",
+"shotdelaymax",
+"betweensetsmin",
+"betweensetsmax"
+],
+"gunfireloopfxthread": [
+"fxid",
+"fxpos",
+"shotsmin",
+"shotsmax",
+"shotdelaymin",
+"shotdelaymax",
+"betweensetsmin",
+"betweensetsmax"
+],
+"gunfireloopfxvec": [
+"fxid",
+"fxpos",
+"fxpos2",
+"shotsmin",
+"shotsmax",
+"shotdelaymin",
+"shotdelaymax",
+"betweensetsmin",
+"betweensetsmax"
+],
+"gunfireloopfxvecthread": [
+"fxid",
+"fxpos",
+"fxpos2",
+"shotsmin",
+"shotsmax",
+"shotdelaymin",
+"shotdelaymax",
+"betweensetsmin",
+"betweensetsmax"
+],
+"loopfx": [
+"fxid",
+"fxpos",
+"waittime",
+"fxpos2",
+"fxstart",
+"fxstop",
+"timeout"
+],
+"loopfxchangedelay": [
+"ent"
+],
+"loopfxchangeid": [
+"ent"
+],
+"loopfxchangeorg": [
+"ent"
+],
+"loopfxdeletion": [
+"ent"
+],
+"loopfxstop": [
+"timeout"
+],
+"loopfxthread": [],
+"loopsound": [
+"sound",
+"pos",
+"waittime"
+],
+"loopsoundthread": [
+"sound",
+"pos",
+"waittime"
+],
+"oneshotfx": [
+"fxid",
+"fxpos",
+"waittime",
+"fxpos2"
+],
+"oneshotfxthread": [],
+"print_org": [
+"fxcommand",
+"fxid",
+"fxpos",
+"waittime"
+],
+"script_playfx": [
+"id",
+"pos",
+"pos2"
+],
+"script_playfxontag": [
+"id",
+"ent",
+"tag"
+],
+"script_print_fx": [],
+"setfireloopmod": [
+"value"
+],
+"setup_fx": [],
+"soundfx": [
+"fxid",
+"fxpos",
+"endonnotify"
+],
+"soundfxdelete": [
+"endonnotify"
+],
+"spawnfx_wrapper": [
+"fx_id",
+"origin",
+"forward",
+"up"
+],
+"stop_loopsound": []
+},
+"maps\\mp\\_music": {
+"music_init": [],
+"setmusicstate": [
+"state",
+"player"
+]
+},
+"maps\\mp\\_utility": {
+"_playlocalsound": [
+"soundalias"
+],
+"activate_exploder": [
+"num"
+],
+"activate_exploder_on_clients": [
+"num"
+],
+"activate_individual_exploder": [],
+"add_trigger_to_ent": [
+"ent"
+],
+"addcallback": [
+"event",
+"func"
+],
+"alphabet_compare": [
+"a",
+"b"
+],
+"alphabetize": [
+"array"
+],
+"anyteamhitroundlimitwithdraws": [],
+"anyteamhitroundwinlimit": [],
+"anyteamhitscorelimit": [],
+"append_array_struct": [
+"dst_s",
+"src_s"
+],
+"array_levelthread": [
+"ents",
+"process",
+"var",
+"excluders"
+],
+"brush_delete": [],
+"brush_show": [],
+"brush_throw": [],
+"callback": [
+"event"
+],
+"cannon_effect": [],
+"clearlowermessage": [
+"fadetime"
+],
+"clientnotify": [
+"event"
+],
+"closerfunc": [
+"dist1",
+"dist2"
+],
+"closestpointonline": [
+"point",
+"linestart",
+"lineend"
+],
+"combinearrays": [
+"array1",
+"array2"
+],
+"comparesizes": [
+"org",
+"array",
+"dist",
+"comparefunc"
+],
+"comparesizesfx": [
+"org",
+"array",
+"dist",
+"comparefunc"
+],
+"createexploder": [
+"fxid"
+],
+"createloopeffect": [
+"fxid"
+],
+"createoneshoteffect": [
+"fxid"
+],
+"delete_exploder_on_clients": [
+"num"
+],
+"deleteaftertime": [
+"time"
+],
+"deleteaftertimethread": [
+"time"
+],
+"deleteplacedentity": [
+"entity"
+],
+"domaxdamage": [
+"origin",
+"attacker",
+"inflictor",
+"headshot",
+"mod"
+],
+"drawcylinder": [
+"pos",
+"rad",
+"height",
+"duration",
+"stop_notify"
+],
+"drawcylinder_think": [
+"pos",
+"rad",
+"height",
+"seconds",
+"stop_notify"
+],
+"dvarfloatvalue": [
+"dvar",
+"defval",
+"minval",
+"maxval"
+],
+"dvarintvalue": [
+"dvar",
+"defval",
+"minval",
+"maxval"
+],
+"effect_soundalias": [],
+"ent_already_in_trigger": [
+"trig"
+],
+"error": [
+"msg"
+],
+"exploder": [
+"num"
+],
+"exploder_after_load": [
+"num"
+],
+"exploder_before_load": [
+"num"
+],
+"exploder_damage": [],
+"exploder_delay": [],
+"exploder_playsound": [],
+"exploder_sound": [],
+"exploder_stop": [
+"num"
+],
+"fartherfunc": [
+"dist1",
+"dist2"
+],
+"fire_effect": [],
+"freeze_player_controls": [
+"boolean"
+],
+"freezecontrolswrapper": [
+"frozen"
+],
+"get2dyaw": [
+"start",
+"end"
+],
+"get_all_alive_players_s": [],
+"get_array_of_closest": [
+"org",
+"array",
+"excluders",
+"max",
+"maxdist"
+],
+"get_player_height": [],
+"get_players": [],
+"get_team_alive_players_s": [
+"teamname"
+],
+"getclientfield": [
+"field_name"
+],
+"getclientfieldtoplayer": [
+"field_name"
+],
+"getclientsysstate": [
+"ssysname"
+],
+"getclosest": [
+"org",
+"array",
+"dist"
+],
+"getclosestfx": [
+"org",
+"fxarray",
+"dist"
+],
+"getdvarfloatdefault": [
+"dvarname",
+"defaultvalue"
+],
+"getdvarintdefault": [
+"dvarname",
+"defaultvalue"
+],
+"getexploderid": [
+"ent"
+],
+"getfarthest": [
+"org",
+"array",
+"dist"
+],
+"getfx": [
+"fx"
+],
+"gethostplayer": [],
+"gethostplayerforbots": [],
+"getlastweapon": [],
+"getobjectivehinttext": [
+"team"
+],
+"getobjectivescoretext": [
+"team"
+],
+"getobjectivetext": [
+"team"
+],
+"getotherteam": [
+"team"
+],
+"getotherteamsmask": [
+"skip_team"
+],
+"getotherteamsroundswon": [
+"skip_team"
+],
+"getplant": [],
+"getplayerfromclientnum": [
+"clientnum"
+],
+"getremotename": [],
+"getroundsplayed": [],
+"getroundswon": [
+"team"
+],
+"getroundwinlimitwinningteam": [],
+"getteammask": [
+"team"
+],
+"getweaponclass": [
+"weapon"
+],
+"hitroundlimit": [],
+"hitroundwinlimit": [],
+"hitscorelimit": [],
+"is_bot": [],
+"is_later_in_alphabet": [
+"string1",
+"string2"
+],
+"isbulletimpactmod": [
+"smeansofdeath"
+],
+"isenemyplayer": [
+"player"
+],
+"isfirstround": [],
+"isflashbanged": [],
+"ishacked": [],
+"iskillstreaksenabled": [],
+"islastround": [],
+"ismg": [
+"weapon"
+],
+"isoneround": [],
+"ispregame": [],
+"ispressbuild": [],
+"isrankenabled": [],
+"isroundbased": [],
+"isscoreroundbased": [],
+"isstrstart": [
+"string1",
+"substr"
+],
+"isusingremote": [],
+"loop_fx_sound": [
+"alias",
+"origin",
+"ender",
+"timeout"
+],
+"loop_sound_delete": [
+"ender",
+"ent"
+],
+"loop_sound_in_space": [
+"alias",
+"origin",
+"ender"
+],
+"mayapplyscreeneffect": [],
+"onfinalizeinitialization_callback": [
+"func"
+],
+"orienttonormal": [
+"normal"
+],
+"play_sound_in_space": [
+"alias",
+"origin",
+"master"
+],
+"play_sound_on_tag": [
+"alias",
+"tag"
+],
+"player_flag": [
+"message"
+],
+"player_flag_clear": [
+"message"
+],
+"player_flag_init": [
+"message",
+"trigger"
+],
+"player_flag_set": [
+"message"
+],
+"player_flag_set_delayed": [
+"message",
+"delay"
+],
+"player_flag_wait": [
+"msg"
+],
+"player_flag_wait_either": [
+"flag1",
+"flag2"
+],
+"player_flag_waitopen": [
+"msg"
+],
+"playsmokesound": [
+"position",
+"duration",
+"startsound",
+"stopsound",
+"loopsound"
+],
+"playsoundinspace": [
+"alias",
+"origin",
+"master"
+],
+"playsoundonplayers": [
+"sound",
+"team"
+],
+"plot_points": [
+"plotpoints",
+"r",
+"g",
+"b",
+"timer"
+],
+"printandsoundoneveryone": [
+"team",
+"enemyteam",
+"printfriendly",
+"printenemy",
+"soundfriendly",
+"soundenemy",
+"printarg"
+],
+"printboldonteam": [
+"text",
+"team"
+],
+"printboldonteamarg": [
+"text",
+"team",
+"arg"
+],
+"printonplayers": [
+"text",
+"team"
+],
+"printonteam": [
+"text",
+"team"
+],
+"printonteamarg": [
+"text",
+"team",
+"arg"
+],
+"registerclientsys": [
+"ssysname"
+],
+"registernumlives": [
+"minvalue",
+"maxvalue"
+],
+"registerroundlimit": [
+"minvalue",
+"maxvalue"
+],
+"registerroundswitch": [
+"minvalue",
+"maxvalue"
+],
+"registerroundwinlimit": [
+"minvalue",
+"maxvalue"
+],
+"registerscorelimit": [
+"minvalue",
+"maxvalue"
+],
+"registertimelimit": [
+"minvalue",
+"maxvalue"
+],
+"remove_trigger_from_ent": [
+"ent"
+],
+"set_dvar_float_if_unset": [
+"dvar",
+"value",
+"reset"
+],
+"set_dvar_if_unset": [
+"dvar",
+"value",
+"reset"
+],
+"set_dvar_int_if_unset": [
+"dvar",
+"value",
+"reset"
+],
+"setclientfield": [
+"field_name",
+"value"
+],
+"setclientfieldtoplayer": [
+"field_name",
+"value"
+],
+"setclientsysstate": [
+"ssysname",
+"ssysstate",
+"player"
+],
+"setlowermessage": [
+"text",
+"time",
+"combinemessageandtimer"
+],
+"setlowermessagevalue": [
+"text",
+"value",
+"combinemessage"
+],
+"setobjectivehinttext": [
+"team",
+"text"
+],
+"setobjectivescoretext": [
+"team",
+"text"
+],
+"setobjectivetext": [
+"team",
+"text"
+],
+"setusingremote": [
+"remotename"
+],
+"sound_effect": [],
+"spawn_array_struct": [],
+"spread_array_thread": [
+"entities",
+"process",
+"var1",
+"var2",
+"var3"
+],
+"stop_exploder": [
+"num"
+],
+"struct_arrayspawn": [],
+"structarray_add": [
+"struct",
+"object"
+],
+"structarray_remove": [
+"struct",
+"object"
+],
+"structarray_shuffle": [
+"struct",
+"shuffle"
+],
+"structarray_swap": [
+"object1",
+"object2"
+],
+"structarray_swaptolast": [
+"struct",
+"object"
+],
+"trail_effect": [],
+"trail_effect_ender": [
+"ent",
+"ender"
+],
+"trigger_thread": [
+"ent",
+"on_enter_payload",
+"on_exit_payload"
+],
+"trigger_thread_death_monitor": [
+"ent",
+"ender"
+],
+"triggeroff": [],
+"triggeron": [],
+"vectoangles": [
+"vector"
+],
+"wait_endon": [
+"waittime",
+"endonstring",
+"endonstring2",
+"endonstring3",
+"endonstring4"
+],
+"waitrespawnbutton": [],
+"waittill_either": [
+"msg1",
+"msg2"
+],
+"waittillnotmoving": [],
+"warning": [
+"msg"
+],
+"waslastround": [],
+"within_fov": [
+"start_origin",
+"start_angles",
+"end_origin",
+"fov"
+]
+},
+"maps\\mp\\gametypes_zm\\_hud_message": {
+"canreadtext": [],
+"clearshoutcasterwaitingmessage": [],
+"destroyhudelem": [
+"hudelem"
+],
+"hintmessage": [
+"hinttext",
+"duration"
+],
+"hintmessagedeaththink": [],
+"hintmessageplayers": [
+"players",
+"hinttext",
+"duration"
+],
+"init": [],
+"initcustomgametypeheader": [],
+"initnotifymessage": [],
+"lowermessagethink": [],
+"notifymessage": [
+"notifydata"
+],
+"oldnotifymessage": [
+"titletext",
+"notifytext",
+"iconname",
+"glowcolor",
+"sound",
+"duration"
+],
+"onplayerconnect": [],
+"outcomenotify": [
+"winner",
+"isroundend",
+"endreasontext"
+],
+"resetnotify": [],
+"resetoncancel": [],
+"resetondeath": [],
+"resetoutcomenotify": [
+"hudelemlist1",
+"hudelemlist2",
+"hudelem3",
+"hudelem4",
+"hudelem5",
+"hudelem6",
+"hudelem7",
+"hudelem8",
+"hudelem9",
+"hudelem10"
+],
+"resetwageroutcomenotify": [
+"playernamehudelems",
+"playercphudelems",
+"outcometitle",
+"outcometext"
+],
+"setmatchscorehudelemforteam": [
+"team"
+],
+"setshoutcasterwaitingmessage": [],
+"showinitialfactionpopup": [
+"team"
+],
+"shownotifymessage": [
+"notifydata",
+"duration"
+],
+"teamoutcomenotify": [
+"winner",
+"isround",
+"endreasontext"
+],
+"teamoutcomenotifyzombie": [
+"winner",
+"isround",
+"endreasontext"
+],
+"teamwageroutcomenotify": [
+"winner",
+"isroundend",
+"endreasontext"
+],
+"updateoutcome": [
+"firsttitle",
+"secondtitle",
+"thirdtitle"
+],
+"updatewageroutcome": [
+"playernamehudelems",
+"playercphudelems"
+],
+"wageroutcomenotify": [
+"winner",
+"endreasontext"
+],
+"waitrequirevisibility": [
+"waittime"
+]
+},
+"maps\\mp\\gametypes_zm\\_hud_util": {
+"addchild": [
+"element"
+],
+"createbar": [
+"color",
+"width",
+"height",
+"flashfrac"
+],
+"createclienttimer": [
+"font",
+"fontscale"
+],
+"createfontstring": [
+"font",
+"fontscale"
+],
+"createicon": [
+"shader",
+"width",
+"height"
+],
+"createloadouticon": [
+"verindex",
+"horindex",
+"xpos",
+"ypos"
+],
+"createloadouttext": [
+"icon",
+"xcoord"
+],
+"createprimaryprogressbar": [],
+"createprimaryprogressbartext": [],
+"createsecondaryprogressbar": [],
+"createsecondaryprogressbartext": [],
+"createserverbar": [
+"color",
+"width",
+"height",
+"flashfrac",
+"team",
+"selected"
+],
+"createserverfontstring": [
+"font",
+"fontscale",
+"team"
+],
+"createservericon": [
+"shader",
+"width",
+"height",
+"team"
+],
+"createservertimer": [
+"font",
+"fontscale",
+"team"
+],
+"createteamprogressbar": [
+"team"
+],
+"createteamprogressbartext": [
+"team"
+],
+"destroyelem": [],
+"flashthread": [],
+"getcurrentfraction": [],
+"getparent": [],
+"hideallperks": [
+"fadetime",
+"hidetextonly"
+],
+"hideelem": [],
+"hidekillstreak": [
+"index",
+"fadetime"
+],
+"hideloadoutattribute": [
+"iconelem",
+"fadetime",
+"textelem",
+"hidetextonly"
+],
+"hideperk": [
+"index",
+"fadetime",
+"hidetextonly"
+],
+"hideperks": [
+"fadetime"
+],
+"removechild": [
+"element"
+],
+"setflashfrac": [
+"flashfrac"
+],
+"setgamemodeinfopoint": [],
+"setheight": [
+"height"
+],
+"seticonshader": [
+"shader"
+],
+"setloadouticoncoords": [
+"verindex",
+"horindex",
+"xpos",
+"ypos"
+],
+"setloadouttextcoords": [
+"xcoord"
+],
+"setparent": [
+"element"
+],
+"setpoint": [
+"point",
+"relativepoint",
+"xoffset",
+"yoffset",
+"movetime"
+],
+"setpointbar": [
+"point",
+"relativepoint",
+"xoffset",
+"yoffset"
+],
+"setsize": [
+"width",
+"height"
+],
+"setwidth": [
+"width"
+],
+"showelem": [],
+"showkillstreak": [
+"index",
+"killstreak",
+"xpos",
+"ypos"
+],
+"showloadoutattribute": [
+"iconelem",
+"icon",
+"alpha",
+"textelem",
+"text"
+],
+"showperk": [
+"index",
+"perk",
+"ypos"
+],
+"showperks": [],
+"updatebar": [
+"barfrac",
+"rateofchange"
+],
+"updatebarscale": [
+"barfrac",
+"rateofchange"
+],
+"updatechildren": []
+},
+"maps\\mp\\zombies\\_load": {
+"calculate_map_center": [],
+"client_notify_listener": [],
+"exploder_load": [
+"trigger"
+],
+"footsteps": [],
+"level_notify_listener": [],
+"main": [
+"bscriptgened",
+"bcsvgened",
+"bsgenabled"
+],
+"parse_structs": [],
+"setup_traversals": [],
+"setupexploders": [],
+"start_intro_screen_zm": []
+},
+"maps\\mp\\zombies\\_zm": {
+"actor_damage_override": [
+"inflictor",
+"attacker",
+"damage",
+"flags",
+"meansofdeath",
+"weapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime",
+"boneindex"
+],
+"actor_damage_override_wrapper": [
+"inflictor",
+"attacker",
+"damage",
+"flags",
+"meansofdeath",
+"weapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime",
+"boneindex"
+],
+"actor_killed_override": [
+"einflictor",
+"attacker",
+"idamage",
+"smeansofdeath",
+"sweapon",
+"vdir",
+"shitloc",
+"psoffsettime"
+],
+"add_bots": [],
+"add_rampage_bookmark_kill_time": [],
+"ai_calculate_health": [
+"round_number"
+],
+"ai_zombie_health": [
+"round_number"
+],
+"award_grenades_for_survivors": [],
+"breakafter": [
+"time",
+"damage",
+"piece"
+],
+"callback_playerdamage": [
+"einflictor",
+"eattacker",
+"idamage",
+"idflags",
+"smeansofdeath",
+"sweapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime",
+"boneindex"
+],
+"callback_playerlaststand": [
+"einflictor",
+"eattacker",
+"idamage",
+"smeansofdeath",
+"sweapon",
+"vdir",
+"shitloc",
+"psoffsettime",
+"deathanimduration"
+],
+"can_do_input": [
+"inputtype"
+],
+"can_track_ammo": [
+"weap"
+],
+"check_end_game_intermission_delay": [],
+"check_for_valid_spawn_near_position": [
+"revivee",
+"v_position",
+"return_struct"
+],
+"check_for_valid_spawn_near_team": [
+"revivee",
+"return_struct"
+],
+"check_for_valid_spawn_within_range": [
+"revivee",
+"v_position",
+"return_struct",
+"min_distance",
+"max_distance"
+],
+"check_player_damage_callbacks": [
+"einflictor",
+"eattacker",
+"idamage",
+"idflags",
+"smeansofdeath",
+"sweapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime"
+],
+"check_quickrevive_for_hotjoin": [
+"disconnecting_player"
+],
+"checkforalldead": [
+"excluded_player"
+],
+"clear_path_timers": [],
+"codecallback_destructibleevent": [
+"event",
+"param1",
+"param2",
+"param3"
+],
+"default_delayed_exit": [],
+"default_exit_level": [],
+"default_find_exit_point": [],
+"default_max_zombie_func": [
+"max_num"
+],
+"delete_in_createfx": [],
+"disable_end_game_intermission": [
+"delay"
+],
+"drive_client_connected_notifies": [],
+"end_game": [],
+"fade_out_intro_screen_zm": [
+"hold_black_time",
+"fade_out_time",
+"destroyed_afterwards"
+],
+"fade_up_over_time": [
+"t"
+],
+"failsafe_revive_give_back_weapons": [
+"excluded_player"
+],
+"finishplayerdamagewrapper": [
+"einflictor",
+"eattacker",
+"idamage",
+"idflags",
+"smeansofdeath",
+"sweapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime",
+"boneindex"
+],
+"get_player_out_of_playable_area_monitor_wait_time": [],
+"get_player_too_many_weapons_monitor_wait_time": [],
+"get_players_on_team": [
+"exclude"
+],
+"get_safe_breadcrumb_pos": [
+"player"
+],
+"get_valid_spawn_location": [
+"revivee",
+"spawn_points",
+"closest_group",
+"return_struct"
+],
+"getallotherplayers": [],
+"getfreespawnpoint": [
+"spawnpoints",
+"player"
+],
+"in_enabled_playable_area": [],
+"in_kill_brush": [],
+"in_life_brush": [],
+"increment_dog_round_stat": [
+"stat"
+],
+"init": [],
+"init_client_flags": [],
+"init_custom_ai_type": [],
+"init_dvars": [],
+"init_flags": [],
+"init_function_overrides": [],
+"init_fx": [],
+"init_levelvars": [],
+"init_player_levelvars": [],
+"init_shellshocks": [],
+"init_sounds": [],
+"init_strings": [],
+"initializestattracking": [],
+"intermission": [],
+"is_sidequest_previously_completed": [
+"id"
+],
+"last_stand_best_pistol": [],
+"last_stand_compare_pistols": [
+"struct_array"
+],
+"last_stand_grenade_save_and_return": [],
+"last_stand_pistol_rank_init": [],
+"last_stand_pistol_swap": [],
+"last_stand_restore_pistol_ammo": [],
+"last_stand_revive": [],
+"last_stand_save_pistol_ammo": [],
+"last_stand_take_thrown_grenade": [],
+"laststand_giveback_player_perks": [],
+"onallplayersready": [],
+"onplayerconnect_clientdvars": [],
+"onplayerspawned": [],
+"play_door_dialog": [],
+"play_level_start_vox_delayed": [],
+"player_damage_override": [
+"einflictor",
+"eattacker",
+"idamage",
+"idflags",
+"smeansofdeath",
+"sweapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime"
+],
+"player_damage_override_cheat": [
+"einflictor",
+"eattacker",
+"idamage",
+"idflags",
+"smeansofdeath",
+"sweapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime"
+],
+"player_exit_level": [],
+"player_fake_death": [],
+"player_grenade_multiattack_bookmark_watcher": [
+"grenade"
+],
+"player_grenade_watcher": [],
+"player_intermission": [],
+"player_killed_override": [
+"einflictor",
+"attacker",
+"idamage",
+"smeansofdeath",
+"sweapon",
+"vdir",
+"shitloc",
+"psoffsettime",
+"deathanimduration"
+],
+"player_laststand": [
+"einflictor",
+"attacker",
+"idamage",
+"smeansofdeath",
+"sweapon",
+"vdir",
+"shitloc",
+"psoffsettime",
+"deathanimduration"
+],
+"player_monitor_time_played": [],
+"player_monitor_travel_dist": [],
+"player_out_of_playable_area_monitor": [],
+"player_prevent_damage": [
+"einflictor",
+"eattacker",
+"idamage",
+"idflags",
+"smeansofdeath",
+"sweapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime"
+],
+"player_revive_monitor": [],
+"player_shield_facing_attacker": [
+"vdir",
+"limit"
+],
+"player_spawn_protection": [],
+"player_too_many_players_check": [],
+"player_too_many_weapons_monitor": [],
+"player_too_many_weapons_monitor_takeaway_sequence": [
+"primary_weapons_to_take"
+],
+"player_too_many_weapons_monitor_takeaway_simultaneous": [
+"primary_weapons_to_take"
+],
+"player_track_ammo_count": [],
+"player_zombie_breadcrumb": [],
+"players_playing": [],
+"playerzombie_downed_hud": [],
+"playerzombie_downed_state": [],
+"playerzombie_infinite_health": [],
+"playerzombie_play_sound": [
+"alias"
+],
+"playerzombie_player_damage": [],
+"playerzombie_soundboard": [],
+"playerzombie_waitfor_buttonrelease": [
+"inputtype"
+],
+"playswipesound": [
+"mod",
+"attacker"
+],
+"post_all_players_connected": [],
+"post_main": [],
+"precache_models": [],
+"precache_shaders": [],
+"precache_zombie_leaderboards": [],
+"process_friendly_fire_callbacks": [
+"einflictor",
+"eattacker",
+"idamage",
+"idflags",
+"smeansofdeath",
+"sweapon",
+"vpoint",
+"vdir",
+"shitloc",
+"psoffsettime",
+"boneindex"
+],
+"refresh_player_navcard_hud": [],
+"register_custom_ai_spawn_check": [
+"str_id",
+"func_check",
+"func_get_spawners",
+"func_get_locations"
+],
+"register_player_damage_callback": [
+"func"
+],
+"register_player_friendly_fire_callback": [
+"callback"
+],
+"register_sidequest": [
+"id",
+"sidequest_stat"
+],
+"remote_revive_watch": [],
+"remove_deadshot_bottle": [],
+"remove_ignore_attacker": [],
+"reset_rampage_bookmark_kill_times": [],
+"round_end_monitor": [],
+"round_one_up": [],
+"round_over": [],
+"round_pause": [
+"delay"
+],
+"round_spawn_failsafe": [],
+"round_spawn_failsafe_debug": [],
+"round_spawning": [],
+"round_spawning_test": [],
+"round_start": [],
+"round_think": [
+"restart"
+],
+"round_wait": [],
+"run_custom_ai_spawn_checks": [],
+"set_default_laststand_pistol": [
+"solo_mode"
+],
+"set_sidequest_completed": [
+"id"
+],
+"set_third_person": [
+"value"
+],
+"setspectatepermissions": [
+"ison"
+],
+"setup_player_navcard_hud": [],
+"spawn_kill_brush": [
+"origin",
+"radius",
+"height"
+],
+"spawn_life_brush": [
+"origin",
+"radius",
+"height"
+],
+"spawn_vo": [],
+"spawn_vo_player": [
+"index",
+"num"
+],
+"spawnspectator": [],
+"spectator_respawn": [],
+"spectator_thread": [],
+"spectator_toggle_3rd_person": [],
+"spectators_respawn": [],
+"start_zombie_logic_in_x_sec": [
+"time_to_wait"
+],
+"startunitriggers": [],
+"store_crumb": [
+"origin"
+],
+"take_additionalprimaryweapon": [],
+"to_mins": [
+"seconds"
+],
+"update_quick_revive": [
+"solo_mode"
+],
+"upload_leaderboards": [],
+"uploadglobalstatcounters": [],
+"wait_and_revive": [],
+"wait_until_first_player": [],
+"watch_rampage_bookmark": [],
+"watchdisconnect": [],
+"zbot_spawn": [],
+"zbot_spawn_think": [
+"origin",
+"yaw"
+],
+"zm_on_player_connect": [],
+"zm_on_player_disconnect": [],
+"zombie_game_over_death": [],
+"zombie_intro_screen": [
+"string1",
+"string2",
+"string3",
+"string4",
+"string5"
+],
+"zombie_speed_up": [],
+"zombiemode_melee_miss": [],
+"zombify_player": []
+},
+"maps\\mp\\zombies\\_zm_blockers": {
+"add_new_zombie_spawners": [],
+"any_player_touching": [
+"trigger"
+],
+"any_player_touching_any": [
+"trigger",
+"more_triggers"
+],
+"any_zombie_touching_any": [
+"trigger",
+"more_triggers"
+],
+"blocker_attack_spots": [],
+"blocker_choke": [],
+"blocker_connect_paths": [
+"start_node",
+"end_node",
+"two_way"
+],
+"blocker_disconnect_paths": [
+"start_node",
+"end_node",
+"two_way"
+],
+"blocker_init": [],
+"blocker_think": [],
+"blocker_trigger_think": [],
+"blocker_unitrigger_think": [],
+"board_completion": [],
+"debris_init": [],
+"debris_move": [
+"struct"
+],
+"debris_think": [],
+"destructible_glass_barricade": [
+"unbroken_section",
+"node"
+],
+"disconnect_paths_when_done": [],
+"do_post_chunk_repair_delay": [
+"has_perk"
+],
+"door_activate": [
+"time",
+"open",
+"quick",
+"use_blocker_clip_for_pathing"
+],
+"door_block": [],
+"door_buy": [],
+"door_classify": [
+"parent_trig"
+],
+"door_delay": [],
+"door_init": [],
+"door_opened": [
+"cost",
+"quick_close"
+],
+"door_repaired_rumble_n_sound": [],
+"door_solid_thread": [],
+"door_solid_thread_anim": [],
+"door_think": [],
+"ensure_chunk_is_back_to_origin": [
+"chunk"
+],
+"flag_blocker": [],
+"handle_post_board_repair_rewards": [
+"cost",
+"zbarrier"
+],
+"has_blocker_affecting_perk": [],
+"init": [],
+"init_blockers": [],
+"kill_trapped_zombies": [
+"trigger"
+],
+"open_all_zbarriers": [],
+"physics_launch_door": [
+"door_trig"
+],
+"player_fails_blocker_repair_trigger_preamble": [
+"player",
+"players",
+"trigger",
+"hold_required"
+],
+"quantum_bomb_open_nearest_door_result": [
+"position"
+],
+"quantum_bomb_open_nearest_door_validation": [
+"position"
+],
+"random_destroyed_chunk_show": [],
+"rebuild_barrier_reward_reset": [],
+"remove_chunk": [
+"chunk",
+"node",
+"destroy_immediately",
+"zomb"
+],
+"remove_chunk_rotate_grate": [
+"chunk"
+],
+"replace_chunk": [
+"barrier",
+"chunk",
+"perk",
+"upgrade",
+"via_powerup"
+],
+"self_and_flag_wait": [
+"msg"
+],
+"self_disconnectpaths": [],
+"should_delete_zbarriers": [],
+"trigger_delete_on_repair": [],
+"update_states": [
+"states"
+],
+"wait_trigger_clear": [
+"trigger",
+"more_triggers",
+"end_on"
+],
+"waittill_door_can_close": [],
+"waittill_door_trigger_clear_global_power_off": [
+"trigger",
+"all_trigs"
+],
+"waittill_door_trigger_clear_local_power_off": [
+"trigger",
+"all_trigs"
+],
+"zombie_bartear_audio_offset": [
+"chunk"
+],
+"zombie_bartear_audio_plus_fx_offset_repair_horizontal": [
+"chunk"
+],
+"zombie_bartear_audio_plus_fx_offset_repair_verticle": [
+"chunk"
+],
+"zombie_boardtear_audio_offset": [
+"chunk"
+],
+"zombie_boardtear_audio_plus_fx_offset_repair_horizontal": [
+"chunk"
+],
+"zombie_boardtear_audio_plus_fx_offset_repair_verticle": [
+"chunk"
+],
+"zombie_gratetear_audio_plus_fx_offset_repair_horizontal": [
+"chunk"
+]
+},
+"maps\\mp\\zombies\\_zm_devgui": {
+"any_player_in_noclip": [],
+"damage_player": [],
+"devgui_add_ability": [
+"name",
+"upgrade_active_func",
+"stat_name",
+"stat_desired_value",
+"game_end_reset_if_not_achieved"
+],
+"devgui_add_weapon": [
+"weapon_name",
+"upgrade_name",
+"hint",
+"cost",
+"weaponvo",
+"weaponvoresp",
+"ammo_cost"
+],
+"devgui_add_weapon_and_attachments": [
+"hint",
+"up",
+"weapon_name",
+"root"
+],
+"devgui_add_weapon_entry": [
+"hint",
+"up",
+"weapon_name",
+"root"
+],
+"devgui_all_spawn": [],
+"devgui_bot_spawn": [
+"team"
+],
+"devgui_bot_spawn_think": [
+"origin",
+"yaw"
+],
+"devgui_debug_hud": [],
+"devgui_toggle_show_spawn_locations": [],
+"devgui_zombie_healthbar": [],
+"devgui_zombie_spawn": [],
+"diable_fog_in_noclip": [],
+"force_drink": [],
+"get_upgrade": [
+"weaponname"
+],
+"init": [],
+"kill_player": [],
+"lineuntilnotified": [
+"start",
+"end",
+"color",
+"depthtest",
+"notification"
+],
+"print3duntilnotified": [
+"origin",
+"text",
+"color",
+"alpha",
+"scale",
+"notification"
+],
+"showonespawnpoint": [
+"spawn_point",
+"color",
+"notification",
+"height",
+"print"
+],
+"watch_debug_input": [
+"callback"
+],
+"zombie_ability_devgui_think": [],
+"zombie_devgui_ability_give": [
+"name"
+],
+"zombie_devgui_ability_take": [
+"name"
+],
+"zombie_devgui_allow_fog": [],
+"zombie_devgui_attachment_give": [
+"gun"
+],
+"zombie_devgui_build": [
+"buildable"
+],
+"zombie_devgui_buildable_drop": [],
+"zombie_devgui_check_kill_thread_every_frame_toggle": [],
+"zombie_devgui_chest_never_move": [],
+"zombie_devgui_cool_jetgun": [],
+"zombie_devgui_debug_pers": [
+"index"
+],
+"zombie_devgui_director_easy": [],
+"zombie_devgui_disable_kill_thread_toggle": [],
+"zombie_devgui_disown_equipment": [],
+"zombie_devgui_dog_round": [
+"num_dogs"
+],
+"zombie_devgui_dog_round_skip": [],
+"zombie_devgui_dpad_changeweapon": [],
+"zombie_devgui_dpad_damage": [],
+"zombie_devgui_dpad_death": [],
+"zombie_devgui_dpad_none": [],
+"zombie_devgui_dump_zombie_vars": [],
+"zombie_devgui_equipment_give": [
+"equipment"
+],
+"zombie_devgui_equipment_stays_healthy": [],
+"zombie_devgui_give_beacon": [],
+"zombie_devgui_give_black_hole_bomb": [],
+"zombie_devgui_give_claymores": [],
+"zombie_devgui_give_dolls": [],
+"zombie_devgui_give_emp_bomb": [],
+"zombie_devgui_give_frags": [],
+"zombie_devgui_give_health": [],
+"zombie_devgui_give_lethal": [
+"weapon"
+],
+"zombie_devgui_give_money": [],
+"zombie_devgui_give_monkey": [],
+"zombie_devgui_give_perk": [
+"perk"
+],
+"zombie_devgui_give_powerup": [
+"powerup_name",
+"now",
+"origin"
+],
+"zombie_devgui_give_quantum_bomb": [],
+"zombie_devgui_give_sticky": [],
+"zombie_devgui_give_time_bomb": [],
+"zombie_devgui_goto_round": [
+"target_round"
+],
+"zombie_devgui_invulnerable": [
+"playerindex",
+"onoff"
+],
+"zombie_devgui_kill": [],
+"zombie_devgui_kill_thread_test_mode_toggle": [],
+"zombie_devgui_monkey_round": [],
+"zombie_devgui_open_sesame": [],
+"zombie_devgui_pack_current_weapon": [],
+"zombie_devgui_player_commands": [],
+"zombie_devgui_preserve_turbines": [],
+"zombie_devgui_reopt_current_weapon": [],
+"zombie_devgui_revive": [],
+"zombie_devgui_take_money": [],
+"zombie_devgui_take_weapon": [],
+"zombie_devgui_take_weapons": [
+"give_fallback"
+],
+"zombie_devgui_thief_round": [],
+"zombie_devgui_think": [],
+"zombie_devgui_toggle_ammo": [],
+"zombie_devgui_toggle_ignore": [],
+"zombie_devgui_turn_player": [
+"index"
+],
+"zombie_devgui_unpack_current_weapon": [],
+"zombie_devgui_watch_input": [],
+"zombie_devgui_weapon_give": [
+"gun"
+],
+"zombie_healthbar": [
+"pos",
+"dsquared"
+],
+"zombie_weapon_devgui_think": []
+},
+"maps\\mp\\zombies\\_zm_laststand": {
+"add_weighted_down": [],
+"auto_revive": [
+"reviver",
+"dont_enable_weapons"
+],
+"bleed_out": [],
+"can_revive": [
+"revivee"
+],
+"can_suicide": [],
+"check_for_failed_revive": [
+"playerbeingrevived"
+],
+"check_for_sacrifice": [],
+"checkforbleedout": [
+"player"
+],
+"clean_up_suicide_hud_on_bled_out": [],
+"clean_up_suicide_hud_on_end_game": [],
+"cleanup_laststand_on_disconnect": [],
+"cleanup_suicide_hud": [],
+"drawcylinder": [
+"pos",
+"rad",
+"height"
+],
+"faderevivemessageover": [
+"playertorevive",
+"time"
+],
+"get_lives_remaining": [],
+"increment_downed_stat": [],
+"init": [],
+"is_facing": [
+"facee"
+],
+"is_reviving": [
+"revivee"
+],
+"is_reviving_any": [],
+"is_suiciding": [
+"revivee"
+],
+"laststand_allowed": [
+"sweapon",
+"smeansofdeath",
+"shitloc"
+],
+"laststand_bleedout": [
+"delay"
+],
+"laststand_clean_up_on_disconnect": [
+"playerbeingrevived",
+"revivergun"
+],
+"laststand_clean_up_reviving_any": [
+"playerbeingrevived"
+],
+"laststand_disable_player_weapons": [],
+"laststand_enable_player_weapons": [],
+"laststand_getup": [],
+"laststand_getup_damage_watcher": [],
+"laststand_getup_hud": [],
+"laststand_getup_hud_destroy": [
+"hudelem"
+],
+"laststand_give_pistol": [],
+"laststand_global_init": [],
+"player_all_players_in_laststand": [],
+"player_any_player_in_laststand": [],
+"player_getup_setup": [],
+"player_is_in_laststand": [],
+"player_last_stand_stats": [
+"einflictor",
+"attacker",
+"idamage",
+"smeansofdeath",
+"sweapon",
+"vdir",
+"shitloc",
+"psoffsettime",
+"deathanimduration"
+],
+"player_num_in_laststand": [],
+"playerlaststand": [
+"einflictor",
+"attacker",
+"idamage",
+"smeansofdeath",
+"sweapon",
+"vdir",
+"shitloc",
+"psoffsettime",
+"deathanimduration"
+],
+"refire_player_downed": [],
+"remote_revive": [
+"reviver"
+],
+"revive_do_revive": [
+"playerbeingrevived",
+"revivergun"
+],
+"revive_force_revive": [
+"reviver"
+],
+"revive_give_back_weapons": [
+"gun"
+],
+"revive_hud_create": [],
+"revive_hud_show": [],
+"revive_hud_show_n_fade": [
+"time"
+],
+"revive_hud_think": [],
+"revive_success": [
+"reviver",
+"b_track_stats"
+],
+"revive_trigger_spawn": [],
+"revive_trigger_think": [],
+"suicide_do_suicide": [
+"duration"
+],
+"suicide_trigger_spawn": [],
+"suicide_trigger_think": [],
+"update_lives_remaining": [
+"increment"
+]
+},
+"maps\\mp\\zombies\\_zm_net": {
+"_network_safe_play_fx_on_tag": [
+"fx",
+"entity",
+"tag"
+],
+"_network_safe_spawn": [
+"classname",
+"origin"
+],
+"network_choke_action": [
+"id",
+"choke_action",
+"arg1",
+"arg2",
+"arg3"
+],
+"network_choke_init": [
+"id",
+"max"
+],
+"network_choke_safe": [
+"id"
+],
+"network_choke_thread": [
+"id"
+],
+"network_entity_valid": [
+"entity"
+],
+"network_safe_init": [
+"id",
+"max"
+],
+"network_safe_play_fx_on_tag": [
+"id",
+"max",
+"fx",
+"entity",
+"tag"
+],
+"network_safe_spawn": [
+"id",
+"max",
+"classname",
+"origin"
+]
+},
+"maps\\mp\\zombies\\_zm_powerups": {
+"add_zombie_powerup": [
+"powerup_name",
+"model_name",
+"hint",
+"func_should_drop_with_regular_powerups",
+"solo",
+"caution",
+"zombie_grabbable",
+"fx",
+"client_field_name",
+"time_name",
+"on_name",
+"clientfield_version"
+],
+"add_zombie_special_drop": [
+"powerup_name"
+],
+"bonus_points_player_powerup": [
+"item",
+"player"
+],
+"bonus_points_team_powerup": [
+"item"
+],
+"check_for_instakill": [
+"player",
+"mod",
+"hit_location"
+],
+"check_for_rare_drop_override": [
+"pos"
+],
+"cleanup_random_weapon_list": [],
+"devil_dialog_delay": [],
+"disable_perk_before_power": [
+"perk"
+],
+"double_points_powerup": [
+"drop_item",
+"player"
+],
+"empty_clip_powerup": [
+"item"
+],
+"fire_sale_weapon_wait": [],
+"free_perk_powerup": [
+"item"
+],
+"full_ammo_move_hud": [
+"player_team"
+],
+"full_ammo_on_hud": [
+"drop_item",
+"player_team"
+],
+"full_ammo_powerup": [
+"drop_item",
+"player"
+],
+"func_should_always_drop": [],
+"func_should_drop_carpenter": [],
+"func_should_drop_fire_sale": [],
+"func_should_drop_minigun": [],
+"func_should_never_drop": [],
+"get_closest_window_repair": [
+"windows",
+"origin"
+],
+"get_far_boards": [
+"windows"
+],
+"get_near_boards": [
+"windows"
+],
+"get_next_powerup": [],
+"get_num_window_destroyed": [],
+"get_powerups": [
+"origin",
+"radius"
+],
+"get_valid_powerup": [],
+"include_zombie_powerup": [
+"powerup_name"
+],
+"init": [],
+"init_player_zombie_vars": [],
+"init_powerups": [],
+"insta_kill_on_hud": [
+"drop_item",
+"player_team"
+],
+"insta_kill_powerup": [
+"drop_item",
+"player"
+],
+"is_carpenter_boards_upgraded": [],
+"is_insta_kill_active": [],
+"lose_perk_powerup": [
+"item"
+],
+"lose_points_team_powerup": [
+"item"
+],
+"minigun_no_drop": [],
+"minigun_watch_gunner_downed": [],
+"minigun_weapon_powerup": [
+"ent_player",
+"time"
+],
+"minigun_weapon_powerup_countdown": [
+"ent_player",
+"str_gun_return_notify",
+"time"
+],
+"minigun_weapon_powerup_off": [],
+"minigun_weapon_powerup_remove": [
+"ent_player",
+"str_gun_return_notify"
+],
+"minigun_weapon_powerup_replace": [
+"ent_player",
+"str_gun_return_notify"
+],
+"nuke_flash": [
+"team"
+],
+"nuke_powerup": [
+"drop_item",
+"player_team"
+],
+"play_bonfiresale_audio": [],
+"play_firesale_audio": [],
+"point_doubler_on_hud": [
+"drop_item",
+"player_team"
+],
+"powerup_delete": [],
+"powerup_delete_delayed": [
+"time"
+],
+"powerup_drop": [
+"drop_point"
+],
+"powerup_emp": [],
+"powerup_grab": [
+"powerup_team"
+],
+"powerup_hud_monitor": [],
+"powerup_move": [],
+"powerup_round_start": [],
+"powerup_set_can_pick_up_in_last_stand": [
+"powerup_name",
+"b_can_pick_up"
+],
+"powerup_setup": [
+"powerup_override",
+"powerup_team",
+"powerup_location"
+],
+"powerup_timeout": [],
+"powerup_vo": [
+"type"
+],
+"powerup_wobble": [],
+"powerup_wobble_fx": [],
+"powerup_zombie_grab": [
+"powerup_team"
+],
+"powerup_zombie_grab_trigger_cleanup": [
+"trigger"
+],
+"print_powerup_drop": [
+"powerup",
+"type"
+],
+"quantum_bomb_random_bonus_or_lose_points_powerup_result": [
+"position"
+],
+"quantum_bomb_random_powerup_result": [
+"position"
+],
+"quantum_bomb_random_weapon_powerup_result": [
+"position"
+],
+"quantum_bomb_random_zombie_grab_powerup_result": [
+"position"
+],
+"random_weapon_powerup": [
+"item",
+"player"
+],
+"random_weapon_powerup_throttle": [],
+"randomize_powerups": [],
+"register_carpenter_node": [
+"node",
+"callback"
+],
+"remove_temp_chest": [
+"chest_index"
+],
+"repair_far_boards": [
+"barriers",
+"upgrade"
+],
+"set_clientfield_powerups": [
+"clientfield_name",
+"powerup_timer",
+"powerup_on",
+"flashing_timers",
+"flashing_values"
+],
+"set_weapon_ignore_max_ammo": [
+"str_weapon"
+],
+"setup_bonfiresale_audio": [],
+"setup_firesale_audio": [],
+"should_award_stat": [
+"powerup_name"
+],
+"special_drop_setup": [],
+"special_powerup_drop": [
+"drop_point"
+],
+"specific_powerup_drop": [
+"powerup_name",
+"drop_spot",
+"powerup_team",
+"powerup_location"
+],
+"start_bonfire_sale": [
+"item"
+],
+"start_carpenter": [
+"origin"
+],
+"start_carpenter_new": [
+"origin"
+],
+"start_fire_sale": [
+"item"
+],
+"teller_withdrawl": [
+"powerup",
+"player"
+],
+"tesla_powerup_active": [],
+"tesla_watch_gunner_downed": [],
+"tesla_weapon_powerup": [
+"ent_player",
+"time"
+],
+"tesla_weapon_powerup_countdown": [
+"ent_player",
+"str_gun_return_notify",
+"time"
+],
+"tesla_weapon_powerup_off": [],
+"tesla_weapon_powerup_remove": [
+"ent_player",
+"str_gun_return_notify"
+],
+"tesla_weapon_powerup_replace": [
+"ent_player",
+"str_gun_return_notify"
+],
+"time_remaining_on_point_doubler_powerup": [
+"player_team"
+],
+"time_remaning_on_insta_kill_powerup": [
+"player_team"
+],
+"toggle_bonfire_sale_on": [],
+"toggle_fire_sale_on": [],
+"watch_for_drop": []
+},
+"maps\\mp\\zombies\\_zm_score": {
+"add_to_player_score": [
+"points",
+"add_to_total"
+],
+"add_to_team_score": [
+"points"
+],
+"get_points_multiplier": [
+"player"
+],
+"get_zombie_death_player_points": [],
+"get_zombie_death_team_points": [],
+"init": [],
+"minus_to_player_score": [
+"points",
+"ignore_double_points_upgrade"
+],
+"minus_to_team_score": [
+"points"
+],
+"player_add_points": [
+"event",
+"mod",
+"hit_location",
+"is_dog",
+"zombie_team",
+"damage_weapon"
+],
+"player_add_points_kill_bonus": [
+"mod",
+"hit_location"
+],
+"player_died_penalty": [],
+"player_downed_penalty": [],
+"player_reduce_points": [
+"event",
+"mod",
+"hit_location"
+],
+"score_cf_increment_info": [
+"name"
+],
+"score_cf_monitor": [],
+"score_cf_register_info": [
+"name",
+"version",
+"max_count"
+]
+},
+"maps\\mp\\zombies\\_zm_spawner": {
+"add_cusom_zombie_spawn_logic": [
+"func"
+],
+"add_custom_zombie_spawn_logic": [
+"func"
+],
+"attractors_generated_listener": [],
+"check_for_zombie_death": [
+"zombie"
+],
+"check_zbarrier_piece_for_zombie_death": [
+"chunk_index",
+"zbarrier",
+"zombie"
+],
+"check_zbarrier_piece_for_zombie_inert": [
+"chunk_index",
+"zbarrier",
+"zombie"
+],
+"check_zombie_damage_callbacks": [
+"mod",
+"hit_location",
+"hit_origin",
+"player",
+"amount"
+],
+"check_zombie_death_animscript_callbacks": [],
+"check_zombie_death_event_callbacks": [],
+"crumb_is_bad": [
+"crumb",
+"bad_crumbs"
+],
+"damage_on_fire": [
+"player"
+],
+"damage_over_time": [
+"dmg",
+"delay",
+"attacker",
+"means_of_death"
+],
+"delayed_zombie_eye_glow": [],
+"deregister_zombie_death_event_callback": [
+"func"
+],
+"derive_damage_refs": [
+"point"
+],
+"do_a_taunt": [],
+"do_zombie_rise": [
+"spot"
+],
+"do_zombie_spawn": [],
+"dragons_breath_flame_death_fx": [],
+"enemy_death_detection": [],
+"get_attack_spot": [
+"node"
+],
+"get_attack_spot_index": [
+"node"
+],
+"get_desired_origin": [],
+"get_number_variants": [
+"aliasprefix"
+],
+"get_rise_death_anim": [],
+"handle_rise_notetracks": [
+"note",
+"spot"
+],
+"head_should_gib": [
+"attacker",
+"type",
+"point"
+],
+"headshot_blood_fx": [],
+"hide_pop": [],
+"init": [],
+"init_gib_tags": [],
+"is_spawner_targeted_by_blocker": [
+"ent"
+],
+"is_weapon_shotgun": [
+"sweapon"
+],
+"jitter_enemies_bad_breadcrumbs": [
+"start_crumb"
+],
+"play_ambient_zombie_vocals": [],
+"player_attacker": [
+"attacker"
+],
+"player_attacks_enemy": [
+"player",
+"amount",
+"type",
+"point"
+],
+"player_using_hi_score_weapon": [
+"player"
+],
+"register_zombie_damage_callback": [
+"func"
+],
+"register_zombie_death_animscript_callback": [
+"func"
+],
+"register_zombie_death_event_callback": [
+"func"
+],
+"reset_attack_spot": [],
+"should_attack_player_thru_boards": [],
+"should_skip_teardown": [
+"find_flesh_struct_string"
+],
+"stop_zombie_rise_dust_fx": [
+"zombie"
+],
+"taunt_notetracks": [
+"msg"
+],
+"tear_into_building": [],
+"window_notetracks": [
+"msg"
+],
+"zombie_assure_node": [],
+"zombie_bad_path": [],
+"zombie_bad_path_notify": [],
+"zombie_bad_path_timeout": [],
+"zombie_bartear_offset_fx_horizontle": [
+"chunk"
+],
+"zombie_bartear_offset_fx_verticle": [
+"chunk"
+],
+"zombie_boardtear_offset_fx_horizontle": [
+"chunk",
+"node"
+],
+"zombie_boardtear_offset_fx_verticle": [
+"chunk",
+"node"
+],
+"zombie_can_drop_powerups": [
+"zombie"
+],
+"zombie_complete_emerging_into_playable_area": [],
+"zombie_damage": [
+"mod",
+"hit_location",
+"hit_origin",
+"player",
+"amount",
+"team"
+],
+"zombie_damage_ads": [
+"mod",
+"hit_location",
+"hit_origin",
+"player",
+"amount",
+"team"
+],
+"zombie_damage_failsafe": [],
+"zombie_death_achievement_sliquifier_check": [
+"e_player",
+"e_zombie"
+],
+"zombie_death_animscript": [],
+"zombie_death_event": [
+"zombie"
+],
+"zombie_death_points": [
+"origin",
+"mod",
+"hit_location",
+"attacker",
+"zombie",
+"team"
+],
+"zombie_delay_powerup_drop": [
+"origin"
+],
+"zombie_entered_playable": [],
+"zombie_eye_glow": [],
+"zombie_eye_glow_stop": [],
+"zombie_flame_damage": [
+"mod",
+"player"
+],
+"zombie_follow_enemy": [],
+"zombie_free_cam_allowed": [],
+"zombie_gib_on_damage": [],
+"zombie_give_flame_damage_points": [],
+"zombie_goto_entrance": [
+"node",
+"endon_bad_path"
+],
+"zombie_gut_explosion": [],
+"zombie_hat_gib": [
+"attacker",
+"means_of_death"
+],
+"zombie_head_gib": [
+"attacker",
+"means_of_death"
+],
+"zombie_history": [
+"msg"
+],
+"zombie_pathing": [],
+"zombie_pathing_get_breadcrumb": [
+"origin",
+"breadcrumbs",
+"bad_crumbs",
+"pick_random"
+],
+"zombie_ragdoll_then_explode": [
+"launchvector",
+"attacker"
+],
+"zombie_repath_notifier": [],
+"zombie_rise_burst_fx": [
+"zombie"
+],
+"zombie_rise_death": [
+"zombie",
+"spot"
+],
+"zombie_rise_dust_fx": [
+"zombie"
+],
+"zombie_rise_fx": [
+"zombie"
+],
+"zombie_setup_attack_properties": [],
+"zombie_should_gib": [
+"amount",
+"attacker",
+"type"
+],
+"zombie_spawn_init": [
+"animname_set"
+],
+"zombie_tear_notetracks": [
+"msg",
+"chunk",
+"node"
+],
+"zombie_tesla_head_gib": [],
+"zombie_think": []
+},
+"maps\\mp\\zombies\\_zm_utility": {
+"activate_zombie_point_of_interest": [],
+"add_gameloc": [
+"gl",
+"dummy1",
+"name",
+"dummy2"
+],
+"add_gametype": [
+"gt",
+"dummy1",
+"name",
+"dummy2"
+],
+"add_poi_attractor": [
+"zombie_poi"
+],
+"add_poi_to_ignore_list": [
+"poi"
+],
+"add_sound": [
+"ref",
+"alias"
+],
+"add_spawn_function": [
+"function",
+"param1",
+"param2",
+"param3",
+"param4"
+],
+"add_spawner": [
+"spawner"
+],
+"add_vox_response_chance": [
+"event",
+"chance"
+],
+"add_zombie_hint": [
+"ref",
+"text"
+],
+"ads_button_held": [],
+"ads_button_pressed": [],
+"all_chunks_destroyed": [
+"barrier",
+"barrier_chunks"
+],
+"all_chunks_intact": [
+"barrier",
+"barrier_chunks"
+],
+"array_check_for_dupes_using_compare": [
+"array",
+"single",
+"is_equal_fn"
+],
+"array_flag_wait_any": [
+"flag_array"
+],
+"array_flag_wait_any_thread": [
+"flag_name",
+"condition"
+],
+"array_limiter": [
+"array",
+"total"
+],
+"array_removedead": [
+"array"
+],
+"array_validate": [
+"array"
+],
+"assign_zombie_point_of_interest": [
+"origin",
+"poi"
+],
+"attack_button_held": [],
+"attack_button_pressed": [],
+"bullet_attack": [
+"type"
+],
+"button_held_think": [
+"which_button"
+],
+"can_attract": [
+"attractor"
+],
+"change_zombie_run_cycle": [],
+"check_and_create_node_lists": [],
+"check_point_in_enabled_zone": [
+"origin",
+"zone_is_active",
+"player_zones"
+],
+"check_point_in_playable_area": [
+"origin"
+],
+"clear_all_corpses": [],
+"clear_fog_threads": [],
+"clear_is_drinking": [],
+"clear_mature_blood": [],
+"clear_run_anim": [],
+"convertsecondstomilliseconds": [
+"seconds"
+],
+"create_counter_hud": [
+"x"
+],
+"create_simple_hud": [
+"client",
+"team"
+],
+"create_vox_timer": [
+"type"
+],
+"create_zombie_buildable_piece": [
+"modelname",
+"radius",
+"height",
+"hud_icon"
+],
+"create_zombie_point_of_interest": [
+"attract_dist",
+"num_attractors",
+"added_poi_value",
+"start_turned_on",
+"initial_attract_func",
+"arrival_attract_func",
+"poi_team"
+],
+"create_zombie_point_of_interest_attractor_positions": [
+"num_attract_dists",
+"diff_per_dist",
+"attractor_width"
+],
+"deactivate_zombie_point_of_interest": [],
+"debug_attack_spots_taken": [],
+"debug_blocker": [
+"pos",
+"rad",
+"height"
+],
+"debug_breadcrumbs": [],
+"debug_draw_attractor_positions": [],
+"debug_magic_bullet_shield_death": [
+"guy"
+],
+"debug_print": [
+"msg"
+],
+"debug_round_advancer": [],
+"decrement_is_drinking": [],
+"default_validate_enemy_path_length": [
+"player"
+],
+"delete_spawned_path_nodes": [],
+"destroy_ent": [],
+"destroy_hud": [],
+"disable_player_move_states": [
+"forcestancechange"
+],
+"disable_react": [],
+"disable_trigger": [],
+"display_message": [
+"titletext",
+"notifytext",
+"duration"
+],
+"do_player_general_vox": [
+"category",
+"type",
+"timer",
+"chance"
+],
+"do_player_vo": [
+"snd",
+"variation_count"
+],
+"does_player_have_correct_navcard": [
+"player"
+],
+"does_player_have_map_navcard": [
+"player"
+],
+"draw_line_ent_to_ent": [
+"ent1",
+"ent2"
+],
+"draw_line_ent_to_pos": [
+"ent",
+"pos",
+"end_on"
+],
+"drawcylinder": [
+"pos",
+"rad",
+"height"
+],
+"enable_player_move_states": [],
+"enable_react": [],
+"enable_trigger": [],
+"ent_flag": [
+"message"
+],
+"ent_flag_clear": [
+"message"
+],
+"ent_flag_clear_delayed": [
+"message",
+"delay"
+],
+"ent_flag_exist": [
+"message"
+],
+"ent_flag_init": [
+"message",
+"val"
+],
+"ent_flag_init_ai_standards": [],
+"ent_flag_set": [
+"message"
+],
+"ent_flag_set_delayed": [
+"message",
+"delay"
+],
+"ent_flag_toggle": [
+"message"
+],
+"ent_flag_wait": [
+"msg"
+],
+"ent_flag_wait_ai_standards": [
+"message"
+],
+"ent_flag_wait_either": [
+"flag1",
+"flag2"
+],
+"ent_flag_wait_or_timeout": [
+"flagname",
+"timer"
+],
+"ent_flag_waitopen": [
+"msg"
+],
+"ent_wait_for_flag_or_time_elapses": [
+"flagname",
+"timer"
+],
+"fake_physicslaunch": [
+"target_pos",
+"power"
+],
+"flag_wait_or_timeout": [
+"flagname",
+"timer"
+],
+"flat_angle": [
+"angle"
+],
+"float_print3d": [
+"msg",
+"time"
+],
+"general_vox_timer": [
+"timer",
+"type"
+],
+"generated_radius_attract_positions": [
+"forward",
+"offset",
+"num_positions",
+"attract_radius"
+],
+"get_chunk_state": [],
+"get_closest_2d": [
+"origin",
+"ents"
+],
+"get_closest_index": [
+"org",
+"array",
+"dist"
+],
+"get_closest_index_to_entity": [
+"entity",
+"array",
+"dist",
+"extra_check"
+],
+"get_closest_node": [
+"org",
+"nodes"
+],
+"get_closest_non_destroyed_chunk": [
+"origin",
+"barrier",
+"barrier_chunks"
+],
+"get_closest_player": [
+"org"
+],
+"get_closest_player_using_paths": [
+"origin",
+"players"
+],
+"get_closest_valid_player": [
+"origin",
+"ignore_player"
+],
+"get_current_actor_count": [],
+"get_current_corpse_count": [],
+"get_current_zombie_count": [],
+"get_current_zone": [
+"return_zone"
+],
+"get_destroyed_chunks": [
+"barrier_chunks"
+],
+"get_destroyed_repair_grates": [
+"barrier_chunks"
+],
+"get_eye": [],
+"get_game_var": [
+"var"
+],
+"get_gamemode_var": [
+"var"
+],
+"get_hint_string": [
+"ent",
+"default_ref",
+"cost"
+],
+"get_non_destroyed_chunks": [
+"barrier",
+"barrier_chunks"
+],
+"get_non_destroyed_chunks_grate": [
+"barrier",
+"barrier_chunks"
+],
+"get_non_destroyed_variant1": [
+"barrier_chunks"
+],
+"get_non_destroyed_variant2": [
+"barrier_chunks"
+],
+"get_non_destroyed_variant4": [
+"barrier_chunks"
+],
+"get_non_destroyed_variant5": [
+"barrier_chunks"
+],
+"get_number_of_valid_players": [],
+"get_path_length_to_enemy": [
+"enemy"
+],
+"get_player_equipment": [],
+"get_player_lethal_grenade": [],
+"get_player_melee_weapon": [],
+"get_player_perk_purchase_limit": [],
+"get_player_placeable_mine": [],
+"get_player_tactical_grenade": [],
+"get_player_weapon_limit": [
+"player"
+],
+"get_random_destroyed_chunk": [
+"barrier",
+"barrier_chunks"
+],
+"get_round_enemy_array": [],
+"get_table_var": [
+"table",
+"var_name",
+"value",
+"is_float",
+"column"
+],
+"get_zombie_hint": [
+"ref"
+],
+"get_zombie_point_of_interest": [
+"origin",
+"poi_array"
+],
+"getweaponclasszm": [
+"weapon"
+],
+"getyaw": [
+"org"
+],
+"getyawtospot": [
+"spot"
+],
+"give_start_weapon": [
+"switch_to_weapon"
+],
+"giveachievement_wrapper": [
+"achievement",
+"all_players"
+],
+"grate_order_destroyed": [
+"chunks_repair_grate"
+],
+"groundpos": [
+"origin"
+],
+"groundpos_ignore_water": [
+"origin"
+],
+"groundpos_ignore_water_new": [
+"origin"
+],
+"hacker_active": [],
+"has_deployed_equipment": [
+"weaponname"
+],
+"has_player_equipment": [
+"weaponname"
+],
+"has_powerup_weapon": [],
+"hotjoin_setup_player": [
+"viewmodel"
+],
+"hudelem_count": [],
+"ignore_triggers": [
+"timer"
+],
+"in_playable_area": [],
+"in_revive_trigger": [],
+"include_buildable": [
+"buildable_struct"
+],
+"include_equipment": [
+"equipment_name"
+],
+"include_powered_item": [
+"power_on_func",
+"power_off_func",
+"range_func",
+"cost_func",
+"power_sources",
+"start_power",
+"target"
+],
+"include_powerup": [
+"powerup_name"
+],
+"include_weapon": [
+"weapon_name",
+"in_box",
+"collector",
+"weighting_func"
+],
+"increment_is_drinking": [],
+"init_button_wrappers": [],
+"init_player_equipment": [],
+"init_player_lethal_grenade": [],
+"init_player_melee_weapon": [],
+"init_player_offhand_weapons": [],
+"init_player_placeable_mine": [],
+"init_player_tactical_grenade": [],
+"init_utility": [],
+"init_zombie_run_cycle": [],
+"invalidate_attractor_pos": [
+"attractor_pos",
+"zombie"
+],
+"is_alt_weapon": [
+"weapname"
+],
+"is_buildable": [],
+"is_buildable_included": [
+"name"
+],
+"is_classic": [],
+"is_createfx_active": [],
+"is_encounter": [],
+"is_equipment": [
+"weaponname"
+],
+"is_equipment_that_blocks_purchase": [
+"weaponname"
+],
+"is_explosive_damage": [
+"mod"
+],
+"is_favorite_weapon": [
+"weapon_to_check"
+],
+"is_float": [
+"num"
+],
+"is_gametype_active": [
+"a_gametypes"
+],
+"is_grenade_launcher": [
+"weapname"
+],
+"is_headshot": [
+"sweapon",
+"shitloc",
+"smeansofdeath"
+],
+"is_jumping": [],
+"is_leaper": [],
+"is_lethal_grenade": [
+"weaponname"
+],
+"is_limited_weapon": [
+"weapname"
+],
+"is_magic_bullet_shield_enabled": [
+"ent"
+],
+"is_melee_weapon": [
+"weaponname"
+],
+"is_multiple_drinking": [],
+"is_offhand_weapon": [
+"weaponname"
+],
+"is_placeable_mine": [
+"weaponname"
+],
+"is_player": [],
+"is_player_equipment": [
+"weaponname"
+],
+"is_player_lethal_grenade": [
+"weaponname"
+],
+"is_player_looking_at": [
+"origin",
+"dot",
+"do_trace",
+"ignore_ent"
+],
+"is_player_melee_weapon": [
+"weaponname"
+],
+"is_player_offhand_weapon": [
+"weaponname"
+],
+"is_player_placeable_mine": [
+"weaponname"
+],
+"is_player_tactical_grenade": [
+"weaponname"
+],
+"is_player_valid": [
+"player",
+"checkignoremeflag",
+"ignore_laststand_players"
+],
+"is_quad": [],
+"is_standard": [],
+"is_survival": [],
+"is_tactical_grenade": [
+"weaponname"
+],
+"is_temporary_zombie_weapon": [
+"str_weapon"
+],
+"is_valid_zombie_spawn_point": [
+"point"
+],
+"is_zombie_perk_bottle": [
+"str_weapon"
+],
+"isads": [
+"player"
+],
+"isexplosivedamage": [
+"meansofdeath"
+],
+"isfiredamage": [
+"weapon",
+"meansofdeath"
+],
+"isplayerexplosiveweapon": [
+"weapon",
+"meansofdeath"
+],
+"isprimarydamage": [
+"meansofdeath"
+],
+"lerp": [
+"chunk"
+],
+"limit_equipment": [
+"equipment_name",
+"limited"
+],
+"link_changes_internal": [
+"func_for_link_list",
+"func_for_unlink_list"
+],
+"link_changes_internal_internal": [
+"list",
+"func"
+],
+"link_nodes": [
+"a",
+"b",
+"bdontunlinkonmigrate"
+],
+"link_nodes_wrapper": [
+"a",
+"b"
+],
+"magic_bullet_shield": [],
+"no_valid_repairable_boards": [
+"barrier",
+"barrier_chunks"
+],
+"non_destroyed_bar_board_order": [
+"origin",
+"chunks"
+],
+"non_destroyed_grate_order": [
+"origin",
+"chunks_grate"
+],
+"non_destroyed_variant1_order": [
+"origin",
+"chunks_variant1"
+],
+"non_destroyed_variant2_order": [
+"origin",
+"chunks_variant2"
+],
+"non_destroyed_variant4_order": [
+"origin",
+"chunks_variant4"
+],
+"non_destroyed_variant5_order": [
+"origin",
+"chunks_variant5"
+],
+"onplayerconnect_callback": [
+"func"
+],
+"onplayerdisconnect_callback": [
+"func"
+],
+"pick_up": [],
+"place_navcard": [
+"str_model",
+"str_stat",
+"org",
+"angles"
+],
+"places_before_decimal": [
+"num"
+],
+"play_loopsound_on_ent": [
+"ref"
+],
+"play_sound_2d": [
+"sound"
+],
+"play_sound_at_pos": [
+"ref",
+"pos",
+"ent"
+],
+"play_sound_on_ent": [
+"ref"
+],
+"play_vox_to_player": [
+"category",
+"type",
+"force_variant"
+],
+"poi_locations_equal": [
+"loc1",
+"loc2"
+],
+"print3d_at_pos": [
+"msg",
+"pos",
+"thread_endon",
+"offset"
+],
+"print3d_ent": [
+"text",
+"color",
+"scale",
+"offset",
+"end_msg",
+"overwrite"
+],
+"print_run_speed": [
+"speed"
+],
+"random_tan": [],
+"really_play_2d_sound": [
+"sound"
+],
+"recalc_zombie_array": [],
+"redo_link_changes": [],
+"register_custom_spawner_entry": [
+"spot_noteworthy",
+"func"
+],
+"register_equipment_for_level": [
+"weaponname"
+],
+"register_lethal_grenade_for_level": [
+"weaponname"
+],
+"register_map_navcard": [
+"navcard_on_map",
+"navcard_needed_for_computer"
+],
+"register_melee_weapon_for_level": [
+"weaponname"
+],
+"register_offhand_weapons_for_level_defaults": [],
+"register_placeable_mine_for_level": [
+"weaponname"
+],
+"register_tactical_grenade_for_level": [
+"weaponname"
+],
+"remove_mod_from_methodofdeath": [
+"mod"
+],
+"remove_poi_attractor": [
+"zombie_poi"
+],
+"remove_poi_from_ignore_list": [
+"poi"
+],
+"respawn_path_nodes": [],
+"round_up_score": [
+"score",
+"value"
+],
+"round_up_to_ten": [
+"score"
+],
+"run_spawn_functions": [],
+"script_delay": [],
+"self_delete": [],
+"set_demo_intermission_point": [],
+"set_game_var": [
+"var",
+"val"
+],
+"set_game_var_once": [
+"var",
+"val"
+],
+"set_gamemode_var": [
+"var",
+"val"
+],
+"set_gamemode_var_once": [
+"var",
+"val"
+],
+"set_hint_string": [
+"ent",
+"default_ref",
+"cost"
+],
+"set_player_equipment": [
+"weaponname"
+],
+"set_player_is_female": [
+"onoff"
+],
+"set_player_lethal_grenade": [
+"weaponname"
+],
+"set_player_melee_weapon": [
+"weaponname"
+],
+"set_player_placeable_mine": [
+"weaponname"
+],
+"set_player_tactical_grenade": [
+"weaponname"
+],
+"set_player_tombstone_index": [],
+"set_run_speed": [],
+"set_run_speed_easy": [],
+"set_zombie_run_cycle": [
+"new_move_speed"
+],
+"set_zombie_var": [
+"var",
+"value",
+"is_float",
+"column",
+"is_team_based"
+],
+"shock_onexplosion": [
+"damage",
+"shocktype",
+"shocklight"
+],
+"shock_onpain": [],
+"should_watch_for_emp": [],
+"show_grate_pull": [],
+"show_grate_repair": [],
+"sndswitchannouncervox": [
+"who"
+],
+"spawn_failed": [
+"spawn"
+],
+"spawn_path_node": [
+"origin",
+"angles",
+"k1",
+"v1",
+"k2",
+"v2"
+],
+"spawn_path_node_internal": [
+"origin",
+"angles",
+"k1",
+"v1",
+"k2",
+"v2"
+],
+"spawn_weapon_model": [
+"weapon",
+"model",
+"origin",
+"angles",
+"options"
+],
+"spawn_zombie": [
+"spawner",
+"target_name",
+"spawn_point",
+"round_number"
+],
+"speed_change_watcher": [],
+"sq_refresh_player_navcard_hud": [],
+"sq_refresh_player_navcard_hud_internal": [],
+"stop_magic_bullet_shield": [],
+"string_to_float": [
+"string"
+],
+"track_players_intersection_tracker": [],
+"trigger_invisible": [
+"enable"
+],
+"undo_link_changes": [],
+"unitrigger_set_hint_string": [
+"ent",
+"default_ref",
+"cost"
+],
+"unlink_nodes": [
+"a",
+"b",
+"bdontlinkonmigrate"
+],
+"unlink_nodes_wrapper": [
+"a",
+"b"
+],
+"update_on_poi_removal": [
+"zombie_poi"
+],
+"update_poi_on_death": [
+"zombie_poi"
+],
+"use_button_held": [],
+"use_button_pressed": [],
+"wait_for_buildable": [
+"buildable_name"
+],
+"wait_for_flag_or_time_elapses": [
+"flagname",
+"timer"
+],
+"wait_network_frame": [],
+"waittill_any_or_timeout": [
+"timer",
+"string1",
+"string2",
+"string3",
+"string4",
+"string5"
+],
+"waittill_not_moving": [],
+"waittill_notify_or_timeout": [
+"msg",
+"timer"
+],
+"waittill_subset": [
+"min_num",
+"string1",
+"string2",
+"string3",
+"string4",
+"string5"
+]
+},
+"maps\\mp\\zombies\\_zm_weap_cymbal_monkey": {
+"clone_player_angles": [
+"owner"
+],
+"cymbal_monkey_exists": [],
+"do_monkey_sound": [
+"model",
+"info"
+],
+"get_thrown_monkey": [],
+"grenade_stolen_by_sam": [
+"ent_grenade",
+"ent_model",
+"ent_actor"
+],
+"hide_owner": [
+"owner"
+],
+"init": [],
+"monitor_zombie_groans": [
+"info"
+],
+"monkey_cleanup": [
+"parent"
+],
+"play_delayed_explode_vox": [],
+"play_zombie_groans": [],
+"player_give_cymbal_monkey": [],
+"player_handle_cymbal_monkey": [],
+"player_throw_cymbal_monkey": [
+"grenade",
+"num_attractors",
+"max_attract_dist",
+"attract_dist_diff"
+],
+"proximity_detonate": [
+"owner"
+],
+"show_briefly": [
+"showtime"
+],
+"show_owner_on_attack": [
+"owner"
+],
+"wait_for_attractor_positions_complete": [],
+"watch_for_dud": [
+"model",
+"actor"
+],
+"watch_for_emp": [
+"model",
+"actor"
+]
+},
+"maps\\mp\\zombies\\_zm_weapons": {
+"acquire_weapon_toggle": [
+"weapon_name",
+"player"
+],
+"activate_weapon_toggle": [
+"weapon_name",
+"trig_for_vox"
+],
+"add_attachments": [
+"weapon_name",
+"upgrade_name"
+],
+"add_custom_limited_weapon_check": [
+"callback"
+],
+"add_dynamic_wallbuy": [
+"weapon",
+"wallbuy",
+"pristine"
+],
+"add_limited_weapon": [
+"weapon_name",
+"amount"
+],
+"add_retrievable_knife_init_name": [
+"name"
+],
+"add_shared_ammo_weapon": [
+"str_weapon",
+"str_base_weapon"
+],
+"add_weapon_to_content": [
+"weapon_name",
+"package"
+],
+"add_zombie_weapon": [
+"weapon_name",
+"upgrade_name",
+"hint",
+"cost",
+"weaponvo",
+"weaponvoresp",
+"ammo_cost",
+"create_vox"
+],
+"ammo_give": [
+"weapon"
+],
+"can_upgrade_weapon": [
+"weaponname"
+],
+"checkgrenadefordud": [
+"weapname",
+"isthrowngrenade",
+"player"
+],
+"claymoredetonate": [
+"attacker",
+"weaponname"
+],
+"createballisticknifewatcher_zm": [
+"name",
+"weapon"
+],
+"createclaymorewatcher_zm": [],
+"deactivate_weapon_toggle": [
+"weapon_name",
+"trig_for_vox"
+],
+"default_1st_move_weighting_func": [],
+"default_attachment": [
+"weaponname"
+],
+"default_check_firesale_loc_valid_func": [],
+"default_cymbal_monkey_weighting_func": [],
+"default_tesla_weighting_func": [],
+"default_upgrade_weapon_weighting_func": [],
+"default_weighting_func": [],
+"disable_weapon_toggle": [
+"weapon_name"
+],
+"enable_weapon_toggle": [
+"weapon_name"
+],
+"get_ammo_cost": [
+"weapon_name"
+],
+"get_attachment_index": [
+"weapon"
+],
+"get_attachment_name": [
+"weaponname",
+"att_id"
+],
+"get_base_name": [
+"weaponname"
+],
+"get_base_weapon_name": [
+"upgradedweaponname",
+"base_if_not_upgraded"
+],
+"get_is_in_box": [
+"weapon_name"
+],
+"get_nonalternate_weapon": [
+"altweapon"
+],
+"get_pack_a_punch_weapon_options": [
+"weapon"
+],
+"get_player_index": [
+"player"
+],
+"get_player_weapon_with_same_base": [
+"weaponname"
+],
+"get_player_weapondata": [
+"player",
+"weapon"
+],
+"get_shared_ammo_weapon": [
+"base_weapon"
+],
+"get_upgrade_weapon": [
+"weaponname",
+"add_attachment"
+],
+"get_upgraded_ammo_cost": [
+"weapon_name"
+],
+"get_weapon_cost": [
+"weapon_name"
+],
+"get_weapon_display_name": [
+"weapon_name"
+],
+"get_weapon_hint": [
+"weapon_name"
+],
+"get_weapon_hint_ammo": [],
+"get_weapon_toggle": [
+"weapon_name"
+],
+"get_weapon_with_attachments": [
+"weaponname"
+],
+"give_fallback_weapon": [],
+"grenade_safe_to_bounce": [
+"player",
+"weapname"
+],
+"grenade_safe_to_throw": [
+"player",
+"weapname"
+],
+"has_attachment": [
+"weaponname",
+"att"
+],
+"has_upgrade": [
+"weaponname"
+],
+"has_weapon_or_attachments": [
+"weaponname"
+],
+"has_weapon_or_upgrade": [
+"weaponname"
+],
+"include_zombie_weapon": [
+"weapon_name",
+"in_box",
+"collector",
+"weighting_func"
+],
+"init": [],
+"init_spawnable_weapon_upgrade": [],
+"init_weapon_toggle": [],
+"init_weapon_upgrade": [],
+"init_weapons": [],
+"is_weapon_included": [
+"weapon_name"
+],
+"is_weapon_or_base_included": [
+"weapon_name"
+],
+"is_weapon_toggle": [
+"weapon_name"
+],
+"is_weapon_upgraded": [
+"weaponname"
+],
+"isempweapon": [
+"weaponname"
+],
+"limited_weapon_below_quota": [
+"weapon",
+"ignore_player",
+"pap_triggers"
+],
+"makegrenadedudanddestroy": [],
+"merge_weapons": [
+"oldweapondata",
+"newweapondata"
+],
+"onplayerconnect": [],
+"onplayerspawned": [],
+"play_weapon_vo": [
+"weapon",
+"magic_box"
+],
+"player_can_use_content": [
+"weapon"
+],
+"random_attachment": [
+"weaponname",
+"exclude"
+],
+"register_zombie_weapon_callback": [
+"str_weapon",
+"func"
+],
+"reset_wallbuy_internal": [
+"set_hint_string"
+],
+"reset_wallbuys": [],
+"setupretrievablehintstrings": [],
+"show_all_weapon_buys": [
+"player",
+"cost",
+"ammo_cost",
+"is_grenade"
+],
+"switch_back_primary_weapon": [
+"oldprimary"
+],
+"switch_from_alt_weapon": [
+"current_weapon"
+],
+"take_fallback_weapon": [],
+"trackweaponzm": [],
+"unacquire_weapon_toggle": [
+"weapon_name"
+],
+"unacquire_weapon_toggle_on_death_or_disconnect_thread": [
+"player"
+],
+"updatelastheldweapontimingszm": [
+"newtime"
+],
+"updateweapontimingszm": [
+"newtime"
+],
+"wait_explode": [],
+"wait_for_explosion": [
+"time"
+],
+"wait_timeout": [
+"time"
+],
+"wall_weapon_update_prompt": [
+"player"
+],
+"watchforgrenadeduds": [],
+"watchforgrenadelauncherduds": [],
+"watchforscriptexplosion": [
+"weapname",
+"isthrowngrenade",
+"player"
+],
+"watchweaponchangezm": [],
+"watchweaponusagezm": [],
+"weapon_give": [
+"weapon",
+"is_upgrade",
+"magic_box",
+"nosound"
+],
+"weapon_is_better": [
+"left",
+"right"
+],
+"weapon_set_first_time_hint": [
+"cost",
+"ammo_cost"
+],
+"weapon_show": [
+"player"
+],
+"weapon_spawn_think": [],
+"weapon_supports_attachments": [
+"weaponname"
+],
+"weapon_supports_default_attachment": [
+"weaponname"
+],
+"weapon_supports_this_attachment": [
+"weapon",
+"att"
+],
+"weapon_toggle_think": [],
+"weapon_type_check": [
+"weapon"
+],
+"weapondata_give": [
+"weapondata"
+],
+"weaponobjects_on_player_connect_override": [],
+"weaponobjects_on_player_connect_override_internal": [],
+"will_upgrade_weapon_as_attachment": [
+"weaponname"
+]
+},
+"maps\\mp\\zombies\\_zm_zonemgr": {
+"_debug_zones": [],
+"_destroy_debug_zones": [],
+"_init_debug_zones": [],
+"add_adjacent_zone": [
+"zone_name_a",
+"zone_name_b",
+"flag_name",
+"one_way"
+],
+"add_zone_flags": [
+"wait_flag",
+"add_flags"
+],
+"connect_zones": [
+"zone_name_a",
+"zone_name_b",
+"one_way"
+],
+"create_spawner_list": [
+"zkeys"
+],
+"deactivate_initial_barrier_goals": [],
+"debug_show_spawn_locations": [],
+"door_close_disconnect": [
+"flag_name"
+],
+"enable_zone": [
+"zone_name"
+],
+"entity_in_zone": [
+"zone_name",
+"ignore_enabled_check"
+],
+"get_active_zone_names": [],
+"get_player_zone": [],
+"get_players_in_zone": [
+"zone_name",
+"return_players"
+],
+"get_zone_from_position": [
+"v_pos",
+"ignore_enabled_check"
+],
+"get_zone_magic_boxes": [
+"zone_name"
+],
+"get_zone_zbarriers": [
+"zone_name"
+],
+"init": [],
+"is_player_in_zone": [
+"zone_name"
+],
+"make_zone_adjacent": [
+"main_zone_name",
+"adj_zone_name",
+"flag_name"
+],
+"manage_zones": [
+"initial_zone"
+],
+"old_manage_zones": [
+"initial_zone"
+],
+"player_in_zone": [
+"zone_name"
+],
+"reinit_zone_spawners": [],
+"setup_zone_flag_waits": [],
+"zone_flag_wait": [
+"flag_name"
+],
+"zone_init": [
+"zone_name"
+],
+"zone_is_enabled": [
+"zone_name"
+]
+}
+}

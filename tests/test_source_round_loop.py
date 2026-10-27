@@ -95,6 +95,45 @@ class SourceRoundLoopTests(unittest.TestCase):
         self.assertIn("round_spawn_func = level.round_spawn_func;", core)
         self.assertIn("_waw2bo2_zm::waw2bo2_round_started();", core)
 
+    def test_the_maps_spawning_sets_its_own_count(self):
+        # Yote Tribute: round_spawning sets zombie_total from an expression;
+        # the map's spawning runs as is
+        spawning = ZOMBIEMODE + "round_spawning()\n{\n\tlevel.zombie_total = level.round_number * 6;\n}\n"
+        tr, name, core = self._translate(spawning)
+        self.assertEqual(name, "waw2bo2_source_round_loop")
+        self.assertIn("level.round_spawn_func = ::zombiemode__round_spawning;", core)
+        self.assertFalse(tr.report.unsupported)
+
+    def test_the_maps_loop_updates_its_own_speed_state(self):
+        # Berlin Bank: round_think updates speed state under a condition; the
+        # replay for BO2's loop could not slice it. The map's loop runs it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "maps").mkdir()
+            (root / "maps/_zombiemode.gsc").write_text(ZOMBIEMODE)
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertEqual(tr.round_loop_missing_anchors(), [])
+            (root / "maps/_zombiemode.gsc").write_text("round_think() { for(;;) { wait( 1 ); } }")
+            tr = gscport.Translator(gscport.Sources([root], [], None), _api(), gscport.PortReport())
+            self.assertTrue(tr.round_loop_missing_anchors())
+        source = Path(gscport.__file__).read_text(encoding="utf-8")
+        self.assertIn("rounds=not source_loop)", source)
+
+    def test_a_round_start_that_runs_its_own_round_system_drives(self):
+        # nazi_zombie_420 (ZCT): no round_think; round_start threads timed
+        # rounds that advance and spawn themselves. The map's system runs.
+        custom = ("round_start()\n{\n\tlevel.round_number = 1;\n\tlevel thread timed_rounds();\n}\n"
+                  "timed_rounds()\n{\n\twhile(1)\n\t{\n\t\twait( 30 );\n\t\tlevel.round_number++;\n\t}\n}\n")
+        tr, name, core = self._translate(custom)
+        self.assertEqual(name, "waw2bo2_source_round_loop")
+        self.assertIn("level.round_think_func = ::waw2bo2_source_round_think;", core)
+        self.assertIn("zombiemode__round_start();", core)
+        self.assertIn("zombiemode__timed_rounds", core)
+        self.assertTrue(any("round_start runs its own round system" in k for k in tr.report.unsupported))
+        # a stock round_start that threads round_think does not take this path
+        self.assertFalse(self._translate(ZOMBIEMODE + "round_start()\n{\n\tlevel thread round_think();\n}\n")[0]
+                         .report.unsupported)
+
     def test_a_loop_without_the_anchors_keeps_bo2(self):
         tr, name, _ = self._translate("round_think() { for(;;) { wait( 1 ); } }")
         self.assertIsNone(name)

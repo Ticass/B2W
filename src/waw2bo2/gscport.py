@@ -37,10 +37,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import gsc, oneway, stockperks, waterbullets, zombieappearance, zombiebehavior
-from .t6api import T6Api
+from .t6api import T6Api, load_params_snapshot
 
 COMPAT_DIR = Path(__file__).parent / "compat"
 API = json.loads((COMPAT_DIR / "gsc_api.json").read_text(encoding="utf-8"))
+# BO2 parameter names of the scripts core_scripts maps to (signature_differs)
+BO2_PARAMS = load_params_snapshot()
 COMPAT = "maps\\mp\\waw\\_waw2bo2_compat"
 STUBS = "maps\\mp\\waw\\_waw2bo2_stubs"
 ASSETS = "maps\\mp\\waw\\_waw2bo2_assets"
@@ -51,12 +53,33 @@ WATER_BULLETS = "maps\\mp\\waw\\_waw2bo2_water_bullets"
 ZOMBIEMODE = "maps\\_zombiemode"
 PERKS = "maps\\_zombiemode_perks"
 GAMESKILL = "maps\\_gameskill"
+WEAPONS_FRAMEWORK = "maps\\_zombiemode_weapons"
+SCORE_FRAMEWORK = "maps\\_zombiemode_score"
 # the owned copy of BO2's _zm (stage_bo2_perk_support)
 OWNED_ZM = "maps\\mp\\waw\\_waw2bo2_zm"
 CORE_INCLUDES = ("common_scripts\\utility", "maps\\mp\\_utility", "maps\\mp\\zombies\\_zm_utility")
 # BO2 scripts a unique-name lookup may resolve into (never map/other-mode scripts)
 BO2_SHARED = re.compile(r"^(common_scripts\\utility|maps\\mp\\_utility|maps\\mp\\zombies\\_zm[a-z_]*|"
                         r"maps\\mp\\gametypes_zm\\_[a-z_]+|maps\\mp\\_[a-z_]+)$")
+
+
+def script_branch_taken(tokens: list, body_open: int, body_close: int, index: int, map_name: str | None) -> bool:
+    """False when tokens[index] lies in the branch of a top-level
+    if( level.script ==/!= "<map>" ) {...} else {...} that the map never takes
+    (level.script is the immutable WaW map name). Anything else is taken."""
+    if not map_name:
+        return True
+    for a, b in top_level_statements(tokens, body_open, body_close):
+        if not (a <= index < b) or tokens[a].low != "if":
+            continue
+        guard_end = gsc._match(tokens, a + 1, "(", ")")
+        words = [t.low for t in tokens[a + 2:guard_end]]
+        if len(words) != 5 or words[:3] != ["level", ".", "script"] or words[3] not in ("==", "!=")                 or not words[4].startswith('"') or tokens[guard_end + 1].text != "{":
+            return True
+        matched = (map_name.lower() == words[4].strip('"')) == (words[3] == "==")
+        yes_end = gsc._match(tokens, guard_end + 1, "{", "}")
+        return matched if index <= yes_end else not matched
+    return True
 
 
 def norm(path: str) -> str:
@@ -417,7 +440,28 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
 # (BO2 powerups such as fire sale iterate level.chests as BO2 structs).
 WAW_LEVEL_FIELDS = {"script": "waw_script", "chests": "waw_chests", "chest_index": "waw_chest_index", "_effect": "waw_effect"}
 WAW_LEVEL_FIELDS["zombie_move_speed"] = API['zombie_runtime']['source_speed']['owned_result_field']
-WAW_BOX_FLAGS = {'moving_chest_enabled', 'moving_chest_now', 'chest_has_been_used'}
+# The map's own zone manager (preserved _zombiemode_zone_manager) keeps its
+# init pointer and the dog spawn lists the source spawn and dog code read
+# (BO2's _zm sets the same names).
+# The map's own weapon registry and box (preserved _zombiemode_weapons): BO2's
+# _zm_weapons/_zm_magicbox keep theirs for the BO2 code still running.
+WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
+    "zombie_weapons", "zombie_include_weapons", "limited_weapons", "weapon_weighting_funcs",
+    "zombie_treasure_chest_cost", "chest_accessed", "chest_min_move_usage", "open_chest_location",
+    "verify_chest", "random_pandora_box_start", "pulls_since_last_ray_gun", "pulls_since_last_tesla_gun",
+    "player_drops_tesla_gun", "player_seen_tesla_gun")})
+# The map's own damage and last stand (source_player_damage): BO2's _zm sets
+# the same names to its functions for the BO2 code still running.
+WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
+    "overrideplayerdamage", "playerlaststand_func", "player_becomes_zombie", "laststandpistol")})
+# level.zones is the map's: its zone manager is the only one (zones.py drops
+# BO2's start); BO2's glue reads the same fields (is_enabled, volumes...).
+WAW_LEVEL_FIELDS.update({"zone_manager_init_func": "waw_zone_manager_init_func",
+                         "enemy_dog_locations": "waw_enemy_dog_locations",
+                         "enemy_dog_spawns": "waw_enemy_dog_spawns"})
+WAW_BOX_FLAGS = {'moving_chest_enabled', 'moving_chest_now', 'chest_has_been_used',
+                 # the map's wall-buy triggers (entities.WAW_WALL_BUY_TARGETNAME)
+                 'weapon_upgrade'}
 
 
 def rename_level_fields(tokens: list[gsc.Token]) -> int:
@@ -445,6 +489,14 @@ def level_fields_read(tokens: list[gsc.Token], start: int = 2, end: int | None =
     end = len(tokens) if end is None else end
     return {tokens[i].low for i in range(max(start, 2), end)
             if tokens[i].kind == gsc.IDENT and tokens[i - 1].text == "." and tokens[i - 2].low == "level"}
+
+
+def level_fields_assigned(tokens: list[gsc.Token], start: int = 2, end: int | None = None) -> set[str]:
+    """``level.<field> = ...`` names (lower-case) assigned in tokens[start:end]."""
+    end = len(tokens) if end is None else end
+    return {tokens[i].low for i in range(max(start, 2), min(end, len(tokens) - 1))
+            if tokens[i].kind == gsc.IDENT and tokens[i - 1].text == "." and tokens[i - 2].low == "level"
+            and tokens[i + 1].text == "="}
 
 
 def bridge_revive_reads(tokens: list[gsc.Token]) -> int:
@@ -479,6 +531,86 @@ def bridge_revive_reads(tokens: list[gsc.Token]) -> int:
         tokens[j].kind = gsc.PUNCT
         for t in tokens[j + 1:i + 1]:
             t.text = t.pre = ""
+        count += 1
+    return count
+
+
+def bridge_drinking_flag(tokens: list[gsc.Token]) -> int:
+    """WaW and BO2 share the player field is_drinking with different meanings.
+
+    WaW: defined (1) while a bottle/flourish plays, undefined otherwise; its
+    scripts test isdefined(). BO2: a counter, 0 when idle, set at spawn and
+    tested with > 0. Under BO2 a WaW isdefined() test is always true (Der
+    Riese's bowie could never be bought), and a WaW reset to undefined breaks
+    BO2's comparisons. WaW tests read the count; WaW resets write 0."""
+    count = 0
+    for i in range(2, len(tokens) - 2):
+        if tokens[i].low != "is_drinking" or tokens[i - 1].text != ".":
+            continue
+        if tokens[i + 1].text == "=" and tokens[i + 2].low == "undefined":
+            tokens[i + 2].text = "0"
+            count += 1
+            continue
+        j, depth = i - 1, 0
+        while j > 0:
+            prev = tokens[j - 1]
+            if depth == 0 and prev.text != "." and not (
+                (prev.kind == gsc.IDENT or prev.text in ("]", ")"))
+                and tokens[j].text in (".", "[")
+            ):
+                break
+            if prev.text in ("]", ")"):
+                depth += 1
+            elif prev.text in ("[", "("):
+                depth -= 1
+            j -= 1
+        if not (j >= 2 and tokens[j - 1].text == "(" and tokens[j - 2].low == "isdefined"
+                and tokens[i + 1].text == ")"):
+            continue
+        receiver = gsc.emit(tokens[j:i - 1]).lstrip()
+        tokens[j - 2].text = f"{COMPAT}::waw_is_drinking( {receiver} )"
+        tokens[j - 2].kind = gsc.PUNCT
+        for t in tokens[j - 1:i + 2]:
+            t.text = t.pre = ""
+        count += 1
+    return count
+
+
+def bridge_score_writes(tokens: list[gsc.Token]) -> int:
+    """T6 keeps a player's score in pers["score"] too: the scoreboard reads it
+    and a (re)connect restores score from it (BO2's _zm_score writes both).
+    After each WaW statement assigning <player>.score, the persistent copy
+    follows (an idempotent copy, so a braceless if needs no block)."""
+    count = 0
+    for i in range(2, len(tokens) - 2):
+        if tokens[i].low != "score" or tokens[i - 1].text != "." or \
+                tokens[i + 1].text not in ("=", "+=", "-=", "*=", "/=", "++", "--"):
+            continue
+        j, depth = i - 1, 0
+        while j > 0:
+            prev = tokens[j - 1]
+            if depth == 0 and prev.text != "." and not (
+                (prev.kind == gsc.IDENT or prev.text in ("]", ")"))
+                and tokens[j].text in (".", "[")
+            ):
+                break
+            if prev.text in ("]", ")"):
+                depth += 1
+            elif prev.text in ("[", "("):
+                depth -= 1
+            j -= 1
+        receiver = gsc.emit(tokens[j:i - 1]).strip()
+        if not receiver or "(" in receiver:
+            continue
+        end = i + 1
+        depth = 0
+        while end < len(tokens) and not (tokens[end].text == ";" and depth == 0):
+            depth += tokens[end].text in ("(", "[")
+            depth -= tokens[end].text in (")", "]")
+            end += 1
+        if end >= len(tokens):
+            continue
+        tokens[end].text = f'; {receiver}.pers["score"] = {receiver}.score;'
         count += 1
     return count
 
@@ -1223,6 +1355,16 @@ class Translator:
             if extracted:
                 self.report.rewrites[f"{core}::{name} -> source (WaW drives)"] += 1
                 return extracted
+        # The map ships its own framework script, and its function takes other
+        # arguments than BO2's counterpart: older WaW maps call
+        # network_safe_spawn( classname, origin ) where BO2's _zm_net (and Der
+        # Riese's WaW) takes ( id, max, classname, origin ). BO2's errored every
+        # frame on Shi No Numa's fire dogs, whose death explosion never spawned.
+        if self.signature_differs(core, name):
+            extracted = self.extract(core, name)
+            if extracted:
+                self.report.rewrites[f"{core}::{name} -> source (signature differs from BO2's)"] += 1
+                return extracted
         if any(self.api.defines(inc, name) for inc in included):
             self.report.rewrites[f"{core}::{name} -> included BO2 script"] += 1
             return None
@@ -1363,6 +1505,8 @@ class Translator:
         self.report.rewrites["WaW contact-kill monitors own AI attacks"] += bridge_contact_kill_attacks(tokens, script)
         self.report.rewrites["WaW being_revived reads bridged to T6 revive state"] += bridge_revive_reads(tokens)
         self.report.rewrites["WaW session stat reads bridged to T6 counters"] += bridge_player_stat_reads(tokens)
+        self.report.rewrites["WaW is_drinking flag bridged to BO2's drink counter"] += bridge_drinking_flag(tokens)
+        self.report.rewrites["WaW score writes keep T6's persistent score"] += bridge_score_writes(tokens)
         self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
         self.report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += mirror_team_zombie_vars(tokens)
@@ -1588,6 +1732,21 @@ class Translator:
                 else:
                     tok.text = repl
 
+    def signature_differs(self, core: str, name: str) -> bool:
+        """The map's own core function takes an argument in another position
+        than BO2's counterpart (a parameter of the same name at a different
+        index). Extra optional parameters on either side do not count: BO2's
+        flag_init( message, val ) still takes WaW's flag_init( message )."""
+        mapped = API["core_scripts"].get(core)
+        if not mapped or core not in API.get("signature_source_scripts", {}):
+            return False
+        bo2 = BO2_PARAMS.get(mapped.lower(), {}).get(name)
+        script = self.sources.get(core)
+        own = script.functions.get(name) if script is not None else None
+        if bo2 is None or own is None:
+            return False
+        return any(p.lower() in bo2 and bo2.index(p.lower()) != i for i, p in enumerate(own.params))
+
     def extract(self, core: str, name: str) -> str | None:
         """Port one WaW framework function BO2 has no counterpart for."""
         if (core, name) in self.core_funcs:   # deliberately extracted entry (extract_entry)
@@ -1678,6 +1837,89 @@ class Translator:
         self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
         self.report.extracted.append(f"{core}::{init} (level state)")
+        self.level_state_parts.append(gsc.emit(tokens))
+        return name
+
+    # level lists _zombiemode::main fills for the map's spawn loop and zone manager
+    SPAWNER_LISTS = {"enemy_spawns", "zombie_rise_spawners"}
+
+    def extract_spawner_lists(self) -> str | None:
+        """_zombiemode::main's statements that set up the spawner lists
+        round_spawning and the zone manager read (level.enemy_spawns from the
+        spawners main is given, level.zombie_rise_spawners), as one function
+        taking main's parameters. BO2's _zm::init replaces the rest of main.
+        A statement is kept whole when every assignment in it is to one of the
+        lists and it calls nothing but isdefined/getentarray."""
+        script = self.sources.get(ZOMBIEMODE)
+        fn = script.functions.get("main") if script is not None else None
+        if fn is None:
+            return None
+        toks = script.tokens
+        kept: list[gsc.Token] = []
+        for start, end in top_level_statements(toks, fn.body_open, fn.body_close):
+            stmt = toks[start:end]
+            targets = {stmt[k + 2].low for k in range(len(stmt) - 3)
+                       if stmt[k].low == "level" and stmt[k + 1].text == "." and stmt[k + 3].text == "="}
+            calls = {stmt[k].low for k in range(len(stmt) - 1) if stmt[k].kind == gsc.IDENT and stmt[k + 1].text == "("
+                     and stmt[k].low not in ("if", "else", "while", "for")}
+            if targets and targets <= self.SPAWNER_LISTS and calls <= {"isdefined", "getentarray"}:
+                kept += [gsc.Token(s.kind, s.text, s.pre, s.line) for s in stmt]
+        if not kept:
+            return None
+        name = "zombiemode__main_spawner_lists"
+        params = [p for p in fn.params]
+        head = [gsc.Token(gsc.IDENT, name, f"\n// {ZOMBIEMODE}::main: the spawner lists its spawn loop and zones read\n"),
+                gsc.Token(gsc.PUNCT, "(")]
+        for k, p in enumerate(params):
+            if k:
+                head.append(gsc.Token(gsc.PUNCT, ","))
+            head.append(gsc.Token(gsc.IDENT, p, " "))
+        tokens = [*head, gsc.Token(gsc.PUNCT, ")", " "), gsc.Token(gsc.PUNCT, "{", "\n"),
+                  *kept, gsc.Token(gsc.PUNCT, "}", "\n"), gsc.Token(gsc.EOF, "")]
+        where = self.sources.origin.get(ZOMBIEMODE + ".gsc", ZOMBIEMODE)
+        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
+        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=ZOMBIEMODE)
+        self.report.extracted.append(f"{ZOMBIEMODE}::main (spawner lists)")
+        self.level_state_parts.append(gsc.emit(tokens))
+        return name
+
+    def extract_player_connect_fields(self) -> str | None:
+        """The player fields _zombiemode::onPlayerConnect assigns on each
+        connecting player (entity_num the map's VO and weapon code index by,
+        its starting score, score_total/old_score its scorer reads, ...), as a
+        connect loop of their own. BO2's gametype owns the rest of connect.
+        Returns the CORE function to thread before players connect."""
+        script = self.sources.get(ZOMBIEMODE)
+        fn = script.functions.get("onplayerconnect") if script is not None else None
+        if fn is None:
+            return None
+        toks = script.tokens
+        loop_var, kept = None, []
+        for i in range(fn.body_open, fn.body_close - 6):
+            if [t.low for t in toks[i:i + 4]] == ["level", "waittill", "(", '"connecting"'] and \
+                    toks[i + 4].text == "," and toks[i + 5].kind == gsc.IDENT:
+                loop_var = toks[i + 5].low
+                start = gsc._match(toks, i + 2, "(", ")") + 2   # after "...);"
+                end = next(k for k in range(start, fn.body_close) if toks[k].text == "}")
+                for a, b in top_level_statements(toks, start - 1, end):
+                    stmt = toks[a:b]
+                    if len(stmt) > 4 and stmt[0].low == loop_var and stmt[1].text == "." and stmt[3].text == "=" \
+                            and not any(t.low in ("thread", "waittill", "wait") for t in stmt):
+                        kept += [gsc.Token(s.kind, s.text, s.pre, s.line) for s in stmt]
+                break
+        if not kept:
+            return None
+        name = "zombiemode__onplayerconnect_fields"
+        body = gsc.tokenize(f'{name}()\n{{\n\tfor ( ;; )\n\t{{\n\t\tlevel waittill( "connecting", {loop_var} );\n')[:-1]
+        body[0].pre = f"\n// {ZOMBIEMODE}::onPlayerConnect: the player fields its scripts read\n"
+        tokens = [*body, *kept, *gsc.tokenize("\n\t}\n}\n")]
+        where = self.sources.origin.get(ZOMBIEMODE + ".gsc", ZOMBIEMODE)
+        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
+        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
+        self.report.rewrites["WaW score writes keep T6's persistent score"] += bridge_score_writes(tokens)
+        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=ZOMBIEMODE)
+        self.report.extracted.append(f"{ZOMBIEMODE}::onplayerconnect (player fields)")
         self.level_state_parts.append(gsc.emit(tokens))
         return name
 
@@ -1811,78 +2053,64 @@ class Translator:
                                       f"\tmaps\\mp\\zombies\\_zm::register_player_damage_callback( ::{name} );\n}}\n")
         return f"{name}_register"
 
-    def extract_round_total(self, core: str = None, function: str = None) -> str | None:
-        """WaW's round_spawning computes the round's zombie count inline
-        (solo stays at zombie_max_ai, ramped by 0.2/0.4/0.6/0.8 on rounds 1-4);
-        BO2's _zm adds its own per-player term and ramp, then asks
-        level.max_zombie_func. The source statements from the first assignment
-        of the variable stored into level.zombie_total up to that store become
-        the BO2 max function, so the map's (or stock) formula decides the count.
-        Returns the registration function's name in CORE."""
-        core = core or ZOMBIEMODE
-        function = function or ROUND_SPAWNING
-        script = self.sources.get(core)
-        fn = script.functions.get(function) if script else None
-        if fn is None:
+    def extract_main_level_state(self) -> str | None:
+        """WaW's _zombiemode::main sets level state the map's scripts read
+        (level.hudelem_count for create_simple_hud, the damage and last stand
+        pointers). BO2 replaces that main, so its level.X assignments run from
+        framework_level_state, first: every field main assigns that the map's
+        scripts read and no other script assigns, plus SOURCE_DAMAGE_FIELDS.
+        Fields BO2 owns under the same name are the map's level.waw_* ones."""
+        script = self.sources.get(ZOMBIEMODE)
+        main = script.functions.get("main") if script else None
+        if main is None:
             return None
         toks = script.tokens
-        where = self.sources.origin.get(core + ".gsc", core)
-        spans = top_level_statements(toks, fn.body_open, fn.body_close)
-        store = None
-        for i, (start, end) in enumerate(spans):
-            words = [t.low for t in toks[start:end]]
-            if words[:4] == ["level", ".", "zombie_total", "="] and len(words) == 6 and words[5] == ";" \
-                    and toks[start + 4].kind == gsc.IDENT:
-                store = i
-                break
-        if store is None:
-            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {function} sets no level.zombie_total from a local; the "
-                                      f"source round count formula is not ported")
+        main_assigned = level_fields_assigned(toks, main.body_open, main.body_close)
+        read, elsewhere = set(), set()
+        for path, text in self.sources.text.items():
+            tokens = gsc.tokenize(text)
+            read |= {tokens[i].low for i in range(2, len(tokens) - 1)
+                     if tokens[i].kind == gsc.IDENT and tokens[i - 1].text == "." and tokens[i - 2].low == "level"
+                     and tokens[i + 1].text != "="}
+            if norm(path) == ZOMBIEMODE:
+                elsewhere |= (level_fields_assigned(tokens, 2, main.body_open)
+                              | level_fields_assigned(tokens, main.body_close))
+            else:
+                elsewhere |= level_fields_assigned(tokens)
+        fields = (read & main_assigned) - elsewhere | set(SOURCE_DAMAGE_FIELDS)
+        return self.extract_level_state(ZOMBIEMODE, "main", fields)
+
+    def extract_source_player_damage(self) -> str | None:
+        """WaW drives player damage and last stand (docs/CONVERT_THE_WHOLE_MAP.md):
+        T6's damage and last stand callbacks run the map's own engine entries,
+        maps\\_callbackglobal Callback_PlayerDamage / Callback_PlayerLastStand,
+        as WaW's engine does. They reach the map's overridePlayerDamage (its down
+        and game-over rules), finishPlayerDamageWrapper and _laststand. The
+        level fields _zombiemode::main points at them (renamed level.waw_*:
+        BO2's _zm sets the same names) and _laststand::init are registered.
+        Returns the registration function's name in CORE (None: BO2's damage
+        and last stand stay, reported)."""
+        script = self.sources.get(CALLBACKGLOBAL)
+        entries = ("callback_playerdamage", "callback_playerlaststand")
+        if script is None or any(entry not in script.functions for entry in entries):
+            self.report.unsupported.setdefault(FALLBACK, []).append(
+                f"{CALLBACKGLOBAL}: no Callback_PlayerDamage/Callback_PlayerLastStand source; "
+                f"BO2's player damage and last stand run")
             return None
-        total = toks[spans[store][0] + 4].low
-        first = next((i for i, (start, end) in enumerate(spans[:store])
-                      if toks[start].low == total and toks[start + 1].text == "="), None)
-        if first is None:
-            return None
-        # Locals set before the formula (players, count) would be undefined here.
-        earlier = {toks[start].low for start, end in spans[:first]
-                   if toks[start].kind == gsc.IDENT and toks[start + 1].text == "="}
-        body = [t for start, end in spans[first:store] for t in toks[start:end]]
-        used = {t.low for i, t in enumerate(body) if t.kind == gsc.IDENT and (i == 0 or body[i - 1].text != ".")}
-        # A local the formula sets itself before any read, with every use inside
-        # the block holding that assignment, never sees the earlier value
-        # (Verruckt: players = get_players(); in the dog-round branch).
-        for name in sorted(earlier & used):
-            at = [i for i, t in enumerate(body) if t.low == name and (i == 0 or body[i - 1].text != ".")]
-            if body[at[0] + 1].text != "=":
-                continue
-            depth, open_ = 0, None
-            for i in range(at[0] - 1, -1, -1):
-                if body[i].text == "}":
-                    depth += 1
-                elif body[i].text == "{":
-                    if depth == 0:
-                        open_ = i
-                        break
-                    depth -= 1
-            if open_ is not None and at[-1] < gsc._match(body, open_, "{", "}"):
-                used.discard(name)
-        if earlier & used:
-            self.report.unsupported.setdefault(FALLBACK, []).append(f"{where}: {function} count formula reads earlier locals "
-                                      f"{', '.join(sorted(earlier & used))}; not ported")
-            return None
-        name = f"{core.split(chr(92))[-1].lstrip('_')}__{function}_total"
-        source = (f"{name}( bo2_max )\n{{\n" + gsc.emit([gsc.Token(t.kind, t.text, t.pre, t.line) for t in body])
-                  + f"\n\treturn {toks[spans[store][0] + 4].text};\n}}\n")
-        tokens = gsc.tokenize(source)
-        tokens[0].pre = f"\n// {core}::{function}: the source round count formula, as BO2's max_zombie_func\n"
-        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
-        self.report.rewrites["WaW-owned level fields renamed (level.waw_*)"] += rename_level_fields(tokens)
-        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
-        self.report.extracted.append(f"{core}::{function} (round count formula -> max_zombie_func)")
-        self.level_state_parts.append(gsc.emit(tokens) + f"\n{name}_register()\n{{\n"
-                                      f"\tlevel.max_zombie_func = ::{name};\n}}\n")
-        return f"{name}_register"
+        damage, laststand = (self.extract_entry(CALLBACKGLOBAL, entry) for entry in entries)
+        lines = [f"\tlevel.waw2bo2_source_player_damage = ::{damage};",
+                 f"\tlevel.waw2bo2_source_player_laststand = ::{laststand};"]
+        # the level fields _zombiemode::main points at them come from
+        # extract_main_level_state (SOURCE_DAMAGE_FIELDS), registered first
+        init = self.extract_entry(LASTSTAND, "init")
+        if init:
+            lines.append(f"\t{init}();")
+        name = "waw2bo2_source_player_damage"
+        self.level_state_parts.append(
+            f"\n// WaW drives player damage and last stand: the map's engine entries\n{name}()\n{{\n"
+            + "\n".join(lines) + "\n}\n")
+        self.report.rewrites["player damage and last stand -> source (WaW drives)"] += 1
+        return name
 
     def extract_round_health(self, core: str = None, function: str = None, source_loop: bool = False) -> str | None:
         """WaW's round_spawning calls the framework's health step (stock:
@@ -2126,6 +2354,17 @@ class Translator:
         patch = self.post_patches.get((core, name))
         return patch(text) if patch else text
 
+    def round_loop_missing_anchors(self, core: str = None, function: str = "round_think") -> list[str] | None:
+        """The SOURCE_ROUND_ANCHORS the map's round loop lacks ([] when it can
+        drive the rounds, None when the map has no such loop)."""
+        script = self.sources.get(core or ZOMBIEMODE)
+        fn = script.functions.get(function) if script else None
+        if fn is None:
+            return None
+        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
+        return [label for label, pattern in SOURCE_ROUND_ANCHORS
+                if len(re.findall(pattern.replace("ROUND_WAIT", r"round_wait"), body, re.IGNORECASE)) != 1]
+
     def extract_round_loop(self, core: str = None, function: str = "round_think") -> str | None:
         """WaW drives the rounds (docs/CONVERT_THE_WHOLE_MAP.md): the map's own
         round loop (_zombiemode::round_think and what it calls: round_wait,
@@ -2139,11 +2378,14 @@ class Translator:
         script = self.sources.get(core)
         fn = script.functions.get(function) if script else None
         if fn is None:
+            if self.round_start_drives(core):
+                where = self.sources.origin.get(core + ".gsc", core)
+                return self.extract_round_start_driver(core, where, [f"no {function}"])
             return None
         where = self.sources.origin.get(core + ".gsc", core)
-        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
-        missing = [label for label, pattern in SOURCE_ROUND_ANCHORS
-                   if len(re.findall(pattern.replace("ROUND_WAIT", r"round_wait"), body, re.IGNORECASE)) != 1]
+        missing = self.round_loop_missing_anchors(core, function)
+        if missing and self.round_start_drives(core):
+            return self.extract_round_start_driver(core, where, missing)
         if missing:
             self.report.unsupported.setdefault(
                 f"GSC {core}::{function} round loop (no anchors {missing}; BO2's loop runs)", []).append(where)
@@ -2170,6 +2412,15 @@ class Translator:
             return text
 
         self.post_patches[(core, function)] = glue
+        # the map's own spawn loop (round_start sets level.round_spawn_func to it;
+        # dog rounds swap it and restore it, as in WaW)
+        spawning = None
+        if "round_spawning" in script.functions and source_drives(core, "round_spawning"):
+            spawning = self.extract_entry(core, "round_spawning")
+        if spawning:
+            self.report.rewrites["WaW drives the spawning: source round_spawning -> round_spawn_func"] += 1
+        spawn_lines = (f"\tlevel.waw2bo2_source_round_spawning = ::{spawning};\n"
+                       f"\tlevel.round_spawn_func = ::{spawning};\n") if spawning else ""
         self.report.rewrites["WaW drives the rounds: source round_think -> round_think_func"] += 1
         self.report.extracted.append(f"{core}::{function} (round loop -> round_think_func)")
         self.level_state_parts.append(
@@ -2178,6 +2429,41 @@ class Translator:
             f'\tlevel endon( "end_round_think" );\n'
             f"\t{OWNED_ZM}::waw2bo2_round_think_begin( restart );\n"
             f"\t{name}();\n}}\n\n"
+            f"waw2bo2_source_round_loop()\n{{\n"
+            f"\tlevel.waw2bo2_source_round_loop = 1;\n"
+            f"{spawn_lines}"
+            f"\tlevel.round_think_func = ::waw2bo2_source_round_think;\n}}\n")
+        return "waw2bo2_source_round_loop"
+
+    def round_start_drives(self, core: str = None) -> bool:
+        """The map's round_start runs its own round system instead of the
+        stock round_think (nazi_zombie_420: timed rounds in a thread)."""
+        script = self.sources.get(core or ZOMBIEMODE)
+        fn = script.functions.get("round_start") if script else None
+        if fn is None:
+            return False
+        called = {r.name.lower() for r in gsc.references(script.tokens, fn.body_open + 1, fn.body_close)}
+        return "round_think" not in called
+
+    def extract_round_start_driver(self, core: str, where: str, missing: list[str]) -> str:
+        """The map's own round_start drives the rounds (section 0): it starts
+        the map's round system, which advances rounds and spawns itself. BO2's
+        round glue has no anchors to run at in such a system; reported."""
+        name = self.extract_entry(core, "round_start")
+        self.report.rewrites["WaW drives the rounds: source round_start -> round_think_func"] += 1
+        self.report.extracted.append(f"{core}::round_start (round driver -> round_think_func)")
+        self.report.unsupported.setdefault(
+            f"GSC {core}::round_think anchors {missing}: the map's round_start runs its own round system; "
+            f"BO2's per-round glue (round signals, stats) does not run", []).append(where)
+        self.level_state_parts.append(
+            f"\n// {core}::round_start: the map's own round system drives the rounds\n"
+            f"waw2bo2_source_round_think( restart )\n{{\n"
+            f'\tlevel endon( "end_round_think" );\n'
+            f"\t{OWNED_ZM}::waw2bo2_round_think_begin( restart );\n"
+            f"\tif ( !isdefined( level.waw2bo2_round_driver_started ) )\n\t{{\n"
+            f"\t\tlevel.waw2bo2_round_driver_started = 1;\n"
+            f"\t\t{name}();\n\t}}\n"
+            f'\tlevel waittill( "end_game" );\n}}\n\n'
             f"waw2bo2_source_round_loop()\n{{\n"
             f"\tlevel.waw2bo2_source_round_loop = 1;\n"
             f"\tlevel.round_think_func = ::waw2bo2_source_round_think;\n}}\n")
@@ -2617,6 +2903,52 @@ class Translator:
         self.report.rewrites["WaW player_damageMultiplier -> scaled non-melee player damage"] += 1
         return [f"level thread {CORE}::waw2bo2_player_damage_scale();"]
 
+    # WaW _gameskill::setSkill names -> the level variables BO2's
+    # _zm_playerhealth::playerhealthregen reads (the same SP algorithm).
+    REGEN_SETTINGS = {'playerHealth_RegularRegenDelay': 'playerhealth_regularregendelay',
+                      'longRegenTime': 'longregentime', 'healthOverlayCutoff': 'healthoverlaycutoff',
+                      'invulTime_preShield': 'invultime_preshield', 'invulTime_onShield': 'invultime_onshield',
+                      'invulTime_postShield': 'invultime_postshield', 'worthyDamageRatio': 'worthydamageratio'}
+
+    def player_health_regen_hook(self) -> list[str]:
+        """The map's own player regen timing. WaW threads
+        _gameskill::playerHealthRegen from _load with the values setSkill
+        interpolates at the starting fraction of "normal" (g_gameskill 1).
+        BO2's playerhealthregen is the same algorithm, but _zm_playerhealth::init
+        sets its timing as constants; the source's values replace them."""
+        text = self.sources.text.get(GAMESKILL + ".gsc", "")
+        if not text:
+            return []
+        start = re.search(r'difficulty_starting_frac\s*\[\s*"normal"\s*\]\s*=\s*([\d.]+)\s*;', text)
+        if not start:
+            self.report.unsupported.setdefault(FALLBACK, []).append(
+                f"{GAMESKILL}: no normal starting fraction; player regen keeps BO2's timing")
+            return []
+        frac = float(start[1])
+        lines, missing = [], []
+        for name, variable in self.REGEN_SETTINGS.items():
+            points = sorted((float(f), float(v)) for f, v in re.findall(
+                r'add_fractional_data_point\(\s*"' + name + r'"\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)', text))
+            if not points:
+                missing.append(name)
+                continue
+            value = points[-1][1] if frac >= points[-1][0] else points[0][1]
+            for (f0, v0), (f1, v1) in zip(points, points[1:]):
+                if f0 <= frac <= f1:
+                    value = v0 + (v1 - v0) * ((frac - f0) / (f1 - f0) if f1 > f0 else 0)
+                    break
+            lines.append(f"    level.{variable} = {int(value) if value == int(value) else value!r};\n")
+        if missing:
+            self.report.unsupported.setdefault(FALLBACK, []).append(
+                f"{GAMESKILL}: no setSkill data for {', '.join(missing)}; BO2's value kept for those")
+        if not lines:
+            return []
+        self.level_state_parts.append(
+            f"\n// maps\\_gameskill: player regen timing at normal (starting fraction {frac:g})\n"
+            "waw2bo2_player_regen_timing()\n{\n" + "".join(lines) + "}\n")
+        self.report.rewrites["WaW _gameskill regen timing -> BO2 playerhealthregen"] += 1
+        return [f"{CORE}::waw2bo2_player_regen_timing();"]
+
     def dog_rounds_hook(self) -> str | None:
         """WaW _zombiemode::main starts dog rounds through _zombiemode_dogs::init,
         which returns unless the map set level.dogs_enabled. BO2's _zm::init does
@@ -2928,6 +3260,9 @@ class Translator:
         for ref in gsc.references(zm.tokens, fn.body_open, fn.body_close):
             if ref.qualifier is None or ref.pointer or ref.method:
                 continue
+            if not script_branch_taken(zm.tokens, fn.body_open, fn.body_close, ref.index,
+                                       getattr(self, "map_name", None)):
+                continue    # e.g. _zombiemode_weapons_sumpf::init outside Shi No Numa
             target = norm(ref.qualifier)
             tesla = API['tesla_runtime']
             if target == tesla['source_script'] and ref.name.lower() == tesla['initialize'] and \
@@ -2953,6 +3288,18 @@ class Translator:
                 for name in self.client_fog_monitors(dogs['client_notifies']):
                     calls.append(f"level thread {CORE}::{name}();")
                 self.report.rewrites["WaW drives the dog rounds: source _zombiemode_dogs"] += 1
+            # A framework script whose map functions run where BO2's take other
+            # arguments (signature_source_scripts) keeps the map's init when
+            # BO2's counterpart has none: Shi No Numa's _zombiemode_net::init
+            # sets the spawn counters its network_safe_spawn reads.
+            mapped = API["core_scripts"].get(target)
+            if target in API.get("signature_source_scripts", {}) and mapped \
+                    and not self.api.defines(mapped, ref.name.lower()) and not _argc(zm.tokens, ref.index):
+                extracted = self.extract(target, ref.name.lower())
+                if extracted and f"{extracted}();" not in calls:
+                    calls.append(f"{extracted}();")
+                    self.report.rewrites[f"framework hook {target}::{ref.name} -> source (BO2 has none)"] += 1
+                continue
             if is_core(target, self.sources):
                 continue
             dep = self.sources.get(target)
@@ -2990,6 +3337,23 @@ class Translator:
             hooks += ("\n\t// the map's _zombiemode overrides BO2's _zm::init replaced" +
                       "".join(f"\n\t{call}" for call in self.post_calls))
         tokens[fn.start].text = "waw_main_pre"
+        weapons = self.sources.get(WEAPONS_FRAMEWORK)
+        if weapons is not None and "include_zombie_weapon" in weapons.functions:
+            # before the map's include_weapons(): compat waw_include_weapon
+            # fills the map's own registry through it as well as BO2's
+            self.want(WEAPONS_FRAMEWORK)
+            self.pre_calls.insert(0, f"level.waw_include_zombie_weapon = "
+                                     f"{ported_path(WEAPONS_FRAMEWORK)}::include_zombie_weapon;")
+        score = self.sources.get(SCORE_FRAMEWORK)
+        if score is not None and "player_add_points" in score.functions:
+            # compat waw_player_add_points: the native AI's kill and hit awards
+            # go to the map's own scorer
+            self.want(SCORE_FRAMEWORK)
+            self.pre_calls.insert(0, f"level.waw_player_add_points = "
+                                     f"{ported_path(SCORE_FRAMEWORK)}::player_add_points;")
+        connect = self.extract_player_connect_fields()
+        if connect:
+            self.pre_calls.insert(0, f"level thread {CORE}::{connect}();")
         pre = "".join(f"\n\t{call}" for call in self.pre_calls)
         if pre:
             pre = "\n\t// the map's functions in place of BO2's, before _zm::init calls them" + pre
@@ -3008,6 +3372,12 @@ class Translator:
         end = i
         while tokens[end].text != ";":
             end += 1
+        # the map's spawner lists first, with the argument it gives _zombiemode::main
+        lists = self.extract_spawner_lists()
+        if lists:
+            close = gsc._match(tokens, split.index + 1, "(", ")")
+            args = gsc.emit(tokens[split.index + 2:close]).strip()
+            hooks = f"\n\t{CORE}::{lists}( {args} );" + hooks
         # WaW's _zombiemode::main() returns only after flag_wait( "all_players_connected" ),
         # so the rest of a WaW map main runs with every player present (maps loop
         # over getPlayers() there). BO2's counterpart flag is set by _zm.
@@ -3046,6 +3416,7 @@ def discover_animation_dependencies(sources: Sources, api: T6Api, map_name: str,
             sources.text[path + '.gsc'] = zombieappearance.appearance_script(original)
             sources._parsed.pop(path + '.gsc', None)
     tr = Translator(sources, api, PortReport())
+    tr.map_name = map_name
     tr.animation_discovery = True
     tr.queue.append(norm(f"maps/{map_name}"))
     tr.extract_custom_intermission()
@@ -3125,6 +3496,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     for alias, canonical in framework_aliases.items():
         report.rewrites[f'framework startup {alias} -> {canonical}'] += 1
     tr = Translator(sources, api, report)
+    tr.map_name = map_name
     tr.bo2_stock_perks = bo2_stock_perks
     tr.stock_map = stock_map
     tr.waw_perk_parts = waw_perk_parts
@@ -3152,6 +3524,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.extract_end_game()
     tr.post_calls += tr.juggernog_hooks()
     tr.post_calls += tr.player_damage_scale_hook()
+    tr.post_calls += tr.player_health_regen_hook()
     tr.post_calls += tr.announcer_hook(out_root)
     tr.post_calls += tr.powerup_models_hook()
     tr.post_calls += tr.sound_table_hook()
@@ -3174,7 +3547,13 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
             report.rewrites['source WaW zombie speed selector -> native spawn callback'] += 1
     tr.post_calls.insert(0, zombiebehavior.RUNTIME + '::init();')
     speed_state_function = None
-    speed_state_source = zombiebehavior.source_speed_state(sources, API['zombie_runtime'])
+    # The map's own round loop and spawning update their speed state each
+    # round; a replay for BO2's loop would apply it twice (and conditional
+    # updates, Berlin Bank's, cannot be replayed at all). The selector
+    # script's initial values stay (its init does not run yet).
+    source_loop = ((tr.round_loop_missing_anchors() == [] and source_drives(ZOMBIEMODE, "round_spawning"))
+                   or tr.round_start_drives())
+    speed_state_source = zombiebehavior.source_speed_state(sources, API['zombie_runtime'], rounds=not source_loop)
     if speed_state_source:
         sources.text = dict(sources.text)
         sources._parsed = dict(sources._parsed)
@@ -3289,14 +3668,20 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         respawn_function = tr.extract_entry(respawn_contract['script'], respawn_contract['function'])
     if hint_registry:
         framework_state.append(hint_registry)
-    for core, function in DAMAGE_PRELUDES:
-        damage_prelude = tr.extract_damage_prelude(core, function)
-        if damage_prelude:
-            framework_state.append(damage_prelude)
-    round_total = tr.extract_round_total()
-    if round_total:
-        framework_state.append(round_total)
+    # the map's _zombiemode::main level state first: later inits read it
+    main_state = tr.extract_main_level_state()
+    if main_state:
+        framework_state.insert(0, main_state)
+    source_damage = tr.extract_source_player_damage()
+    if source_damage:
+        framework_state.append(source_damage)
+    else:
+        for core, function in DAMAGE_PRELUDES:
+            damage_prelude = tr.extract_damage_prelude(core, function)
+            if damage_prelude:
+                framework_state.append(damage_prelude)
     # WaW drives the rounds: the map's own round loop (its display included)
+    # and its round_spawning, which sets level.zombie_total itself
     round_loop = tr.extract_round_loop()
     if round_loop:
         framework_state.append(round_loop)
@@ -3355,6 +3740,9 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     # filled with the linked mod.ff's weapons by build-mod
     (out_dir / BO2_WEAPONS_SCRIPT).write_text(bo2_weapons_source(), encoding="utf-8")
     (out_dir / "_waw2bo2_visions.gsc").write_text('init()\n{\n    level.waw2bo2_visions = [];\n}\n', encoding="utf-8")
+    # filled with the map's perk names T6 lacks by t6bridge (perktable.stage)
+    from . import perktable
+    (out_dir / perktable.SCRIPT).write_text(perktable.source(set()), encoding="utf-8")
     (out_dir / "_waw2bo2_precache.gsc").write_text(precache_source([]), encoding="utf-8")
     # one-way clip sheets come from the collision (t6bridge.port_scripts)
     (out_dir / "_waw2bo2_oneway.gsc").write_text(oneway.oneway_source([]), encoding="utf-8")
@@ -3362,7 +3750,14 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     (out_dir / "_waw2bo2_water_bullets.gsc").write_text(waterbullets.water_bullets_source({}), encoding="utf-8")
     if appearance:
         (out_dir / "_waw2bo2_characters.gsc").write_text(characters_source(), encoding="utf-8")
-    (out_dir / "_waw2bo2_weapons.gsc").write_text(weapons_source(registration), encoding="utf-8")
+    # WaW's bowie is the engine perk specialty_altmelee; T6 melees with a
+    # melee weapon, so compat equips BO2's (waw_altmelee_weapon). It must be
+    # included (precached) or giveweapon silently fails and the player keeps no knife.
+    melee = [weapon for perk, weapon in ALTMELEE_WEAPONS.items()
+             if any(perk in text for text in sources.text.values())]
+    for weapon in melee:
+        tr.report.rewrites[f"WaW altmelee perk -> BO2 {weapon} (included, not in the box)"] += 1
+    (out_dir / "_waw2bo2_weapons.gsc").write_text(weapons_source(registration, melee), encoding="utf-8")
     (out_dir / '_waw2bo2_zombie_behavior.gsc').write_text(
         zombiebehavior.runtime_source(API['zombie_runtime'], f'{CORE}::{speed_function}' if speed_function else None,
                                       selection_function, speed_state_function, source_membership,
@@ -3494,8 +3889,13 @@ BO2_TACTICAL_RUNTIME_WEAPONS = {"zombie_cymbal_monkey": "cymbal_monkey_zm"}
 
 def assets_source(fx_table: dict[str, str], waw_map: str | None = None,
                   weapons: dict[str, str] | None = None, bolted_loops: set[str] = frozenset(),
-                  zombie_var_overrides: dict[str, str] | None = None) -> str:
+                  zombie_var_overrides: dict[str, str] | None = None,
+                  tables: dict[str, str] | None = None) -> str:
     lines = ["// waw2bo2: WaW asset name -> BO2 asset name for converted assets (generated).", "init()", "{"]
+    # the map's own string tables, read by compat waw_tablelookup
+    lines.append('    level.waw2bo2_tables = [];')
+    for waw, staged in sorted((tables or {}).items()):
+        lines.append(f'    level.waw2bo2_tables[{json.dumps(waw)}] = {json.dumps(staged)};')
     if waw_map:
         # WaW's level.script is the WaW map name (see gscport.WAW_LEVEL_FIELDS)
         lines.append(f'    level.waw_script = "{waw_map}";')
@@ -3631,9 +4031,8 @@ WEAPONS = "maps\\mp\\waw\\_waw2bo2_weapons"
 WEAPON_REGISTRATION = {
     "include": [("maps\\dlc3_code", "include_weapons")],    # WaW DLC3 mod-tools template
     "add": [("maps\\_zombiemode_weapons", "init_weapons")],  # WaW zombiemode framework (map override or stock)
-    # WaW's mystery box (map override or stock): BO2 _zm_magicbox only knows
-    # its own zbarrier boxes, so the WaW box runs as WaW code
-    "box": [("maps\\_zombiemode_weapons", "treasure_chest_init")],
+    # The mystery box, wall buys, ammo and turrets are the map's own: the
+    # preserved _zombiemode_weapons runs its init (gsc_api preserved_scripts).
 }
 # the framework init whose level assignments the box code reads (animations, flags)
 BOX_STATE_INIT = ("maps\\_zombiemode_weapons", "init")
@@ -3648,6 +4047,10 @@ DAMAGE_OVERRIDE = "player_damage_override"
 ROUND_SPAWNING = "round_spawning"
 # WaW player damage entry points a map may override with leading rules of its own
 DAMAGE_PRELUDES = [(ZOMBIEMODE, DAMAGE_OVERRIDE), ("maps\\_callbackglobal", "callback_playerdamage")]
+CALLBACKGLOBAL = "maps\\_callbackglobal"
+LASTSTAND = "maps\\_laststand"
+# _zombiemode::main points these at the map's damage and last stand functions
+SOURCE_DAMAGE_FIELDS = ("overrideplayerdamage", "playerlaststand_func", "player_becomes_zombie", "laststandpistol")
 # s: BO2 end_game's intermission wait while a map's own end_game wait runs
 END_GAME_FALLBACK = 30
 
@@ -3734,6 +4137,8 @@ def top_level_statements(tokens: list[gsc.Token], open_: int, close: int) -> lis
 # knife, default lethal grenade, default last-stand pistol and its solo
 # upgrade). They are included but never put in the box.
 BO2_FRAMEWORK_WEAPONS = ("knife_zm", "frag_grenade_zm", "m1911_zm", "m1911_upgraded_zm")
+# WaW engine melee perks -> the BO2 melee weapon _waw2bo2_compat equips for them
+ALTMELEE_WEAPONS = {"specialty_altmelee": "bowie_knife_zm"}
 
 
 def tesla_callback_source(entries: dict[str, str]) -> str:
@@ -3799,18 +4204,20 @@ waw_tesla_network_choke()
 '''
 
 
-def weapons_source(registration: dict[str, list[str | None]]) -> str:
+def weapons_source(registration: dict[str, list[str | None]], melee: list[str] = ()) -> str:
+    """``melee``: BO2 melee weapons standing in for a WaW engine melee perk."""
     lines = ["// waw2bo2: the map's WaW weapon registration on BO2 _zm_weapons (generated).",
              "// include/add_zombie_weapon calls go through _waw2bo2_compat (WaW -> BO2 arguments).", "",
              "include_weapons()", "{",
              "    // WaW hints are plain text: prompt = display name + cost (see waw_add_zombie_weapon)",
              "    level.monolingustic_prompt_format = 1;"]
-    lines += [f'    maps\\mp\\zombies\\_zm_weapons::include_zombie_weapon( "{w}", 0 );' for w in BO2_FRAMEWORK_WEAPONS]
+    lines += [f'    maps\\mp\\zombies\\_zm_weapons::include_zombie_weapon( "{w}", 0 );'
+              for w in (*BO2_FRAMEWORK_WEAPONS, *melee)]
     lines += [f"    {CORE}::{fn}();" for fn in registration.get("include", []) if fn]
     lines += ["}", "", "add_weapons()", "{",
               '    maps\\mp\\zombies\\_zm_weapons::add_zombie_weapon( "m1911_zm", "m1911_upgraded_zm", '
               '&"ZOMBIE_WEAPON_M1911", 50, "", "", undefined );']
-    lines += [f'    {COMPAT}::waw_native_only_weapon( "{w}" );' for w in BO2_FRAMEWORK_WEAPONS]
+    lines += [f'    {COMPAT}::waw_native_only_weapon( "{w}" );' for w in (*BO2_FRAMEWORK_WEAPONS, *melee)]
     lines += [f"    {CORE}::{fn}();" for fn in registration.get("add", []) if fn]
     lines += ["}", "", "// The WaW mystery box, after BO2 _zm_magicbox::init, with independent chest flags.",
               "start_box()", "{"]
@@ -4107,6 +4514,35 @@ WAW_START_LOCATION = (
 # zombies into rounds the source formula had already counted.
 WAW_FAILSAFE_NO_REQUEUE = ("level.put_timed_out_zombies_back_in_queue = 1;",
                            "level.put_timed_out_zombies_back_in_queue = 0; // waw2bo2: WaW never requeues")
+# WaW drives player damage and last stand (Translator.extract_source_player_damage):
+# T6's callbacks run the map's _callbackglobal entries, whose override finishes
+# the damage itself. WaW's engine applies player_damageMultiplier to non-melee
+# hits before its callback (WAW_PLAYER_DAMAGE_SCALE keeps it for BO2's path).
+WAW_SOURCE_PLAYER_DAMAGE = (
+    "callback_playerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, "
+    "psoffsettime, boneindex )\n{\n",
+    "callback_playerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, "
+    "psoffsettime, boneindex )\n{\n"
+    "    // waw2bo2: WaW drives player damage: the map's Callback_PlayerDamage\n"
+    "    if ( isdefined( level.waw2bo2_source_player_damage ) )\n    {\n"
+    "        if ( isdefined( level.waw2bo2_player_damage_scale ) && idamage > 0 && smeansofdeath != \"MOD_MELEE\"\n"
+    "            && smeansofdeath != \"MOD_FALLING\" && !( isdefined( eattacker ) && isdefined( eattacker.is_zombie ) && eattacker.is_zombie ) )\n"
+    "            idamage = int( max( 1, idamage * level.waw2bo2_player_damage_scale ) );\n\n"
+    "        self [[ level.waw2bo2_source_player_damage ]]( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, "
+    "vpoint, vdir, shitloc, undefined, psoffsettime );\n        return;\n    }\n\n")
+WAW_SOURCE_PLAYER_LASTSTAND = (
+    "    [[ maps\\mp\\zombies\\_zm_laststand::playerlaststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
+    "vdir, shitloc, psoffsettime, deathanimduration );\n",
+    "    // waw2bo2: WaW drives last stand: the map's Callback_PlayerLastStand\n"
+    "    if ( isdefined( level.waw2bo2_source_player_laststand ) )\n    {\n"
+    "        self [[ level.waw2bo2_source_player_laststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
+    "vdir, shitloc, psoffsettime, deathanimduration );\n        return;\n    }\n\n"
+    "    [[ maps\\mp\\zombies\\_zm_laststand::playerlaststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
+    "vdir, shitloc, psoffsettime, deathanimduration );\n")
+# WaW has no out-of-playable-area killer: its zones only gate spawning. BO2's
+# per-player monitor is a BO2 game rule, so it never starts.
+WAW_NO_PLAYABLE_AREA_MONITOR = ("level.player_out_of_playable_area_monitor = 1;",
+                                "level.player_out_of_playable_area_monitor = 0; // waw2bo2: WaW never kills outside zones")
 # WaW's round_spawning calls the source health step (Translator.extract_round_health):
 # one increment per round that runs round_spawning, so dog rounds (which run
 # dog_round_spawning instead) never raise health, and the source arithmetic
@@ -4179,9 +4615,8 @@ waw2bo2_round_think_begin( restart )
 
 waw2bo2_round_spawn_ready()
 {
-    // waw2bo2: BO2's spawner needs an active spawn location
-    while ( level.zombie_spawn_locations.size <= 0 )
-        wait 0.1;
+    // waw2bo2: the map's own spawners place its zombies (WaW DoSpawn);
+    // nothing waits on BO2's zone location lists
 }
 
 waw2bo2_round_started()
@@ -4515,6 +4950,14 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: b
     if bootstrap.count(WAW_FAILSAFE_NO_REQUEUE[0]) != 1:
         raise ValueError("BO2 server bootstrap failsafe requeue changed")
     bootstrap = bootstrap.replace(*WAW_FAILSAFE_NO_REQUEUE)
+    if bootstrap.count(WAW_NO_PLAYABLE_AREA_MONITOR[0]) != 1:
+        raise ValueError("BO2 server bootstrap playable area monitor changed")
+    bootstrap = bootstrap.replace(*WAW_NO_PLAYABLE_AREA_MONITOR)
+    for patch, what in ((WAW_SOURCE_PLAYER_DAMAGE, "player damage callback"),
+                        (WAW_SOURCE_PLAYER_LASTSTAND, "last stand callback")):
+        if bootstrap.count(patch[0]) != 1:
+            raise ValueError(f"BO2 server bootstrap {what} changed")
+        bootstrap = bootstrap.replace(*patch)
     if bootstrap.count(WAW_ROUND_HEALTH[0]) != 1:
         raise ValueError("BO2 server bootstrap round health call changed")
     bootstrap = bootstrap.replace(*WAW_ROUND_HEALTH)

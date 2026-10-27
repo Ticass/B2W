@@ -56,20 +56,44 @@
         "spectator_respawn": "T6 player respawn (gametype spawn path)",
         "spawnspectator": "T6 spectator state is the gametype's",
         "store_crumb": "feeds BO2's zombie pathing (the actors are BO2's)",
-        "round_spawn_failsafe": "BO2 actors: BO2's failsafe knows their state",
-        "round_spawning": "T6 actors spawn through BO2's spawner; its rules come from the source hooks (count, health, spawner choice)",
         "end_game": "T6 game over and its LUI screens",
-        "player_damage_override": "T6 damage callback",
         "main": "the map entry; BO2's gametype starts the game"
       }
+    },
+    "maps\\_zombiemode_spawner": {
+      "doc": "The map's zombie functions run where its code calls them (head gibs, flame damage, attack setup, pathing for its own AI). glue: BO2 owns the job below.",
+      "glue": {
+        "zombie_spawn_init": "T6 actor setup on BO2's spawned actor (ASD animations, traversals); the converter's actor glue calls it",
+        "zombie_eye_glow_stop": "the eyes are made by BO2's actor setup (zombie_spawn_init); only its stop removes them",
+        "is_spawner_targeted_by_blocker": "windows are BO2 zbarriers until the map's blockers drive"
+      }
+    },
+    "maps\\_laststand": {
+      "doc": "WaW drives last stand: downs, the revive trigger and HUD, bleedout, pistol and weapons. T6's last stand callback runs the map's _callbackglobal entry (source_player_damage).",
+      "glue": {}
+    },
+    "maps\\_callbackglobal": {
+      "doc": "only: the engine damage and last stand entries. T6's own callbacks run the map's (source_player_damage); the rest of WaW's callback setup is the gametype's.",
+      "only": ["callback_playerdamage", "callback_playerlaststand", "finishplayerdamagewrapper"]
     },
     "maps\\_zombiemode_powerups": {
       "doc": "WaW drives the power-ups: drops, models, effects, grab, effects of each power-up (the carpenter through native_argument_adapters on BO2's zbarrier windows), HUD. Entered through native_replacements.",
       "glue": {}
     },
     "maps\\_zombiemode_utility": {
-      "doc": "only: the map's calls into these run WaW's function; BO2's same-named _zm_audio one plays BO2's lines (the map threads the kill-streak quote timer on every player)",
-      "only": ["player_killstreak_timer"]
+      "doc": "The map's helpers run (its VO and response lines play its own aliases, not BO2's; its player/enemy tests read its own state). glue: BO2 owns the job below.",
+      "glue": {
+        "spawn_zombie": "T6 actor creation: WaW's StalingradSpawn/DoSpawn do not exist in T6; BO2's helper spawns the actor and runs its spawn functions",
+        "add_spawner": "T6 spawner spawn-function registry used by the native actor glue",
+        "destroy_hud": "compat waw_destroy_hud: T6 may already have freed the HUD element (a destroyed receiver is a runtime error)",
+        "all_chunks_intact": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)",
+        "all_chunks_destroyed": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)",
+        "get_random_destroyed_chunk": "windows are BO2 zbarriers until the map's blockers drive (chunk state lives in the zbarrier)"
+      }
+    },
+    "maps\\_utility": {
+      "doc": "only: WaW's magic bullet shield holds the actor's health at 100000000 until stop restores it; BO2's _zm_utility one only lowers attacker accuracy, so Shi No Numa's dogs died during their spawn lightning and _zombiemode_dogs started their behind-you audio on a dead dog (its endon('death') had passed: an endless runtime error loop)",
+      "only": ["magic_bullet_shield", "stop_magic_bullet_shield"]
     }
   },
   "native_replacements": {
@@ -171,6 +195,7 @@
     "source_membership": {"initializer": "main", "riser_array_field": "zombie_rise_spawners", "riser_actor_value": "riser", "native_riser_location": "riser_location", "source_chaser_value": "zombie_chaser", "native_chaser_value": "find_flesh"},
     "source_respawn": {"script": "maps\\_zombiemode", "function": "check_for_valid_spawn_near_team", "native_callback": "check_for_valid_spawn_near_team_callback", "native_exclusion_tag": "waw_source_respawn"},
     "source_movement": {"script": "maps\\_zombiemode", "function": "init_standard_zombie_anims", "field": "scr_anim", "row": "zombie", "states": {"walk": "zm_move_walk", "run": "zm_move_run", "sprint": "zm_move_sprint"}, "variant_script": "maps\\_zombiemode_spawner", "variant_function": "set_run_anim"},
+    "source_melee": {"script": "maps\\_zombiemode", "function": "init_standard_zombie_anims", "row": "zombie", "states": {"zm_walk_melee": ["_zombie_melee", "_zombie_walk_melee"], "zm_run_melee": ["_zombie_melee", "_zombie_run_melee"], "zm_walk_melee_crawl": ["_zombie_melee_crawl"], "zm_run_melee_crawl": ["_zombie_melee_crawl"], "zm_stumpy_melee": ["_zombie_stumpy_melee"]}},
     "source_last_zombie": {"script": "maps\\_zombiemode", "function": "round_spawning", "anim_function": "set_run_anim", "native_callback": "zombie_speed_up"},
     "source_speed": {"script": "maps\\_zombiemode_spawner", "function": "set_run_speed", "arguments": 0, "receiver": "zombie", "result_field": "zombie_move_speed", "owned_result_field": "waw_zombie_move_speed"},
     "source_round_state": {"script": "maps\\_zombiemode", "start_function": "round_spawning", "end_function": "round_think"},
@@ -230,11 +255,19 @@
     "maps\\_collectibles": null,
     "maps\\_collectibles_game": null
   },
+  "signature_source_scripts": {
+    "doc": "Framework scripts whose BO2 counterpart is plain plumbing: where the map's own version takes an argument in another position than BO2's (gscport.signature_differs), the map's function runs. Others (weapons, power-ups, barrier helpers) keep their BO2 routing and adapters.",
+    "maps\\_zombiemode_net": "older maps (Shi No Numa) call network_safe_spawn( classname, origin ); BO2's _zm_net takes ( id, max, classname, origin ) and errored every frame, so fire dogs' death explosions never spawned"
+  },
   "preserved_scripts": [
     "maps\\_zombiemode_perks",
     "maps\\_zombiemode_dogs",
     "maps\\_zombiemode_timer",
-    "maps\\_zombiemode_bowie"
+    "maps\\_zombiemode_bowie",
+    "maps\\_zombiemode_zone_manager",
+    "maps\\_zombiemode_weapons",
+    "maps\\_zombiemode_weapons_sumpf",
+    "maps\\_zombiemode_score"
   ],
   "preserved_template_inits": {
     "doc": "Template map-main lines that set up BO2's counterpart of a WaW framework script the map ports whole (preserved_scripts). The ported script owns the job; the BO2 one would think on the same map entities. Each needs a reason.",
@@ -264,8 +297,6 @@
     "set_hint_string": "maps\\mp\\waw\\_waw2bo2_compat::waw_set_hint_string",
     "include_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_include_weapon",
     "add_zombie_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_add_zombie_weapon",
-    "manage_zones": "maps\\mp\\waw\\_waw2bo2_compat::waw_manage_zones",
-    "player_damage_override": "maps\\mp\\waw\\_waw2bo2_compat::waw_player_damage_override",
     "powerup_drop": "maps\\mp\\waw\\_waw2bo2_compat::waw_powerup_drop",
     "create_simple_hud": "maps\\mp\\waw\\_waw2bo2_compat::waw_create_simple_hud"
   },
@@ -274,6 +305,12 @@
     "maps\\mp\\zombies\\_zm_utility::destroy_hud": "waw_destroy_hud"
   },
   "compat_wrappers": [
+    "isnotarget",
+    "finishplayerdamage",
+    "precachestring",
+    "setorigin",
+    "tablelookup",
+    "tablelookupistring",
     "connectpaths",
     "disconnectpaths",
     "bbprint",
@@ -342,7 +379,8 @@
     "hasperk",
     "precachemodel",
     "linkto",
-    "dodamage"
+    "dodamage",
+    "bloodimpact"
   ],
   "no_extract": [
     "maps\\_zombiemode",

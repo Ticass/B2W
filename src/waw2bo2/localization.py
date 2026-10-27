@@ -111,7 +111,7 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
     sources: dict[str, tuple[str, str]] = {}
     conflicts, seen_conflicts = [], set()
     requested, strings, scripts, weapon_files = set(), set(), {}, {}
-    hint_keys = set()
+    hint_keys, formatted_hint_keys = set(), set()
     for folder, extension in [('maps/mp/waw', '*.gsc'), ('clientscripts/mp/waw', '*.csc')]:
         for path in sorted((project / folder).rglob(extension)):
             if path.name == '_waw2bo2_compat.gsc':  # this adapter uses BO2's own keys
@@ -125,7 +125,10 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
                         requested.add(original(text))
                         if (index >= 2 and tokens[index - 1].text == '('
                                 and tokens[index - 2].low == 'sethintstring'):
-                            hint_keys.add(original(text))
+                            # SetHintString( &"X", cost, ammo_cost ): the map
+                            # fills &&1.. itself (ZOMBIE_WEAPONCOSTAMMO)
+                            formatted = index + 1 < len(tokens) and tokens[index + 1].text == ','
+                            (formatted_hint_keys if formatted else hint_keys).add(original(text))
                     elif token.text.startswith('"') and KEY.fullmatch(original(text)):
                         # a plain string is a reference only in key form (not "30")
                         strings.add(original(text))
@@ -243,10 +246,11 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
             missing.append(key)
             hit, origin_kind = (key, 'unresolved WaW reference'), 'MISSING_SHOWN_AS_KEY'
         value, origin = hit
-        if key in hint_keys and origin_kind in ('WaW', 'WAW_PRICE_VARIANT'):
-            # WaW substitutes the activation key into &&1 for use hints.
-            # T6 requires its input-binding escape; ordinary localized
-            # formatting arguments (HUD text, costs, etc.) stay untouched.
+        if key in hint_keys and key not in formatted_hint_keys and origin_kind in ('WaW', 'WAW_PRICE_VARIANT'):
+            # WaW substitutes the activation key into &&1 for a use hint set
+            # without arguments. T6 requires its input-binding escape; a hint
+            # the map formats itself and other localized formatting arguments
+            # (HUD text, costs, etc.) stay untouched.
             value = value.replace('&&1', '^3[{+activate}]^7', 1)
         name = PREFIX + (key if re.fullmatch(r'[A-Za-z0-9_]+', key) else
                          'TEXT_' + hashlib.sha256(key.encode()).hexdigest()[:20].upper())

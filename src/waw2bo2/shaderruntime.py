@@ -26,6 +26,11 @@ def _assembly(path: Path):
 
 
 def registers(assembly):
+    return dict(_registers(assembly))
+
+
+@lru_cache(maxsize=None)
+def _registers(assembly):
     """D3DX constant table register names and array/matrix row counts."""
     result = {}
     for name, bank, first, count in re.findall(r'^//\s+(\w+)\s+([cs])(\d+)\s+(\d+)\s*$', assembly, re.M):
@@ -42,6 +47,11 @@ def embed_literals(assembly, source_pass, stage):
 
 
 def signature(assembly, kind):
+    return dict(_signature(assembly, kind))
+
+
+@lru_cache(maxsize=None)
+def _signature(assembly, kind):
     match = re.search(r'// ' + kind + r' signature:(.*?)(?:// (?:Input|Output) signature:|\n(?:ps|vs)_\d)', assembly, re.S)
     if not match:
         raise shaders.ShaderError(f'no native {kind} signature')
@@ -52,6 +62,11 @@ def signature(assembly, kind):
 
 
 def buffers(assembly):
+    return dict(_buffers(assembly))
+
+
+@lru_cache(maxsize=None)
+def _buffers(assembly):
     """Read D3D compiler reflection, including unused global uniform fields."""
     # Windows 10 SDK compilers print the binding as "cb3" (HLSL Bind column);
     # the Windows 8.1 d3dcompiler_47 that winetricks installs under Wine prints
@@ -902,6 +917,11 @@ _ELEMENTWISE = {'mov', 'add', 'sub', 'mul', 'mad', 'min', 'max', 'slt', 'sge', '
 
 
 def tainted_outputs(assembly, source_regs):
+    return set(_tainted_outputs(assembly, frozenset(source_regs)))
+
+
+@lru_cache(maxsize=None)
+def _tainted_outputs(assembly, source_regs):
     """Output components whose value depends on any of ``source_regs``.
 
     Component-exact data flow over SM3 assembly: element-wise ops read the

@@ -19,6 +19,7 @@ import json
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
+from . import timeline
 from .progress import captured
 
 TEMPLATE_MAP = "zm_test"
@@ -249,10 +250,11 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(json.dumps(material), encoding='utf-8')
             bound.add(relative.as_posix())
-    for root in (stock, project, project/'content_source'):
-        for folder in ('techniquesets', 'shader_bin', 'english/localizedstrings'):
-            if (root/folder).is_dir():
-                shutil.copytree(root/folder, overlay/folder, dirs_exist_ok=True)
+    with timeline.span('copy shader overlay'):
+        for root in (stock, project, project/'content_source'):
+            for folder in ('techniquesets', 'shader_bin', 'english/localizedstrings'):
+                if (root/folder).is_dir():
+                    shutil.copytree(root/folder, overlay/folder, dirs_exist_ok=True)
     # Stringtables must also override loaded/stock assets. The linker's
     # independent search paths are sorted, so adding a project path beside
     # BO2's raw path is insufficient to guarantee source priority.

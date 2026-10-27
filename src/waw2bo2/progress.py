@@ -6,6 +6,10 @@ import subprocess
 import sys
 import time
 
+from . import timeline
+
+timeline.install()
+
 
 def configure_console() -> None:
     """Match the launcher's UTF-8 pipes even on legacy Windows code pages."""
@@ -22,7 +26,8 @@ def verbose() -> bool:
 def timed(label, function, *args, **kwargs):
     print(f'[staging] {label}...', flush=True)
     started = time.monotonic()
-    result = function(*args, **kwargs)
+    with timeline.span(label):
+        result = function(*args, **kwargs)
     print(f'[staging] {label} finished in {time.monotonic() - started:.1f}s', flush=True)
     return result
 

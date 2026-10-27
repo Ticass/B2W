@@ -78,6 +78,14 @@ class ZombieBehaviorTests(unittest.TestCase):
                 p=root/name; p.parent.mkdir(parents=True,exist_ok=True); p.write_text(text)
             with self.assertRaisesRegex(ValueError, 'conditional source speed state'):
                 zombiebehavior.source_speed_state(gscport.Sources([root], [], None), gscport.API['zombie_runtime'])
+            # Berlin Bank: the map's own loop runs and updates it; only the
+            # selector script's initial value is kept
+            (root / 'maps/_zombiemode_spawner.gsc').write_text(
+                'init(){level.zombie_move_speed=1;}set_run_speed(){self.zombie_move_speed=level.zombie_move_speed;}')
+            state = zombiebehavior.source_speed_state(gscport.Sources([root], [], None),
+                                                      gscport.API['zombie_runtime'], rounds=False)
+            self.assertIn('level.zombie_move_speed=1;', state.replace(' ', ''))
+            self.assertNotIn('100', state)
 
     def test_source_actor_speed_writes_cannot_be_clobbered_by_native_field(self):
         tokens = gsc.tokenize('f(){self.zombie_move_speed="sprint"; '
@@ -232,6 +240,41 @@ class ZombieBehaviorTests(unittest.TestCase):
             self.assertIn('zm_move_walk : notify move_anim\n{\nstock_walk\n}', asd)
             self.assertNotIn('absent', asd)
 
+    def test_source_attack_tables_replace_native_melee_clips(self):
+        # BO2's attack clips carry "no pain" notes: a hit never cancels the swing
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sources = self.make_sources(root, '#using_animtree("human");\n'
+                'init_standard_zombie_anims(){ level.scr_anim["zombie"]["run1"]=%run; '
+                'level._zombie_melee["zombie"][0]=%attack_a; level._zombie_melee["zombie"][1]=%attack_a; '
+                'level._zombie_run_melee["zombie"][0]=%run_attack; '
+                'level._zombie_walk_melee["zombie"][0]=%walk_attack; '
+                'level._zombie_melee_crawl["zombie"][0]=%crawl_attack; '
+                'level._zombie_stumpy_melee["zombie"][0]=%absent; }')
+            raw = root / 'bo2/raw'
+            states = ('zm_move_run', 'zm_walk_melee', 'zm_run_melee', 'zm_walk_melee_crawl',
+                      'zm_run_melee_crawl', 'zm_stumpy_melee')
+            for path, text in {
+                'animtrees/zm_nuked_basic.atr': 'body\n{\nstock\n}\n',
+                'animstatedefs/zm_nuked_basic.asd': ''.join(f'{s} : restart notify melee_anim\n{{\nstock\n}}\n'
+                                                            for s in states),
+            }.items():
+                p = raw / path; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text)
+            out = root / 'out'
+            (out / 'xanim').mkdir(parents=True)
+            for clip in ('run', 'attack_a', 'run_attack', 'walk_attack', 'crawl_attack'):
+                (out / 'xanim' / ('waw_anim_' + clip)).write_bytes(b'original source clip')
+            result = zombiebehavior.stage_actor_movement(sources, out, root / 'bo2', gscport.API['zombie_runtime'])
+            self.assertEqual(result['melee']['zm_run_melee'], ['attack_a', 'attack_a', 'run_attack'])
+            self.assertEqual(result['melee']['zm_walk_melee_crawl'], ['crawl_attack'])
+            self.assertEqual(result['native_melee_states'], ['zm_stumpy_melee'])
+            asd = (out / ('animstatedefs/' + zombiebehavior.ACTOR_TREE + '.asd')).read_text()
+            self.assertIn('zm_walk_melee : restart notify melee_anim\n{\n\twaw_anim_attack_a\n\twaw_anim_attack_a\n'
+                          '\twaw_anim_walk_attack\n}', asd)
+            self.assertIn('zm_stumpy_melee : restart notify melee_anim\n{\nstock\n}', asd)
+            atr = (out / ('animtrees/' + zombiebehavior.ACTOR_TREE + '.atr')).read_text()
+            self.assertIn('waw_anim_run_attack', atr)
+
     def test_spawner_sampler_preserves_source_reroll_body(self):
         with tempfile.TemporaryDirectory() as temp:
             sources = self.make_sources(Path(temp), 'round_spawning(){ unrelated(); old_spawn=undefined; '
@@ -372,7 +415,9 @@ class ZombieBehaviorTests(unittest.TestCase):
         self.assertIn('ai forceteleport( spawn_point.origin )', body)
         bind = parsed.functions['bind_spawn_location']
         text = gsc.emit(parsed.tokens[bind.body_open:bind.body_close])
-        self.assertLess(text.index('isdefined( self.spawn_point_override )'), text.index('spots ='))
+        # WaW DoSpawn: a plain spawner's zombie appears at the spawner itself
+        self.assertLess(text.index('isdefined( self.spawn_point_override )'), text.index('point.origin = self.origin;'))
+        self.assertNotIn('zombie_spawn_locations', text)
         # a riser the source spawns itself (Shi No Numa's door-opening
         # <hut>_initial_zombies) rises at WaW's random( level.zombie_rise_spawners )
         self.assertLess(text.index('isdefined( self.spawn_point_override )'), text.index('self.script_string == "riser"'))

@@ -259,6 +259,7 @@ def _stage_bridge(args: argparse.Namespace) -> int:
         template_root=args.script_template.resolve() if args.script_template else None,
         template_name=args.script_template_name,
         extra_roots=[p.resolve() for p in args.extra_root or []],
+        map_roots=[p.resolve() for p in args.map_root or []],
         iwd_dirs=[p.resolve() for p in args.iwd_dir] if args.iwd_dir else None,
         waw_map_script=args.waw_map_script.resolve() if args.waw_map_script else None,
         waw_script_roots=[p.resolve() for p in args.waw_script_root or []],
@@ -312,18 +313,26 @@ def _build_mod(args: argparse.Namespace) -> int:
         if lobby_entry not in extra_lines:
             extra_lines.append(lobby_entry)
     if args.linker and args.techset_dump:
-        with modzone.baseline_shader_materials(project_root, args.techset_dump) as active:
+        from . import timeline
+        with modzone.baseline_shader_materials(project_root, args.techset_dump) as active,                 timeline.span('link baseline mod.ff'):
             ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
                 project_root, [project_root/'content_source/pcm', project_root/'content_source', args.techset_dump],
                 stock_dump=args.techset_dump)
         flame_stage = project_root / 'content_source/weapons.stage.json'
         has_flames = flame_stage.is_file() and bool(json.loads(flame_stage.read_text()).get('flame_tables'))
         if active or has_flames:
-            modzone.activate_mod_shaders(ff, project_root, args.work, args.linker, args.unlinker, args.techset_dump)
+            with timeline.span('activate mod shaders'):
+                modzone.activate_mod_shaders(ff, project_root, args.work, args.linker, args.unlinker, args.techset_dump)
     else:
         ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
             project_root, [project_root/'content_source/pcm', project_root/'content_source'], stock_dump=args.techset_dump)
     print(f"mod.ff: {ff}")
+    from . import ipakfix
+    for pack in sorted(ff.parent.glob("*.ipak")):
+        moved = ipakfix.repair(pack)
+        if moved:
+            print(f"warning: IPAK_WINDOW_REPAIRED {pack.name}: {len(moved)} block(s) moved to a streaming window "
+                  f"start (the BO2 mod tools linker let them cross one; t6zm overruns its buffer there)", flush=True)
     lobby = modzone.link_lobby(args.bo2.resolve(), project_root, args.project, args.work,
                               args.linker or args.bo2.resolve() / "bin/Linker.exe", args.techset_dump)
     for zone in (ff, lobby):
@@ -501,6 +510,9 @@ def parser() -> argparse.ArgumentParser:
                            "proven missing from the source and gets a reported neutral placeholder")
     sb_p.add_argument("--extra-root", type=Path, action="append",
                       help="unlinker dump of a zone WaW loads with the map (mod.ff, common.ff); repeatable, in order")
+    sb_p.add_argument("--map-root", type=Path, action="append",
+                      help="unlinker dump of one of the map's own zones (map, patch, mod): every model it ships "
+                           "is converted, referenced or not; repeatable")
     sb_p.add_argument("--stock-materials", type=Path, required=True,
                       help="T6 material JSON dumped from a stock zone (donors), e.g. work\\stock_t6_assets\\materials")
     sb_p.add_argument("--techset-dump", type=Path,
@@ -625,7 +637,12 @@ def main(argv: list[str] | None = None) -> int:
     configure_console()
     try:
         args = parser().parse_args(argv)
-        return args.func(args)
+        from . import timeline
+        command = next((a for a in (argv if argv is not None else sys.argv[1:]) if not a.startswith('-')), '')
+        with timeline.span(f'cli {command}') as counts:
+            result = args.func(args)
+            counts.update(timeline.self_accounting(), returncode=result)
+        return result
     except Exception as exc:
         if os.environ.get("WAW2BO2_TRACEBACK"):
             raise

@@ -1280,7 +1280,20 @@ namespace BSP
 
     void GfxWorldLinker::LoadDynEntData(GfxWorld& gfxWorld) const
     {
+        // the source map's dynents (BSP/dynents.json, see ClipMapLinker::LoadDynEnts)
         unsigned dynEntCount = 0u;
+        const auto dynEntFile = m_search_path.Open(GetFileNameForBSPAsset("dynents.json"));
+        if (dynEntFile.IsOpen())
+        {
+            try
+            {
+                dynEntCount = static_cast<unsigned>(nlohmann::json::parse(*dynEntFile.m_stream).at("dynents").size());
+            }
+            catch (const std::exception& e)
+            {
+                con::error("Map dynents: {}", e.what());
+            }
+        }
         gfxWorld.dpvsDyn.dynEntClientCount[0] = dynEntCount + 256; // the game allocs 256 empty dynents, as they may be used ingame
         gfxWorld.dpvsDyn.dynEntClientCount[1] = 0;
 

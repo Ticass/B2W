@@ -6,10 +6,13 @@ mapped to the target material pass. Unsupported instructions fail closed.
 """
 from __future__ import annotations
 
+import copy
 import ctypes as ct
 import hashlib
 import json
 import math
+import os
+import pickle
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -41,10 +44,37 @@ def disassemble(bytecode: bytes) -> str:
     return _blob_bytes(blob).decode('utf-8').rstrip('\0')
 
 
-@lru_cache(maxsize=128)
+# Strictness + IEEE strictness; do not silently fuse/reassociate instructions.
+COMPILE_FLAGS = (1 << 11) | (1 << 13)
+# A folder the worker processes of one build stage share: each distinct
+# program (source, profile, flags) is compiled once. Never kept across builds.
+SHARED_COMPILES: Path | None = None
+
+
+@lru_cache(maxsize=None)
 def compile_hlsl(source: str, profile: str) -> bytes:
     if profile not in ('ps_5_0', 'vs_5_0', 'ps_3_0', 'vs_3_0'):
         raise ShaderError(f'unsupported target profile {profile}')
+    if SHARED_COMPILES is None:
+        return _compile_hlsl(source, profile)
+    key = hashlib.sha256(f'{profile}\0{COMPILE_FLAGS}\0{source}'.encode('utf-8')).hexdigest()
+    shared = SHARED_COMPILES / f'{key}.cso'
+    try:
+        return shared.read_bytes()
+    except OSError:
+        pass
+    code = _compile_hlsl(source, profile)
+    partial = shared.with_name(f'{key}.{os.getpid()}.tmp')
+    partial.write_bytes(code)
+    try:
+        os.replace(partial, shared)
+    except OSError:
+        # another worker published the same program first (and may be reading it)
+        partial.unlink(missing_ok=True)
+    return code
+
+
+def _compile_hlsl(source: str, profile: str) -> bytes:
     data = source.encode('utf-8')
     dll = ct.WinDLL('d3dcompiler_47.dll')
     fn = dll.D3DCompile
@@ -53,9 +83,8 @@ def compile_hlsl(source: str, profile: str) -> bytes:
                    ct.c_uint, ct.POINTER(ct.c_void_p), ct.POINTER(ct.c_void_p)]
     fn.restype = ct.c_long
     code, errors = ct.c_void_p(), ct.c_void_p()
-    # Strictness + IEEE strictness; do not silently fuse/reassociate instructions.
     hr = fn(data, len(data), b'waw_translated.hlsl', None, None, b'main',
-            profile.encode(), (1 << 11) | (1 << 13), 0, ct.byref(code), ct.byref(errors))
+            profile.encode(), COMPILE_FLAGS, 0, ct.byref(code), ct.byref(errors))
     diagnostics = _blob_bytes(errors).decode('utf-8', errors='replace') if errors else ''
     if hr < 0:
         if code:
@@ -69,7 +98,32 @@ SEM = re.compile(r'^[A-Z][A-Z0-9_]*$')
 SWIZZLE = str.maketrans('rgba', 'xyzw')
 
 
+# translate() is a pure function of its arguments; materials bind the same
+# programs (and analyse the same source programs) many times per build.
+_TRANSLATED: dict[tuple[str, bytes | None], tuple[str, dict]] = {}
+
+
 def translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
+    """Memoized _translate. The key holds the exact bindings (types and
+    order included); callers get their own copy of the report."""
+    try:
+        key = (assembly, None if bindings is None else pickle.dumps(bindings, protocol=5))
+    except (pickle.PicklingError, TypeError, AttributeError):
+        return _translate(assembly, bindings)
+    cached = _TRANSLATED.get(key)
+    if cached is None:
+        try:
+            text, info = _translate(assembly, bindings)
+        except ShaderError as exc:
+            _TRANSLATED[key] = (None, str(exc))
+            raise
+        cached = _TRANSLATED[key] = (text, copy.deepcopy(info))
+    if cached[0] is None:
+        raise ShaderError(cached[1])
+    return cached[0], copy.deepcopy(cached[1])
+
+
+def _translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
     """Lower supported SM3 assembly. All missing explicit bindings are errors.
 
     Contract keys: inputs/outputs map registers to {semantic, width}; constants

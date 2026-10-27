@@ -20,7 +20,41 @@ manual intervention. Section 14 defines this direction in detail.
 **Convert the whole map (user rule, 2026-10-25):** never cherry-pick source
 behaviour or rewrite WaW game rules by hand. The map's own source functions
 run, called where the source calls them. Read `docs/CONVERT_THE_WHOLE_MAP.md`
-before changing any gameplay behaviour.
+before changing any gameplay behaviour. Section 0 below is the binding form.
+
+---
+
+# 0. WaW's Code Drives the Game; BO2 Is Engine Glue (user rule, 2026-10-27)
+
+This section overrides anything later in this document that reads otherwise.
+
+**Der Riese is the model.** Its own round loop, spawning (zombie count included), zone manager,
+box and wall weapons, score, utility helpers, perks and power-ups run from its own scripts. BO2
+creates actors and players and answers engine callbacks. Every map converts the same way.
+
+1. **The map's code runs, not BO2's version of it.** For every game system the map defines
+   (rounds, spawning, zones, box, weapons, doors and windows, perks, power-ups, score, last
+   stand, dogs, traps), the map's own functions run, called where WaW calls them. Do not run a
+   BO2 system beside it, and do not lift pieces of the map's code into BO2 hooks so a BO2
+   system can keep running (the round count in `max_zombie_func` was removed for exactly this).
+2. **The map's code is whatever the map ships**, newest first: `<map>_patch.ff`, the map zone,
+   the mod's iwds, then stock WaW. A map built on a mod framework (ZCT's `zct_*.iwd`, UGX's
+   `_ugx*` scripts, any custom `_zombiemode.gsc`) runs that framework's scripts: they are the
+   map's scripts. No framework-specific game logic in the converter.
+3. **Values come from the map's data**, newest source first: patch zone, then tables
+   (`mp/zombiemode.csv` over `set_zombie_var` literals), weapon files, then literals.
+4. **BO2 only where T6 requires it**: actor and player creation, the native AI, engine
+   callbacks, LUI. Each piece is listed in `gsc_api.json` `source_driven` `glue` with the reason.
+   Any other BO2 fallback is a bug: reported (`FRAMEWORK_BO2`, `framework_coverage.md`), then fixed.
+5. **When the map's code does not port, fix the port**: a compat wrapper with the WaW builtin's
+   semantics, a translator rule for the statement shape, a renamed `level.waw_*` field where BO2
+   uses the same name. Never a substitute rule, never a quiet BO2 fallback.
+6. **Verify in game** with probes against the real build (`work/der_riese_acc/probe_*`).
+
+Section 2a's "BO2 equivalent instead of nothing" is about **assets** that WaW lacks entirely. It
+never permits BO2 game logic in place of the map's scripts.
+
+---
 
 The primary question should always be:
 
@@ -82,7 +116,7 @@ A fallback replacement may exist only as an explicitly defined last-resort compa
 
 It must never become the normal conversion strategy.
 
-## 2a. BO2 Equivalent Instead of Nothing (user rule, 2026-09-29)
+## 2a. BO2 Equivalent Instead of Nothing (user rule, 2026-09-29) (assets only; never game logic, see Section 0)
 
 WaW always has priority: the map's zones, then stock WaW zones, then WaW Mod Tools sources (Section 27).
 Only when that whole lookup ends with **nothing** for an asset (the asset is absent from WaW, or it exists but
