@@ -2305,9 +2305,14 @@ class Translator:
         script = self.sources.get(core)
         fn = script.functions.get(function) if script else None
         if fn is None:
+            if self.round_start_drives(core):
+                where = self.sources.origin.get(core + ".gsc", core)
+                return self.extract_round_start_driver(core, where, [f"no {function}"])
             return None
         where = self.sources.origin.get(core + ".gsc", core)
         missing = self.round_loop_missing_anchors(core, function)
+        if missing and self.round_start_drives(core):
+            return self.extract_round_start_driver(core, where, missing)
         if missing:
             self.report.unsupported.setdefault(
                 f"GSC {core}::{function} round loop (no anchors {missing}; BO2's loop runs)", []).append(where)
@@ -2354,6 +2359,40 @@ class Translator:
             f"waw2bo2_source_round_loop()\n{{\n"
             f"\tlevel.waw2bo2_source_round_loop = 1;\n"
             f"{spawn_lines}"
+            f"\tlevel.round_think_func = ::waw2bo2_source_round_think;\n}}\n")
+        return "waw2bo2_source_round_loop"
+
+    def round_start_drives(self, core: str = None) -> bool:
+        """The map's round_start runs its own round system instead of the
+        stock round_think (nazi_zombie_420: timed rounds in a thread)."""
+        script = self.sources.get(core or ZOMBIEMODE)
+        fn = script.functions.get("round_start") if script else None
+        if fn is None:
+            return False
+        called = {r.name.lower() for r in gsc.references(script.tokens, fn.body_open + 1, fn.body_close)}
+        return "round_think" not in called
+
+    def extract_round_start_driver(self, core: str, where: str, missing: list[str]) -> str:
+        """The map's own round_start drives the rounds (section 0): it starts
+        the map's round system, which advances rounds and spawns itself. BO2's
+        round glue has no anchors to run at in such a system; reported."""
+        name = self.extract_entry(core, "round_start")
+        self.report.rewrites["WaW drives the rounds: source round_start -> round_think_func"] += 1
+        self.report.extracted.append(f"{core}::round_start (round driver -> round_think_func)")
+        self.report.unsupported.setdefault(
+            f"GSC {core}::round_think anchors {missing}: the map's round_start runs its own round system; "
+            f"BO2's per-round glue (round signals, stats) does not run", []).append(where)
+        self.level_state_parts.append(
+            f"\n// {core}::round_start: the map's own round system drives the rounds\n"
+            f"waw2bo2_source_round_think( restart )\n{{\n"
+            f'\tlevel endon( "end_round_think" );\n'
+            f"\t{OWNED_ZM}::waw2bo2_round_think_begin( restart );\n"
+            f"\tif ( !isdefined( level.waw2bo2_round_driver_started ) )\n\t{{\n"
+            f"\t\tlevel.waw2bo2_round_driver_started = 1;\n"
+            f"\t\t{name}();\n\t}}\n"
+            f'\tlevel waittill( "end_game" );\n}}\n\n'
+            f"waw2bo2_source_round_loop()\n{{\n"
+            f"\tlevel.waw2bo2_source_round_loop = 1;\n"
             f"\tlevel.round_think_func = ::waw2bo2_source_round_think;\n}}\n")
         return "waw2bo2_source_round_loop"
 
@@ -3439,7 +3478,8 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     # round; a replay for BO2's loop would apply it twice (and conditional
     # updates, Berlin Bank's, cannot be replayed at all). The selector
     # script's initial values stay (its init does not run yet).
-    source_loop = tr.round_loop_missing_anchors() == [] and source_drives(ZOMBIEMODE, "round_spawning")
+    source_loop = ((tr.round_loop_missing_anchors() == [] and source_drives(ZOMBIEMODE, "round_spawning"))
+                   or tr.round_start_drives())
     speed_state_source = zombiebehavior.source_speed_state(sources, API['zombie_runtime'], rounds=not source_loop)
     if speed_state_source:
         sources.text = dict(sources.text)
