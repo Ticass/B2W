@@ -1708,6 +1708,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         entity_box_models = set(script_models)
         if (project_root / "BSP" / "paths.json").exists():
             report.warnings += entities.link_barrier_traversals(project_root / "BSP")
+        named = entities.placed_weapons(project_root / "BSP" / "entities.json") | script_weapons(map_roots or [])
+        compiled_weapon_names |= level_stock_weapons(report, named - compiled_weapon_names, stock_waw)
     else:
         report.errors.append(f"map entities {ents_file.name} missing")
     effects = EffectsResult()
@@ -1916,6 +1918,16 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if weapon_report is None:
         weapon_report, roots = _stage_weapons(report, roots, project_root, compiled_weapon_names, script_models,
                                               stock_waw, compiled_sound_names)
+    entities_json = project_root / "BSP" / "entities.json"
+    if entities_json.exists():
+        # T6 resolves a placed weapon at spawn and crashes on an unknown one;
+        # one no WaW zone defines never existed in WaW either
+        staged = {p.name for p in (project_root / "content_source" / "weapons").glob("*")}
+        absent = entities.placed_weapons(entities_json) - staged
+        if absent:
+            count = entities.strip_weapons(entities_json, absent)
+            report.warnings.append(f"ENTITY_WEAPON_ABSENT {sorted(absent)}: no WaW zone defines them; "
+                                   f"{count} placed entities dropped")
     if weapon_report is not None:
         _stage_weapon_runtime(report, project, project_root, roots, stock_materials, techset_dump, bo2_root,
                               t6_unlinker, stage, wavelets, set(effects.table),
@@ -2862,6 +2874,30 @@ def stock_wrapped_models(sources, ported: list[str], map_roots: list[Path]) -> s
     texts = [sources.text.get(path + ".gsc", sources.stock.get(path + ".gsc", "")) for path in ported]
     local = assetresolve.Resolver(map_roots)
     return {name for name in wrapped_model_literals(texts) if local.find("xmodel", name)}
+
+
+# WaW SP loads these stock zones with every level, under the map's own
+LEVEL_STOCK_ZONES = {"common"}
+INCLUDE_WEAPON = re.compile(r'\binclude_weapon\s*\(\s*"([^"]+)"', re.IGNORECASE)
+
+
+def script_weapons(map_roots: list[Path]) -> set[str]:
+    """Weapons the map's own scripts include by name."""
+    return {m.group(1) for root in map_roots for path in sorted((root / "maps").rglob("*.gsc"))
+            for m in INCLUDE_WEAPON.finditer(path.read_text(encoding="utf-8", errors="replace"))} \
+        if map_roots else set()
+
+
+def level_stock_weapons(report: StageReport, names: set[str], stock_waw) -> set[str]:
+    """The named weapons the map's zones lack and a zone WaW loads with every
+    level defines (420's colt_dirty_harry from common.ff): the map's weapons."""
+    if stock_waw is None:
+        return set()
+    found = {n for n in names if LEVEL_STOCK_ZONES & set(stock_waw.zones_defining("weapon", n))}
+    for name in sorted(found):
+        report.warnings.append(f"WAW_STOCK_ASSET weapon {name}: the map names it; WaW loads it with every "
+                               f"level from {sorted(LEVEL_STOCK_ZONES)}")
+    return found
 
 
 def shipped_models(map_roots: list[Path]) -> set[str]:

@@ -474,6 +474,32 @@ def placed_models(entities_json: Path) -> set[str]:
     return {e["model"] for e in data["entities"] if e.get("model") and not e["model"].startswith("*")}
 
 
+def entity_weapon(ent: dict) -> str | None:
+    """The weapon an entity spawns with: a ``weapon_<name>`` item or a turret's
+    ``weaponinfo``. T6 resolves it at spawn and crashes on an unknown one."""
+    cls = ent.get("classname", "")
+    if cls.startswith("weapon_"):
+        return cls[len("weapon_"):]
+    if cls == "misc_turret":
+        return ent.get("weaponinfo")
+    return None
+
+
+def placed_weapons(entities_json: Path) -> set[str]:
+    data = json.loads(entities_json.read_text(encoding="utf-8"))
+    return {w for w in map(entity_weapon, data["entities"]) if w}
+
+
+def strip_weapons(entities_json: Path, names: set[str]) -> int:
+    """Remove the entities spawning one of ``names``; returns the count."""
+    data = json.loads(entities_json.read_text(encoding="utf-8"))
+    kept = [e for e in data["entities"] if entity_weapon(e) not in names]
+    count = len(data["entities"]) - len(kept)
+    data["entities"] = kept
+    entities_json.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    return count
+
+
 def strip_models(entities_json: Path, names: set[str]) -> int:
     """Remove ``model`` from entities placing one of ``names``; returns the count."""
     data = json.loads(entities_json.read_text(encoding="utf-8"))

@@ -366,10 +366,12 @@ namespace
                             PrintError(xmodel, "Invalid source bone hitbox");
                             return false;
                         }
+                        // An inverted box (mins > maxs) stays as authored: it never
+                        // registers a hit, in the source game as in T6.
                         for (auto axis = 0u; axis < 3; ++axis)
                         {
                             if (!std::isfinite(found->mins[axis]) || !std::isfinite(found->maxs[axis])
-                                || !std::isfinite(found->offset[axis]) || found->mins[axis] > found->maxs[axis])
+                                || !std::isfinite(found->offset[axis]))
                             {
                                 PrintError(xmodel, "Invalid source bone hitbox bounds");
                                 return false;
