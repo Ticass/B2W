@@ -51,7 +51,7 @@ class SpawnerTests(unittest.TestCase):
             '{\n"classname" "script_struct"\n"targetname" "zone_a_spawners_rise"\n"script_noteworthy" "riser_door"\n'
             '"origin" "20 20 0"\n}',
             '{\n"classname" "script_struct"\n"targetname" "unrelated_rise"\n"origin" "30 30 0"\n}',
-            '{\n"classname" "script_struct"\n"targetname" "exterior_goal"\n"origin" "40 40 0"\n}',
+            '{\n"classname" "script_struct"\n"targetname" "exterior_goal"\n"target" "window"\n"origin" "40 40 0"\n}',
         ])
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "map.ents"

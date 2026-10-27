@@ -47,7 +47,7 @@ class ZoneGraphTests(unittest.TestCase):
         spawner = {"classname": "actor_zombie_ger_ber_sshonor", "script_noteworthy": "zombie_spawner",
                    "targetname": "zone_spawners", "origin": "1 2 3"}
         chaser = dict(spawner, origin="4 5 6", script_string="zombie_chaser")
-        goal = {"classname": "script_struct", "targetname": "exterior_goal", "origin": "0 0 0"}
+        goal = {"classname": "script_struct", "targetname": "exterior_goal", "target": "window", "origin": "0 0 0"}
         out, _, summary = entities.convert_entities([spawner, chaser, goal], "test", {})
         entities.chase_without_barricades(out, summary)
         structs = {e["origin"]: e.get("script_string") for e in out if e.get("script_noteworthy") == "spawn_location"}
