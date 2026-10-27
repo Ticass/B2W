@@ -1,7 +1,6 @@
 """Adapt raw v17 weapon sound notifications without changing motion or timing."""
 import hashlib
 import json
-import re
 import struct
 from pathlib import Path
 from . import weapons
@@ -13,37 +12,21 @@ def add_sound_events(raw: bytes, sound_map: dict[str, str]) -> tuple[bytes, list
         return raw, []
     if len(raw) < 4 or struct.unpack_from('<H', raw)[0] != 17:
         raise weapons.WeaponError('weapon sound notifications require a raw v17 animation')
-    frames = struct.unpack_from('<H', raw, 2)[0]
-    # Raw v17 ends with count:u8 followed by (name:cstring, frame:u16).
-    # Find a fully validated suffix; all preceding motion data stays opaque.
-    candidates = []
-    for start in range(len(raw)):
-        count = raw[start]
-        if not count:
-            continue
+    # Raw v17 ends with count:u8 followed by (name:cstring, frame:u16). The
+    # section starts where the motion tracks end, so walk their layout rather
+    # than guess: a map's own notes may hold any bytes (School's PM63 reload
+    # ships empty and binary names past its last frame) and stay as WaW has them.
+    try:
+        start = notification_offset(raw)
         pos, notes = start + 1, []
-        for _ in range(count):
-            end = raw.find(b'\0', pos, pos + 256)
-            if end < 0 or end + 3 > len(raw) or not re.fullmatch(rb'[A-Za-z0-9_#/ .:+-]{1,255}', raw[pos:end]):
-                break
-            name = raw[pos:end].decode('ascii')
-            frame = struct.unpack_from('<H', raw, end + 1)[0]
-            if frame > frames:
-                break
-            notes.append((name, frame))
+        for _ in range(raw[start]):
+            end = raw.index(b'\0', pos)
+            notes.append((raw[pos:end].decode('latin-1'), struct.unpack_from('<H', raw, end + 1)[0]))
             pos = end + 3
-        # A mapped key may only occur inside a native sndnt# event name.
-        # Validate the section independently, then match whole event names
-        # below; a substring is not evidence of a malformed animation.
-        if len(notes) == count and pos == len(raw):
-            candidates.append((start, notes))
-    # Every candidate ends at the end of the file, so a shorter one is a tail of
-    # the longest: a frame's high byte that equals the remaining note count
-    # (frame 331 = 4B 01, then one note) parses as a second, nested suffix.
-    # The longest one is the real section; the nested ones never hold all notes.
-    if not candidates:
+    except (IndexError, ValueError, struct.error):
+        pos = -1
+    if pos != len(raw):
         raise weapons.WeaponError('raw animation has no valid notification suffix')
-    start, notes = min(candidates)
     existing = set(notes)
     result, added = [], []
     for name, frame in notes:
@@ -59,7 +42,60 @@ def add_sound_events(raw: bytes, sound_map: dict[str, str]) -> tuple[bytes, list
     if len(result) > 254:
         raise weapons.WeaponError('converted animation exceeds notification count limit including end event')
     return raw[:start] + bytes([len(result)]) + b''.join(
-        name.encode('ascii') + b'\0' + struct.pack('<H', frame) for name, frame in result), added
+        name.encode('latin-1') + b'\0' + struct.pack('<H', frame) for name, frame in result), added
+
+
+def notification_offset(raw: bytes) -> int:
+    """Offset of the note count in a raw v17 xanim, after its motion tracks
+    (the layout OpenAssetTools' CompiledXAnimWriter writes)."""
+    frames, bones, flags = struct.unpack_from('<HHB', raw, 2)
+    numframes = frames if flags & 1 else frames - 1
+    loop_frames, byte_indices = numframes + 1, numframes < 256
+    pos = 10
+
+    def count():
+        nonlocal pos
+        pos += 2
+        return struct.unpack_from('<H', raw, pos - 2)[0]
+
+    def keyed(n, size):
+        # tracks covering every loop frame omit their indices
+        nonlocal pos
+        if n < loop_frames:
+            pos += n if byte_indices else 2 * n
+        pos += n * size
+
+    def trans():
+        nonlocal pos
+        n = count()
+        if n == 1:
+            pos += 12
+        elif n > 1:
+            keyed(n, 0)
+            small = raw[pos]
+            pos += 1 + 24 + n * (3 if small else 6)
+
+    if flags & 2:
+        n = count()
+        pos += 2 if n == 1 else 0
+        if n > 1:
+            keyed(n, 2)
+        trans()
+    if bones:
+        mask = (bones + 7) // 8
+        half = raw[pos + mask:pos + 2 * mask]
+        pos += 2 * mask
+        for _ in range(bones):
+            pos = raw.index(b'\0', pos) + 1
+        for bone in range(bones):
+            stored = 2 if half[bone // 8] >> (bone % 8) & 1 else 6
+            n = count()
+            if n == 1:
+                pos += stored
+            elif n > 1:
+                keyed(n, stored)
+            trans()
+    return pos
 
 
 def stage_weapon_events(content: Path) -> dict:
