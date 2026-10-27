@@ -1165,8 +1165,10 @@ stuck_zombie_monitor()
 
 waw_weapon( name )
 {
-    if ( !isdefined( name ) )
-        return name;
+    // WaW's "none" is weapon 0, an empty def (clip 0, class "none"); T6
+    // weapon queries reject the name ("Weapon name "none" is not valid")
+    if ( !isdefined( name ) || name == "none" )
+        return undefined;
     if ( isdefined( level.waw2bo2_weapons ) && isdefined( level.waw2bo2_weapons[name] ) )
     {
         if ( level.waw2bo2_weapons[name] == "" )
@@ -2063,33 +2065,79 @@ waw_missing_model( name )
     report( "XMODEL", name );
 }
 
-// WaW's perk table has names T6's lacks (measured from both executables;
-// T6 SetPerk/HasPerk/UnsetPerk raise "Unknown perk"). Custom perk scripts use
-// them as markers (specialty_boost = Electric Cherry, specialty_shades = Who's
-// Who, specialty_altmelee = bowie): they carry no engine effect the scripts
-// rely on, so the player keeps them in a script-side table instead.
+// Maps use perk names T6's perk table lacks (T6 SetPerk/HasPerk/UnsetPerk
+// raise "Unknown perk"): WaW-only ones (specialty_boost = Electric Cherry,
+// specialty_shades = Who's Who, specialty_altmelee = bowie) and custom markers
+// (School's specialty_marathon). They carry no engine effect the scripts rely
+// on, so the player keeps them in a script-side table. Every name outside
+// T6's table (the 60 specialty_ names in t6zm.exe) is emulated.
 waw_perk_emulated( perk )
 {
     switch ( perk )
     {
-        case "specialty_altmelee":
-        case "specialty_boost":
-        case "specialty_exposeenemy":
-        case "specialty_fraggrenade":
-        case "specialty_gas_mask":
-        case "specialty_greased_barrings":
-        case "specialty_leadfoot":
-        case "specialty_null":
-        case "specialty_ordinance":
-        case "specialty_shades":
-        case "specialty_specialgrenade":
-        case "specialty_water_cooled":
-        case "specialty_weapon_bazooka":
-        case "specialty_weapon_bouncing_betty":
-        case "specialty_weapon_flamethrower":
-            return 1;
+        case "specialty_additionalprimaryweapon":
+        case "specialty_armorpiercing":
+        case "specialty_armorvest":
+        case "specialty_bulletaccuracy":
+        case "specialty_bulletdamage":
+        case "specialty_bulletflinch":
+        case "specialty_bulletpenetration":
+        case "specialty_deadshot":
+        case "specialty_delayexplosive":
+        case "specialty_detectexplosive":
+        case "specialty_disarmexplosive":
+        case "specialty_earnmoremomentum":
+        case "specialty_explosivedamage":
+        case "specialty_extraammo":
+        case "specialty_fallheight":
+        case "specialty_fastads":
+        case "specialty_fastequipmentuse":
+        case "specialty_fastladderclimb":
+        case "specialty_fastmantle":
+        case "specialty_fastmeleerecovery":
+        case "specialty_fastreload":
+        case "specialty_fastweaponswitch":
+        case "specialty_finalstand":
+        case "specialty_fireproof":
+        case "specialty_flakjacket":
+        case "specialty_flashprotection":
+        case "specialty_gpsjammer":
+        case "specialty_grenadepulldeath":
+        case "specialty_healthregen":
+        case "specialty_holdbreath":
+        case "specialty_immunecounteruav":
+        case "specialty_immuneemp":
+        case "specialty_immunemms":
+        case "specialty_immunenvthermal":
+        case "specialty_immunerangefinder":
+        case "specialty_killstreak":
+        case "specialty_longersprint":
+        case "specialty_loudenemies":
+        case "specialty_marksman":
+        case "specialty_movefaster":
+        case "specialty_nokillstreakreticle":
+        case "specialty_nomotionsensor":
+        case "specialty_noname":
+        case "specialty_nottargetedbyairsupport":
+        case "specialty_nottargettedbysentry":
+        case "specialty_pin_back":
+        case "specialty_pistoldeath":
+        case "specialty_proximityprotection":
+        case "specialty_quickrevive":
+        case "specialty_reconnaissance":
+        case "specialty_rof":
+        case "specialty_scavenger":
+        case "specialty_showenemyequipment":
+        case "specialty_showonradar":
+        case "specialty_sprintrecovery":
+        case "specialty_stalker":
+        case "specialty_stunprotection":
+        case "specialty_twogrenades":
+        case "specialty_twoprimaries":
+        case "specialty_unlimitedsprint":
+            return 0;
     }
-    return 0;
+    return 1;
 }
 
 waw_setperk( perk )

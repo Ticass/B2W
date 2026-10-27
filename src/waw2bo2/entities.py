@@ -159,14 +159,16 @@ def convert_entities(ents: list[dict[str, str]], project: str,
                         **{f"zbarriertearanim{i}": f"o_zombie_board_{i}_pull" for i in range(1, 7)},
                     })
                     renamed["WaW brush barricades -> T6 zbarriers"] += 1
-        if cls == "info_volume":
-            # BO2 _zm kills any player not touching a "player_volume" in an
-            # enabled zone (player_out_of_playable_area_monitor). WaW's zone
-            # manager counts every info_volume named after a zone, whatever its
-            # script_noteworthy ("player_zone", "player_spawners" or none, as on
-            # initial_zone). Non-zone volumes stay harmless: the zone must be enabled.
-            renamed[f"info_volume script_noteworthy {ent.get('script_noteworthy')} -> player_volume"] += 1
-            ent["script_noteworthy"] = "player_volume"
+        twin = None
+        if cls == "info_volume" and ent.get("script_noteworthy") != "player_volume":
+            # The map's own scripts find its volumes by their script_noteworthy
+            # (School's isOutdoors reads "player_zone" volumes every tick); it
+            # stays. BO2's glue (in_enabled_playable_area, powerup drop points,
+            # _zm_spawner's playable areas) looks for "player_volume": a twin on
+            # the same brush model, after the original so the zone's volumes[0]
+            # is still the map's.
+            twin = {**ent, "script_noteworthy": "player_volume"}
+            renamed[f"info_volume script_noteworthy {ent.get('script_noteworthy')} + player_volume twin"] += 1
         if cls == 'script_struct' and ent.get('targetname') == 'player_respawn_point' and \
                 not ent.get('script_noteworthy') and not ent.get('script_string'):
             # WaW nearby-team anchors target indexed player locations. T6's
@@ -241,6 +243,8 @@ def convert_entities(ents: list[dict[str, str]], project: str,
                         "script_noteworthy": "dog_location"})
             renamed["WaW dog struct -> dog_location struct"] += 1
         out.append(ent)
+        if twin is not None:
+            out.append(twin)
 
     wall_buy_null_targets(out, renamed)
     _unique_wall_buy_targets(out, renamed)
