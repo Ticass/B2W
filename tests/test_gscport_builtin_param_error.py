@@ -65,7 +65,7 @@ class Dlc3PowerSwitchTest(unittest.TestCase):
 
     def test_map_zone_manager_is_ported_whole(self):
         # The map's own zone manager fills level.enemy_spawns for its own spawn
-        # loop; it runs on WaW-owned zone fields beside BO2's _zm_zonemgr.
+        # loop and owns level.zones (BO2's _zm_zonemgr never starts).
         sources = gscport.Sources([], [], None)
         self.assertFalse(gscport.is_core(r'maps\_zombiemode_zone_manager', sources))
         self.assertNotIn('manage_zones', gscport.API['function_renames'])
@@ -73,8 +73,9 @@ class Dlc3PowerSwitchTest(unittest.TestCase):
                                       'x = level.enemy_dog_locations; }')
         gscport.rename_level_fields(tokens)
         text = gscport.gsc.emit(tokens)
-        for field in ('waw_zones', 'waw_zone_manager_init_func', 'waw_enemy_dog_locations'):
+        for field in ('waw_zone_manager_init_func', 'waw_enemy_dog_locations'):
             self.assertIn('level.' + field, text)
+        self.assertIn('level.zones[ "a" ]', text)
 
     def test_template_callback_setup_preserves_native_lifecycle(self):
         translator = gscport.Translator(gscport.Sources([], [], None), T6Api({}, {}), gscport.PortReport())

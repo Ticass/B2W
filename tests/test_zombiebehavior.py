@@ -415,7 +415,9 @@ class ZombieBehaviorTests(unittest.TestCase):
         self.assertIn('ai forceteleport( spawn_point.origin )', body)
         bind = parsed.functions['bind_spawn_location']
         text = gsc.emit(parsed.tokens[bind.body_open:bind.body_close])
-        self.assertLess(text.index('isdefined( self.spawn_point_override )'), text.index('spots ='))
+        # WaW DoSpawn: a plain spawner's zombie appears at the spawner itself
+        self.assertLess(text.index('isdefined( self.spawn_point_override )'), text.index('point.origin = self.origin;'))
+        self.assertNotIn('zombie_spawn_locations', text)
         # a riser the source spawns itself (Shi No Numa's door-opening
         # <hut>_initial_zombies) rises at WaW's random( level.zombie_rise_spawners )
         self.assertLess(text.index('isdefined( self.spawn_point_override )'), text.index('self.script_string == "riser"'))

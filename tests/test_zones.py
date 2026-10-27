@@ -14,11 +14,6 @@ class ZoneGraphTests(unittest.TestCase):
                   'add_adjacent_zone("spawn", "yard", "door_open");\n')
         initial, adjacency = zones.read_waw_zones(script)
         self.assertEqual(initial, ['spawn', 'courtyard'])
-        patched = zones.patch_bo2_script(
-            'main()\n{\n    init_zones[0] = "start_zone";\n}\nzm_x_zone_init()\n{\n}\n',
-            'zm_x', initial, adjacency)
-        self.assertIn('init_zones[0] = "spawn";', patched)
-        self.assertIn('init_zones[1] = "courtyard";', patched)
 
     def test_script_ending_in_a_short_statement_has_no_zone_graph(self):
         # Verruckt's script ends with fewer than six tokens after an identifier
@@ -76,12 +71,6 @@ class ZoneGraphTests(unittest.TestCase):
         initial, adjacency = zones.read_waw_zones(script)
         self.assertEqual(adjacency, ['"a", "b", "door_ab"', '"a", "c", [ "door_ab", "door_bc" ], true'])
         self.assertEqual(zones.zone_names(initial, adjacency), {"a", "b", "c"})
-        call = zones.adjacent_zone_call(adjacency[1])
-        # BO2's add_adjacent_zone indexes level.flag with its flag: arrays use make_zone_adjacent
-        self.assertNotIn('add_adjacent_zone', call)
-        self.assertIn('waw2bo2_flags[1] = "door_bc";', call)
-        self.assertIn('make_zone_adjacent( "a", "c", waw2bo2_flags );', call)
-        self.assertIn('if ( !( true ) )', call)
 
     def test_map_without_zone_graph_is_not_an_error(self):
         self.assertEqual(zones.read_waw_zones("main() { maps\\_zombiemode::main(); }"), ([], []))
@@ -164,14 +153,18 @@ class SynthesizedZoneTests(unittest.TestCase):
                          ("info_volume", "*6", "lobby_area_spawners", "player_volume"))
         self.assertEqual(next(e for e in out if e.get("targetname") == "playable_area")["classname"], "trigger_multiple")
 
-    def test_bo2_script_gets_synthesized_graph(self):
-        script = ('main()\n{\n    init_zones[0] = "start_zone";\n}\n'
-                  'zm_x_zone_init()\n{\n    add_adjacent_zone( "a", "b", "c" );\n}\n')
-        patched = zones.patch_bo2_script(script, "zm_x", ["waw2bo2_zone"],
-                                         ['"waw2bo2_zone", "waw2bo2_zone_1", "waw2bo2_zone_1_open"'])
-        self.assertIn('init_zones[0] = "waw2bo2_zone";', patched)
-        self.assertIn('add_adjacent_zone( "waw2bo2_zone", "waw2bo2_zone_1", "waw2bo2_zone_1_open" );', patched)
-        self.assertNotIn('"a", "b"', patched)
+    def test_the_maps_zone_manager_runs_and_bo2s_never_starts(self):
+        template = ('main()\n{\n    level.zones = [];\n    level.zone_manager_init_func = ::zm_x_zone_init;\n'
+                    '    init_zones = [];\n    init_zones[0] = "start_zone";\n'
+                    '    level thread maps\\mp\\zombies\\_zm_zonemgr::manage_zones( init_zones );\n'
+                    '    level.zombie_ai_limit = 24;\n}\n')
+        out = zones.drop_bo2_zone_manager(template)
+        self.assertNotIn("manage_zones", out)
+        self.assertNotIn("zone_manager_init_func", out)
+        self.assertIn("level.zones = [];", out)
+        self.assertIn("level.zombie_ai_limit = 24;", out)
+        with self.assertRaises(zones.ZoneError):
+            zones.drop_bo2_zone_manager(out)
 
 
 if __name__ == "__main__":

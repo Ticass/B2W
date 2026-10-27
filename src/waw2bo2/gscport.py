@@ -440,9 +440,9 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
 # (BO2 powerups such as fire sale iterate level.chests as BO2 structs).
 WAW_LEVEL_FIELDS = {"script": "waw_script", "chests": "waw_chests", "chest_index": "waw_chest_index", "_effect": "waw_effect"}
 WAW_LEVEL_FIELDS["zombie_move_speed"] = API['zombie_runtime']['source_speed']['owned_result_field']
-# The map's own zone manager (preserved _zombiemode_zone_manager) keeps the
-# zones, its init pointer and the dog spawn lists the source spawn and dog
-# code read; BO2's _zm_zonemgr keeps its own for the BO2 triggers still in use.
+# The map's own zone manager (preserved _zombiemode_zone_manager) keeps its
+# init pointer and the dog spawn lists the source spawn and dog code read
+# (BO2's _zm sets the same names).
 # The map's own weapon registry and box (preserved _zombiemode_weapons): BO2's
 # _zm_weapons/_zm_magicbox keep theirs for the BO2 code still running.
 WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
@@ -454,7 +454,9 @@ WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
 # the same names to its functions for the BO2 code still running.
 WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
     "overrideplayerdamage", "playerlaststand_func", "player_becomes_zombie", "laststandpistol")})
-WAW_LEVEL_FIELDS.update({"zones": "waw_zones", "zone_manager_init_func": "waw_zone_manager_init_func",
+# level.zones is the map's: its zone manager is the only one (zones.py drops
+# BO2's start); BO2's glue reads the same fields (is_enabled, volumes...).
+WAW_LEVEL_FIELDS.update({"zone_manager_init_func": "waw_zone_manager_init_func",
                          "enemy_dog_locations": "waw_enemy_dog_locations",
                          "enemy_dog_spawns": "waw_enemy_dog_spawns"})
 WAW_BOX_FLAGS = {'moving_chest_enabled', 'moving_chest_now', 'chest_has_been_used',

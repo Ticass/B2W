@@ -1,20 +1,16 @@
-"""Carry the WaW zombie zone graph into the BO2 map script.
+"""The WaW zombie zone graph, and BO2's zone manager kept out.
 
-WaW (_zombiemode_zone_manager) and BO2 (_zm_zonemgr) share the model: zones
-are ``info_volume`` brush entities named by targetname, linked with
-``add_adjacent_zone( a, b, flag )`` where the flag is set by the door that
-opens the connection, plus a list of zones active at start. The WaW map
-script is plain GSC in the map zone; both are read from its tokens, so
-commented-out and developer-only (``/# #/``) calls are not part of the graph.
+WaW drives zones: the map's own _zombiemode_zone_manager (preserved, started
+by the map's own code) keeps level.zones; the template main's start of BO2's
+_zm_zonemgr is removed (drop_bo2_zone_manager). Zones are ``info_volume``
+brush entities named by targetname, linked with ``add_adjacent_zone( a, b,
+flag )``, plus a list of zones active at start; the graph is read from the
+map script's tokens (commented-out and ``/# #/`` calls are not part of it)
+for the entity conversion and the build report.
 
 A flag argument may be a local array built just before the call (Der Riese:
-``flag_array[0] = ...; add_adjacent_zone( a, b, flag_array, true )``). Both
-frameworks require every flag of such an array (and any one of several
-single-flag calls for the same pair). The array is resolved from the local
-assignments in source order and written as ``[ "f0", "f1" ]``; BO2's
-add_adjacent_zone indexes level.flag with its flag argument, so those links
-are made through _zm_zonemgr's zone_init/make_zone_adjacent, as WaW's own
-add_adjacent_zone does.
+``flag_array[0] = ...; add_adjacent_zone( a, b, flag_array, true )``); it is
+resolved from the local assignments in source order as ``[ "f0", "f1" ]``.
 """
 from __future__ import annotations
 
@@ -31,9 +27,6 @@ INIT_ZONE_RE = re.compile(
 
 class ZoneError(ValueError):
     pass
-
-
-ARRAY_ARG_RE = re.compile(r'^\[(.*)\]$')
 
 
 def live_tokens(waw_gsc: str) -> list[gsc.Token]:
@@ -133,57 +126,29 @@ def zone_names(initial: list[str], adjacency: list[str]) -> set[str]:
     return names
 
 
-def patch_bo2_script(bo2_gsc: str, project: str, initial: list[str], adjacency: list[str]) -> str:
-    """Replace the template's single ``start_zone`` setup with the WaW zones."""
-    init_block = "".join(f'    init_zones[{i}] = "{z}";\n' for i, z in enumerate(initial))
-    out, n = re.subn(r'^\s*init_zones\[0\] = "start_zone";\n', init_block, bo2_gsc, flags=re.MULTILINE)
-    if n != 1 and init_block not in bo2_gsc:
-        raise ZoneError("template init_zones block not found in the map script")
-    body = "".join(adjacent_zone_call(args) for args in adjacency)
-    func = re.compile(rf"^{re.escape(project)}_zone_init\(\)\s*\{{.*?^\}}", re.MULTILINE | re.DOTALL)
-    if not func.search(out):
-        raise ZoneError(f"{project}_zone_init() not found in the map script")
-    return func.sub(lambda _: f"{project}_zone_init()\n{{\n    // zone graph from the WaW map script\n{body}}}", out, count=1)
+# The template main starts BO2's zone manager on its own graph.
+BO2_ZONE_MANAGER = re.compile(
+    r'^\s*level\.zone_manager_init_func = ::\w+_zone_init;\n'
+    r'\s*init_zones = \[\];\n(?:\s*init_zones\[\d+\] = "[^"]*";\n)+'
+    r'\s*level thread maps\\mp\\zombies\\_zm_zonemgr::manage_zones\( init_zones \);\n', re.MULTILINE)
 
 
-def _split_args(args: str) -> list[str]:
-    parts, depth, current = [], 0, ''
-    for ch in args:
-        depth += ch in '[('
-        depth -= ch in '])'
-        if ch == ',' and depth == 0:
-            parts.append(current.strip())
-            current = ''
-        else:
-            current += ch
-    return parts + [current.strip()] if current.strip() else parts
-
-
-def adjacent_zone_call(args: str) -> str:
-    """One WaW add_adjacent_zone in BO2 form (see the module docstring)."""
-    parts = _split_args(args)
-    array = ARRAY_ARG_RE.match(parts[2]) if len(parts) > 2 else None
-    if array is None:
-        return f"    add_adjacent_zone( {args} );\n"
-    a, b = parts[0], parts[1]
-    flags = _split_args(array[1])
-    one_way = parts[3] if len(parts) > 3 else 'false'
-    lines = ['    waw2bo2_flags = [];']
-    lines += [f'    waw2bo2_flags[{i}] = {flag};' for i, flag in enumerate(flags)]
-    lines += [f'    if ( !isdefined( level.flag[{flag}] ) )\n        flag_init( {flag} );' for flag in flags]
-    lines += [f'    zone_init( {a} );', f'    zone_init( {b} );',
-              f'    make_zone_adjacent( {a}, {b}, waw2bo2_flags );',
-              f'    if ( !( {one_way} ) )\n        make_zone_adjacent( {b}, {a}, waw2bo2_flags );']
-    return '\n'.join(lines) + '\n'
+def drop_bo2_zone_manager(bo2_gsc: str) -> str:
+    """WaW drives zones: the map's own zone manager (the preserved
+    _zombiemode_zone_manager, started by the map's own code) keeps level.zones;
+    BO2's is never started beside it. A map without one has none in WaW either."""
+    out, n = BO2_ZONE_MANAGER.subn(
+        "    // waw2bo2: WaW drives zones: the map's own zone manager runs (none here: BO2's never starts)\n",
+        bo2_gsc, count=1)
+    if n != 1:
+        raise ZoneError("template zone manager start not found in the map script")
+    return out
 
 
 def apply(waw_gsc_path: Path, bo2_gsc_path: Path, project: str,
           synthesized: dict | None = None) -> tuple[list[str], int]:
+    """The map's zone graph (reported), and BO2's zone manager removed."""
     initial, adjacency = read_waw_zones(waw_gsc_path.read_text(encoding="utf-8", errors="replace"))
-    if not adjacency and synthesized:
-        initial, adjacency = synthesized["initial"], synthesized["adjacency"]
-    if not initial:
-        raise ZoneError("no add_adjacent_zone calls in the WaW map script and no zombie spawners to build zones from")
     text = bo2_gsc_path.read_text(encoding="utf-8", errors="replace")
-    bo2_gsc_path.write_text(patch_bo2_script(text, project, initial, adjacency), encoding="utf-8")
+    bo2_gsc_path.write_text(drop_bo2_zone_manager(text), encoding="utf-8")
     return initial, len(adjacency)

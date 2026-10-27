@@ -598,12 +598,9 @@ bind_spawn_location()
         // zones players are in), as choose_spawn_location does for round
         // spawns. Source scripts also spawn risers themselves (Shi No Numa's
         // <hut>_initial_zombies when a door opens): with no point chosen, T6
-        // would take any active zone location. With the list empty WaW's
-        // riser stays at its spawner. Maps without the list keep BO2's zone
-        // selection.
-        if ( !isdefined( level.{rise_field} ) )
-            return;
-        if ( level.{rise_field}.size )
+        // would take any active zone location. With the list empty or absent
+        // WaW's riser stays at its spawner.
+        if ( isdefined( level.{rise_field} ) && level.{rise_field}.size )
         {{
             self.spawn_point_override = rise_point( level.{rise_field}[randomint( level.{rise_field}.size )], self );
             return;
@@ -617,18 +614,18 @@ bind_spawn_location()
         self.spawn_point_override = point;
         return;
     }}
-    if ( !isdefined( level.zombie_spawn_locations ) )
-        return;
-    spots = level.zombie_spawn_locations;
-    foreach ( spot in spots )
-    {{
-        if ( spot.script_noteworthy == "{definition['plain_spawn_location']}" &&
-             distancesquared( self.origin, spot.origin ) < 0.01 )
-        {{
-            self.spawn_point_override = spot;
-            return;
-        }}
-    }}
+    // WaW DoSpawn: the zombie appears at its spawner (the map's own zone
+    // manager chose the spawner); not a location from BO2's zone lists.
+    point = spawnstruct();
+    point.origin = self.origin;
+    point.angles = self.angles;
+    point.script_noteworthy = "{definition['plain_spawn_location']}";
+    point.target = self.target;
+    point.targetname = self.targetname;
+    // T6 reads any other string as a barrier id (choose_spawn_location)
+    if ( isdefined( self.script_string ) && self.script_string == "{membership['source_chaser_value']}" )
+        point.script_string = "{membership['native_chaser_value']}";
+    self.spawn_point_override = point;
 }}
 
 rise_point( anchor, actor )

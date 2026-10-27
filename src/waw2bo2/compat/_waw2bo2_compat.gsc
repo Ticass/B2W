@@ -89,6 +89,7 @@ init()
     level thread stuck_zombie_monitor();
     level thread waw_window_paths();
     level thread power_bridge();
+    level thread waw_zone_bookkeeping();
 }
 
 // WaW cuts and restores a window's paths through its clip brush, which BO2's
@@ -268,12 +269,27 @@ power_bridge()
     level thread maps\mp\waw\_waw2bo2_perks::perk_unpause_all_perks();
 }
 
-// WaW maps (the DLC3 template's DLC3_threadCalls2 among them) start the zone
-// manager themselves. The generated BO2 map main already runs
-// _zm_zonemgr::manage_zones with the zones read from the map script; a second
-// manager would double every zone's spawner bookkeeping.
-waw_manage_zones( initial_zones )
+// The map's own zone manager owns level.zones (BO2's never starts). BO2 glue
+// still running (zbarrier windows, its zone lookups) reads the bookkeeping
+// BO2's manager kept beside it: the zone key list, the zones_initialized
+// flag and zone_scanning_active. Mirror the map's zones for those readers.
+waw_zone_bookkeeping()
 {
+    level.zone_scanning_active = 0;
+    if ( !isdefined( level.flag ) || !isdefined( level.flag["zones_initialized"] ) )
+        flag_init( "zones_initialized" );
+    count = -1;
+    while ( true )
+    {
+        if ( isdefined( level.zones ) && level.zones.size != count )
+        {
+            count = level.zones.size;
+            level.zone_keys = getarraykeys( level.zones );
+            if ( count && !flag( "zones_initialized" ) )
+                flag_set( "zones_initialized" );
+        }
+        wait 1;
+    }
 }
 
 // WaW's template installs the SP/coop engine callbacks here. T6's Zombies
