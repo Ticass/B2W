@@ -286,6 +286,20 @@ def convert(name: str, source: dict[str, str], t4_schema: dict[str, str], t6_sch
         out.fields["adsOverlayAlphaScale"] = "1"
         out.translations["adsOverlayAlphaScale"] = {"source": None, "target": "1",
             "reason": "T6-only overlay alpha scale; WaW draws the scope overlay opaque"}
+    # T6 scales view-kick recentering while crouched/prone by two fields WaW
+    # lacks (0 when omitted: crouched, the camera never recentres after the
+    # kick). WaW recentres the same in every stance. Every stock BO2 weapon
+    # with a view kick sets >= 1 (zm_tomb/zm_transit: 0 only on grenades,
+    # melee and turrets, which have none); 1 keeps WaW's unscaled centering.
+    kick_keys = [k for k in ("adsViewKickPitchMin", "adsViewKickPitchMax", "adsViewKickYawMin",
+                             "adsViewKickYawMax", "hipViewKickPitchMin", "hipViewKickPitchMax",
+                             "hipViewKickYawMin", "hipViewKickYawMax") if k in source]
+    if any(float(source[k] or 0) != 0 for k in kick_keys):
+        for key in ("adsViewKickCenterDuckedScale", "adsViewKickCenterProneScale"):
+            if key not in source and key in t6_schema:
+                out.fields[key] = "1"
+                out.translations[key] = {"source": None, "target": "1",
+                    "reason": "T6-only stance scale on view-kick recentering; WaW recentres unscaled"}
     # WaW selects offhands by class. T6 additionally needs a slot; leaving its
     # new field at None produces an offhand the grenade inventory cannot own.
     slot = {"Frag Grenade": "Lethal grenade", "Smoke Grenade": "Tactical grenade",

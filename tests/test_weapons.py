@@ -56,6 +56,16 @@ class WeaponTests(unittest.TestCase):
         plain = weapons.convert("gun", {"adsOverlayReticle": "none"}, t4, t6)
         self.assertNotIn("adsOverlayAlphaScale", plain.fields)
 
+    def test_view_kick_recentres_while_crouched_and_prone(self):
+        # Der Riese: crouched, the camera kept the kick (T6 scale omitted = 0)
+        t4 = {"hipViewKickPitchMin": "CSPFT_FLOAT", "adsViewKickPitchMin": "CSPFT_FLOAT"}
+        t6 = dict(t4, adsViewKickCenterDuckedScale="CSPFT_FLOAT", adsViewKickCenterProneScale="CSPFT_FLOAT")
+        gun = weapons.convert("zombie_thompson", {"hipViewKickPitchMin": "35", "adsViewKickPitchMin": "60"}, t4, t6)
+        self.assertEqual(gun.fields["adsViewKickCenterDuckedScale"], "1")
+        self.assertEqual(gun.fields["adsViewKickCenterProneScale"], "1")
+        grenade = weapons.convert("stielhandgranate", {"hipViewKickPitchMin": "0"}, t4, t6)
+        self.assertNotIn("adsViewKickCenterDuckedScale", grenade.fields)
+
     def test_waw_offhand_class_gets_t6_inventory_slot(self):
         schema = {"offhandClass": "WFT_OFFHAND_CLASS"}
         for cls, slot in (("Frag Grenade", "Lethal grenade"),
