@@ -2151,6 +2151,17 @@ waw_set_maxhealth( value )
         self.maxhealth = value;
 }
 
+// WaW's engine field setter for a player's health also sets the player's
+// maximum health to the new value (its scripts save .maxhealth around a write
+// they do not mean to cap: _gameskill's regen, _collectibles_game). T6 keeps
+// the cap, so the setter's effect is applied here; AI have no such setter.
+waw_set_health( value )
+{
+    if ( isplayer( self ) )
+        self setmaxhealth( value );
+    self.health = value;
+}
+
 // WaW BloodImpact( bool ); T6 takes "normal", "hero" or "none" and errors on
 // anything else, which ended WaW's magic_bullet_shield before its health loop.
 waw_bloodimpact( on )

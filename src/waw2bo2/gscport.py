@@ -954,9 +954,28 @@ def lower_maxhealth_assignments(tokens: list[gsc.Token]) -> int:
     so health stayed clamped to 100 and regenerated only that far. The
     helper uses setmaxhealth for players and keeps the field for AI.
     """
+    return lower_field_assignments(tokens, 'maxhealth', 'waw_set_maxhealth')
+
+
+def lower_health_assignments(tokens: list[gsc.Token]) -> int:
+    """`<ent>.health = / -= / += <expr>;` -> `<ent> waw_set_health( <value> );`.
+
+    WaW's engine field setter for health also sets a player's maximum health
+    to the new value. Its scripts save .maxhealth around a write they do not
+    mean to cap (_gameskill's regen, _collectibles_game); writes that do not
+    (_zombiemode_tesla's self-hit) leave the player's cap at the lowered
+    health, so it never regenerates. T6 keeps the cap; the helper sets it.
+    """
+    return lower_field_assignments(tokens, 'health', 'waw_set_health')
+
+
+def lower_field_assignments(tokens: list[gsc.Token], field: str, helper: str) -> int:
+    """`<ent>.<field> <op> <expr>;` statements -> `<ent> <helper>( <value> );`,
+    where `-=`/`+=` become `<ent>.<field> - ( <expr> )`."""
     changed = 0
     for i in range(2, len(tokens) - 2):
-        if tokens[i].low != 'maxhealth' or tokens[i - 1].text != '.' or tokens[i + 1].text != '=':
+        op = tokens[i + 1].text
+        if tokens[i].low != field or tokens[i - 1].text != '.' or op not in ('=', '-=', '+='):
             continue
         start = i - 2  # receiver: identifiers joined by '.' and [index] groups
         while True:
@@ -986,15 +1005,20 @@ def lower_maxhealth_assignments(tokens: list[gsc.Token]) -> int:
             end += 1
         if tokens[end].text != ';':
             continue
+        receiver = gsc.emit(tokens[start:i - 1]).strip()
         tokens[i - 1].text = ''
-        tokens[i].text = ' ' + COMPAT + '::waw_set_maxhealth('
+        tokens[i].text = ' ' + COMPAT + '::' + helper + '('
         # no longer a name: an IDENT here made the reference scanner read the
         # first call of the expression as a method (`x int( ... )`) and stub it
         tokens[i].kind = gsc.PUNCT
         tokens[i].pre = ''
         tokens[i + 1].text = tokens[i + 1].pre = ''
         tokens[i + 2].pre = ' '
-        tokens[end].text = ' );'
+        if op != '=':
+            tokens[i + 1].text = f' {receiver}.{field} {op[0]} ('
+            tokens[end].text = ' ) );'
+        else:
+            tokens[end].text = ' );'
         changed += 1
     return changed
 
@@ -2272,6 +2296,7 @@ class Translator:
     def source_lowerings(self, tokens: list[gsc.Token]) -> None:
         """WaW semantics lowered onto T6 for ported and extracted source code alike."""
         self.report.rewrites["maxhealth assignments through setmaxhealth for players"] += lower_maxhealth_assignments(tokens)
+        self.report.rewrites["health assignments set a player's cap (WaW field setter)"] += lower_health_assignments(tokens)
         self.report.rewrites["zombie_weapons key lists without BO2-only entries"] += lower_zombie_weapon_keys(tokens)
         self.report.rewrites["HUD fields (safe-area anchors, hidden in menus)"] += lower_hud_fields(tokens)
 

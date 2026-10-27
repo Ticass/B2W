@@ -42,6 +42,28 @@ class MaxHealthLoweringTests(unittest.TestCase):
         self.assertEqual(lower(source), (0, source))
 
 
+class HealthLoweringTests(unittest.TestCase):
+    SET = gscport.COMPAT + "::waw_set_health("
+
+    def test_health_writes_go_through_the_waw_field_setter(self):
+        # _zombiemode_tesla's self-hit: WaW's setter also lowers the cap
+        tokens = gsc.tokenize('f()\n{\n    self.health -= damage;\n    if ( x ) self.health = 1;\n'
+                              '    else players[i].health += 25;\n    a = self.health;\n}\n')
+        self.assertEqual(gscport.lower_health_assignments(tokens), 3)
+        text = gsc.emit(tokens)
+        self.assertIn(f"self {self.SET} self.health - ( damage ) );", text)
+        self.assertIn(f"if ( x ) self {self.SET} 1 );", text)
+        self.assertIn(f"else players[i] {self.SET} players[i].health + ( 25 ) );", text)
+        self.assertIn("a = self.health;", text)
+        gsc.parse(text, "<lowered>")
+
+    def test_compat_setter_sets_the_player_cap(self):
+        script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
+        fn = script.functions["waw_set_health"]
+        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
+        self.assertIn("self setmaxhealth( value );", body)
+
+
 class HudFieldLoweringTests(unittest.TestCase):
     def test_edge_anchors_use_safe_area_and_hud_hides_in_menus(self):
         source = ('f()\n{\n\thud.alignX = "left";\n\thud.horzAlign = "left";\n\thud.vertAlign = "bottom";\n'
