@@ -1896,6 +1896,14 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             if bo2_root is None:
                 raise ValueError("BO2 runtime sources required to stage WaW perk ownership")
             gscport.stage_bo2_perk_support(project_root, bo2_root, bo2_stock_perks=bo2_stock_perks)
+            from . import perktable
+            perks = perktable.stage(project_root)
+            report.content['emulated_perks'] = perks
+            if perks.get('error'):
+                report.warnings.append(f"PERK_TABLE_UNAVAILABLE {perks['error']}")
+            elif perks['emulated']:
+                report.warnings.append(f"EMULATED_PERKS {', '.join(perks['emulated'])}: the map's perk names T6's perk "
+                                       f"table lacks; kept in a script-side table")
             zombiebehavior.stage_native_support(project_root, bo2_root, gscport.API['zombie_runtime'])
             scorebehavior.stage_native(project_root, bo2_root)
             if bo2_stock_perks:

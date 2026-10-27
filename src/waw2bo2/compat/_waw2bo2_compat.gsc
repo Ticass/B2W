@@ -76,6 +76,7 @@ init()
     maps\mp\waw\_waw2bo2_hint_defaults::init();
     maps\mp\waw\_waw2bo2_bo2weapons::init();
     maps\mp\waw\_waw2bo2_visions::init();
+    maps\mp\waw\_waw2bo2_perk_table::init();
     maps\mp\_utility::registerclientsys( "waw_sun" );
     maps\mp\_utility::registerclientsys( "waw_vision_global" );
     maps\mp\_utility::registerclientsys( "waw_vision_player" );
@@ -2048,79 +2049,13 @@ waw_missing_model( name )
     report( "XMODEL", name );
 }
 
-// Maps use perk names T6's perk table lacks (T6 SetPerk/HasPerk/UnsetPerk
-// raise "Unknown perk"): WaW-only ones (specialty_boost = Electric Cherry,
-// specialty_shades = Who's Who, specialty_altmelee = bowie) and custom markers
-// (School's specialty_marathon). They carry no engine effect the scripts rely
-// on, so the player keeps them in a script-side table. Every name outside
-// T6's table (the 60 specialty_ names in t6zm.exe) is emulated.
+// T6 SetPerk/HasPerk/UnsetPerk raise "Unknown perk" for a name outside the
+// engine's perk table. The build detects the map's names T6 lacks
+// (perktable.py: the installed T6 executable's table against the ported
+// scripts); the player keeps those in a script-side table instead.
 waw_perk_emulated( perk )
 {
-    switch ( perk )
-    {
-        case "specialty_additionalprimaryweapon":
-        case "specialty_armorpiercing":
-        case "specialty_armorvest":
-        case "specialty_bulletaccuracy":
-        case "specialty_bulletdamage":
-        case "specialty_bulletflinch":
-        case "specialty_bulletpenetration":
-        case "specialty_deadshot":
-        case "specialty_delayexplosive":
-        case "specialty_detectexplosive":
-        case "specialty_disarmexplosive":
-        case "specialty_earnmoremomentum":
-        case "specialty_explosivedamage":
-        case "specialty_extraammo":
-        case "specialty_fallheight":
-        case "specialty_fastads":
-        case "specialty_fastequipmentuse":
-        case "specialty_fastladderclimb":
-        case "specialty_fastmantle":
-        case "specialty_fastmeleerecovery":
-        case "specialty_fastreload":
-        case "specialty_fastweaponswitch":
-        case "specialty_finalstand":
-        case "specialty_fireproof":
-        case "specialty_flakjacket":
-        case "specialty_flashprotection":
-        case "specialty_gpsjammer":
-        case "specialty_grenadepulldeath":
-        case "specialty_healthregen":
-        case "specialty_holdbreath":
-        case "specialty_immunecounteruav":
-        case "specialty_immuneemp":
-        case "specialty_immunemms":
-        case "specialty_immunenvthermal":
-        case "specialty_immunerangefinder":
-        case "specialty_killstreak":
-        case "specialty_longersprint":
-        case "specialty_loudenemies":
-        case "specialty_marksman":
-        case "specialty_movefaster":
-        case "specialty_nokillstreakreticle":
-        case "specialty_nomotionsensor":
-        case "specialty_noname":
-        case "specialty_nottargetedbyairsupport":
-        case "specialty_nottargettedbysentry":
-        case "specialty_pin_back":
-        case "specialty_pistoldeath":
-        case "specialty_proximityprotection":
-        case "specialty_quickrevive":
-        case "specialty_reconnaissance":
-        case "specialty_rof":
-        case "specialty_scavenger":
-        case "specialty_showenemyequipment":
-        case "specialty_showonradar":
-        case "specialty_sprintrecovery":
-        case "specialty_stalker":
-        case "specialty_stunprotection":
-        case "specialty_twogrenades":
-        case "specialty_twoprimaries":
-        case "specialty_unlimitedsprint":
-            return 0;
-    }
-    return 1;
+    return isdefined( level.waw2bo2_emulated_perks ) && isdefined( level.waw2bo2_emulated_perks[perk] );
 }
 
 waw_setperk( perk )

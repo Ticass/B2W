@@ -3700,6 +3700,9 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     # filled with the linked mod.ff's weapons by build-mod
     (out_dir / BO2_WEAPONS_SCRIPT).write_text(bo2_weapons_source(), encoding="utf-8")
     (out_dir / "_waw2bo2_visions.gsc").write_text('init()\n{\n    level.waw2bo2_visions = [];\n}\n', encoding="utf-8")
+    # filled with the map's perk names T6 lacks by t6bridge (perktable.stage)
+    from . import perktable
+    (out_dir / perktable.SCRIPT).write_text(perktable.source(set()), encoding="utf-8")
     (out_dir / "_waw2bo2_precache.gsc").write_text(precache_source([]), encoding="utf-8")
     # one-way clip sheets come from the collision (t6bridge.port_scripts)
     (out_dir / "_waw2bo2_oneway.gsc").write_text(oneway.oneway_source([]), encoding="utf-8")
