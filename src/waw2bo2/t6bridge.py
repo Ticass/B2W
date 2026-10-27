@@ -1600,7 +1600,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                  audio_decoder: Path | None = None, xwma_decoder: Path | None = None,
                  t6_sound_driver: Path | None = None, approximate_sound_curves: bool = False,
                  bo2_stock_perks: bool = False, remaster_bo2_materials: bool = False,
-                 waw_stock_map: bool = False) -> StageReport:
+                 waw_stock_map: bool = False, map_roots: list[Path] | None = None) -> StageReport:
     """Stage everything the bridge links. ``extra_roots`` are unlinker dumps of
     the zones WaW loads with the map (mod.ff, common.ff): references the map
     zone does not define resolve there, in that order."""
@@ -1639,6 +1639,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     report.content['physics_constraints'] = map_constraints
     sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw)
     ents_file = source_entities(gfx_bin, stage, roots)
+    # The map is king: every model its own zones ship converts, referenced or
+    # not (Industrial Estate's zombie-hero viewhands are picked through arrays
+    # no reference scan follows). Stock WaW models stay reference-driven.
+    shipped = shipped_models(map_roots or [])
+    report.content['map_shipped_models'] = len(shipped)
     script_models: set[str] = set()
     # map-placed script_model entities: WaW collides each one (see hulls.SCRIPT_MODEL_CONTENTS)
     entity_box_models: set[str] = set()
@@ -1781,7 +1786,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # the clipmap's dynents reference their xmodel in the map zone too
     clip_models |= {e['xModel'] for e in map_dynents}
     # Entity placements need the same complete lookup as script-only models.
-    resolved = recover_script_models(report, script_models | clip_models | {m.name for m in world.static_models},
+    resolved = recover_script_models(report, script_models | shipped | clip_models | {m.name for m in world.static_models},
                                      roots, stock_waw, source_waw)
     entities_json = project_root / "BSP" / "entities.json"
     if entities_json.exists():
@@ -1796,8 +1801,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             entity_box_models -= absent
             report.warnings.append(f"ENTITY_MODEL_MISSING {sorted(absent)}: in no WaW zone or source; "
                                    f"{count} entities keep no model (WaW draws its default model)")
-    model_materials = stage_models(report, world, project, stage, project_root, script_models | clip_models, roots,
-                                   entity_box_models)
+    model_materials = stage_models(report, world, project, stage, project_root,
+                                   script_models | (shipped & resolved) | clip_models, roots, entity_box_models)
     stage_dynents(report, project_root, map_dynents, roots, stock_waw)
     projectile_models = projectilecollision.recover(report, world, clip, project_root, roots)
     fx_models = stage_fx_models(report, project_root, effects.models)
@@ -2218,7 +2223,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         bo2_root / 'raw' if bo2_root else None)
     report.content['rumbles'] = rumble_report
     report.errors += [f'RUMBLE_DEPENDENCY_MISSING {name}' for name in rumble_report['missing']]
-    write_zone(stage, project, images, ipak, sorted(script_models | fx_models | projectile_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
+    write_zone(stage, project, images, ipak, sorted(script_models | (shipped & resolved) | fx_models | projectile_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
                [m for m in hud_materials if m in staged] + rope_runtime['materials'], [localization_report['asset']], rumble_report['files'])
 
     # CLAUDE.md: the map's own framework runs; every function BO2 runs in its
@@ -2857,6 +2862,16 @@ def stock_wrapped_models(sources, ported: list[str], map_roots: list[Path]) -> s
     texts = [sources.text.get(path + ".gsc", sources.stock.get(path + ".gsc", "")) for path in ported]
     local = assetresolve.Resolver(map_roots)
     return {name for name in wrapped_model_literals(texts) if local.find("xmodel", name)}
+
+
+def shipped_models(map_roots: list[Path]) -> set[str]:
+    """Every xmodel the map's own zone dumps define."""
+    names = set()
+    for root in map_roots:
+        folder = root / "xmodel"
+        if folder.is_dir():
+            names |= {p.relative_to(folder).with_suffix("").as_posix() for p in folder.rglob("*.json")}
+    return names
 
 
 def recover_script_models(report: StageReport, wanted: set[str], roots: list[Path],

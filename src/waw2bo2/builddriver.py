@@ -258,6 +258,7 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
     mapzone = world_name(mapraw, source.stem)
     roots = [str(p) for p in sources.values()] + [str(wawraw)]
     extra = [arg for path in roots for arg in ('--extra-root', path)]
+    extra += [arg for path in sources.values() for arg in ('--map-root', str(path))]
     linker = Path(settings.t6) / 'Linker.exe'
     print('== 1. using pre-extracted stock assets (no stock dumping)', flush=True)
     print(f'== 2. staging {project}', flush=True)
