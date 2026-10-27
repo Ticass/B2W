@@ -212,7 +212,6 @@ class StockMapPolicyTests(unittest.TestCase):
     def test_compat_runtime_defines_the_policy_functions(self):
         script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
         for name in ("waw_stock_perk_cost", "waw_stock_solo_revive", "waw_stock_solo_revive_bought",
-                     "waw_player_damage_override",
                      "waw_linkto", "waw_linked_trigger_contacts"):
             self.assertIn(name, script.functions)
         self.assertNotIn("waw_round_health", script.functions)
@@ -277,10 +276,11 @@ class StockMapPolicyTests(unittest.TestCase):
         self.assertIn("if ( !isdefined( self ) )", gsc.emit(script.tokens[guard.body_open:guard.body_close + 1]))
         self.assertIn("dodamage", gscport.API["compat_wrappers"])
 
-    def test_explicit_waw_damage_override_call_keeps_waw_semantics(self):
-        self.assertEqual(gscport.API["function_renames"]["player_damage_override"],
-                         "maps\\mp\\waw\\_waw2bo2_compat::waw_player_damage_override")
-
+    def test_explicit_waw_damage_override_call_runs_the_maps_own(self):
+        # Shi No Numa's flogger calls player_damage_override directly: the map's
+        # own function runs (source-driven), no compat stand-in
+        self.assertNotIn("player_damage_override", gscport.API["function_renames"])
+        self.assertTrue(gscport.source_drives(gscport.ZOMBIEMODE, "player_damage_override"))
 
 if __name__ == "__main__":
     unittest.main()

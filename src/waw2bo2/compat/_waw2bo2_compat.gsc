@@ -2348,29 +2348,6 @@ waw_dog_source_health()
 
 // ---- WaW framework calls with WaW semantics ----
 
-// A script calling WaW's _zombiemode::player_damage_override directly (Shi
-// No Numa's flogger in solo) asks "does this hit down the player?". WaW's
-// stock body never takes health: a hit below current health only marks the
-// attacker and returns; otherwise the player goes down. BO2's function of
-// that name is its damage callback (it needs a weapon name and returns the
-// damage to apply), so a downing hit goes through native damage instead,
-// letting BO2's last stand, solo revive and game over decide the rest.
-waw_player_damage_override( einflictor, eattacker, idamage, idflags, smeansofdeath, sweapon, vpoint, vdir, shitloc, modelindex, psoffsettime )
-{
-    if ( !isdefined( idamage ) || idamage < self.health )
-    {
-        if ( isdefined( eattacker ) )
-            eattacker.sound_damage_player = self;
-        return;
-    }
-    if ( self maps\mp\zombies\_zm_laststand::player_is_in_laststand() )
-        return;
-    origin = self.origin;
-    if ( isdefined( vpoint ) )
-        origin = vpoint;
-    self dodamage( self.health + 100, origin );
-}
-
 // ---- stock WaW map policies (gscport stock_map_policies; never custom maps) ----
 
 waw_stock_perk_cost( perk, cost )

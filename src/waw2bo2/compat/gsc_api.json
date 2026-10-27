@@ -60,6 +60,14 @@
         "main": "the map entry; BO2's gametype starts the game"
       }
     },
+    "maps\\_zombiemode_spawner": {
+      "doc": "The map's zombie functions run where its code calls them (head gibs, flame damage, attack setup, pathing for its own AI). glue: BO2 owns the job below.",
+      "glue": {
+        "zombie_spawn_init": "T6 actor setup on BO2's spawned actor (ASD animations, traversals); the converter's actor glue calls it",
+        "zombie_eye_glow_stop": "the eyes are made by BO2's actor setup (zombie_spawn_init); only its stop removes them",
+        "is_spawner_targeted_by_blocker": "windows are BO2 zbarriers until the map's blockers drive"
+      }
+    },
     "maps\\_laststand": {
       "doc": "WaW drives last stand: downs, the revive trigger and HUD, bleedout, pistol and weapons. T6's last stand callback runs the map's _callbackglobal entry (source_player_damage).",
       "glue": {}
@@ -289,7 +297,6 @@
     "set_hint_string": "maps\\mp\\waw\\_waw2bo2_compat::waw_set_hint_string",
     "include_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_include_weapon",
     "add_zombie_weapon": "maps\\mp\\waw\\_waw2bo2_compat::waw_add_zombie_weapon",
-    "player_damage_override": "maps\\mp\\waw\\_waw2bo2_compat::waw_player_damage_override",
     "powerup_drop": "maps\\mp\\waw\\_waw2bo2_compat::waw_powerup_drop",
     "create_simple_hud": "maps\\mp\\waw\\_waw2bo2_compat::waw_create_simple_hud"
   },
