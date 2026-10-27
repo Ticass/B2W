@@ -84,7 +84,8 @@ class PerkOwnershipTests(unittest.TestCase):
                 'maps\\mp\\zombies\\_zm_score::init();\n'
                 '    level.gamedifficulty = getgametypesetting( "zmDifficulty" );\n'
                 + gscport.WAW_START_LOCATION[0] +
-                '    level.put_timed_out_zombies_back_in_queue = 1;\n}\n'
+                '    level.put_timed_out_zombies_back_in_queue = 1;\n'
+                '    ' + gscport.WAW_NO_PLAYABLE_AREA_MONITOR[0] + '\n}\n'
                 'round_think()\n{\n    setroundsplayed( level.round_number );\n'
                 '    for (;;)\n    {\n        level.round_number++;\n\n'
                 '        if ( 255 < level.round_number )\n            level.round_number = 255;\n\n'
@@ -114,6 +115,8 @@ class PerkOwnershipTests(unittest.TestCase):
             # WaW's failsafe never returns a killed zombie to the round
             self.assertIn('level.put_timed_out_zombies_back_in_queue = 0;', owned_zm)
             self.assertNotIn('level.put_timed_out_zombies_back_in_queue = 1;', owned_zm)
+            # WaW has no out-of-playable-area killer
+            self.assertIn('level.player_out_of_playable_area_monitor = 0;', owned_zm)
             self.assertNotIn('perk_machine_spawn_init();', text)
             self.assertNotIn('array_thread(x,::buy)', text)
             self.assertNotIn('unpause_machine();', text)

@@ -4426,6 +4426,10 @@ WAW_START_LOCATION = (
 # zombies into rounds the source formula had already counted.
 WAW_FAILSAFE_NO_REQUEUE = ("level.put_timed_out_zombies_back_in_queue = 1;",
                            "level.put_timed_out_zombies_back_in_queue = 0; // waw2bo2: WaW never requeues")
+# WaW has no out-of-playable-area killer: its zones only gate spawning. BO2's
+# per-player monitor is a BO2 game rule, so it never starts.
+WAW_NO_PLAYABLE_AREA_MONITOR = ("level.player_out_of_playable_area_monitor = 1;",
+                                "level.player_out_of_playable_area_monitor = 0; // waw2bo2: WaW never kills outside zones")
 # WaW's round_spawning calls the source health step (Translator.extract_round_health):
 # one increment per round that runs round_spawning, so dog rounds (which run
 # dog_round_spawning instead) never raise health, and the source arithmetic
@@ -4834,6 +4838,9 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: b
     if bootstrap.count(WAW_FAILSAFE_NO_REQUEUE[0]) != 1:
         raise ValueError("BO2 server bootstrap failsafe requeue changed")
     bootstrap = bootstrap.replace(*WAW_FAILSAFE_NO_REQUEUE)
+    if bootstrap.count(WAW_NO_PLAYABLE_AREA_MONITOR[0]) != 1:
+        raise ValueError("BO2 server bootstrap playable area monitor changed")
+    bootstrap = bootstrap.replace(*WAW_NO_PLAYABLE_AREA_MONITOR)
     if bootstrap.count(WAW_ROUND_HEALTH[0]) != 1:
         raise ValueError("BO2 server bootstrap round health call changed")
     bootstrap = bootstrap.replace(*WAW_ROUND_HEALTH)

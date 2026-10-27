@@ -57,11 +57,6 @@ init()
     if ( !isdefined( level.isPlutonium ) )
         level.isPlutonium = 1;
     precacheshader( "waypoint_revive" );
-    // WaW zones control spawning; they are not lethal player boundaries.
-    // BO2 otherwise queues a kill during scripted teleports above a zone.
-    if ( isdefined( level.player_out_of_playable_area_monitor_callback ) )
-        level.waw2bo2_out_of_playable_area_callback = level.player_out_of_playable_area_monitor_callback;
-    level.player_out_of_playable_area_monitor_callback = ::waw_out_of_playable_area;
     if ( !isdefined( level.get_player_weapon_limit ) )
         level.get_player_weapon_limit = ::waw_player_weapon_limit;
     level.waw2bo2_reported = [];
@@ -212,18 +207,6 @@ waw_array_remove( array, value )
 waw_contact_kill_damage( victim )
 {
     return 0;
-}
-
-waw_out_of_playable_area()
-{
-    // Called by BO2's native monitor with the player as self. Preserve
-    // intentional kill brushes, but do not turn absent/disabled WaW spawn
-    // volumes into new death barriers. Source trigger damage stays native.
-    if ( !self maps\mp\zombies\_zm::in_kill_brush() )
-        return false;
-    if ( isdefined( level.waw2bo2_out_of_playable_area_callback ) )
-        return self [[ level.waw2bo2_out_of_playable_area_callback ]]();
-    return true;
 }
 
 // WaW utility helper used by the power bridge; BO2 has no function by
