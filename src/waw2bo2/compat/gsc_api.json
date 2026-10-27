@@ -292,6 +292,7 @@
   },
   "compat_wrappers": [
     "isnotarget",
+    "setorigin",
     "tablelookup",
     "tablelookupistring",
     "connectpaths",

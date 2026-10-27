@@ -414,6 +414,17 @@ class FrameworkSignatureTests(unittest.TestCase):
         self.assertIn('"none"', body)
         self.assertIn('"normal"', body)
 
+    def test_player_teleports_are_not_interpolated(self):
+        # Der Riese's teleporter: link to a script_origin, move it to the
+        # black room, setorigin to the core; T6's client slid the view there
+        self.assertIn("linkto", gscport.API["compat_wrappers"])
+        self.assertIn("setorigin", gscport.API["compat_wrappers"])
+        compat = gscport.gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8"), "compat")
+        for name in ("waw_linkto", "waw_setorigin"):
+            body = gscport.gsc.emit(compat.tokens[compat.functions[name].body_open:
+                                                  compat.functions[name].body_close + 1])
+            self.assertIn("self dontinterpolate();", body)
+
     def test_the_maps_net_init_runs_where_bo2_has_none(self):
         # its network_safe_spawn reads the counters init sets
         with tempfile.TemporaryDirectory() as temp:

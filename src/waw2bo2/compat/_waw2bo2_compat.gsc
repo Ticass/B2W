@@ -2173,10 +2173,26 @@ waw_hasperk( perk )
     return isdefined( self.waw2bo2_perks ) && isdefined( self.waw2bo2_perks[perk] );
 }
 
+// WaW SetOrigin on a player is a teleport its client never interpolates
+// (the teleporter's black room -> mainframe core); see waw_linkto.
+waw_setorigin( origin )
+{
+    if ( isplayer( self ) )
+        self dontinterpolate();
+    self setorigin( origin );
+}
+
 // ---- linked trigger volumes ----
 
+// WaW teleports players by linking them to a script_origin and assigning its
+// origin in the same frame (Der Riese's black room); its client shows the jump.
+// T6's client interpolates a linked player's move: the view slid ~2000 units
+// through the walls in one snapshot. dontinterpolate marks this frame's move
+// a teleport, as T6's own scripts do before moving players.
 waw_linkto( parent, tag, origin, angles )
 {
+    if ( isplayer( self ) )
+        self dontinterpolate();
     if ( isdefined( angles ) )
         self linkto( parent, tag, origin, angles );
     else if ( isdefined( origin ) )
