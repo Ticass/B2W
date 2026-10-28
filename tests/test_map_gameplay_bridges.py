@@ -73,6 +73,10 @@ class SourcePlayerDamageTests(unittest.TestCase):
         self.assertIn("numbers[i] = i;", core)
         self.assertIn("level.char_numbers = ", core)
         self.assertNotIn("unused", core)
+        # main extracted again for another reader (source spawner membership)
+        # gets its own function, not a second definition of the same name
+        again = tr.extract_level_state("maps\\_zombiemode", "main", {"hudelem_count"})
+        self.assertEqual(again, "zombiemode__main_level_state_2")
         self.assertIn("level.waw_laststandpistol = \"m9a1\";", core)
         # WaW's finishPlayerDamage reaches T6's through compat (argument order)
         self.assertIn("_waw2bo2_compat::waw_finishplayerdamage(", core)

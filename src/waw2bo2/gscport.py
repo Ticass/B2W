@@ -1812,6 +1812,14 @@ class Translator:
         if not kept:
             return None
         name = f"{core.split(chr(92))[-1].lstrip('_')}__{init}_level_state"
+        # one init can be extracted for several readers (_zombiemode::main:
+        # the map's level state and the source spawner membership)
+        named = self.__dict__.setdefault("level_state_names", set())
+        base, n = name, 1
+        while name in named:
+            n += 1
+            name = f"{base}_{n}"
+        named.add(name)
         tokens = [gsc.Token(gsc.IDENT, name, f"\n// {core}::{init}: level state its extracted functions read\n"),
                   gsc.Token(gsc.PUNCT, "("), gsc.Token(gsc.PUNCT, ")"), gsc.Token(gsc.PUNCT, "{", "\n"),
                   *kept, gsc.Token(gsc.PUNCT, "}", "\n"), gsc.Token(gsc.EOF, "")]
