@@ -37,7 +37,9 @@ class SourcePlayerDamageTests(unittest.TestCase):
                      "\tself finishPlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
                      "vDir, sHitLoc, modelIndex, psOffsetTime );\n}\n")
         zombiemode = ("main()\n{\n\tlevel.hudelem_count = 0;\n\tlevel.overridePlayerDamage = ::player_damage_override;\n"
-                      "\tlevel.player_becomes_zombie = ::zombify_player;\n\tlevel.other = 1;\n}\n"
+                      "\tlevel.player_becomes_zombie = ::zombify_player;\n\tlevel.other = 1;\n"
+                      "\tunused = 5;\n\tnumbers = [];\n\tfor(i = 0; i < 4; i++) numbers[i] = i;\n"
+                      "\tlevel.char_numbers = array_randomize(numbers);\n}\n"
                       "zombify_player()\n{\n\tself.is_zombie = true;\n}\n" + STOCK_DAMAGE)
         laststand = ("init()\n{\n\tif( !IsDefined( level.laststandpistol ) )\n\t\tlevel.laststandpistol = \"m9a1\";\n}\n"
                      "PlayerLastStand( eInflictor, attacker, iDamage, sMeansOfDeath, sWeapon, vDir, sHitLoc, "
@@ -45,7 +47,8 @@ class SourcePlayerDamageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "maps").mkdir()
-            utility = "create_simple_hud()\n{\n\tlevel.hudelem_count++;\n}\n"
+            utility = ("create_simple_hud()\n{\n\tlevel.hudelem_count++;\n}\n"
+                       "connect()\n{\n\tself.character_num = level.char_numbers[0];\n}\n")
             for name, text in (("_callbackglobal", callbacks), ("_zombiemode", zombiemode), ("_laststand", laststand),
                                ("_zombiemode_utility", utility)):
                 (root / f"maps/{name}.gsc").write_text(text)
@@ -65,6 +68,11 @@ class SourcePlayerDamageTests(unittest.TestCase):
         self.assertNotIn("level.other", core)
         # main's state the map's scripts read (create_simple_hud's counter)
         self.assertIn("level.hudelem_count = 0;", core)
+        # a kept assignment brings the statements building the locals it reads
+        self.assertIn("numbers = [];", core)
+        self.assertIn("numbers[i] = i;", core)
+        self.assertIn("level.char_numbers = ", core)
+        self.assertNotIn("unused", core)
         self.assertIn("level.waw_laststandpistol = \"m9a1\";", core)
         # WaW's finishPlayerDamage reaches T6's through compat (argument order)
         self.assertIn("_waw2bo2_compat::waw_finishplayerdamage(", core)

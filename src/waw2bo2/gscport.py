@@ -1791,17 +1791,24 @@ class Translator:
                 read |= level_fields_read(toks, fn.body_open + 2, fn.body_close)
         fn = script.functions[init]
         toks = script.tokens
-        kept: list[gsc.Token] = []
         # whole top-level statements: an assignment after a block statement
         # (for/if { ... }) is its own statement, not the block's tail
-        for start, end in top_level_statements(toks, fn.body_open, fn.body_close):
+        spans = top_level_statements(toks, fn.body_open, fn.body_close)
+        keep = set()
+        for n, (start, end) in enumerate(spans):
             stmt = toks[start:end]
             if effect_keys is not None and not (len(stmt) > 5 and stmt[3].text == "[" and stmt[4].kind == gsc.STRING
                                                 and stmt[4].text[1:-1].lower() in effect_keys):
                 continue  # a keyed effect table: only the entries ported scripts read
             if len(stmt) > 3 and stmt[0].low == "level" and stmt[1].text == "." and stmt[2].low in read and \
                     any(s.text == "=" for s in stmt):
-                kept += [gsc.Token(s.kind, s.text, s.pre, s.line) for s in stmt]
+                keep.add(n)
+        # a kept statement reading a local brings the earlier statements that
+        # build it (School: numbers[] filled by a loop, then
+        # level.char_numbers = array_randomize( numbers ))
+        keep |= local_dependencies(toks, spans, keep)
+        kept: list[gsc.Token] = [gsc.Token(s.kind, s.text, s.pre, s.line)
+                                 for n in sorted(keep) for s in toks[spans[n][0]:spans[n][1]]]
         if not kept:
             return None
         name = f"{core.split(chr(92))[-1].lstrip('_')}__{init}_level_state"
@@ -4014,6 +4021,51 @@ def waw_pack_a_punch_source(source: str, path: str) -> tuple[str, set[str]] | No
               for fn in sorted((script.functions[n] for n in reached), key=lambda f: f.start)]
     header = f"// waw2bo2: BO2 stock perks; the WaW Pack-a-Punch and power relays of {path} stay.\n"
     return header + "\n\n".join(parts) + "\n", reached | {"init"}
+
+
+def statement_locals(tokens: list[gsc.Token], start: int, end: int) -> tuple[set[str], set[str]]:
+    """(locals assigned, identifiers read) in tokens[start:end]. A local is a
+    bare identifier (not a field, call or path) followed by =, [..] =, ++ or --."""
+    assigned, used = set(), set()
+    for i in range(start, end):
+        t = tokens[i]
+        if t.kind != gsc.IDENT or (i > start and tokens[i - 1].text in (".", "::", "\\")):
+            continue
+        nxt = tokens[i + 1].text if i + 1 < end else ""
+        if nxt == "(" or nxt == "::":
+            continue
+        if nxt in ("=", "++", "--", "+=", "-=", "*=", "/="):
+            assigned.add(t.low)
+            if nxt == "=":
+                continue
+        elif nxt == "[":
+            depth, j = 0, i + 1
+            while j < end:
+                depth += tokens[j].text == "["
+                depth -= tokens[j].text == "]"
+                if not depth:
+                    break
+                j += 1
+            if j + 1 < end and tokens[j + 1].text == "=":
+                assigned.add(t.low)
+        used.add(t.low)
+    return assigned, used
+
+
+def local_dependencies(tokens: list[gsc.Token], spans: list[tuple[int, int]], keep: set[int]) -> set[int]:
+    """Indices of the statements in ``spans`` before a kept one that assign a
+    local it (transitively) reads."""
+    info = [statement_locals(tokens, s, e) for s, e in spans]
+    extra: set[int] = set()
+    todo = sorted(keep)
+    while todo:
+        n = todo.pop()
+        needed = info[n][1]
+        for m in range(n):
+            if m not in keep and m not in extra and info[m][0] & needed:
+                extra.add(m)
+                todo.append(m)
+    return extra
 
 
 def top_level_statements(tokens: list[gsc.Token], open_: int, close: int) -> list[tuple[int, int]]:
