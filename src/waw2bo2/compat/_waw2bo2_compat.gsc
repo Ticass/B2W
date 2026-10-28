@@ -68,8 +68,6 @@ init()
         level.waw2bo2_weapons = [];
     if ( !isdefined( level.waw2bo2_weapon_names ) )
         level.waw2bo2_weapon_names = [];
-    if ( !isdefined( level.waw2bo2_runtime_weapons ) )
-        level.waw2bo2_runtime_weapons = [];
     if ( !isdefined( level.waw2bo2_bo2_weapons ) )
         level.waw2bo2_bo2_weapons = [];
     maps\mp\waw\_waw2bo2_assets::init();
@@ -1552,10 +1550,6 @@ waw_include_weapon( name, in_box, collector, weighting_func )
     // keyed by WaW name) for its box, wall buys and Pack-a-Punch
     if ( isdefined( level.waw_include_zombie_weapon ) )
         [[ level.waw_include_zombie_weapon ]]( name, in_box, weighting_func );
-    // Native tactical helpers use a different inventory name. Precache and
-    // include it for their startup guards, without a second mystery-box entry.
-    if ( isdefined( level.waw2bo2_runtime_weapons ) && isdefined( level.waw2bo2_runtime_weapons[name] ) )
-        maps\mp\zombies\_zm_weapons::include_zombie_weapon( level.waw2bo2_runtime_weapons[name], 0 );
 }
 
 waw_add_zombie_weapon( name, hint, cost, weaponvo, variation_count, ammo_cost )
@@ -1577,13 +1571,6 @@ waw_add_zombie_weapon( name, hint, cost, weaponvo, variation_count, ammo_cost )
     if ( !isdefined( weaponvo ) )
         weaponvo = "";
     maps\mp\zombies\_zm_weapons::add_zombie_weapon( weapon, upgrade, hint, cost, weaponvo, "", ammo_cost );
-    // This must precede the native tactical initializer: it checks
-    // level.zombie_weapons before registering its script-model animtree.
-    if ( isdefined( level.waw2bo2_runtime_weapons ) && isdefined( level.waw2bo2_runtime_weapons[name] ) )
-    {
-        maps\mp\zombies\_zm_weapons::add_zombie_weapon( level.waw2bo2_runtime_weapons[name], undefined, hint, cost, weaponvo, "", ammo_cost );
-        waw_native_only_weapon( level.waw2bo2_runtime_weapons[name] );
-    }
 }
 
 // WaW's opaque pause menu covered script HUD; T6's draws under it. WaW HUD

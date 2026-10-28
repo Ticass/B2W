@@ -1891,7 +1891,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 gscport.hook_bo2_characters(main_gsc)
             gscport.hook_bo2_weapons(main_gsc)
             gscport.hook_bo2_box(main_gsc)
-            for line in gscport.drop_preserved_template_inits(main_gsc, project_root):
+            for line in gscport.drop_preserved_template_inits(
+                    main_gsc, project_root, project_root / "clientscripts" / "mp" / f"{project}.csc"):
                 report.warnings.append(f"template init dropped, the ported WaW script owns it: {line}")
             if bo2_root is None:
                 raise ValueError("BO2 runtime sources required to stage WaW perk ownership")

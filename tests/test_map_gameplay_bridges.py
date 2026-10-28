@@ -398,6 +398,25 @@ class EngineMaterialTests(unittest.TestCase):
                              ["maps\\mp\\zombies\\_zm_weap_bowie::init();"])
             self.assertNotIn("_zm_weap_bowie", main.read_text())
 
+    def test_bo2_monkey_setup_gives_way_to_the_maps_monkey(self):
+        # BO2's monkey played zombie_cymbal_monkey on a script model it never
+        # registered (Der Riese: "Unrecognized animtree"); WaW's runs instead
+        self.assertIn("maps\\_zombiemode_cymbal_monkey", gscport.API["preserved_scripts"])
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "maps/mp/zm_x.gsc"
+            client = root / "clientscripts/mp/zm_x.csc"
+            for path, base in ((main, "maps"), (client, "clientscripts")):
+                path.parent.mkdir(parents=True)
+                path.write_text(f"main()\n{{\n    level.legacy_cymbal_monkey = 1;\n"
+                                f"    {base}\\mp\\zombies\\_zm_weap_cymbal_monkey::init();\n}}\n")
+            ported = root / "maps/mp/waw/_zombiemode_cymbal_monkey.gsc"
+            ported.parent.mkdir(parents=True)
+            ported.write_text("init()\n{\n}\n")
+            self.assertEqual(len(gscport.drop_preserved_template_inits(main, root, client)), 4)
+            for path in (main, client):
+                self.assertNotIn("cymbal_monkey", path.read_text())
+
     def test_boarded_windows_are_shut_to_path_finding(self):
         # WaW's clip brush disconnects a boarded window's traversal; T6's
         # blocker_(dis)connect_paths are empty, so find_flesh zombies walked

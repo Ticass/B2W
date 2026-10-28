@@ -3797,11 +3797,6 @@ def link_check(out_root: Path, api: T6Api) -> list[str]:
     return problems
 
 
-# Native tactical gameplay helpers give/check these runtime weapon names even
-# when the map's box and weapon definitions retain their original WaW names.
-BO2_TACTICAL_RUNTIME_WEAPONS = {"zombie_cymbal_monkey": "cymbal_monkey_zm"}
-
-
 def assets_source(fx_table: dict[str, str], waw_map: str | None = None,
                   weapons: dict[str, str] | None = None, bolted_loops: set[str] = frozenset(),
                   zombie_var_overrides: dict[str, str] | None = None,
@@ -3833,10 +3828,6 @@ def assets_source(fx_table: dict[str, str], waw_map: str | None = None,
         if bo2 and bo2 != waw and bo2 not in reverse_names:
             lines.append(f'    level.waw2bo2_weapon_names["{bo2}"] = "{waw}";')
             reverse_names.add(bo2)
-        runtime = BO2_TACTICAL_RUNTIME_WEAPONS.get(waw)
-        if bo2 and runtime and runtime != bo2:
-            lines.append(f'    level.waw2bo2_runtime_weapons["{waw}"] = "{runtime}";')
-            lines.append(f'    level.waw2bo2_weapon_names["{runtime}"] = "{waw}";')
     lines += ["}", ""]
     return "\n".join(lines)
 
@@ -4251,21 +4242,25 @@ def hook_bo2_animtrees(main_gsc: Path, main_csc: Path, out_root: Path, trees: li
     return changed
 
 
-def drop_preserved_template_inits(main_gsc: Path, out_root: Path) -> list[str]:
+def drop_preserved_template_inits(main_gsc: Path, out_root: Path, main_csc: Path | None = None) -> list[str]:
     """Remove the template's BO2 counterpart setup of each WaW framework script
     the map ports whole (gsc_api preserved_template_inits); returns the lines
     removed. A module the map does not port keeps the template's line."""
-    source = main_gsc.read_text(encoding="utf-8", errors="replace")
+    mains = {False: main_gsc, True: main_csc}
+    sources = {client: path.read_text(encoding="utf-8", errors="replace")
+               for client, path in mains.items() if path is not None and path.is_file()}
     removed = []
     for module, lines in API.get("preserved_template_inits", {}).items():
         if module == "doc" or not (out_root / (ported_path(module).replace("\\", "/") + ".gsc")).is_file():
             continue
         for entry in lines:
-            if entry["line"] + "\n" in source:
-                source = source.replace(entry["line"] + "\n", "", 1)
+            client = bool(entry.get("client"))
+            if client in sources and entry["line"] + "\n" in sources[client]:
+                sources[client] = sources[client].replace(entry["line"] + "\n", "", 1)
                 removed.append(entry["line"].strip())
-    if removed:
-        main_gsc.write_text(source, encoding="utf-8")
+    for client, source in sources.items():
+        if source != mains[client].read_text(encoding="utf-8", errors="replace"):
+            mains[client].write_text(source, encoding="utf-8")
     return removed
 
 

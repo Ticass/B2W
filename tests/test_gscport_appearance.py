@@ -116,16 +116,13 @@ class WeaponRegistrationTests(unittest.TestCase):
         self.assertIn('level.waw2bo2_weapons["fraggrenade"] = "frag_grenade_zm";', source)
         self.assertEqual(source.count('level.waw2bo2_weapon_names["frag_grenade_zm"]'), 1)
         self.assertIn('level.waw2bo2_weapon_names["frag_grenade_zm"] = "fraggrenade";', source)
-        self.assertIn('level.waw2bo2_runtime_weapons["zombie_cymbal_monkey"] = "cymbal_monkey_zm";', source)
 
-    def test_monkey_runtime_support_preserves_source_registration(self):
+    def test_monkey_is_the_maps_own_weapon(self):
+        # WaW's _zombiemode_cymbal_monkey gives and throws the map's monkey;
+        # BO2's cymbal_monkey_zm is no longer substituted for it
         source = gscport.assets_source({}, weapons={"zombie_cymbal_monkey": "zombie_cymbal_monkey"})
         self.assertIn('level.waw2bo2_weapons["zombie_cymbal_monkey"] = "zombie_cymbal_monkey";', source)
-        self.assertIn('level.waw2bo2_runtime_weapons["zombie_cymbal_monkey"] = "cymbal_monkey_zm";', source)
-        self.assertIn('level.waw2bo2_weapon_names["cymbal_monkey_zm"] = "zombie_cymbal_monkey";', source)
-        # Absent/excluded source weapons must not activate tactical gameplay.
-        for weapons in ({}, {"zombie_cymbal_monkey": ""}, {"zombie_cymbal_monkey": "cymbal_monkey_zm"}):
-            self.assertNotIn("waw2bo2_runtime_weapons", gscport.assets_source({}, weapons=weapons))
+        self.assertNotIn("cymbal_monkey_zm", source)
 
     def test_bo2_template_weapon_lists_are_replaced_by_the_waw_registration(self):
         with tempfile.TemporaryDirectory() as temp:

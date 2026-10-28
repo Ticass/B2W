@@ -338,15 +338,16 @@ def convert(name: str, source: dict[str, str], t4_schema: dict[str, str], t6_sch
         out.fields["useAsMelee"] = "1"
         out.translations["useAsMelee"] = {"source": "inventoryType item + meleeAnim", "target": "1",
             "reason": "T4 held item melee swings itself; T6 needs useAsMelee"}
-    # WaW's Tesla bolt has no explosion effect. Its tank_shell impact entry
-    # is a T4 placeholder; T6 resolves it to its real shell explosion FX.
-    # Keep the one-point projectile/splash events that seed the script chain,
-    # and retain the authored electric trail rather than using a shell impact.
-    if source.get('projTrailEffect') == 'maps/zombie/fx_zombie_tesla_electric_bolt' and \
-            source.get('impactType') == 'tank_shell' and not source.get('projExplosionEffect'):
+    # A WaW projectile with no explosion effect shows none on impact: its
+    # tank_shell impact entry is a T4 placeholder, while T6 resolves it to its
+    # real shell explosion FX (both Wunderwaffes: the upgraded one fired "tank
+    # shells"). Keep the one-point projectile/splash events that seed the
+    # script chain, and retain the authored trail rather than a shell impact.
+    if source.get('weaponType') == 'projectile' and source.get('impactType') == 'tank_shell' and \
+            not source.get('projExplosionEffect'):
         out.fields['impactType'] = 'none'
         out.translations['impactType'] = {'source': 'tank_shell', 'target': 'none',
-            'reason': 'T4 Tesla bolt uses no explosion FX; T6 shell impact table adds one'}
+            'reason': 'T4 projectile without explosion FX; T6 shell impact table adds one'}
     return out
 
 

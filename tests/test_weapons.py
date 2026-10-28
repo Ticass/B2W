@@ -19,8 +19,12 @@ class WeaponTests(unittest.TestCase):
         self.assertEqual(result.fields['projExplosionEffect'], '')
         self.assertEqual(result.fields['explosionInnerDamage'], '1')
         self.assertEqual(result.fields['projTrailEffect'], 'waw/' + source['projTrailEffect'])
-        # A real shell or authored custom explosion is not suppressed.
-        for changes in ({'projTrailEffect': 'custom/shell'}, {'projExplosionEffect': 'custom/explosion'}):
+        # the upgraded Wunderwaffe's own trail gets the same rule
+        result = weapons.convert('custom_tesla_upgraded', {
+            **source, 'projTrailEffect': 'maps/zombie/fx_zombie_tesla_ug_elec_bolt'}, schema, schema)
+        self.assertEqual(result.fields['impactType'], 'none')
+        # An authored explosion, or a bullet weapon, is not suppressed.
+        for changes in ({'projExplosionEffect': 'custom/explosion'}, {'weaponType': 'bullet'}):
             result = weapons.convert('custom', {**source, **changes}, schema, schema)
             self.assertEqual(result.fields['impactType'], 'tank_shell')
 

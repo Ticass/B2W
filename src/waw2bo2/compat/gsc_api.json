@@ -285,13 +285,24 @@
     "maps\\_zombiemode_zone_manager",
     "maps\\_zombiemode_weapons",
     "maps\\_zombiemode_weapons_sumpf",
-    "maps\\_zombiemode_score"
+    "maps\\_zombiemode_score",
+    "maps\\_zombiemode_cymbal_monkey"
   ],
   "preserved_template_inits": {
-    "doc": "Template map-main lines that set up BO2's counterpart of a WaW framework script the map ports whole (preserved_scripts). The ported script owns the job; the BO2 one would think on the same map entities. Each needs a reason.",
+    "doc": "Template map-main lines that set up BO2's counterpart of a WaW framework script the map ports whole (preserved_scripts). The ported script owns the job; the BO2 one would think on the same map entities. Each needs a reason. \"client\": true removes the line from the client main instead.",
     "maps\\_zombiemode_bowie": [
       {"line": "    maps\\mp\\zombies\\_zm_weap_bowie::init();",
        "reason": "BO2's melee wallbuy threads on the map's bowie_upgrade triggers (WaW's bowie_think buys)"}
+    ],
+    "maps\\_zombiemode_cymbal_monkey": [
+      {"line": "    level.legacy_cymbal_monkey = 1;",
+       "reason": "selects BO2's legacy monkey; WaW's player_handle_cymbal_monkey throws the map's monkey"},
+      {"line": "    maps\\mp\\zombies\\_zm_weap_cymbal_monkey::init();",
+       "reason": "BO2's monkey played its zombie_cymbal_monkey tree on a script model without registering it (Unrecognized animtree on Der Riese); WaW's monkey plays the map's converted tree"},
+      {"line": "    level.legacy_cymbal_monkey = 1;", "client": true,
+       "reason": "client half of BO2's legacy monkey; WaW's monkey has no client script"},
+      {"line": "    clientscripts\\mp\\zombies\\_zm_weap_cymbal_monkey::init();", "client": true,
+       "reason": "client half of BO2's monkey; WaW's monkey has no client script"}
     ]
   },
   "core_patterns": [
