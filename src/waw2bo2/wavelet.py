@@ -198,12 +198,16 @@ class IwdRecovery:
         self.recovered: dict[str, dict] = {}
         self.source_image_roots = [p.resolve() for p in source_image_roots]
         self.override_directories = {p.resolve() for p in override_directories}
+        # WaW's file system: earlier directories first (the map's before main),
+        # and within one the later archive first (iw_26 patches iw_11).
+        self.copies: dict[str, list[tuple[Path, str]]] = {}
         for directory in directories:
-            for archive in sorted(directory.glob("*.iwd")):
+            for archive in sorted(directory.glob("*.iwd"), reverse=True):
                 with zipfile.ZipFile(archive) as z:
                     for name in z.namelist():
                         if name.lower().startswith("images/") and name.lower().endswith(".iwi"):
                             self.entries.setdefault(name.lower(), (archive, name))
+                            self.copies.setdefault(name.lower(), []).append((archive, name))
 
     def resolve(self, stem: str, source: Path | None) -> Path | None:
         """Map-zone pixels, map IWD pixels, stock-zone pixels, stock IWD pixels.
@@ -212,6 +216,8 @@ class IwdRecovery:
         Keep supplied map-zone pixels authoritative when both are present.
         """
         if source is not None and any(source.resolve().is_relative_to(p) for p in self.source_image_roots):
+            if self.shadowed(stem, source):
+                return self.recover(stem)
             return source
         hit = self.entries.get(f"images/{stem.lower()}.iwi")
         if hit is not None and hit[0].parent.resolve() in self.override_directories:
@@ -220,6 +226,30 @@ class IwdRecovery:
                 raise IwiError(f"map IWD image {stem}: unsupported IWI format in {hit[0]}:{hit[1]}")
             return recovered
         return source if source is not None else self.recover(stem)
+
+    def shadowed(self, stem: str, source: Path) -> bool:
+        """True when the zone dump holds the pixels of an IWD copy WaW never
+        loads: a streamed image the unlinker read from a lower-priority archive
+        (Der Riese's ~gold_spec-rgb&skins_gloss-l-11 from iw_11; WaW loads
+        iw_26's patched pale-blue one, the Pack-a-Punch finish)."""
+        import zipfile
+        from .iwi import read_dds
+        copies = self.copies.get(f"images/{stem.lower()}.iwi", [])
+        if len(copies) < 2:
+            return False
+        try:
+            dumped = read_dds(source.read_bytes()).data
+        except (IwiError, OSError, ValueError):
+            return False
+
+        def pixels(copy):
+            with zipfile.ZipFile(copy[0]) as z:
+                plain = iwi6_to_dds(z.read(copy[1]))
+            return read_dds(plain).data if plain is not None else None
+
+        if pixels(copies[0]) == dumped:
+            return False
+        return any(pixels(copy) == dumped for copy in copies[1:])
 
     def recover(self, stem: str) -> Path | None:
         import zipfile

@@ -99,3 +99,39 @@ class ImageSourcePriorityTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class IwdPatchPriorityTests(unittest.TestCase):
+    """WaW loads the later archive of a folder first: iw_26 patches iw_11
+    (Der Riese's Pack-a-Punch spec map is pale blue only in iw_26)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.main = self.root / 'main'
+        self.zone = self.root / 'zone/images'
+        for folder in (self.main, self.zone):
+            folder.mkdir(parents=True)
+        for archive, value in (('iw_11.iwd', 11), ('iw_26.iwd', 26)):
+            with zipfile.ZipFile(self.main / archive, 'w') as z:
+                z.writestr('images/spec.iwi', image(value))
+
+    def recovery(self):
+        return wavelet.IwdRecovery([self.main], None, self.root / 'recovery', source_image_roots=[self.zone])
+
+    def test_zone_dump_of_a_shadowed_copy_takes_the_patch(self):
+        dumped = self.zone / 'spec.dds'
+        dumped.write_bytes(iwi.iwi6_to_dds(image(11)))
+        recovery = self.recovery()
+        resolved = recovery.resolve('spec', dumped)
+        self.assertEqual(resolved.read_bytes(), iwi.iwi6_to_dds(image(26)))
+        self.assertEqual(recovery.recovered['spec']['archive'], str(self.main / 'iw_26.iwd'))
+
+    def test_zone_pixels_of_no_iwd_copy_stay(self):
+        dumped = self.zone / 'spec.dds'
+        dumped.write_bytes(iwi.iwi6_to_dds(image(40)))
+        self.assertEqual(self.recovery().resolve('spec', dumped), dumped)
+
+    def test_missing_image_recovers_the_patch(self):
+        self.assertEqual(self.recovery().resolve('spec', None).read_bytes(), iwi.iwi6_to_dds(image(26)))

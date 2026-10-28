@@ -273,7 +273,8 @@ def native_sqrt_hdr_output(native_ps):
 # Imported primary lights make spot/omni passes reachable as well as sun.
 # Every reachable lightmap reader must agree on the surface page encoding.
 # Spots are staged as plain T6 spots (lighting.t6_light_fields), so the
-# SPOT_SQUARE/SPOT_ROUND techniques 9-12 and 20-23 are never selected.
+# SPOT_SQUARE/SPOT_ROUND techniques 9-12 and 20-23 are never selected for the
+# map's lights; they still draw the WaW spot pass (SPOT_SHAPE_BASE_SLOTS).
 REACHABLE_LIT_SLOTS = (4, 5, 6, 7, 8, 13, 14, 15, 16, 17, 18, 19, 24, 25)
 # Spot/omni shadowed variants: T6 draws them only for a light holding a shadow
 # map this frame (sub_7836F0), never for lights staged without canUseShadowMap.
@@ -282,6 +283,11 @@ SHADOWED_LIT_SLOTS = (8, 14, 19, 25)
 # the technique they extend. They read the surface lightmap too; without a
 # dynamic-light adapter they draw the WaW program of their base technique.
 DLIGHT_BASE_SLOTS = {15: 4, 16: 5, 17: 6, 18: 7, 19: 8, 24: 13, 25: 14}
+# T6 LIT_SPOT_SQUARE/_ROUND (+ _SHADOW, + _DLIGHT_GLIGHT): WaW has one spot
+# technique, so they draw the WaW spot pass (shadowed or not). Left native they
+# drew the BO2 donor's lprobe program on the map's material (Der Riese's
+# Pack-a-Punch finish came out gold).
+SPOT_SHAPE_BASE_SLOTS = {9: 7, 10: 8, 11: 7, 12: 8, 20: 7, 21: 8, 22: 7, 23: 8}
 # T6 slots from here on are editor/debug views (wireframe, normals, performance).
 DEBUG_SLOTS_START = 32
 # T6 world lit draws bind these per-surface textures at fixed slots, outside
@@ -1130,6 +1136,48 @@ def diag_terms(hlsl, contract, spot_like=False):
     return chr(10).join(lines)
 
 
+def diag_probe_terms(hlsl, contract):
+    """Diagnostic build (WAW2BO2_DIAG_PROBE_TERMS): 48-pixel vertical stripes
+    cycling final colour, probe term (texel rgb * a * 4), the texture whose
+    alpha sets the probe lod (specular map) and the bumped normal * 0.5 + 0.5.
+    Programs without a reflection probe are unchanged. Never shipped."""
+    import re
+    probe = next((r for r, e in contract.get('samplers', {}).items() if e.get('texture') == 15), None)
+    position = re.search(r'(\w+) : SV_Position', hlsl)
+    if not probe or not position:
+        return hlsl
+    lines = hlsl.split(chr(10))
+    at = next((i for i, l in enumerate(lines) if f'tex_{probe}.SampleLevel(' in l), None)
+    if at is None:
+        return hlsl
+    lod = re.search(r'tex_' + probe + r'\.SampleLevel\(samp_\w+, \(\w+\)\.xyz, \((\w+)\)\.w\)', lines[at])
+    spec_reg = None
+    if lod:
+        for i in range(at - 1, -1, -1):
+            m = re.search(r'\(\((\w+)\)\.wwww\*.*; ' + lod.group(1) + r'\.w = value\.w; \}', lines[i])
+            if m:
+                spec_reg = m.group(1)
+                for j in range(i - 1, -1, -1):
+                    if '.Sample(' in lines[j] and f'{spec_reg}.xyzw = value.xyzw;' in lines[j]:
+                        lines[j] = lines[j].rstrip()[:-1] + 'diag_s = value; }'
+                        break
+                break
+    lines[at] = lines[at].rstrip()[:-1] + 'diag_p = value; }'
+    normal = next((i for i, l in enumerate(lines) if 'normalize(' in l), None)
+    if normal is not None:
+        lines[normal] = lines[normal].rstrip()[:-1] + 'diag_n = value; }'
+    start = next(i for i, l in enumerate(lines) if l.startswith('Output main(Input input) {'))
+    lines.insert(start + 1, 'float4 diag_p = 0; float4 diag_s = 0; float4 diag_n = 0;')
+    end = next(i for i, l in enumerate(lines) if l.startswith('Output output;'))
+    target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
+    band = f'((uint)(input.{position.group(1)}.x / 48.0) % 4)'
+    lines.insert(end, f'{{ uint diag_b = {band}; '
+                      f'if (diag_b == 1) {target}.xyz = diag_p.xyz * diag_p.w * 4.0; '
+                      f'else if (diag_b == 2) {target}.xyz = diag_s.xyz; '
+                      f'else if (diag_b == 3) {target}.xyz = diag_n.xyz * 0.5 + 0.5; }}')
+    return chr(10).join(lines)
+
+
 # WaW alpha test (D3D9 render state) as the D3D11 discard T6 programs do
 # themselves (stock alpha-tested PS: lt + discard_nz in every technique).
 ALPHA_TEST_DISCARD = {'gt0': '{a} <= 0.0', 'ge128': '{a} < 0.5', 'lt128': '{a} >= 0.5'}
@@ -1355,6 +1403,8 @@ def bind_material(source_material, output_material, roots, project_root, native_
                 hlsl, info = shaders.translate(assembly, contract)
                 if os.environ.get('WAW2BO2_DIAG_TERMS'):
                     hlsl = diag_terms(hlsl, contract, slot in (7, 8, 13, 14))
+                if os.environ.get('WAW2BO2_DIAG_PROBE_TERMS'):
+                    hlsl = diag_probe_terms(hlsl, contract)
                 if os.environ.get('WAW2BO2_DIAG_LMUV'):
                     # Diagnostic build: stripes of the lightmap UV the PS receives
                     # (red: u, green: v, 16 bands each); solid blue: UV (0, 0).
@@ -1408,6 +1458,8 @@ def bind_material(source_material, output_material, roots, project_root, native_
             contract = pixel_contract(assembly, source_pass, target_pass, native_root, source_material)
             contract.update(output_scale)
             hlsl, info = shaders.translate(assembly, contract)
+            if os.environ.get('WAW2BO2_DIAG_PROBE_TERMS'):
+                hlsl = diag_probe_terms(hlsl, contract)
             dxbc = shaders.compile_hlsl(hlsl, 'ps_5_0')
             shader_name = _write_program(project_root, 'ps', dxbc, binary, contract, info)
             vertex_name = None
@@ -1442,7 +1494,7 @@ def bind_material(source_material, output_material, roots, project_root, native_
         entries = output_material.get('stateBitsEntry', [])
         for slot, technique in enumerate(pristine['techniques'][:DEBUG_SLOTS_START]):
             # dynamic-light variants take their own base's pass (below)
-            if slot in bound_slots or not technique or slot in DLIGHT_BASE_SLOTS:
+            if slot in bound_slots or not technique or slot in DLIGHT_BASE_SLOTS or slot in SPOT_SHAPE_BASE_SLOTS:
                 continue
             if slot in (0, 1):
                 native['techniques'][slot] = None
@@ -1459,6 +1511,11 @@ def bind_material(source_material, output_material, roots, project_root, native_
             native['techniques'][slot] = copy.deepcopy(native['techniques'][base])
             result['active'].append({**bound_slots[base], 'slot': slot, 'dlight_base': base})
             result['unsupported'].append(f'slot {slot}: dynamic lights not added (draws the WaW pass of slot {base})')
+    for slot, base in SPOT_SHAPE_BASE_SLOTS.items():
+        if base in bound_slots and slot < len(pristine['techniques']) and pristine['techniques'][slot]                 and slot not in bound_slots:
+            native['techniques'][slot] = copy.deepcopy(native['techniques'][base])
+            result['active'].append({**bound_slots[base], 'slot': slot, 'spot_shape_base': base})
+            result['unsupported'].append(f'slot {slot}: spot cookie shape not applied (draws the WaW pass of slot {base})')
     # One lightmap page per surface: WaW-lightmap passes are only kept when no
     # remaining donor lit pass reads the T6-encoded lightmap.
     waw_lightmap = [a for a in result['active'] if a.get('lightmap') == 'waw']

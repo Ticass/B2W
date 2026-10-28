@@ -588,7 +588,8 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
             # reflection, turning every glossy world surface red. The map's
             # baked probes follow it as reflection_probe1.. (probes.py).
             dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(iwi.solid_cube_rgba_iwi(4, NEUTRAL_PROBE_RGBA))
+            dst.write_bytes(iwi.solid_cube_rgba_iwi(4, (255, 0, 0, 255) if os.environ.get('WAW2BO2_DIAG_PROBES')
+                                                    else NEUTRAL_PROBE_RGBA))
             why = "black cube probe; the WaW probe is a solid red placeholder"
             report.warnings.append(f"image {asset}: synthesized, {why}")
             report.images.append({"name": asset, "source": None, "synthesized": why})

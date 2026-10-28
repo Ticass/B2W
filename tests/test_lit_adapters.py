@@ -258,3 +258,10 @@ class LitSlotTests(unittest.TestCase):
         # square/round spot techniques are unreachable for staged plain spots
         self.assertFalse(set(range(9, 13)) & set(runtime.REACHABLE_LIT_SLOTS))
         self.assertFalse(set(range(20, 24)) & set(runtime.REACHABLE_LIT_SLOTS))
+
+    def test_spot_shape_slots_draw_the_waw_spot_pass(self):
+        # T6 LIT_SPOT_SQUARE/_ROUND (9-12) and their DLIGHT_GLIGHT forms
+        # (20-23): no BO2 lit program stays; shadowed forms take SPOT_SHADOW
+        self.assertEqual(set(runtime.SPOT_SHAPE_BASE_SLOTS), set(range(9, 13)) | set(range(20, 24)))
+        for slot, base in runtime.SPOT_SHAPE_BASE_SLOTS.items():
+            self.assertEqual(base, 8 if slot in (10, 12, 21, 23) else 7)
