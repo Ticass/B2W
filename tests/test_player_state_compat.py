@@ -98,6 +98,11 @@ class PlayerStatTests(unittest.TestCase):
         self.assertIn('native_key = "perks_drank";', compat)
         self.assertIn('return player.score_total;', compat)
 
+    def test_double_tap_uses_waw_engine_default(self):
+        # T6 zombies turns on Double Tap 2.0's extra bullet; WaW's default is off.
+        compat = (gscport.COMPAT_DIR / '_waw2bo2_compat.gsc').read_text()
+        self.assertIn('setdvar( "perk_weapRateEnhanced", 0 );', compat)
+
     def test_scoreboard_player_names_and_authored_font_scales(self):
         source = '''f() {
             hud.fontscale = 1.6;

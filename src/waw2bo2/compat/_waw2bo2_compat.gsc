@@ -57,6 +57,10 @@ init()
     if ( !isdefined( level.isPlutonium ) )
         level.isPlutonium = 1;
     precacheshader( "waypoint_revive" );
+    // T6 zombies defaults perk_weapRateEnhanced on: specialty_rof fires an
+    // extra bullet per shot (Double Tap 2.0, also a bullet beside every Ray
+    // Gun bolt). WaW's engine default is 0; the map's perks only set the rate.
+    setdvar( "perk_weapRateEnhanced", 0 );
     if ( !isdefined( level.get_player_weapon_limit ) )
         level.get_player_weapon_limit = ::waw_player_weapon_limit;
     level.waw2bo2_reported = [];
