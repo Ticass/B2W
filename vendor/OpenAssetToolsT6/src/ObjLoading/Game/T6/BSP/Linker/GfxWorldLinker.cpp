@@ -616,6 +616,11 @@ namespace BSP
                 drawInst.cullDist = cullDist > 0.0f ? cullDist : BSPEditableConstants::DEFAULT_SMODEL_CULL_DIST;
                 drawInst.flags = BSPEditableConstants::DEFAULT_SMODEL_FLAGS;
                 drawInst.primaryLightIndex = entry.value("primaryLightIndex", BSPEditableConstants::DEFAULT_SMODEL_LIGHT);
+                // T6 lights a static model from its light-grid palette entry
+                // (sub_75C4F0) and its primary light's visibility / 255
+                // (sub_75BF90); the converter bakes both from the source grid.
+                drawInst.colorsIndex = entry.value("colorsIndex", static_cast<uint16_t>(0));
+                drawInst.visibility = static_cast<char>(entry.value("visibility", 0));
                 drawInst.reflectionProbeIndex =
                     ProbeIndex(probes, entry.value("reflectionProbeIndex", BSPEditableConstants::DEFAULT_SMODEL_REFLECTION_PROBE));
                 drawInst.smid = static_cast<unsigned int>(drawInsts.size());
@@ -804,6 +809,31 @@ namespace BSP
             gfxWorld.primaryLightEntityShadowVis = m_memory.Alloc<unsigned int>(lightEntShadowVisSize);
         else
             gfxWorld.primaryLightEntityShadowVis = nullptr;
+    }
+
+    void GfxWorldLinker::ReserveShadowSurfaceLists(GfxWorld& gfxWorld) const
+    {
+        // T6 rebuilds every light's shadow surface list at world load: it sets
+        // each surfaceCount to 0 (sub_74D570), then appends every shadow-casting
+        // surface in a light's range to sortedSurfIndex with no bound
+        // (sub_73AF60 -> sub_73AF30). The zone stores surfaceCount entries, so
+        // each list gets room for every surface: a shorter list was overrun into
+        // the next allocations (Der Riese crash in the spot shadow pass, sub_761770).
+        const auto capacity = static_cast<unsigned>(gfxWorld.surfaceCount);
+        if (capacity > std::numeric_limits<uint16_t>::max())
+        {
+            con::error("ERROR! {} world surfaces exceed the shadow surface list limit", capacity);
+            return;
+        }
+        for (unsigned light = 0; light < gfxWorld.primaryLightCount; ++light)
+        {
+            auto& geom = gfxWorld.shadowGeom[light];
+            auto* list = m_memory.Alloc<uint16_t>(capacity);
+            if (geom.sortedSurfIndex)
+                std::copy_n(geom.sortedSurfIndex, geom.surfaceCount, list);
+            geom.sortedSurfIndex = list;
+            geom.surfaceCount = static_cast<uint16_t>(capacity);
+        }
     }
 
     void GfxWorldLinker::LoadShadowGeometry(const BSPData& bsp, GfxWorld& gfxWorld) const
@@ -1469,6 +1499,7 @@ namespace BSP
 
         LoadGfxLights(*gfxWorld);
         LoadShadowGeometry(bsp, *gfxWorld);
+        ReserveShadowSurfaceLists(*gfxWorld);
         if (!LoadLightGrid(*gfxWorld)) return nullptr;
 
         LoadModels(*gfxWorld);

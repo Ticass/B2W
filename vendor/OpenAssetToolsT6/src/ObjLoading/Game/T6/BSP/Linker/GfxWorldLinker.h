@@ -19,6 +19,7 @@ namespace BSP
     private:
         void LoadDrawData(const BSPData& projInfo, T6::GfxWorld& gfxWorld) const;
         bool LoadMapSurfaces(const BSPData& projInfo, T6::GfxWorld& gfxWorld) const;
+        void ReserveShadowSurfaceLists(T6::GfxWorld& gfxWorld) const;
         void LoadShadowGeometry(const BSPData& bsp, T6::GfxWorld& gfxWorld) const;
         void AppendLayerVertices(const BSPData& bsp, const BSPSurface& bspSurface, T6::GfxSurface& gfxSurface, T6::GfxWorld& gfxWorld,
                                  std::vector<char>& layerData) const;

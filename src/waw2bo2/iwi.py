@@ -228,12 +228,36 @@ def _split_levels_face_major(img: DdsImage) -> list[bytes]:
     return [b"".join(per_face[f][lvl] for f in range(img.faces)) for lvl in range(img.mip_count)]
 
 
-def dds_to_iwi(blob: bytes, face_major: bool = False, rgba_texels=None) -> bytes:
+def dds_to_iwi(blob: bytes, face_major: bool = False, rgba_texels=None, base_level_only: bool = False) -> bytes:
     """``rgba_texels``: optional bytes -> bytes rewrite of each RGBA level
-    (uncompressed RGBA sources only)."""
+    (uncompressed RGBA sources only). ``base_level_only``: drop the mip chain
+    (the source samples it with mipmapping disabled)."""
     img = read_dds(blob)
     levels = _split_levels_face_major(img) if (face_major and img.faces > 1) else _split_levels(img)
     levels = [_convert_pixels(img, lvl) for lvl in levels]
+    if img.iwi_format in (FMT_LUMINANCE, FMT_LUMINANCE_ALPHA, FMT_RGB):
+        # WaW (D3D9) samples L8 as (L, L, L, 1), A8L8 as (L, L, L, A) and R8G8B8
+        # as (R, G, B, 1). T6 (D3D11) has neither luminance nor 24-bit formats:
+        # luminance read 0 in rgb, which zeroed every WaW light falloff ramp
+        # (light defs) and so every spot/omni primary light on models, and an
+        # RGB image linked with no DXGI format at all. Written as that RGBA.
+        expanded = []
+        for level in levels:
+            if img.iwi_format == FMT_RGB:
+                count = len(level) // 3
+                out = bytearray(count * 4)
+                for c in range(3):
+                    out[c::4] = level[c::3]
+            else:
+                stride = 2 if img.iwi_format == FMT_LUMINANCE_ALPHA else 1
+                count = len(level) // stride
+                out = bytearray(count * 4)
+                for c in range(3):
+                    out[c::4] = level[0::stride]
+            out[3::4] = level[1::2] if img.iwi_format == FMT_LUMINANCE_ALPHA else b'\xff' * count
+            expanded.append(bytes(out))
+        levels = expanded
+        img.iwi_format = FMT_RGBA
     if rgba_texels is not None:
         if img.iwi_format != FMT_RGBA:
             raise IwiError("texel rewrite needs an uncompressed RGBA source")
@@ -241,7 +265,7 @@ def dds_to_iwi(blob: bytes, face_major: bool = False, rgba_texels=None) -> bytes
 
     full = full_mip_count(img.width, img.height, img.depth if img.volume else 1)
     flags = 0
-    if img.mip_count >= full:
+    if img.mip_count >= full and not base_level_only:
         levels = levels[:full]
     else:
         # OAT's IWI27 loader only understands "full chain" or "base level only".

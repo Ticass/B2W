@@ -113,7 +113,70 @@ def read_grid(path: Path) -> LightGrid:
     return grid
 
 
-def stage_grid(source: Path, destination: Path) -> dict:
+# WaW grid cells (T4/T6 share the convention): 32 x 32 x 64 units, cell index
+# = floor((position + 131072) / size). Measured: Der Riese static models land
+# in the grid's points only with this offset.
+GRID_CELL = (32.0, 32.0, 64.0)
+GRID_OFFSET = 131072.0
+
+
+def static_model_samples(grid: LightGrid, models: list[dict]) -> tuple[list[tuple], bytes, dict]:
+    """Bake each static model's grid lighting for T6.
+
+    T6 lights a static model only from its draw instance: colorsIndex picks
+    the grid palette entry it samples (sub_75C4F0 -> sub_755CE0) and
+    visibility is its primary light's visibility (sub_75BF90:
+    gridLightingCoordsAndVis.w = visibility / 255). WaW samples the grid at the
+    model's lighting origin at runtime. Each model gets a palette entry
+    blended trilinearly from the eight surrounding grid points (absent points
+    drop out), and its primary light's visibility is the weight of the points
+    selecting that light (derived: WaW's corner traces are not reproduced).
+    Returns per-model (colorsIndex, visibility), the appended source palette
+    bytes and a report."""
+    points = dict(grid.points())
+    entries = list(struct.iter_unpack("<HBB", grid.entries))
+    base = len(grid.colors) // 168
+    palette = bytearray()
+    samples, nearest, outside = [], 0, 0
+    for model in models:
+        cell = [(model["lightingOrigin"][i] + GRID_OFFSET) / GRID_CELL[i] for i in range(3)]
+        low = [math.floor(c) for c in cell]
+        frac = [c - l for c, l in zip(cell, low)]
+        weighted = []
+        for corner in range(8):
+            offset = [(corner >> axis) & 1 for axis in range(3)]
+            entry = points.get(tuple(l + o for l, o in zip(low, offset)))
+            if entry is None:
+                continue
+            weight = math.prod(f if o else 1.0 - f for f, o in zip(frac, offset))
+            if weight > 0:
+                weighted.append((weight, entries[entry]))
+        if not weighted:
+            # No grid point around the origin: the closest point within two cells
+            near = [(sum((l + d - c) ** 2 for l, d, c in zip(low, delta, cell)), points[key])
+                    for delta in ((x, y, z) for x in range(-2, 4) for y in range(-2, 4) for z in range(-2, 4))
+                    if (key := tuple(l + d for l, d in zip(low, delta))) in points]
+            if not near:
+                outside += 1
+                samples.append((0, 0))
+                continue
+            nearest += 1
+            weighted = [(1.0, entries[min(near)[1]])]
+        total = sum(w for w, _ in weighted)
+        blend = [0.0] * 168
+        for weight, (color, _, _) in weighted:
+            source = grid.colors[color * 168:(color + 1) * 168]
+            for i in range(168):
+                blend[i] += source[i] * weight / total
+        palette.extend(min(255, round(v)) for v in blend)
+        light = model.get("primaryLightIndex", 0)
+        visible = sum(w for w, (_, primary, _) in weighted if light and primary == light) / total
+        samples.append((base + len(palette) // 168 - 1, round(255 * visible)))
+    return samples, bytes(palette), {"static_models": len(models), "nearest_point": nearest,
+                                     "outside_grid": outside}
+
+
+def stage_grid(source: Path, destination: Path, static_models: Path | None = None) -> dict:
     """Stage T6's packed grid, preserving positions and directional samples.
 
     Native T6 sub_755810 decodes bytes as 32*(c/255)^2. WaW's model
@@ -123,6 +186,8 @@ def stage_grid(source: Path, destination: Path) -> dict:
     Primary-light selection already records which light reaches each point;
     visibility is full for that selected light. Runtime corner obstruction
     checks performed by T4 remain a separate compatibility requirement.
+    ``static_models``: the BSP models.json; each placement with a
+    lightingOrigin gets its colorsIndex and visibility (static_model_samples).
     """
     grid = read_grid(source)
     entries = bytearray()
@@ -130,13 +195,25 @@ def stage_grid(source: Path, destination: Path) -> dict:
     for color, primary, needs_trace in struct.iter_unpack("<HBB", grid.entries):
         entries.extend(struct.pack("<HBB", color, primary, 255 if primary else 0))
         trace_points += bool(needs_trace)
-    palette = bytes(round(c / math.sqrt(8)) for c in grid.colors)
+    colors, model_report = grid.colors, None
+    if static_models is not None:
+        placements = json.loads(static_models.read_text(encoding="utf-8"))
+        models = [m for m in placements["models"] if "lightingOrigin" in m]
+        samples, extra, model_report = static_model_samples(grid, models)
+        if (len(colors) + len(extra)) // 168 > 0xFFFF:
+            raise LightingError("static model lighting exceeds the T6 palette index range")
+        for model, (index, visibility) in zip(models, samples):
+            model["colorsIndex"], model["visibility"] = index, visibility
+        static_models.write_text(json.dumps(placements, indent=1) + "\n", encoding="utf-8")
+        colors += extra
+    palette = bytes(round(c / math.sqrt(8)) for c in colors)
     header = HEADER.pack(b"W2BT6LG1", 1, 0, grid.sun_index, *grid.mins, *grid.maxs,
                          grid.row_axis, grid.col_axis, len(grid.row_starts), len(grid.packed_rows),
                          len(entries) // 4, len(palette) // 168)
     destination.write_bytes(header + struct.pack(f"<{len(grid.row_starts)}H", *grid.row_starts)
                             + grid.packed_rows + entries + palette)
     return {**grid.report(), "status": "runtime_T6_grid", "palette_encoding": "WaW_gamma2_to_T6_linear32",
+            "static_model_lighting": model_report,
             "source_trace_mask_points": trace_points,
             "corner_obstruction_checks": "T4_runtime_traces_not_representable_in_T6_visibility"}
 

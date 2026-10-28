@@ -35,6 +35,59 @@ apply_vision( localclientnum )
     setdvar( "vc_LUT", index + 1 );
 }
 
+// ---- WaW client builtins for the map's own client scripts (clientport) ----
+
+// WaW light intensity scales the light's gamma colour (ComPrimaryLight colour
+// = _color * intensity). Converted primary lights are staged linear (colour
+// squared, lighting.stage_primary_lights), so the T6 intensity is its square.
+waw_setlightintensity( intensity )
+{
+    self setlightintensity( intensity * intensity );
+}
+
+waw_getlightintensity()
+{
+    return sqrt( self getlightintensity() );
+}
+
+// T6 client scripts have no volumetric fog; the server applies the map's
+// client fog moments (gscport client_fog_monitors).
+waw_client_setvolfog( start, halfway, halfheight, baseheight, r, g, b, transition )
+{
+}
+
+// T6 syncs client system states itself: BO2's waitforclient has no such call.
+waw_syncsystemstates( client )
+{
+}
+
+// WaW restores splitscreen profile dvars; T6 has no client builtin for it.
+waw_updatedvarsfromprofile( client )
+{
+}
+
+// T6 has no client sound volume query: a WaW fade-out loop ends at once.
+waw_getsoundvolume( id )
+{
+    return 0;
+}
+
+waw_setclientdvar( name, value )
+{
+    setdvar( name, value );
+}
+
+// WaW script profiler markers.
+waw_prof( name )
+{
+}
+
+// WaW's engine zombie-eye state; T6 actors draw BO2's own eye glow.
+waw_haseyes()
+{
+    return 0;
+}
+
 // Both sun tweak dvars are SAVED (0x1200): plain setdvar is refused for them.
 sun_state( localclientnum, state )
 {

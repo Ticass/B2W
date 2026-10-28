@@ -671,13 +671,16 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
                     raise shaders.ShaderError('native model lighting scale not recognized')
                 entry.update(rgb_scale=f'sqrt(8.0 * {hdr_display(hdr_row)})', uses=[[0, hdr_row]])
                 contract.setdefault('unit_conversions', []).append('modelLighting: sqrt(8 * 4 hdr) * L')
-                if 'sunDiffuse' in {n for n, _ in names.values()}:
-                    # WaW reads sun visibility from the texel alpha; T6 from
-                    # gridLightingCoordsAndVis.w, carried by the vertex program.
+                light_names = {n for n, _ in names.values()}
+                if 'sunDiffuse' in light_names or 'lightDiffuse' in light_names:
+                    # WaW reads its primary light's visibility (sun, spot or
+                    # omni) from the texel alpha; T6 from
+                    # gridLightingCoordsAndVis.w, carried by the vertex program
+                    # (stock T6 spot lprobe programs scale the light by it too).
                     link = next((i for i, s in enumerate(linked) if visibility and s['semantic'].upper() == visibility.upper()
                                  and s['width'] == 4), None)
                     if link is None:
-                        raise shaders.ShaderError('sun visibility varying absent')
+                        raise shaders.ShaderError('primary light visibility varying absent')
                     entry['alpha_expr'] = f'input.link{link}.w'
             elif source_name == 'attenuationSampler':
                 # T6 code texture 15 is the light def's attenuation image, staged
@@ -922,9 +925,18 @@ def vertex_contract(source_assembly, source_pass, native_pass, native_root, pair
             # was bright (Shi No Numa uniforms switching while they walked).
             hits = tainted_outputs(source_assembly, {reg})
             carriers = {r for r, _ in hits}
+            carrier = None
             if len(carriers) == 1 and {c for _, c in hits} <= set('xyz') \
                     and not writes_component(source_assembly, next(iter(carriers)), 'w'):
                 carrier = carriers.pop()
+            else:
+                # That .w is taken (clothcharr): any other varying the program
+                # leaves .w free carries T6's visibility instead. Without it a
+                # WaW spot/omni pass read T6's texel alpha as its visibility.
+                carrier = next((r for r, e in sorted(contract['outputs'].items())
+                                if e['semantic'].upper() not in ('POSITION', 'POSITION0', 'SV_POSITION')
+                                and e['width'] <= 3 and not writes_component(source_assembly, r, 'w')), None)
+            if carrier is not None:
                 contract['outputs'][carrier]['width'] = 4
                 contract['epilogue'] = {'lines': [f'{carrier}.w = t6_cb{slot}[{at//16}].w;'], 'uses': [[slot, at//16]]}
                 contract['lighting_visibility'] = contract['outputs'][carrier]['semantic']
@@ -1390,6 +1402,27 @@ def bind_material(source_material, output_material, roots, project_root, native_
                     contract['epilogue'] = {'lines': [
                         f'{target} = float4(saturate({target}.w), saturate(dot({target}.xyz, float3(0.333, 0.333, 0.333)) * 4.0), 0.0, 1.0);'],
                         'uses': []}
+                spot_regs = {n: r for r, (n, _) in registers(assembly).items()}
+                spot_pos = re.search(r'add r\d+\.xyz, -(v\d+), ' + spot_regs.get('lightPosition', 'none') + r'\b', assembly)
+                if os.environ.get('WAW2BO2_DIAG_SPOT') and spot_pos and 'attenuationSampler' in spot_regs \
+                        and 'lightSpotDir' in spot_regs:
+                    # Diagnostic build: spot light factors as colour. red = distance /
+                    # radius, green = cone factor, blue = attenuation texel.
+                    target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
+                    p, a = spot_pos.group(1), spot_regs['attenuationSampler']
+                    # WAW2BO2_DIAG_SPOT=vis: red = carried T6 visibility, green =
+                    # light colour peak / 4, blue = attenuation * cone.
+                    vis = next((e['alpha_expr'] for e in contract.get('samplers', {}).values()
+                                if 'link' in str(e.get('alpha_expr', ''))), '0.0')
+                    last = (f'{target} = float4(saturate({vis}), saturate(max(t6_cb0[78].x, max(t6_cb0[78].y, '
+                            f't6_cb0[78].z)) * 0.25), tex_{a}.Sample(samp_{a}, float2(dd, dd)).x * dc, 1.0);'
+                            if os.environ['WAW2BO2_DIAG_SPOT'] == 'vis' else
+                            f'{target} = float4(dd, dc, tex_{a}.Sample(samp_{a}, float2(dd, dd)).x, 1.0);')
+                    contract['epilogue'] = {'lines': [
+                        f'float3 dl = t6_cb0[77].xyz - {p}.xyz;',
+                        'float dd = saturate(length(dl) * -t6_cb0[82].w);',
+                        'float dc = saturate(dot(normalize(dl), t6_cb0[79].xyz) * t6_cb0[82].x + t6_cb0[83].x);',
+                        last], 'uses': []}
                 secondary = contract.get('samplers', {}).get('s3', {})
                 if (os.environ.get('WAW2BO2_DIAG_LIGHTMAP') and secondary.get('v_scale_offset')
                         and 'v1' in contract.get('inputs', {})):

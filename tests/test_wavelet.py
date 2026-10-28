@@ -58,7 +58,11 @@ class WaveletTest(unittest.TestCase):
                     self.assertEqual(image.levels[0][3::4], b"\xff" * 4)
                 parsed = iwi.read_dds(image.dds())
                 self.assertEqual(parsed.iwi_format, fmt - 5)
-                self.assertEqual(len(iwi.dds_to_iwi(image.dds())), 64 + 5 * channels)
+                # luminance (alpha) and 24-bit RGB images are written as RGBA:
+                # T6 has neither format
+                written = 4 if parsed.iwi_format in (iwi.FMT_LUMINANCE, iwi.FMT_LUMINANCE_ALPHA, iwi.FMT_RGB) \
+                    else channels
+                self.assertEqual(len(iwi.dds_to_iwi(image.dds())), 64 + 5 * written)
 
     def test_rectangular_raw_mips_and_cube_shared_bits(self):
         for flags, faces in [(0, 1), (4, 6)]:

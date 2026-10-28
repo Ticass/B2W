@@ -3409,8 +3409,10 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
              fx_table: dict[str, str] | None = None, animtrees: set[str] | None = None,
              core_animtrees: dict[str, set[str]] | None = None, bo2_stock_perks: bool = False,
              actor_types: set[str] = frozenset(), actor_template: str | None = None,
-             stock_map: bool = False) -> PortReport:
+             stock_map: bool = False, client_ported: bool = False) -> PortReport:
     """Translate the map main and everything it reaches into out_root/maps/mp/waw.
+    ``client_ported``: the map's own client scripts run on the client
+    (clientport.port_map_client); their listeners get no server copies.
     ``animtrees``: animtree names BO2 can load (stock + converted).
     ``core_animtrees``: WaW framework-override animtrees staged for BO2 -> their
     animations with WaW xanims (t6bridge.stage_core_animtrees).
@@ -3655,7 +3657,8 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     effect_reads = {k.lower() for t in texts for k in re.findall(r'level\.waw_effect\[\s*"([^"]+)"\s*\]', t)}
     effect_sets = {k.lower() for t in texts
                    for k in re.findall(r'level\.waw_effect\[\s*"([^"]+)"\s*\]\s*=[^=]', t)}
-    framework_state += tr.client_fx_listeners()
+    if not client_ported:
+        framework_state += tr.client_fx_listeners()
     zombie_vars = tr.framework_zombie_vars()
     if zombie_vars:
         framework_state.append(zombie_vars)

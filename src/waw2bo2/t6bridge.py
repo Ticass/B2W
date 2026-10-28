@@ -957,6 +957,7 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
     # the skybox is staged by stage_skybox (T6 needs a sky technique)
     materials: set[str] = set()
     material_roots = roots or [stage]
+    model_bounds = {}
 
     @lru_cache(maxsize=None)
     def shadow_only(name: str) -> bool:
@@ -974,6 +975,8 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
             if gltf is None:
                 report.errors.append(f"xmodel {src_name}: LOD file {lod['file']} missing")
                 continue
+            if not lods:
+                model_bounds[src_name] = _gltf_game_bounds(gltf)
             dst_file = project_root / lod["file"]
             dst_file.parent.mkdir(parents=True, exist_ok=True)
             data = _load_json(gltf)
@@ -1031,6 +1034,15 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
                    "scale": m.scale, "flags": m.flags, "cullDist": m.cull_dist,
                    "primaryLightIndex": m.primary_light_index,
                    "reflectionProbeIndex": m.reflection_probe_index} for m in world.static_models]
+    for placement in placements:
+        bounds = model_bounds.get(placement["name"])
+        if bounds is not None:
+            # the placed bounds' centre, as GfxWorldLinker sets the T6 lighting
+            # origin; stage_grid samples the WaW grid there (lighting.static_model_samples)
+            axis, scale = placement["axis"], placement["scale"]
+            centre = [(lo + hi) / 2 for lo, hi in zip(*bounds)]
+            placement["lightingOrigin"] = [placement["origin"][k] + scale * sum(centre[r] * axis[r * 3 + k]
+                                                                               for r in range(3)) for k in range(3)]
     bsp = project_root / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
     (bsp / "models.json").write_text(json.dumps({"models": placements}, indent=1) + "\n", encoding="utf-8")
@@ -1348,7 +1360,7 @@ def map_scripts(project_root: Path, project: str) -> list[str]:
                  (project_root / 'aitype/clientscripts').glob('waw_*.csc'))
     found.extend(gscport.bo2_scripts(project_root))
     found.extend(p.relative_to(project_root).as_posix() for p in
-                 (project_root / 'clientscripts/mp/waw').glob('*.csc'))
+                 sorted((project_root / 'clientscripts/mp/waw').rglob('*.csc')))
     return found
 
 
@@ -2013,6 +2025,19 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     hook = '    clientscripts\\mp\\waw\\_waw2bo2_environment::init();\n'
     if hook.strip() not in client_text:
         client_text = client_text.replace('    start_zombie_stuff();', '    start_zombie_stuff();\n' + hook, 1)
+    map_client = (report.scripts or {}).get('client')
+    if map_client:
+        # The map's client main runs once BO2's client main has set up its
+        # runtime, before the wait for client 0 (as WaW's main ends with it).
+        client_hook = clientport.finish_map_client(project_root, map_client, report.fx_table, weapon_table,
+                                                   client_sound_names)
+        report.warnings += [f"CLIENT_FX_UNBOUND {name}: loaded by the map's client scripts, not converted"
+                            for name in map_client['unbound_fx']]
+        marker = '    waitforclient( 0 );'
+        if client_hook.strip() not in client_text:
+            if marker not in client_text:
+                raise ValueError(f'{client_main.name}: no waitforclient( 0 ) to start the map client before')
+            client_text = client_text.replace(marker, client_hook + marker, 1)
     client_main.write_text(client_text, encoding='utf-8')
     sound_resolver = assetresolve.Resolver(roots, stock_waw)
     defined_sounds = zone_sound_names | compiled_sound_names | ({n for kinds in stock_waw.index.values()
@@ -2149,7 +2174,13 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     lighting_base = str(gfx_bin).removesuffix(".gfx.bin")
     grid_file = Path(lighting_base + ".lightgrid.bin")
     if grid_file.exists():
-        report.content["lighting"] = lighting.stage_grid(grid_file, project_root / "BSP/lightgrid.bin")
+        models_file = project_root / "BSP/models.json"
+        report.content["lighting"] = lighting.stage_grid(grid_file, project_root / "BSP/lightgrid.bin",
+                                                         models_file if models_file.exists() else None)
+        model_lighting = report.content["lighting"].get("static_model_lighting") or {}
+        if model_lighting.get("outside_grid"):
+            report.warnings.append(f"{model_lighting['outside_grid']} static models lie outside the WaW light "
+                                   "grid: lit by palette entry 0")
         sun_file = Path(lighting_base + ".lighting.json")
         if sun_file.exists():
             shutil.copy2(sun_file, project_root / "BSP/lighting.json")
@@ -2175,6 +2206,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             if unshadowed:
                 report.warnings.append(f"{len(unshadowed)} primary spot/omni lights drawn without shadow maps "
                                        "(render dump has no shadow geometry: re-extract gfxworld with the v6 T4 dumper)")
+            attenuation_images = set()
             for name in sorted(definitions):
                 source_def = _find(roots, Path(f"lightdef/{name}.json"))
                 if source_def is None:
@@ -2190,13 +2222,21 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                     output_image = "waw_light/" + image_name
                     image_path = project_root / f"images/{output_image}.iwi"
                     image_path.parent.mkdir(parents=True, exist_ok=True)
-                    image_path.write_bytes(iwi.dds_to_iwi(source_image.read_bytes()))
+                    # T6 binds the ramp with its own sampler state (19: mipmapped);
+                    # WaW's def samples it unmipped, so only the base level is kept.
+                    image_path.write_bytes(iwi.dds_to_iwi(source_image.read_bytes(), base_level_only=True))
                     definition["attenuation"] = output_image
                     images.append(output_image)
+                    attenuation_images.add(output_image)
                 definition["name"] = "waw_light/" + name
                 output_def = project_root / f"lightdef/waw_light/{name}.json"
                 output_def.parent.mkdir(parents=True, exist_ok=True)
                 output_def.write_text(json.dumps(definition, indent=1) + "\n", encoding="utf-8")
+            # A light def's ramp is a code texture no material requests: the
+            # world streamer (mode 1) never made it resident and every WaW
+            # spot/omni light sampled a black falloff.
+            if attenuation_images:
+                write_image_streaming(project_root, attenuation_images, merge=True)
         destination = project_root / "content_source/lighting"
         destination.mkdir(parents=True, exist_ok=True)
         for suffix in (".lightgrid.bin", ".lighting.json", ".primarylights.json"):
@@ -3005,12 +3045,32 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
                  for p in d.glob("*.atr")}
     core_trees, xanims = stage_core_animtrees(report, sources, model_roots, project_root, animtrees,
                                            api=api, map_name=map_name, stock_waw=stock_waw, actor_types=actor_types)
+    # The map's own client scripts (stale ports of an earlier run removed first)
+    client_dir = project_root / 'clientscripts/mp/waw'
+    for old in client_dir.rglob('*.csc') if client_dir.exists() else ():
+        if old.read_text(encoding='utf-8', errors='replace').startswith(clientport.PORT_HEADER):
+            old.unlink()
+    client = clientport.port_map_client(sources, map_name, project_root,
+                                        clientport.staged_client_modules(map_name, project_root.name),
+                                        set(api.builtins) | set(api.methods))
     port = gscport.port_map(sources, api, map_name, project_root, animtrees=animtrees, core_animtrees=core_trees,
                             bo2_stock_perks=bo2_stock_perks, actor_types=actor_types,
-                            actor_template=actor_template, stock_map=waw_stock_map)
+                            actor_template=actor_template, stock_map=waw_stock_map, client_ported=bool(client))
     if actor_types:
         gscport.zombieappearance.bind_actor_types(project_root, actor_types)
     report.scripts = port.to_json()
+    if client:
+        report.scripts['client'] = client
+        report.scripts['fx'] = sorted(set(report.scripts.get('fx', [])) | set(client['fx']))
+        report.warnings.append(f"CLIENT_SCRIPTS the map's own client scripts run: {len(client['modules'])} "
+                               f"modules ported, entry {client['entry']}")
+        for statement in client['dropped']:
+            report.warnings.append(f"CLIENT_GLUE {statement}: started by the BO2 client main or its own port")
+        for name in client['compat']:
+            report.warnings.append(f"CLIENT_COMPAT {name}: WaW client builtin T6 lacks or reads in other units; "
+                                   f"compat _waw2bo2_environment.csc")
+        for path in client['missing']:
+            report.warnings.append(f"CLIENT_MISSING {path}: referenced by the map's client scripts, in no zone")
     rule_path = project_root / (scorebehavior.RULES.replace('\\', '/') + '.gsc')
     # The map's whole _zombiemode_score runs (preserved; the native AI's
     # awards reach it through compat waw_player_add_points), so its perk point

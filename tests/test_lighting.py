@@ -56,6 +56,33 @@ class LightingTests(unittest.TestCase):
                 self.assertAlmostEqual(source_gamma, target_gamma, delta=0.012)
             self.assertEqual(report["source_trace_mask_points"], 2)
 
+    def test_static_models_get_their_grid_palette_entry_and_visibility(self):
+        with tempfile.TemporaryDirectory() as temp:
+            src, dst, models = Path(temp) / "source.bin", Path(temp) / "target.bin", Path(temp) / "models.json"
+            fixture = bytearray(self.fixture())
+            # second point: palette 1 (all 200), primary light 2
+            fixture[-168 - 4:-168] = struct.pack("<HBB", 1, 2, 0)
+            struct.pack_into("<I", fixture, lighting.HEADER.size - 4, 2)
+            src.write_bytes(bytes(fixture) + bytes([200]) * 168)
+            # points (10, 21, 32) and (10, 22, 32): halfway between them in y
+            cell = lambda c, i: (c * lighting.GRID_CELL[i]) - lighting.GRID_OFFSET
+            origin = [cell(10, 0), cell(21.5, 1), cell(32, 2)]
+            models.write_text(json.dumps({"models": [
+                {"name": "a", "primaryLightIndex": 2, "lightingOrigin": origin},
+                {"name": "b", "primaryLightIndex": 0, "lightingOrigin": origin},
+                {"name": "far", "primaryLightIndex": 2, "lightingOrigin": [0.0, 0.0, 0.0]},
+                {"name": "unplaced"}]}))
+            report = lighting.stage_grid(src, dst, models)
+            placed = json.loads(models.read_text())["models"]
+            self.assertEqual([(m["colorsIndex"], m["visibility"]) for m in placed[:3]], [(2, 128), (3, 0), (0, 0)])
+            self.assertNotIn("colorsIndex", placed[3])
+            self.assertEqual(report["static_model_lighting"]["outside_grid"], 1)
+            target = dst.read_bytes()
+            self.assertEqual(struct.unpack_from("<I", target, lighting.HEADER.size - 4)[0], 4)
+            blended = target[-2 * 168:-168]
+            self.assertEqual(blended[0], round(round(100) / 8 ** 0.5))  # (0 + 200) / 2
+            self.assertEqual(blended[100], round(round((100 + 200) / 2) / 8 ** 0.5))
+
     def test_primary_light_types_and_definitions_are_translated(self):
         with tempfile.TemporaryDirectory() as temp:
             source, target = Path(temp) / "source.json", Path(temp) / "target.json"

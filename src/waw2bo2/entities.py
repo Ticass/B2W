@@ -5,7 +5,8 @@ over as-is is reported, never silently dropped:
 
 * ``node_*``  path nodes are kept (as in stock T6 zones); the graph itself is
   linked from BSP/paths.json (see paths.py)
-* ``light``   WaW's baked-light entities have no meaning for the T6 runtime
+* ``light``   kept: the map's client _lights.csc drives each one's primary
+  light (``pl#``) as WaW does (flicker, power-on intensity)
 * brush-model entities (``"model" "*N"``: zones, doors, triggers) are kept;
   the bridge links submodel N from BSP/submodels.json in the same order
 * WaW zombie spawner classes are renamed to a T6 zombie actor class
@@ -23,7 +24,7 @@ from . import paths as pathgraph
 ENTITY_RE = re.compile(r"\{([^{}]*)\}")
 KV_RE = re.compile(r'"([^"]*)"\s+"([^"]*)"')
 
-DROP_CLASSES = {"light"}
+DROP_CLASSES: set[str] = set()
 WORLDSPAWN_KEYS = {"classname", "skyboxmodel", "sundirection", "suncolor", "sunlight", "_color", "ambient",
                    "diffusefraction"}
 # BO2 zombie actor spawner class shipped with the zm_test template (zm_nuked AI)
@@ -118,7 +119,7 @@ def convert_entities(ents: list[dict[str, str]], project: str,
             out.append(ent)
             continue
         if cls in DROP_CLASSES:
-            dropped[f"{cls} (baked lighting only)"] += 1
+            dropped[cls] += 1
             continue
         ent = dict(ent)
         struct_defaults(ent)
