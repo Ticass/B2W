@@ -51,7 +51,8 @@ class FrameworkHookTests(unittest.TestCase):
             self.assertIn('self.chain_reached = true', core)
             self.assertIn('self.seen_name = player.name', core)
             self.assertNotIn('player.playername', core)
-            self.assertIn('_waw2bo2_compat::waw_get_number_variants("custom")', core)
+            # the map's spawner is ported whole; this map ships none, so the call is reported
+            self.assertIn('get_number_variants("custom")', core)
             self.assertIn('waw_tesla_network_choke()', core)
             self.assertIn('min( 10,', core)
             self.assertIn('waw_tesla_init();', main)

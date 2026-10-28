@@ -61,10 +61,9 @@
       }
     },
     "maps\\_zombiemode_spawner": {
-      "doc": "The map's zombie functions run where its code calls them (head gibs, flame damage, attack setup, pathing for its own AI). glue: BO2 owns the job below.",
+      "doc": "WaW drives the zombie AI: the map's _zombiemode_spawner is ported whole (preserved_scripts); its init adds its own zombie_spawn_init, which runs zombie_think, the rise, the entrance, find_flesh, damage and death. T6 actor setup comes from actor_glue. glue: BO2 owns the job below.",
       "glue": {
-        "zombie_spawn_init": "T6 actor setup on BO2's spawned actor (ASD animations, traversals); the converter's actor glue calls it",
-        "zombie_eye_glow_stop": "the eyes are made by BO2's actor setup (zombie_spawn_init); only its stop removes them",
+        "tear_into_building": "windows are BO2 zbarriers: T6's entity budget (912 map entities) cannot hold WaW's board chunks; the one exception the user approved (2026-10-27). BO2 tears the zbarrier's boards; the zombie then climbs in through the map's own window traversal node, as in WaW",
         "is_spawner_targeted_by_blocker": "windows are BO2 zbarriers: T6's entity budget (912 map entities) cannot hold WaW's board chunks; the one exception the user approved (2026-10-27)"
       }
     },
@@ -91,7 +90,6 @@
     "maps\\_zombiemode_utility": {
       "doc": "The map's helpers run (its VO and response lines play its own aliases, not BO2's; its player/enemy tests read its own state). glue: BO2 owns the job below.",
       "glue": {
-        "spawn_zombie": "T6 actor creation: WaW's StalingradSpawn/DoSpawn do not exist in T6; BO2's helper spawns the actor and runs its spawn functions",
         "add_spawner": "T6 spawner spawn-function registry used by the native actor glue",
         "destroy_hud": "compat waw_destroy_hud: T6 may already have freed the HUD element (a destroyed receiver is a runtime error)",
         "all_chunks_intact": "windows are BO2 zbarriers: T6's entity budget (912 map entities) cannot hold WaW's board chunks; the one exception the user approved (2026-10-27) (chunk state lives in the zbarrier)",
@@ -190,7 +188,7 @@
     "actor_templates": {"human": "zm_nuked_basic_01",
                         "dog": {"aitype": "zombie_dog", "owned_tree": "waw2bo2_dog_actor",
                                 "add_states": {"zm_nuked_dog": ["zm_traverse_barrier"]}}},
-    "actor_glue": {"maps\\_zombiemode_dogs::dog_init": "maps\\mp\\waw\\_waw2bo2_ai_dogs::waw2bo2_dog_actor_glue"},
+    "actor_glue": {"maps\\_zombiemode_dogs::dog_init": "maps\\mp\\waw\\_waw2bo2_ai_dogs::waw2bo2_dog_actor_glue", "maps\\_zombiemode_spawner::zombie_spawn_init": "maps\\mp\\waw\\_waw2bo2_zombie_behavior::waw2bo2_zombie_actor_glue"},
     "dog_rounds": {"source_driven": true,
                    "source_script": "maps\\_zombiemode_dogs", "source_init": "init", "guard": "dogs_enabled",
                    "native_script": "maps\\mp\\zombies\\_zm_ai_dogs", "native_init": "init",
@@ -278,6 +276,7 @@
     "maps\\_zombiemode_net": "older maps (Shi No Numa) call network_safe_spawn( classname, origin ); BO2's _zm_net takes ( id, max, classname, origin ) and errored every frame, so fire dogs' death explosions never spawned"
   },
   "preserved_scripts": [
+    "maps\\_zombiemode_spawner",
     "maps\\_zombiemode_perks",
     "maps\\_zombiemode_dogs",
     "maps\\_zombiemode_timer",
@@ -334,6 +333,7 @@
     "maps\\mp\\zombies\\_zm_utility::destroy_hud": "waw_destroy_hud"
   },
   "compat_wrappers": [
+    "animscripted",
     "isnotarget",
     "hascollectible",
     "finishplayerdamage",

@@ -478,8 +478,11 @@ def rename_level_fields(tokens: list[gsc.Token]) -> int:
                 tokens[i - 2].low == "level" and (i + 1 >= len(tokens) or tokens[i + 1].text != "("):
             t.text = WAW_LEVEL_FIELDS[t.low]
             renamed += 1
-        elif t.kind == gsc.IDENT and t.low == "zombie_move_speed" and tokens[i - 1].text == ".":
+        elif t.kind == gsc.IDENT and t.low == "zombie_move_speed" and tokens[i - 1].text == "." and \
+                API['zombie_runtime']['source_chase']['script'] not in API.get("preserved_scripts", []):
             # Source actor speed is separate from the field native AI can write.
+            # When WaW drives the zombie AI the map writes the field T6's
+            # movement animscripts read.
             t.text = API['zombie_runtime']['source_speed']['owned_result_field']
             renamed += 1
     return renamed
@@ -1421,6 +1424,22 @@ class Translator:
             if fn is not None and tokens[fn.body_open].text == "{":
                 tokens[fn.body_open].text = "{\n\tself " + glue + "();"
                 self.report.rewrites[f"T6 actor glue {glue} -> {key}"] += 1
+        # A script ported whole still leaves its glue to BO2 (gsc_api
+        # source_driven glue): its own calls to those reach BO2's counterpart
+        # (the spawner's tear_into_building on BO2's zbarrier windows).
+        glue = API.get("source_driven", {}).get(norm(path), {}).get("glue", {})
+        counterpart = API["core_scripts"].get(norm(path))
+        if glue and counterpart and norm(path) in API.get("preserved_scripts", []):
+            headers = {fn.start for fn in script.functions.values()}
+            for ref in gsc.references(tokens):
+                if ref.index not in headers and ref.qualifier is None and ref.name.lower() in glue \
+                        and ref.name.lower() in script.functions:
+                    # already a T6 path: not an identifier the resolver re-reads
+                    tokens[ref.index].text = f"{counterpart}::{ref.name}"
+                    tokens[ref.index].kind = gsc.PUNCT
+                    if ref.pointer and tokens[ref.index - 1].text == "::":
+                        tokens[ref.index - 1].text = ""
+                    self.report.rewrites[f"glue {ref.name} -> {counterpart}"] += 1
         for fn in script.functions.values():
             if fn.animtree:
                 self.animation_requirements[fn.animtree.lower()].update(
@@ -3692,7 +3711,8 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
         zombiebehavior.runtime_source(API['zombie_runtime'], f'{CORE}::{speed_function}' if speed_function else None,
                                       selection_function, speed_state_function, source_membership,
                                       f'{CORE}::{respawn_function}' if respawn_function else None, chase_function,
-                                      last_zombie),
+                                      last_zombie,
+                                      sorted(animation_asset_name(n) for n in (core_animtrees or {}).get('generic_human', ()))),
         encoding='utf-8')
     report.weapon_registration = {role: [f for f in fns if f] for role, fns in registration.items()}
     report.characters = appearance
@@ -3959,7 +3979,9 @@ WEAPON_REGISTRATION = {
 BOX_STATE_INIT = ("maps\\_zombiemode_weapons", "init")
 # WaW framework inits whose level tables map scripts read (the anim tables of
 # _zombiemode::init_anims); only the fields the ported scripts read are kept
-FRAMEWORK_STATE_INITS = (("maps\\_zombiemode", "init_standard_zombie_anims"),)
+# (stock: init_anims calls init_standard_zombie_anims; mod frameworks such as
+# WoO/ZCT fill them in init_anims itself, e.g. level._zombie_rise_anims)
+FRAMEWORK_STATE_INITS = (("maps\\_zombiemode", "init_standard_zombie_anims"), ("maps\\_zombiemode", "init_anims"))
 # WaW framework FX tables (level._effect) BO2 never builds; only the keys the
 # ported scripts read without assigning are kept
 FRAMEWORK_EFFECT_INITS = (("maps\\_zombiemode", "init_fx"),)

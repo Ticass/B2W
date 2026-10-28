@@ -87,12 +87,16 @@ class ZombieBehaviorTests(unittest.TestCase):
             self.assertIn('level.zombie_move_speed=1;', state.replace(' ', ''))
             self.assertNotIn('100', state)
 
-    def test_source_actor_speed_writes_cannot_be_clobbered_by_native_field(self):
+    def test_the_maps_zombie_ai_writes_the_speed_t6_reads(self):
+        # WaW drives the zombie AI (its _zombiemode_spawner is ported whole):
+        # the map's actor speed is the field T6's movement animscripts read;
+        # only the level round speed stays apart from BO2's
         tokens = gsc.tokenize('f(){self.zombie_move_speed="sprint"; '
                               'zombies[i].zombie_move_speed="run"; level.zombie_move_speed=100;}')
         gscport.rename_level_fields(tokens)
-        self.assertIn('self.waw_zombie_move_speed="sprint"', gsc.emit(tokens))
-        self.assertIn('zombies[i].waw_zombie_move_speed="run"', gsc.emit(tokens))
+        self.assertIn('self.zombie_move_speed="sprint"', gsc.emit(tokens))
+        self.assertIn('zombies[i].zombie_move_speed="run"', gsc.emit(tokens))
+        self.assertIn('level.waw_zombie_move_speed=100', gsc.emit(tokens))
         runtime = zombiebehavior.runtime_source(gscport.API['zombie_runtime'], 'source::choose')
         self.assertIn('self.zombie_move_speed != self.waw_zombie_move_speed', runtime)
         self.assertIn('self.setanimstatefromspeed = ::source_animstate', runtime)
@@ -449,12 +453,12 @@ class ZombieBehaviorTests(unittest.TestCase):
             report = gscport.port_map(gscport.Sources([root], [], None), T6Api({}, {}), 'test', root / 'out')
             core = (root / 'out/maps/mp/waw/_waw2bo2_core.gsc').read_text()
             self.assertIn('if(level.round_number >= 1)', core)
-            self.assertIn('return "sprint";', core)
-            self.assertIn('maps\\_zombiemode_spawner::choose', report.extracted)
+            # the map's whole spawner is ported: its helpers live there
+            spawner = (root / 'out/maps/mp/waw/_zombiemode_spawner.gsc').read_text()
+            self.assertIn('return "sprint";', spawner)
             runtime = (root / 'out/maps/mp/waw/_waw2bo2_zombie_behavior.gsc').read_text()
             self.assertIn('::zombiemode_spawner__set_run_speed()', runtime)
             self.assertIn('native_request = self.waw_zombie_move_speed', runtime)
-            self.assertIn('self.waw_zombie_move_speed = zombiemode_spawner__choose()', core)
             main = (root / 'out/maps/mp/waw/test.gsc').read_text()
             self.assertLess(main.index('_waw2bo2_zombie_behavior::init()'), main.index('initial_players_connected'))
             self.assertFalse(report.errors)
@@ -516,6 +520,14 @@ class GuardedSpeedStateTests(unittest.TestCase):
             self.assertIn('level.zombie_move_speed=source_round*8',text)
             self.assertNotIn('unrelated_side_effect',text)
             gsc.parse(text, 'guarded_slice')
+
+
+class CompatSpawnTests(unittest.TestCase):
+    def test_compat_creates_actors_for_waw_spawns(self):
+        compat = (gscport.COMPAT_DIR / '_waw2bo2_compat.gsc').read_text(encoding='utf-8')
+        for name in ('waw_stalingradspawn(', 'waw_dospawn('):
+            self.assertIn(name, compat)
+        self.assertIn('guy = self spawnactor();', compat)
 
 
 class TraversalClipTests(unittest.TestCase):

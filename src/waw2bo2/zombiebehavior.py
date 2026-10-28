@@ -6,6 +6,13 @@ import copy
 from . import gsc
 
 RUNTIME = r'maps\mp\waw\_waw2bo2_zombie_behavior'
+# The converted zombie plays WaW AnimScripted clips through this animation
+# state (one substate per clip of its WaW animtree, SCRIPTED_TREE).
+SCRIPTED_STATE = 'waw_scripted'
+SCRIPTED_NOTIFY = 'waw_scripted_anim'
+# substates per state (T6's BG_AnimStateDef_Parse stops at 64)
+SCRIPTED_CHUNK = 60
+SCRIPTED_TREE = 'waw2bo2_generic_human'
 ACTOR_TREE = 'waw2bo2_zombie_actor'
 SELECTION = r'maps\_waw2bo2_source_spawns'
 SPEED_STATE = r'maps\_waw2bo2_source_speed_state'
@@ -514,6 +521,18 @@ def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: di
         asd = _replace_state(asd, state, assets)
         clips.extend(assets)
         melee[state] = names
+    # WaW AnimScripted on the zombie (the map's rise, taunts...): every clip of
+    # its WaW animtree as substate c<index> of SCRIPTED_STATE_<index // CHUNK>
+    # (compat waw_animscripted; T6 parses at most 64 substates per state)
+    tree = out_root / 'animtrees' / (SCRIPTED_TREE + '.atr')
+    scripted = sorted({line.strip() for line in tree.read_text(encoding='utf-8').splitlines()
+                       if line.strip() and not line.startswith('//')} if tree.is_file() else ())
+    for start in range(0, len(scripted), SCRIPTED_CHUNK):
+        asd = (asd.rstrip('\n') + f'\n\n{SCRIPTED_STATE}_{start // SCRIPTED_CHUNK} : aliased restart notify '
+               f'{SCRIPTED_NOTIFY}\n{{\n' +
+               ''.join(f'\tc{k}\t{c}\n' for k, c in enumerate(scripted[start:start + SCRIPTED_CHUNK], start)) +
+               '}\n')
+    clips.extend(scripted)
     atr =(bo2_root / 'raw/animtrees/zm_nuked_basic.atr').read_text(encoding='utf-8')
     atr, count = re.subn(r'(^body\s*\n\{)', lambda m: m[1] + '\n' +
                         ''.join('\t' + c + '\n' for c in sorted(set(clips))), atr, count=1, flags=re.M)
@@ -552,8 +571,22 @@ def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: di
 def runtime_source(definition: dict, speed_function: str | None, selection_function: str | None = None,
                    speed_state_function: str | None = None, source_membership: bool = False,
                    respawn_function: str | None = None, chase_function: str | None = None,
-                   last_zombie: dict | None = None) -> str:
+                   last_zombie: dict | None = None, scripted_clips: list[str] = ()) -> str:
     native = definition['native_spawner']
+    # WaW AnimScripted on a zombie (compat waw_animscripted): the WaW clip's
+    # index k = substate c<k> of SCRIPTED_STATE_<k // SCRIPTED_CHUNK>
+    clips = sorted(scripted_clips)
+    scripted = (f'\n#using_animtree( "{SCRIPTED_TREE}" );\n\n' if clips else '\n') + \
+        'waw_scripted_index( clip )\n{\n' + \
+        ''.join(f'    if ( clip == %{c} )\n        return {k};\n' for k, c in enumerate(clips)) + \
+        '    return undefined;\n}\n'
+    # WaW drives the zombie AI: the map's _zombiemode_spawner is ported whole
+    # (gsc_api preserved_scripts) and its init adds its own zombie_spawn_init;
+    # BO2's is dropped from the spawners. Otherwise BO2's runs (owned copy).
+    from .gscport import API
+    source_ai = definition['source_chase']['script'] in API.get('preserved_scripts', [])
+    bo2_spawn_init = ('continue;  // the map\'s own zombie_spawn_init runs (WaW drives the zombie AI)' if source_ai
+                      else f'spawner.spawn_funcs[i]["function"] = {definition["owned_spawner"]}::{definition["native_spawn_init"]};')
     owned = definition['owned_spawner']
     native_round = definition['native_round_runtime']
     owned_round = definition['owned_round_runtime']
@@ -624,17 +657,61 @@ init()
     {{
         if ( !isdefined( spawner.spawn_funcs ) )
             continue;
+        kept = [];
         for ( i = 0; i < spawner.spawn_funcs.size; i++ )
         {{
             if ( spawner.spawn_funcs[i]["function"] == {native}::{entry} ||
                  spawner.spawn_funcs[i]["function"] == {owned}::{entry} )
             {{
-                spawner.spawn_funcs[i]["function"] = {owned}::{entry};
                 bound++;
+                {bo2_spawn_init}
             }}
+            kept[kept.size] = spawner.spawn_funcs[i];
         }}
+        spawner.spawn_funcs = kept;
     }}
     println( "WAW2BO2 zombie spawn callbacks adapted: " + bound );
+}}
+
+// T6 actor setup the map's zombie_spawn_init leaves to WaW's engine (gsc_api
+// zombie_runtime actor_glue runs it first there). No game rules here.
+waw2bo2_zombie_actor_glue()
+{{
+    self.team = level.zombie_team;
+    // T6 reaction/pain animscripts; WaW's zombie AI had none
+    self.a.disablepain = 1;
+    self.allowpain = 0;
+    self maps\\mp\\zombies\\_zm_utility::disable_react();
+    // the template's actor capsule (72 tall broke upstairs windows)
+    self setphysparams( 15, 0, 48 );
+    // WaW engine zombie melee: 60 (ai melee weapon)
+    self.meleedamage = 60;
+    // per-hit player points through T6's actor damage plumbing
+    self thread maps\\mp\\zombies\\_zm_spawner::enemy_death_detection();
+    self thread waw2bo2_zombie_animstate();
+}}
+
+// T6 picks a zombie's movement and death from its animation states
+// (zm_move_<speed>, zm_death); its move animscript re-reads them only when
+// told. WaW's engine read the run cycle the map's set_zombie_run_cycle set.
+waw2bo2_zombie_animstate()
+{{
+    self endon( "death" );
+    speed = undefined;
+    legs = undefined;
+    for ( ;; )
+    {{
+        if ( !isdefined( speed ) || !isdefined( self.zombie_move_speed ) || speed != self.zombie_move_speed ||
+             !isdefined( legs ) || legs != self.has_legs )
+        {{
+            speed = self.zombie_move_speed;
+            legs = self.has_legs;
+            self.deathanim = self maps\\mp\\animscripts\\zm_utility::append_missing_legs_suffix( "zm_death" );
+            if ( isdefined( speed ) )
+                self maps\\mp\\animscripts\\zm_run::needsupdate();
+        }}
+        wait 0.05;
+    }}
 }}
 
 bind_spawn_location()
@@ -816,7 +893,7 @@ source_chases( rise_result )
     {chase}
 }}
 {respawn_body}
-'''
+{scripted}'''
 
 
 # WaW _zombiemode_spawner::zombie_death_points rolls a power-up for every

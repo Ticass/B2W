@@ -218,6 +218,35 @@ waw_setsaveddvar( dvar, value )
     setdvar( dvar, value );
 }
 
+// WaW StalingradSpawn: the spawner's actor, created even in view; undefined
+// when it fails. T6 has spawnactor(); the rest is what T6 needs for a zombie
+// actor (BO2 _zm_utility::spawn_zombie's forcespawn branch): its team, aim
+// assist, spawn functions (they run after waittillframeend, so the caller's
+// own fields are set first, as in WaW) and its placement at the spawner.
+waw_stalingradspawn( force_spawn, flag_debug )
+{
+    if ( getfreeactorcount() < 1 )
+        return undefined;
+    guy = self spawnactor();
+    if ( !isdefined( guy ) )
+        return undefined;
+    guy enableaimassist();
+    guy.aiteam = level.zombie_team;
+    guy clearentityowner();
+    level.zombiemeleeplayercounter = 0;
+    guy thread maps\mp\zombies\_zm_utility::run_spawn_functions();
+    guy forceteleport( self.origin );
+    guy show();
+    return guy;
+}
+
+// WaW DoSpawn: StalingradSpawn unless a player sees the spawn point. Converted
+// zombie spawners force their spawn (entities.py), so T6 creates them the same.
+waw_dospawn( force_spawn, flag_debug )
+{
+    return self waw_stalingradspawn( force_spawn, flag_debug );
+}
+
 // T6 applies the attacker's custom damage function at the point of a swipe.
 // Source contact-kill monitors retain their own proximity checks and kills;
 // suppress the competing ASD attack until the monitor returns.
@@ -1055,6 +1084,60 @@ waw_anim_animscripted( notifyname, origin, angles, animname, mode, root, rate, b
 {
     report( "XANIM", animname );
     self thread waw_anim_end( notifyname );
+}
+
+// WaW AnimScripted( notify, origin, angles, anim [, mode, root] ). A T6 actor
+// plays clips only through its animation states: the converted zombie has the
+// state waw_scripted with a substate per WaW clip of its animtree
+// (zombiebehavior.SCRIPTED_STATE); its notetracks reach the WaW notify, so the
+// map's own DoNoteTracks reads them. Script models keep T6's builtin.
+waw_animscripted( notifyname, origin, angles, clip, mode, root )
+{
+    if ( !isai( self ) )
+    {
+        // T6 takes no root argument (at most 5)
+        if ( isdefined( mode ) )
+            self animscripted( notifyname, origin, angles, clip, mode );
+        else
+            self animscripted( notifyname, origin, angles, clip );
+        return;
+    }
+    // clip k: substate c<k> of state waw_scripted_<k / 60> (T6 allows 64 per state)
+    index = maps\mp\waw\_waw2bo2_zombie_behavior::waw_scripted_index( clip );
+    state = undefined;
+    if ( isdefined( index ) )
+        state = "waw_scripted_" + int( index / 60 );
+    if ( !isdefined( state ) || !self hasanimstatefromasd( state ) )
+    {
+        report( "XANIM", "animscripted on an actor without a waw_scripted substate" );
+        self thread waw_anim_end( notifyname );
+        return;
+    }
+    substate = "c" + index;
+    // WaW's AnimScripted moves the actor by the clip's root motion, without
+    // physics (a rise clip starts 45 units underground); T6 does that for an
+    // actor in no-gravity, no-clip mode (as its traversals do)
+    self traversemode( "nogravity" );
+    self traversemode( "noclip" );
+    self animscripted( origin, angles, state, substate );
+    self animmode( "noclip" );
+    self thread waw_scripted_notes( notifyname );
+}
+
+waw_scripted_notes( notifyname )
+{
+    self endon( "death" );
+    self notify( "waw_scripted_notes" );
+    self endon( "waw_scripted_notes" );
+    for ( ;; )
+    {
+        self waittill( "waw_scripted_anim", note );
+        if ( note == "end" )
+            self traversemode( "gravity" );
+        self notify( notifyname, note );
+        if ( note == "end" )
+            return;
+    }
 }
 
 waw_anim_end( notifyname )

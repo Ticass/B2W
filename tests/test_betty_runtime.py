@@ -34,7 +34,10 @@ class BettyRuntimeTests(unittest.TestCase):
                         scripts={r'maps\mp\zombies\_zm_spawner': {'zombie_damage': 6}})
             tr = gscport.Translator(gscport.Sources([root], [], None), api, gscport.PortReport())
             text = tr.translate(r'maps\test')
-            self.assertIn(gscport.CORE + '::zombiemode_spawner__zombie_damage', text)
-            body = tr.translate_extracted(*tr.core_queue.pop(0))
+            # WaW drives the zombie AI: the map's whole _zombiemode_spawner is
+            # ported and its own zombie_damage handles the Betty
+            self.assertIn('#include maps\mp\waw\_zombiemode_spawner;', text)
+            self.assertIn('self zombie_damage("MOD_ZOMBIE_BETTY"', text)
+            body = tr.translate(r'maps\_zombiemode_spawner')
             self.assertIn('mod=="MOD_ZOMBIE_BETTY"', body)
             self.assertIn('level.round_number*randomintrange(100,200)', body)

@@ -1071,6 +1071,14 @@ def source_slot(present, source_name, slot):
     """WaW technique index feeding T6 ``slot``; ``present(i)`` tells whether
     WaW technique ``i`` exists."""
     index = SLOTS[slot]
+    if 'projected_decal' in source_name and present(SLOTS[3]) and \
+            (slot == 2 or (slot == 4 and not present(SLOTS[4]))):
+        # WaW draws a projected decal through EMISSIVE (projected_decal_*);
+        # its UNLIT technique is a plain vertcol fallback that paints the
+        # decal box itself (mc_projected_decal_unlit: 420's rise craters).
+        # Without a lit technique the lit slot carries it too: its donor
+        # keeps the vertex inputs the projection reads.
+        return SLOTS[3]
     if present(index):
         return index
     parsed = techsets.parse(source_name)
@@ -1426,11 +1434,14 @@ def bind_material(source_material, output_material, roots, project_root, native_
         except shaders.ShaderError as exc:
             result['unsupported'].append(f'slot {slot}: {exc}' + (f' (paired: {paired_error})' if paired_error else ''))
     bound_slots = {a['slot']: a for a in result['active']}
-    if 'projected_decal' in source_material.get('techniqueSet', '') and 4 in bound_slots:
+    # the WaW pass a projected decal draws in every slot: its lit pass, or the
+    # unlit one (mc_projected_decal_unlit: 420's rise craters drew as boxes)
+    decal_base = next((slot for slot in (4, 2) if slot in bound_slots), None)
+    if 'projected_decal' in source_material.get('techniqueSet', '') and decal_base is not None:
         # A WaW projected decal's model is the decal volume: any donor pass
         # draws the box itself. WaW's techset has no depth or shadow pass;
         # every other drawing slot the adapter cannot carry (sun visibility
-        # with no free varying, light probes) draws the WaW lit pass.
+        # with no free varying, light probes) draws the WaW pass.
         entries = output_material.get('stateBitsEntry', [])
         for slot, technique in enumerate(pristine['techniques'][:DEBUG_SLOTS_START]):
             # dynamic-light variants take their own base's pass (below)
@@ -1442,10 +1453,10 @@ def bind_material(source_material, output_material, roots, project_root, native_
                     entries[slot] = -1
                 result['unsupported'].append(f'slot {slot}: dropped (WaW projected decals cast no depth or shadow)')
                 continue
-            native['techniques'][slot] = copy.deepcopy(native['techniques'][4])
-            bound_slots[slot] = {**bound_slots[4], 'slot': slot, 'decal_base': 4}
+            native['techniques'][slot] = copy.deepcopy(native['techniques'][decal_base])
+            bound_slots[slot] = {**bound_slots[decal_base], 'slot': slot, 'decal_base': decal_base}
             result['active'].append(bound_slots[slot])
-            result['unsupported'].append(f'slot {slot}: projected decal draws the WaW pass of slot 4')
+            result['unsupported'].append(f'slot {slot}: projected decal draws the WaW pass of slot {decal_base}')
     for slot, base in DLIGHT_BASE_SLOTS.items():
         if base in bound_slots and pristine['techniques'][slot] and slot not in bound_slots:
             native['techniques'][slot] = copy.deepcopy(native['techniques'][base])

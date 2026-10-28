@@ -342,6 +342,8 @@ sqrt o0.xyz, r0.xyzx
                 native_pass, Path('.'), [{'semantic': 'TEXCOORD0', 'width': 2}, {'semantic': 'TEXCOORD1', 'width': 3}])
         self.assertEqual(contract['samplers']['s0']['texture'], 13)
         self.assertEqual(contract['samplers']['s1']['texture'], 15)
+        # the staged probe holds WaW's rgb * a with alpha 1 (probes.py)
+        self.assertEqual(contract['samplers']['s1']['texel_expr'], 'float4(T.xyz, 1.0)')
         self.assertEqual(native_pass['customSamplerFlags'], 3)
 
     def test_waw_alpha_test_becomes_a_discard(self):
@@ -431,3 +433,13 @@ class AffineInverseTests(unittest.TestCase):
             contract = runtime.affine_inverse_row((1, 64, 64), row)
             self.assertTrue(np.allclose(evaluate(contract['expr']), inverse[row]))
         self.assertEqual(runtime.AFFINE_INVERSES['viewMatrix'], 'inverseViewMatrix')
+
+
+class ProjectedDecalSlotTests(unittest.TestCase):
+    def test_unlit_projected_decal_draws_its_emissive_projection(self):
+        # mc_projected_decal_unlit: UNLIT is vertcol_simple_fog (paints the box),
+        # EMISSIVE is projected_decal_dtex_unlit (420's rise craters drew as boxes)
+        present = lambda i: i in (4, 5)
+        self.assertEqual(runtime.source_slot(present, 'mc_projected_decal_unlit', 2), 5)
+        self.assertEqual(runtime.source_slot(present, 'mc_projected_decal_unlit', 4), 5)
+        self.assertEqual(runtime.source_slot(present, 'mc_l_sm_t0c0', 2), 4)
