@@ -687,15 +687,12 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
                 entry['v_scale_offset'] = list(lightmaps.WAW_PAGE_UV[source_name])
                 contract['lightmap'] = 'waw'
             elif source_name == 'reflectionProbeSampler' and sqrt_hdr:
-                # Measured T6 world lit PS: probe = rgb / (a + 1e-6), linear.
-                # WaW multiplies rgb by alpha in gamma space: supply a = 1.
-                # (A donor that never samples the probe has nothing to check.)
-                donor_samples_probe = 'reflectionProbeSampler' in {n for n, _ in resource_names(ps).values()}
-                if donor_samples_probe and not re.search(r'add r\d+\.[xyzw], r\d+\.w, l\(0\.000001\)', ps):
-                    raise shaders.ShaderError('native reflection probe encoding not recognized')
-                entry.update(texel_expr=f'float4(sqrt(max(T.xyz / (T.w + 0.000001) * {hdr_display(hdr_row)}, 0)), 1.0)',
-                             uses=[[0, hdr_row]])
-                contract.setdefault('unit_conversions', []).append('reflectionProbe: sqrt(4 hdr * rgb / a)')
+                # The bridge stages WaW's probes as WaW's own value, rgb * a in
+                # display units, with alpha 1 (probes.py): the WaW program's
+                # rgb * a reads it unchanged. 8-bit T6 linear (rgb / a, squared
+                # display) cannot hold WaW's dark probes.
+                entry.update(texel_expr='float4(T.xyz, 1.0)')
+                contract.setdefault('unit_conversions', []).append('reflectionProbe: WaW display rgb * a, staged')
             else:
                 raise shaders.ShaderError(f'code texture {source_name} needs a unit adapter')
         contract['samplers'][reg] = entry

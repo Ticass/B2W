@@ -394,10 +394,10 @@ index 00000000..c04a7086
 +} // namespace fx
 diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
 new file mode 100644
-index 00000000..5bc4d5c5
+index 00000000..f47f1ba8
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
-@@ -0,0 +1,628 @@
+@@ -0,0 +1,652 @@
 +#include "WorldConverterDumperT4.h"
 +
 +#include <array>
@@ -584,6 +584,30 @@ index 00000000..5bc4d5c5
 +        }
 +        const auto jsonFile = context.OpenAssetFile(OutputName(asset.m_name, ".lighting.json"));
 +        if (jsonFile) *jsonFile << std::setw(2) << lighting << '\n';
++
++        // Baked reflection probes: origin + cube image per probe, the probes
++        // each cell offers dynamic models, and each static model's probe
++        // (surfaces carry theirs in the .gfx.bin).
++        json probes = {{"_type", "waw2bo2_reflection_probes"}, {"_game", "T4"}, {"_version", 1},
++                       {"probes", json::array()}, {"cells", json::array()}, {"smodelProbes", json::array()}};
++        for (unsigned i = 0; i < world->reflectionProbeCount; ++i)
++        {
++            const auto& probe = world->reflectionProbes[i];
++            const auto* image = probe.reflectionImage;
++            probes["probes"].push_back({{"origin", probe.origin}, {"image", image && image->name ? image->name : ""}});
++        }
++        for (int i = 0; world->cells && i < world->dpvsPlanes.cellCount; ++i)
++        {
++            const auto& cell = world->cells[i];
++            json list = json::array();
++            for (int k = 0; k < static_cast<unsigned char>(cell.reflectionProbeCount); ++k)
++                list.push_back(static_cast<unsigned char>(cell.reflectionProbes[k]));
++            probes["cells"].push_back({{"mins", cell.mins}, {"maxs", cell.maxs}, {"probes", list}});
++        }
++        for (unsigned i = 0; i < world->dpvs.smodelCount; ++i)
++            probes["smodelProbes"].push_back(world->dpvs.smodelDrawInsts[i].reflectionProbeIndex);
++        const auto probeFile = context.OpenAssetFile(OutputName(asset.m_name, ".reflectionprobes.json"));
++        if (probeFile) *probeFile << std::setw(2) << probes << '\n';
 +
 +        // Preserve render ownership independently of collision submodel bounds.
 +        // The same surface buffer contains world and moving brush geometry.

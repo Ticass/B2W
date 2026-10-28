@@ -228,10 +228,16 @@ def _split_levels_face_major(img: DdsImage) -> list[bytes]:
     return [b"".join(per_face[f][lvl] for f in range(img.faces)) for lvl in range(img.mip_count)]
 
 
-def dds_to_iwi(blob: bytes, face_major: bool = False) -> bytes:
+def dds_to_iwi(blob: bytes, face_major: bool = False, rgba_texels=None) -> bytes:
+    """``rgba_texels``: optional bytes -> bytes rewrite of each RGBA level
+    (uncompressed RGBA sources only)."""
     img = read_dds(blob)
     levels = _split_levels_face_major(img) if (face_major and img.faces > 1) else _split_levels(img)
     levels = [_convert_pixels(img, lvl) for lvl in levels]
+    if rgba_texels is not None:
+        if img.iwi_format != FMT_RGBA:
+            raise IwiError("texel rewrite needs an uncompressed RGBA source")
+        levels = [rgba_texels(lvl) for lvl in levels]
 
     full = full_mip_count(img.width, img.height, img.depth if img.volume else 1)
     flags = 0

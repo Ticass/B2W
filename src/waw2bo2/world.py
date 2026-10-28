@@ -75,6 +75,7 @@ class StaticModel:
     flags: int
     cull_dist: float = 0.0  # WaW per-instance draw distance (0 = unknown)
     primary_light_index: int = 1
+    reflection_probe_index: int = 0  # T6 probe, set by probes.stage
 
 
 @dataclass(slots=True)

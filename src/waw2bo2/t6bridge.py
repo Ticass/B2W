@@ -37,7 +37,7 @@ from pathlib import Path
 from .resources import resource_root
 from . import clientport, parallel, progress, viewmodels, zombiebehavior
 
-from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
+from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, probes, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
 from .fbx import collision_material_slots, collision_slot_models, water_only, write_collision_fbx, write_world_fbx
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
@@ -585,7 +585,8 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
         if asset == "reflection_probe0":
             # WaW's dumped *reflection_probe0 is solid pure red (an unbaked
             # placeholder); T6 world shaders add the probe as specular
-            # reflection, turning every glossy world surface red.
+            # reflection, turning every glossy world surface red. The map's
+            # baked probes follow it as reflection_probe1.. (probes.py).
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(iwi.solid_cube_rgba_iwi(4, NEUTRAL_PROBE_RGBA))
             why = "black cube probe; the WaW probe is a solid red placeholder"
@@ -1027,7 +1028,8 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
         report.errors.append(f"{part_csv} missing")
     placements = [{"name": m.name, "origin": list(m.origin), "axis": list(m.axis),
                    "scale": m.scale, "flags": m.flags, "cullDist": m.cull_dist,
-                   "primaryLightIndex": m.primary_light_index} for m in world.static_models]
+                   "primaryLightIndex": m.primary_light_index,
+                   "reflectionProbeIndex": m.reflection_probe_index} for m in world.static_models]
     bsp = project_root / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
     (bsp / "models.json").write_text(json.dumps({"models": placements}, indent=1) + "\n", encoding="utf-8")
@@ -1631,6 +1633,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # have been decoded; stage_images calls recover independently below.
 
     world = progress.timed('Read map world', read_gfx_world, gfx_bin)
+    probe_plan = probes.stage(report, world, probes.read(gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.reflectionprobes.json')),
+                 [r / "images" for r in roots], project_root)
     clip = progress.timed('Read map collision', read_collision, clip_bin)
     from . import constraints, dynents
     map_dynents = dynents.read(clip_bin.with_name(clip_bin.name.removesuffix('.clip.bin') + '.dynents.json'))
@@ -1855,6 +1859,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     images = stage_images(report, [project_root / SKY_SRC_DIR, *[r / "images" for r in roots]], project_root,
                           image_iwds,
                           [sky_image] if sky_image else [], wavelets)
+    # The map's baked reflection probes (probes.stage wrote them): listed in the
+    # zone's >ipak range like every image, or the ipak never holds them and T6
+    # streams nothing - reflective surfaces (Pack-a-Punch gold) drew black.
+    if probe_plan is not None:
+        images += [probes.image_name(t6) for t6 in range(1, len(probe_plan.kept)) if probes.image_name(t6) not in images]
     verify_techsets(report, used, techset_dump, project_root,
                     sorted({next(a for a in p.parents if (a / "remaster.json").is_file())
                             for p in remastered.values()}))

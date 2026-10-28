@@ -41,4 +41,4 @@ class BrushRenderTests(unittest.TestCase):
             self.assertNotIn('_nd1_', path.read_text())
             hidden = write_world_fbx(world, path, shadow_only_materials=frozenset({'wall'}))
             self.assertEqual(hidden, ordinary)
-            self.assertIn('_nd1_bm0_pl1_lm0', path.read_text())
+            self.assertIn('_nd1_bm0_pl1_rp0_lm0', path.read_text())

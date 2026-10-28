@@ -41,7 +41,8 @@ def merge_surfaces(world: GfxWorld) -> list[tuple[str, list, int]]:
     buckets: dict[tuple, list] = {}
     for surface in world.surfaces:
         centre = tuple((surface.mins[k] + surface.maxs[k]) * 0.5 for k in range(3))
-        key = (surface.material, surface.lightmap_index, surface.primary_light_index, getattr(surface, 'brush_model', 0),
+        key = (surface.material, surface.lightmap_index, surface.primary_light_index, getattr(surface, 'reflection_probe_index', 0),
+               getattr(surface, 'brush_model', 0),
                *(int(c // MERGE_BUCKET) for c in centre))
         buckets.setdefault(key, []).append(surface)
     meshes: list[tuple[str, list]] = []
@@ -152,7 +153,8 @@ def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset
                 polygons.extend((a, c, -b - 1))
             # the lightmap page travels in the name (read back by the bridge's BSPCreator)
             no_draw = '_nd1' if material in shadow_only_materials else ''
-            name = f"waw_mesh_{i:05d}{no_draw}_bm{surface.brush_model}_pl{surface.primary_light_index}_lm{lightmap}"
+            name = (f"waw_mesh_{i:05d}{no_draw}_bm{surface.brush_model}_pl{surface.primary_light_index}"
+                    f"_rp{surface.reflection_probe_index}_lm{lightmap}")
             out.write(f" Geometry: {geom_id}, {_quoted('Geometry::' + name)}, \"Mesh\" {{\n")
             out.write(f"  Vertices: *{len(positions)} {{ a: {_numbers(positions)} }}\n")
             out.write(f"  PolygonVertexIndex: *{len(polygons)} {{ a: {_numbers(polygons)} }}\n")

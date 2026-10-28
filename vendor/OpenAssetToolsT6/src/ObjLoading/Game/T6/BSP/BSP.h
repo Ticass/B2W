@@ -49,6 +49,7 @@ namespace BSP
         unsigned indexOfFirstIndex;
         int lightmapPage = -1; // source lightmap page from a "_lm<N>" mesh name suffix, -1 when absent
         int primaryLightIndex = -1;
+        int reflectionProbeIndex = -1; // source probe from a "_rp<N>" mesh name tag, -1 when absent
         unsigned brushModel = 0;
         int meshIndex = -1; // waw2bo2 "waw_mesh_<i>" FBX mesh (shadow geometry refers to it), -1 when absent
         bool noDraw = false; // source shadow-only helper geometry

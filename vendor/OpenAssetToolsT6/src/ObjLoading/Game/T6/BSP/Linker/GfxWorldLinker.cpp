@@ -215,6 +215,58 @@ namespace
         return plan;
     }
 
+    // BSP/reflectionprobes.json written by waw2bo2.probes:
+    // { "probes": [ { "origin": [3], "image": name } ], "cellProbes": [ index, ... ] }
+    // Probe 0 is the neutral probe. Absent: the single neutral reflection_probe0.
+    struct ProbePlan
+    {
+        std::vector<std::pair<vec3_t, std::string>> probes;
+        std::vector<unsigned char> cellProbes;
+    };
+
+    ProbePlan ReadProbePlan(ISearchPath& searchPath)
+    {
+        ProbePlan plan;
+        const auto path = BSP::GetFileNameForBSPAsset("reflectionprobes.json");
+        const auto file = searchPath.Open(path);
+        if (!file.IsOpen())
+            return plan;
+        try
+        {
+            const auto js = nlohmann::json::parse(*file.m_stream);
+            for (const auto& probe : js.at("probes"))
+            {
+                const auto& origin = probe.at("origin");
+                vec3_t xyz{};
+                xyz.x = origin.at(0).get<float>();
+                xyz.y = origin.at(1).get<float>();
+                xyz.z = origin.at(2).get<float>();
+                plan.probes.emplace_back(xyz, probe.at("image").get<std::string>());
+            }
+            for (const auto& index : js.at("cellProbes"))
+                if (index.get<unsigned>() < plan.probes.size())
+                    plan.cellProbes.push_back(index.get<unsigned char>());
+        }
+        catch (const nlohmann::json::exception& e)
+        {
+            con::error("JSON error when parsing {}: {}", path, e.what());
+            plan = {};
+        }
+        // the draw surface sort key holds the probe index in 5 bits
+        if (plan.probes.size() > 32)
+        {
+            con::error("{} has {} probes, T6 addresses 32; reflection probes not loaded", path, plan.probes.size());
+            plan = {};
+        }
+        return plan;
+    }
+
+    unsigned char ProbeIndex(const ProbePlan& plan, const int index)
+    {
+        return index > 0 && static_cast<size_t>(index) < plan.probes.size() ? static_cast<unsigned char>(index)
+                                                                              : BSP::BSPEditableConstants::DEFAULT_SURFACE_REFLECTION_PROBE;
+    }
+
     // WaW programs read the WaW-encoded copy of a page, T6 donor programs the T6 one.
     unsigned char SurfaceLightmap(const LightmapPlan& plan, const BSP::BSPSurface& surface)
     {
@@ -335,6 +387,7 @@ namespace BSP
     {
         LoadDrawData(bsp, gfxWorld);
         const auto plan = ReadLightmapPlan(m_search_path);
+        const auto probes = ReadProbePlan(m_search_path);
 
         size_t surfaceCount = bsp.gfxWorld.surfaces.size();
         std::vector<char> layerData;
@@ -349,7 +402,7 @@ namespace BSP
             gfxSurface->primaryLightIndex = bspSurface.primaryLightIndex < 0 ? BSPEditableConstants::DEFAULT_SURFACE_LIGHT
                 : static_cast<unsigned char>(bspSurface.primaryLightIndex);
             gfxSurface->lightmapIndex = SurfaceLightmap(plan, bspSurface);
-            gfxSurface->reflectionProbeIndex = BSPEditableConstants::DEFAULT_SURFACE_REFLECTION_PROBE;
+            gfxSurface->reflectionProbeIndex = ProbeIndex(probes, bspSurface.reflectionProbeIndex);
             gfxSurface->flags = BSPEditableConstants::DEFAULT_SURFACE_FLAGS;
             if (bspSurface.noDraw)
                 gfxSurface->flags |= GFX_SURFACE_NO_DRAW;
@@ -516,6 +569,7 @@ namespace BSP
         // The file is optional; without it the map has no static models.
         std::vector<GfxStaticModelDrawInst> drawInsts;
         std::vector<GfxStaticModelInst> insts;
+        const auto probes = ReadProbePlan(m_search_path);
 
         const auto modelFilePath = GetFileNameForBSPAsset("models.json");
         const auto modelFile = m_search_path.Open(modelFilePath);
@@ -562,7 +616,8 @@ namespace BSP
                 drawInst.cullDist = cullDist > 0.0f ? cullDist : BSPEditableConstants::DEFAULT_SMODEL_CULL_DIST;
                 drawInst.flags = BSPEditableConstants::DEFAULT_SMODEL_FLAGS;
                 drawInst.primaryLightIndex = entry.value("primaryLightIndex", BSPEditableConstants::DEFAULT_SMODEL_LIGHT);
-                drawInst.reflectionProbeIndex = BSPEditableConstants::DEFAULT_SMODEL_REFLECTION_PROBE;
+                drawInst.reflectionProbeIndex =
+                    ProbeIndex(probes, entry.value("reflectionProbeIndex", BSPEditableConstants::DEFAULT_SMODEL_REFLECTION_PROBE));
                 drawInst.smid = static_cast<unsigned int>(drawInsts.size());
 
                 // world-space bounds of the placed model: transform all 8 corners
@@ -971,10 +1026,16 @@ namespace BSP
         gfxWorld.cells[0].maxs.y = gfxWorld.maxs.y;
         gfxWorld.cells[0].maxs.z = gfxWorld.maxs.z;
 
-        // there is only 1 reflection probe
-        gfxWorld.cells[0].reflectionProbeCount = 1;
-        gfxWorld.cells[0].reflectionProbes = m_memory.Alloc<char>(gfxWorld.cells[0].reflectionProbeCount);
-        gfxWorld.cells[0].reflectionProbes[0] = BSPEditableConstants::DEFAULT_SURFACE_REFLECTION_PROBE;
+        // dynamic models pick their probe from the cell's list (the map's
+        // baked probes); without them the neutral probe only
+        const auto probes = ReadProbePlan(m_search_path);
+        std::vector<unsigned char> cellProbes = probes.cellProbes;
+        if (cellProbes.empty() || probes.probes.size() != gfxWorld.draw.reflectionProbeCount)
+            cellProbes = {static_cast<unsigned char>(BSPEditableConstants::DEFAULT_SURFACE_REFLECTION_PROBE)};
+        gfxWorld.cells[0].reflectionProbeCount = static_cast<char>(cellProbes.size());
+        gfxWorld.cells[0].reflectionProbes = m_memory.Alloc<char>(cellProbes.size());
+        for (size_t i = 0; i < cellProbes.size(); ++i)
+            gfxWorld.cells[0].reflectionProbes[i] = static_cast<char>(cellProbes[i]);
 
         // AABB trees decide what is drawn. A single node holding every surface
         // and static model queues the whole map each frame, which overflows
@@ -1173,40 +1234,32 @@ namespace BSP
 
     bool GfxWorldLinker::LoadReflectionProbeData(GfxWorld& gfxWorld) const
     {
-        gfxWorld.draw.reflectionProbeCount = 1;
+        auto probes = ReadProbePlan(m_search_path).probes;
+        if (probes.empty())
+            probes.emplace_back(vec3_t{}, "reflection_probe0");
+        if (probes.size() > 1)
+            con::info("Loaded {} source reflection probes", probes.size() - 1);
 
+        gfxWorld.draw.reflectionProbeCount = static_cast<unsigned int>(probes.size());
         gfxWorld.draw.reflectionProbeTextures = m_memory.Alloc<GfxTexture>(gfxWorld.draw.reflectionProbeCount);
-
-        // default values taken from mp_dig
         gfxWorld.draw.reflectionProbes = m_memory.Alloc<GfxReflectionProbe>(gfxWorld.draw.reflectionProbeCount);
-        gfxWorld.draw.reflectionProbes[0].mipLodBias = -8.0;
-        gfxWorld.draw.reflectionProbes[0].origin.x = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].origin.y = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].origin.z = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V0.x = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V0.y = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V0.z = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V0.w = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V1.x = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V1.y = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V1.z = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V1.w = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V2.x = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V2.y = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V2.z = 0.0f;
-        gfxWorld.draw.reflectionProbes[0].lightingSH.V2.w = 0.0f;
-
-        gfxWorld.draw.reflectionProbes[0].probeVolumeCount = 0;
-        gfxWorld.draw.reflectionProbes[0].probeVolumes = nullptr;
-
-        std::string probeImageName = "reflection_probe0";
-        auto probeImageAsset = m_context.LoadDependency<AssetImage>(probeImageName);
-        if (!probeImageAsset)
+        for (size_t i = 0; i < probes.size(); ++i)
         {
-            con::error("ERROR! unable to find reflection probe image {}!", probeImageName);
-            return false;
+            // mip bias from mp_dig; no lighting SH and no probe volumes
+            auto& probe = gfxWorld.draw.reflectionProbes[i];
+            probe.mipLodBias = -8.0;
+            probe.origin = probes[i].first;
+            probe.lightingSH = {};
+            probe.probeVolumeCount = 0;
+            probe.probeVolumes = nullptr;
+            auto* probeImageAsset = m_context.LoadDependency<AssetImage>(probes[i].second);
+            if (!probeImageAsset)
+            {
+                con::error("ERROR! unable to find reflection probe image {}!", probes[i].second);
+                return false;
+            }
+            probe.reflectionImage = probeImageAsset->Asset();
         }
-        gfxWorld.draw.reflectionProbes[0].reflectionImage = probeImageAsset->Asset();
 
         return true;
     }
