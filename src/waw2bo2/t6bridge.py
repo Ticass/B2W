@@ -2315,6 +2315,10 @@ def stage_dynents(report: StageReport, project_root: Path, map_dynents: list[dic
         presets[name] = weapons.stage_physpreset(preset_roots, project_root, name, staged)
     summary = dynents.write(project_root, map_dynents, presets, fx.OUTPUT_PREFIX)
     summary['physpresets'] = sorted(presets.values())
+    if summary.get('resting'):
+        report.warnings.append(f"DYNENT_SPAWN_BODY_DROPPED {', '.join(summary['resting'])}: WaW creates their physics "
+                               f"body at spawn; the converted models carry no T6 physics geometry, so they rest "
+                               f"until hit (the client crashed creating it)")
     report.content['dynents'] = summary
 
 
@@ -3013,9 +3017,15 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     else:
         rule_path.unlink(missing_ok=True)
     if actor_types and bo2_root is not None:
-        movement = zombiebehavior.stage_actor_movement(sources, project_root, bo2_root, gscport.API['zombie_runtime'], map_name)
+        resolver = assetresolve.Resolver(model_roots, stock_waw)
+        movement = zombiebehavior.stage_actor_movement(sources, project_root, bo2_root, gscport.API['zombie_runtime'],
+                                                       map_name, lambda name: resolver.find("xanim", name))
         if movement:
             report.scripts['actor_movement'] = movement
+            xanims = [*xanims, *(c for c in movement.get('traversal_clips', []) if c not in xanims)]
+            if movement.get('native_traversal_clips'):
+                report.warnings.append(f"BO2_FALLBACK traversal clips {', '.join(movement['native_traversal_clips'])}: "
+                                       f"no WaW xanim of that name; BO2's clip stays")
             for name in movement.get('missing', []):
                 report.warnings.append(f"SOURCE_MOVEMENT_XANIM {name}: no WaW xanim in any zone dump; "
                                        f"left out of the zombie movement state")

@@ -48,6 +48,16 @@ class DynentTests(unittest.TestCase):
             self.assertEqual(out[1]['destroyFx'], 'waw/props/glass')
             self.assertEqual(out[1]['targetname'], 'pf_ball')
 
+    def test_a_spawn_time_body_is_not_created_without_t6_physics_geometry(self):
+        # Verruckt's morgue can (flags 513) crashed the T6 client while connecting
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report = dynents.write(root, [dynent(flags=513, xModel='static_berlin_cans_single02'), dynent(flags=512)],
+                                   {}, 'waw/')
+            out = json.loads((root / 'BSP/dynents.json').read_text())['dynents']
+        self.assertEqual([e['flags'] for e in out], [512, 512])
+        self.assertEqual(report['resting'], ['static_berlin_cans_single02'])
+
     def test_what_is_not_converted_yet_fails_explicitly(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

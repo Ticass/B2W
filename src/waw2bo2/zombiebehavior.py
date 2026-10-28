@@ -1,6 +1,7 @@
 """WaW speed selection and plain spawner locations on the BO2 AI runtime."""
 from pathlib import Path
 import re
+import shutil
 import copy
 from . import gsc
 
@@ -433,12 +434,58 @@ def _replace_state(asd: str, state: str, assets: list[str]) -> str:
     return asd
 
 
-def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: dict, map_name: str | None = None) -> dict:
+# The native zombie's traversal states hold WaW's traversal tables under
+# WaW's clip names: zm_traverse_barrier(_crawl) is wall_hop_zombie's window
+# hop (walk v1/v2, run v5, sprint v6/v7, crawl), zm_traverse(_crawl) the
+# zombie_jump_* clips. BO2 plays its own copies of those clips; the map's
+# WaW xanims of the same names replace them.
+TRAVERSAL_STATES = ('zm_traverse', 'zm_traverse_crawl', 'zm_traverse_barrier', 'zm_traverse_barrier_crawl')
+
+
+def source_traversal_clips(asd: str, find_xanim, out_root: Path) -> tuple[str, list[str], list[str]]:
+    """Point the traversal states' clips at the WaW xanims ``find_xanim``
+    (name -> Path | None) finds, copied to ``out_root``/xanim.
+    Returns (asd, staged assets, clips left BO2's)."""
+    staged, native = [], []
+    for state in TRAVERSAL_STATES:
+        block = re.search(r'^' + re.escape(state) + r'\s*:[^\n]*\n\{(.*?)^\}', asd, re.M | re.S)
+        if block is None:
+            continue
+        lines = []
+        for line in block[1].split('\n'):
+            words = line.split()
+            if len(words) != 2 or line.lstrip().startswith('//'):
+                lines.append(line)
+                continue
+            clip = words[1]
+            src = find_xanim(clip)
+            if src is None:
+                native.append(clip)
+                lines.append(line)
+                continue
+            asset = 'waw_anim_' + clip.lower()
+            dst = out_root / 'xanim' / asset
+            if not dst.is_file():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+            staged.append(asset)
+            lines.append(line[:line.rindex(clip)] + asset + line[line.rindex(clip) + len(clip):])
+        asd = asd[:block.start(1)] + '\n'.join(lines) + asd[block.end(1):]
+    return asd, sorted(set(staged)), sorted(set(native))
+
+
+def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: dict, map_name: str | None = None,
+                         find_xanim=None) -> dict:
+    """``find_xanim``: name -> WaW xanim path (None: absent); the traversal
+    states then play the map's clips (source_traversal_clips)."""
     _, sets = movement_sets(sources, definition, map_name)
-    if not sets:
-        return {}
     asd = (bo2_root / 'raw/animstatedefs/zm_nuked_basic.asd').read_text(encoding='utf-8')
-    clips, missing, native = [], [], []
+    traversal, traversal_native = [], []
+    if find_xanim is not None:
+        asd, traversal, traversal_native = source_traversal_clips(asd, find_xanim, out_root)
+    if not sets and not traversal:
+        return {}
+    clips, missing, native = list(traversal), [], []
     for speed, names in list(sets.items()):
         # A clip absent from every zone dump was already reported by the
         # animtree stage (UNSUPPORTED_XANIM); the native state cannot list it.
@@ -489,6 +536,10 @@ def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: di
                  '}\n// END SOURCE MOVEMENT REFS\n')
         actor.write_text(text, encoding='utf-8')
     result = {'states': sets, 'melee': melee, 'tree': ACTOR_TREE, 'clips': sorted(set(clips))}
+    if traversal:
+        result['traversal_clips'] = traversal
+    if traversal_native:
+        result['native_traversal_clips'] = traversal_native
     if missing:
         result['missing'] = sorted(set(missing))
     if native:

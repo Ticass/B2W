@@ -12,6 +12,12 @@ from pathlib import Path
 
 CLUTTER, DESTRUCT = 1, 2
 RUNTIME_SLOTS = 256
+# DynEntityDef flag bit 0: the body is created when the client spawns its
+# dynents. T6 builds it from the xmodel's collmaps, which the converted models
+# do not carry (WaW's physGeoms are not ported yet): the client crashed
+# dereferencing the missing geometry while connecting (Verruckt's morgue can,
+# 2026-10-28). Without the bit the dynent rests until something hits it.
+SPAWN_BODY = 0x1
 
 
 def read(source: Path) -> list[dict]:
@@ -56,16 +62,18 @@ def write(project: Path, entries: list[dict], presets: dict[str, str], fx_prefix
     if not entries:
         target.unlink(missing_ok=True)
         return {'count': 0}
-    out = []
+    out, resting = [], []
     for e in entries:
+        if e['flags'] & SPAWN_BODY:
+            resting.append(e['xModel'])
         out.append({'type': e['type'], 'quat': e['quat'], 'origin': e['origin'], 'xModel': e['xModel'],
                     'physPreset': presets.get(preset_name(e), ''),
                     'destroyFx': fx_prefix + e['destroyFx'] if e['destroyFx'] else '',
                     'physConstraints': [c if c != 255 else -1 for c in e['physConstraints']],
-                    'health': e['health'], 'flags': e['flags'], 'contents': e['contents'],
+                    'health': e['health'], 'flags': e['flags'] & ~SPAWN_BODY, 'contents': e['contents'],
                     'targetname': e['targetname']})
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({'version': 1, 'dynents': out}, indent=1) + '\n')
     return {'count': len(out), 'models': sorted({e['xModel'] for e in entries}),
             'clutter': sum(e['type'] == CLUTTER for e in entries),
-            'destructible': sum(e['type'] == DESTRUCT for e in entries)}
+            'destructible': sum(e['type'] == DESTRUCT for e in entries), 'resting': resting}

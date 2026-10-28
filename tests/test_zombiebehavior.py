@@ -518,5 +518,29 @@ class GuardedSpeedStateTests(unittest.TestCase):
             gsc.parse(text, 'guarded_slice')
 
 
+class TraversalClipTests(unittest.TestCase):
+    ASD = ('zm_traverse_barrier : aliased restart notify traverse_anim\n{\n'
+           '\tbarrier_walk\tai_zombie_traverse_v1\n\tbarrier_run\t\tai_zombie_traverse_v5\n}\n\n'
+           'zm_traverse : aliased restart notify traverse_anim\n{\n'
+           '//\tjump_down_48\t\t\t\t\tai_zombie_jump_down_48\n\tjump_down_72\t\t\t\t\tai_zombie_jump_down_72\n}\n')
+
+    def test_the_maps_clips_replace_bo2s_same_named_traversal_clips(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'clip'
+            source.write_bytes(b'waw')
+            have = {'ai_zombie_traverse_v1', 'ai_zombie_jump_down_72', 'ai_zombie_jump_down_48'}
+            asd, staged, native = zombiebehavior.source_traversal_clips(
+                self.ASD, lambda name: source if name in have else None, root)
+            self.assertTrue((root / 'xanim/waw_anim_ai_zombie_traverse_v1').is_file())
+        self.assertIn('barrier_walk\twaw_anim_ai_zombie_traverse_v1\n', asd)
+        self.assertIn('jump_down_72\t\t\t\t\twaw_anim_ai_zombie_jump_down_72\n', asd)
+        # absent in WaW: BO2's clip stays; commented entries are left alone
+        self.assertIn('barrier_run\t\tai_zombie_traverse_v5\n', asd)
+        self.assertIn('//\tjump_down_48\t\t\t\t\tai_zombie_jump_down_48\n', asd)
+        self.assertEqual(staged, ['waw_anim_ai_zombie_jump_down_72', 'waw_anim_ai_zombie_traverse_v1'])
+        self.assertEqual(native, ['ai_zombie_traverse_v5'])
+
+
 if __name__ == '__main__':
     unittest.main()
