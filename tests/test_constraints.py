@@ -121,7 +121,8 @@ class ConstraintTests(unittest.TestCase):
                                 {'classname': 'rope', 'target': 'compiled_out_endpoint'}]}
             (project / 'BSP/entities.json').write_text(json.dumps(data))
             report = constraints.stage_entities(project)
-            self.assertEqual(report, dict(ropes=1, endpoints=1, materials=['mc/waw_rope/rope_material']))
+            self.assertEqual(report, dict(ropes=1, endpoints=1, materials=['mc/waw_rope/rope_material'],
+                                          unsupported_joints=[]))
             out = json.loads((project / 'BSP/entities.json').read_text())['entities']
             end = next(e for e in out if e['classname'] == 'info_null')
             self.assertEqual(end['origin'], '100 201 297')
@@ -159,6 +160,29 @@ class ConstraintTests(unittest.TestCase):
             # yaw 90: the dynent's local +x is world +y
             self.assertEqual([round(float(v), 4) for v in end['origin'].split()], [10, 21, 30])
             self.assertEqual(end['target'], 'pf_corpse')
+
+
+    def test_point_joint_on_a_hanging_dynent_is_reported_and_its_rope_kept(self):
+        # Collingwood's body bags: a rope and a point joint from the same hook
+        bag = dict(type=1, quat=[0, 0, 0, 1], origin=[0, 0, 1036], xModel='bodybag', targetname='pf_bag')
+        hang = dict(rope(), attach_point_type1=1, target_ent1='pf_bag', target_index1=0,
+                    targetname='', flags=0, timeout=0, pos=[0, 30, 0], pos2=[0, 0, 1156])
+        pin = dict(hang, type=1, distance=0.0, pos=[0, 112, 0], pos2=[0, 0, 1148])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'source.json'
+            source.write_text(json.dumps(dict(version=1, constraints=[hang, pin])))
+            constraints.stage(source, root / 'project', [bag])
+            project = root / 'project'
+            (project / 'BSP/dynents.json').write_text(json.dumps({'version': 1, 'dynents': [bag]}))
+            (project / 'BSP/entities.json').write_text(json.dumps({'entities': []}))
+            (project / 'materials').mkdir()
+            (project / 'materials/rope_material.json').write_text('{}')
+            report = constraints.stage_entities(project)
+            self.assertEqual(report['ropes'], 1)
+            self.assertEqual(report['unsupported_joints'], ['point joint 1 (pf_bag)'])
+            out = json.loads((project / 'BSP/entities.json').read_text())['entities']
+            self.assertEqual([e['classname'] for e in out].count('rope'), 1)
 
 
 if __name__ == '__main__':

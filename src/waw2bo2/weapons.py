@@ -645,8 +645,10 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
                   bo2_raw: Path | None = None) -> dict:
     """Translate weapon materials and isolate their original images from BO2.
 
-    Uses the same measured material translator as world/FX assets. Missing
-    image data are errors here: no generic grey gun texture is generated.
+    Uses the same measured material translator as world/FX assets. Image data
+    missing from WaW's sources take the slot's neutral code image, or WaW's
+    default-image stand-in in a slot without one (as the world stage); an
+    image that exists but fails to convert is an error.
     ``failed_materials`` (WaW name -> reasons) lets stage_runtime keep exactly
     the weapons whose visuals are complete. ``wavelets`` (wavelet.IwdRecovery)
     decodes WaW wavelet IWIs the zone dumps could not export as DDS.
@@ -691,6 +693,7 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
                                         or e.startswith(f"material {n} (")] or ["not translated"]
                                     for n in names - translated}
     image_status: dict[str, str | None] = {}   # output image -> error (None = converted)
+    synthesized: set[str] = set()
     material_images: dict[str, list[str]] = {}
     for entry in report.materials:
         waw_material = entry.get("source", entry["name"])
@@ -723,6 +726,19 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
                 images.append(code)   # zone line "image,,$x": a reference, never packed
                 report.warnings.append(f"BO2_FALLBACK image {name} -> {code}: {texture['name']} of material "
                                        f"{waw_material}; {status.removeprefix(ABSENT)}")
+                continue
+            if status is not None and status.startswith(ABSENT):
+                # A slot with no neutral code image (a translated program's own
+                # sampler): WaW drew its default image there, as the world stage
+                # stages for the same proven-absent pixels (t6bridge.stage_images).
+                if output not in synthesized:
+                    t6bridge._synthesize(report, output, project / techsets.oat_image_path(output), (4, 4),
+                                         (128, 128, 128, 255), "no pixel data in any zone or IWD "
+                                         "(WaW draws its default image); neutral grey")
+                    synthesized.add(output)
+                    report.errors = [e for e in report.errors if e != status.removeprefix(ABSENT)]
+                texture["image"] = output
+                images.append(output)
                 continue
             texture["image"] = output
             images.append(output)

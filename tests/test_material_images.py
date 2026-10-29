@@ -64,6 +64,32 @@ class MaterialImageTests(unittest.TestCase):
             self.assertEqual((project / f'images/{output}.iwi').read_bytes(), blob)
             self.assertTrue(any('BO2_FALLBACK' in w for w in result['warnings']))
 
+    def test_absent_image_in_a_slot_without_code_image_gets_waw_default_stand_in(self):
+        # Collingwood's upgraded M27: scroll textures in program-only samplers
+        # whose pixels exist in no zone or IWD (WaW draws its default image)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, project, native = root / 'source', root / 'project', root / 'native'
+            name = 'mc/mtl_scroll'
+            write_json(source / 'materials/mc/mtl_scroll.json', {'techniqueSet': 'mc_l_sm_r0c0', 'textures': []})
+            write_json(project / 'weapons.stage.json', {'models': {'materials': [name]}, 'dependencies': {}})
+            relative = techsets.oat_material_path('waw_material/' + name)
+
+            def translate(report, names, *args, **kwargs):
+                write_json(project / relative, {'techniqueSet': 'x', 'textures': [
+                    {'image': 'scroll_absent'}, {'name': 'colorMap', 'image': 'scroll_absent'}]})
+                report.materials.append({'name': 'waw_material/' + name, 'source': name,
+                                         'file': relative.as_posix()})
+                return set()
+            with patch.object(t6bridge, 'stage_materials', translate):
+                result = weapons.stage_visuals([source], project, native / 'materials', native)
+            self.assertEqual(result['failed_materials'], {})
+            self.assertEqual(result['errors'], [])
+            material = json.loads((project / relative).read_text())
+            self.assertEqual([t['image'] for t in material['textures']], ['waw_image/scroll_absent', '$white'])
+            self.assertTrue((project / 'images/waw_image/scroll_absent.iwi').is_file())
+            self.assertTrue(any('default image' in w for w in result['warnings']))
+
     def test_custom_unlit_decal_keeps_transparency_depth_and_draw_order(self):
         state = {'blendOpRgb': 'add', 'srcBlendRgb': 'srcalpha', 'dstBlendRgb': 'invsrcalpha',
                  'depthWrite': False, 'colorWriteRgb': True, 'polygonOffset': 'offset0'}

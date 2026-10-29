@@ -6,6 +6,10 @@ import shutil
 import re
 
 
+# WaW ConstraintType (T4 CONSTRAINT_*), the names T6 also uses
+JOINT_TYPES = ('none', 'point', 'distance', 'hinge', 'joint', 'actuator', 'fake_shake', 'launch', 'rope')
+
+
 def stage(source: Path, project: Path, dynents: list[dict] = ()) -> dict:
     target = project / 'BSP/constraints.json'
     if not source.is_file():
@@ -111,9 +115,17 @@ def stage_entities(project: Path) -> dict:
                 (cr*sp*cy+sr*sy, cr*sp*sy-sr*cy, cr*cp))
         return [origin[k] + sum(point[j]*axis[j][k] for j in range(3)) for k in range(3)], name
 
+    unsupported = []
     for i, entry in enumerate(entries):
         if entry['type'] != 8:
-            raise ValueError(f"native map joint type {entry['type']} requires runtime entity translation")
+            # T6 builds map joints only from rope entities (its constraint type
+            # names, d5ded8, are read by the model physConstraints parser
+            # sub_8E88B0); a WaW point/hinge/... joint of the map has no entity
+            # form. Reported, the map's ropes still convert.
+            held = [entry[f'target_ent{n}'] or f"dynent {entry[f'target_index{n}']}" for n in (1, 2)
+                    if entry[f'attach_point_type{n}']]
+            unsupported.append(f"{JOINT_TYPES[entry['type']]} joint {i} ({', '.join(held) or 'world'})")
+            continue
         points = [endpoint(entry, n) for n in (1, 2)]
         # Anchor at a world endpoint when present; both named endpoints are
         # represented by info_nulls with their parent target relationships.
@@ -149,7 +161,9 @@ def stage_entities(project: Path) -> dict:
         generated.append(rope)
     data['entities'] = [e for e in entities if e.get('classname') != 'rope'] + generated
     path.write_text(json.dumps(data, indent=1) + '\n')
-    return {'ropes': len(entries), 'endpoints': len(generated)-len(entries), 'materials': sorted(materials)}
+    ropes = len(entries) - len(unsupported)
+    return {'ropes': ropes, 'endpoints': len(generated) - ropes, 'materials': sorted(materials),
+            'unsupported_joints': unsupported}
 
 
 def stage_script_suspensions(project: Path) -> dict:
