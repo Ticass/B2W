@@ -64,6 +64,8 @@ class Surface:
     layer_data_offset: int = 0
     world_vert_format: int = 0
     index: int = -1  # position in the source surface array (shadow geometry refers to it)
+    # a no-draw copy that only casts shadows for primary_light_index (t6bridge.shadow_occluder_copies)
+    shadow_copy: bool = False
 
 
 @dataclass(slots=True)

@@ -42,3 +42,23 @@ class BrushRenderTests(unittest.TestCase):
             hidden = write_world_fbx(world, path, shadow_only_materials=frozenset({'wall'}))
             self.assertEqual(hidden, ordinary)
             self.assertIn('_nd1_bm0_pl1_rp0_lm0', path.read_text())
+
+    def test_occluders_of_other_lights_become_no_draw_copies(self):
+        import dataclasses
+        from waw2bo2.t6bridge import shadow_occluder_copies
+        from waw2bo2.world import ShadowLight
+        world = self.read([(0, 1), (0xffffffff, 0), (0xffffffff, 0), (1, 2)])
+        world.surfaces = [dataclasses.replace(s, index=i, primary_light_index=1) for i, s in enumerate(world.surfaces)]
+        world.surfaces[1].brush_model = 0
+        # light 2 lists surface 0 (own-light caster of light 1), surface 1 and
+        # a brush model surface; light 1 lists its own surface 0
+        world.surfaces[2].brush_model = 1
+        world.shadow_lights = [ShadowLight([], [], []), ShadowLight([0], [], []), ShadowLight([0, 1, 2], [], [])]
+        copies = shadow_occluder_copies(world, {'wall'})
+        self.assertEqual([(c.primary_light_index, c.shadow_copy, c.index) for c in copies], [(2, True, -1), (2, True, -1)])
+        world.surfaces += copies
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'world.fbx'
+            meshes = write_world_fbx(world, path)
+            self.assertIn('_nd1_bm0_pl2_', path.read_text())
+            self.assertNotIn(-1, meshes)

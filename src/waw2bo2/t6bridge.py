@@ -25,6 +25,7 @@ import copy
 import csv
 import hashlib
 import os
+import dataclasses
 import json
 import re
 import shutil
@@ -1436,6 +1437,28 @@ def _layer_gap_stride(world, surface) -> int | None:
     return gap // surface.vertex_count if surface.vertex_count and gap % surface.vertex_count == 0 else None
 
 
+def shadow_occluder_copies(world, own_light_casters: set[str]) -> list:
+    """No-draw copies that keep WaW's spot shadow occluders in T6.
+
+    T6 rebuilds every light's shadow surface list at world load (sub_74D570):
+    a surface whose material has game flags CASTS_SHADOW and 2 casts only for
+    its own primary light (sub_73AF60), every other caster for each light it
+    falls in. WaW's compiled lists also put such surfaces in neighbouring
+    lights' maps (Der Riese: 882): without them light passes walls WaW blocks.
+    Each such (surface, light) pair gets a copy whose primary light is that
+    light, drawn by no pass (GFX_SURFACE_NO_DRAW): the rebuild then lists it
+    for that light. Brush model surfaces move and are left out."""
+    by_index = {s.index: s for s in world.surfaces}
+    copies = []
+    for light, entry in enumerate(world.shadow_lights):
+        for index in entry.surfaces:
+            surface = by_index.get(index)
+            if (surface is not None and surface.material in own_light_casters and not surface.brush_model
+                    and surface.primary_light_index != light):
+                copies.append(dataclasses.replace(surface, primary_light_index=light, shadow_copy=True, index=-1))
+    return copies
+
+
 def write_shadow_geometry(report: StageReport, world, mesh_of_surface: dict[int, int], path: Path) -> None:
     """BSP/shadowgeom.json: per WaW primary light, the static geometry its
     shadow map draws (GfxShadowGeometry: world meshes by FBX mesh index, static
@@ -1501,10 +1524,14 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
     tool_surfaces = set()
     shadow_only = set()
     blend_data = set()
+    own_light_casters = set()
     for name in {s.material for s in world.surfaces}:
         src = _find(roots, techsets.oat_material_path(name))
         if src is not None:
             material = _load_json(src)
+            game_flags = set(material.get("gameFlags", []))
+            if "2" in game_flags and game_flags & {"CASTS_SHADOW", "40"}:
+                own_light_casters.add(name)
             technique = material.get("techniqueSet")
             if technique in SKY_TECHSETS:
                 sky.add(name)
@@ -1546,7 +1573,15 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
             f"{sum(s.material in tool_surfaces for s in world.surfaces)} WaW editor-only surfaces "
             f"({', '.join(sorted(tool_surfaces))}) removed from the render world")
     world.surfaces = kept
-    mesh_of_surface = write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data), frozenset(shadow_only))
+    occluders = shadow_occluder_copies(world, own_light_casters)
+    if occluders:
+        report.content['shadow_occluder_copies'] = len(occluders)
+    drawn = world.surfaces
+    world.surfaces = drawn + occluders
+    try:
+        mesh_of_surface = write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data), frozenset(shadow_only))
+    finally:
+        world.surfaces = drawn
     report.content['shadow_only_surfaces'] = sum(s.material in shadow_only for s in world.surfaces)
     write_shadow_geometry(report, world, mesh_of_surface, bsp / "shadowgeom.json")
     slot_materials = write_collision_fbx(clip, bsp / "map_col.fbx")
