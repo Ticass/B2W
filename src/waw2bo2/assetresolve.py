@@ -26,6 +26,8 @@ def asset_path(kind: str, name: str) -> Path:
         return Path("xmodel") / f"{name}.json"
     if kind == "material":
         return techsets.oat_material_path(name)
+    if kind == "techniqueset":
+        return Path("waw_techniquesets") / f"{name}.json"
     if kind == "image":
         return techsets.oat_image_path(name, ".dds")
     if kind == "xanim":
@@ -147,6 +149,8 @@ class Resolver:
             children.update(('sound', source[k]) for k in weapons.FLAME_SOUND_KEYS if source.get(k))
         elif kind == "material":
             material = json.loads(path.read_text())
+            if material.get("techniqueSet"):
+                children.add(("techniqueset", material["techniqueSet"].lstrip(",")))
             children.update(("image", t["image"].removeprefix(",")) for t in material.get("textures", []) if t.get("image"))
         elif kind == "sound":
             sound = json.loads(path.read_text())

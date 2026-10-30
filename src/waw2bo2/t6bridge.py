@@ -251,7 +251,8 @@ def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None
     approximated, first_error = None, None
     while True:
         try:
-            m = techsets.match(source_ts, remaining)
+            m = techsets.match(source_ts, remaining, source_programs=bool(techset_root and
+                _find(roots, Path('waw_techniquesets') / f'{t4_ts}.json')))
         except techsets.TechsetError as exc:
             first_error = first_error or exc
             if approximations:
@@ -280,6 +281,11 @@ def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None
                                f"drawn with its own textures as '{approximated}' ({m.target})")
     runtime = shaderruntime.bind_material(t4, out, roots, out_root, techset_root, falloff_placement,
                                            light_shadows) if techset_root else {'active': [], 'unsupported': ['native technique dump absent']}
+    if any('source program supplies' in n for n in m.notes):
+        active = {a['slot'] for a in runtime.get('active', [])}
+        if not {4, 5, 6, 7, 8, 13, 14}.issubset(active):
+            local.errors.append(f'material {name}: layered stream donor requires original WaW lit programs; '
+                                f'missing slots {sorted({4, 5, 6, 7, 8, 13, 14} - active)}')
     if t4_ts == 'wc_unlit_distfalloff' and all(
             any(p.get('slot') == slot and p.get('paired') for p in runtime.get('active', []))
             for slot in (2, 3)):
@@ -287,7 +293,7 @@ def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None
     entry['shader_runtime'] = runtime
     state_slots = shaderruntime.apply_source_pass_states(t4, out, runtime)
     if state_slots:
-        notes.append(f"WaW blend/alpha-test state on T6 slots {state_slots}")
+        notes.append(f"WaW pass blend/depth/raster state on T6 slots {state_slots}")
     for texture in out.get('textures', []):
         image_name = texture.get('image', '')
         if image_prefix and image_name and not image_name.startswith((',', '$', image_prefix)):
@@ -1867,6 +1873,10 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         weapon_materials.update(weapon_report['dependencies'].get('material', []))
     roots, native_fallbacks = recover_material_sources(report, names | weapon_materials, roots,
                                                       stock_waw, source_waw, stock_materials, bo2_root)
+    if techset_dump is not None:
+        from . import impactmaterials
+        report.content['source_impact_materials'] = impactmaterials.stage(
+            project_root, roots, techset_dump, stock_waw, wavelets)
     # Primary lights keep their shadow maps only with the WaW shadow geometry
     # (lighting.stage_primary_lights); otherwise the shadowed techniques are unreachable.
     primary_lights = Path(str(gfx_bin).removesuffix(".gfx.bin") + ".primarylights.json")
@@ -1883,8 +1893,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                   for t in _load_json(project_root / m["file"]).get("textures", []) if t.get("image")}
     if hud_images:
         write_image_streaming(project_root, hud_images, merge=True)
-    # Lightmap pages in both encodings; world surfaces whose material runs
-    # translated WaW lit programs get the WaW-encoded copy (by FBX material name).
+    # Shared dual-encoding lightmap pages: native decals inherit the receiving
+    # surface's page, so native and WaW readers must share its image.
     waw_lightmap_materials = {m.get('source', m['name']) for m in report.materials
                               if m.get('shader_runtime', {}).get('lightmap') == 'waw'}
     lightmap_report = progress.timed('Convert lightmaps', lightmaps.stage, world, [r / 'images' for r in roots], project_root, waw_lightmap_materials)
@@ -2298,6 +2308,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     else:
         report.errors.append(f"stock T6 zbarrier {entities.ZBARRIER_ASSET} missing from techset dump")
     model_overlay_fx = stage_model_overlay_fx(report, project_root)
+    from . import modelisolation
+    model_names = modelisolation.stage(project_root)
+    report.content['model_identities'] = model_names
     scripts = map_scripts(project_root, project)
     if report.scripts and bo2_root is not None:
         # Validate the completed graph, including owned perk/bootstrap modules.
@@ -2331,7 +2344,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         bo2_root / 'raw' if bo2_root else None)
     report.content['rumbles'] = rumble_report
     report.errors += [f'RUMBLE_DEPENDENCY_MISSING {name}' for name in rumble_report['missing']]
-    write_zone(stage, project, images, ipak, sorted(script_models | (shipped & resolved) | fx_models | projectile_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
+    write_zone(stage, project, images, ipak, sorted(model_names.get(m, m) for m in script_models | (shipped & resolved) | fx_models | projectile_models), scripts, zbarriers, effects.zone_fx + model_overlay_fx,
                [m for m in hud_materials if m in staged] + rope_runtime['materials'], [localization_report['asset']], rumble_report['files'])
 
     # CLAUDE.md: the map's own framework runs; every function BO2 runs in its

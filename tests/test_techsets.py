@@ -1,8 +1,21 @@
 import unittest
+from unittest.mock import patch
 from waw2bo2 import techsets
 
 
 class HudTechniqueTests(unittest.TestCase):
+    def test_four_layer_source_can_use_native_streams_with_original_blending(self):
+        source = 'l_sm_r0c0n0s0_sco_b1c1_b2c2_b3c3'
+        candidates = ['lit_sm_r0c0n0s0_b1c1n1x1_m2c2_m3c3',
+                      'lit_sm_r0c0n0s0_b1c1n1x1_b2c2n2x2']
+        with patch.object(techsets, 'LAYERED_VERTEX_DATA', True):
+            result = techsets.match(source, candidates, source_programs=True)
+            self.assertIn('m3c3', result.target)
+            self.assertFalse(any('layer 3 dropped' in n for n in result.notes))
+            self.assertTrue(any('source program supplies' in n for n in result.notes))
+            fallback = techsets.match(source, candidates)
+            self.assertTrue(any('layer 3 dropped' in n for n in fallback.notes))
+
     def test_rope_uses_measured_native_rope_material_stream(self):
         result = techsets.match('m_rope', ['mc_lit_sm_r0c0_77e21qq8'])
         self.assertEqual(result.target, 'mc_lit_sm_r0c0_77e21qq8')

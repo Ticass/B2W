@@ -102,6 +102,10 @@
       "only": ["magic_bullet_shield", "stop_magic_bullet_shield"]
     }
   },
+  "player_loadout_glue": {
+    "native_start_weapon": "maps\\mp\\zombies\\_zm_utility::give_start_weapon",
+    "reason": "T6 spawns the player; GiveWeapon already grants the source weapon's total startAmmo. BO2's additional GiveStartAmmo grants a second clip's worth of reserve, which WaW's _loadout::give_loadout never does."
+  },
   "native_replacements": {
     "doc": "BO2 framework calls where WaW called the map's own function; gscport.native_replacements replacefuncs the map's in, before _zm::init. keep: BO2 calls that still run first, with the reason.",
     "maps\\_gameskill": [
@@ -189,6 +193,7 @@
                         "dog": {"aitype": "zombie_dog", "owned_tree": "waw2bo2_dog_actor",
                                 "add_states": {"zm_nuked_dog": ["zm_traverse_barrier"]}}},
     "actor_glue": {"maps\\_zombiemode_dogs::dog_init": "maps\\mp\\waw\\_waw2bo2_ai_dogs::waw2bo2_dog_actor_glue", "maps\\_zombiemode_spawner::zombie_spawn_init": "maps\\mp\\waw\\_waw2bo2_zombie_behavior::waw2bo2_zombie_actor_glue"},
+    "actor_damage_glue": "T6's damage notify supplies WaW's global_damage_func/global_damage_func_ads arguments; those pointers remain the map's waw_global_damage_func/waw_global_damage_func_ads. T6 entity voices survive actor death, so the actor glue stops them; the source death event plays its own death vocal.",
     "dog_rounds": {"source_driven": true,
                    "source_script": "maps\\_zombiemode_dogs", "source_init": "init", "guard": "dogs_enabled",
                    "native_script": "maps\\mp\\zombies\\_zm_ai_dogs", "native_init": "init",
@@ -276,6 +281,7 @@
     "maps\\_zombiemode_net": "older maps (Shi No Numa) call network_safe_spawn( classname, origin ); BO2's _zm_net takes ( id, max, classname, origin ) and errored every frame, so fire dogs' death explosions never spawned"
   },
   "preserved_scripts": [
+    "maps\\_zombiemode_betty",
     "maps\\_zombiemode_spawner",
     "maps\\_zombiemode_perks",
     "maps\\_zombiemode_dogs",
@@ -408,6 +414,10 @@
     "unsetperk",
     "hasperk",
     "precachemodel",
+    "setmodel",
+    "setviewmodel",
+    "attach",
+    "detach",
     "linkto",
     "dodamage",
     "bloodimpact"

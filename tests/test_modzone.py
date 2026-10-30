@@ -267,6 +267,21 @@ class ModZoneTests(unittest.TestCase):
                     raise RuntimeError('link failed')
             self.assertEqual(material.read_bytes(), original)
 
+    def test_native_probe_only_material_uses_stock_baseline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            material = root/'materials/native.json'
+            material.parent.mkdir()
+            original = '{"techniqueSet":"waw/runtime_probe"}'
+            material.write_text(original)
+            (root/'bridge_stage.report.json').write_text(json.dumps({'materials':[{
+                'file':'materials/native.json', 'shader_runtime':{
+                    'active':[], 'native_probe_passes':22, 'native_techset':'stock_lit'}}]}))
+            with modzone.baseline_shader_materials(root,root) as active:
+                self.assertTrue(active)
+                self.assertEqual(json.loads(material.read_text())['techniqueSet'],'stock_lit')
+            self.assertEqual(material.read_text(),original)
+
     def test_shader_relink_ignores_materials_left_by_earlier_builds(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

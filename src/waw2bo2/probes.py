@@ -10,10 +10,10 @@ surface sort key holds the index in 5 bits (GfxDrawSurfFields), so a map with
 more keeps the probes that cover its geometry best and every dropped probe is
 drawn with its nearest kept one.
 
-WaW programs read the probe as rgb * a in display units
-(ps lp_*: ``texldl r2, s1; mul r2.xyz, r2.w, r2``). The staged cube holds that
-product with alpha 1; translated programs read it unchanged
-(shaderruntime: reflectionProbeSampler).
+WaW programs filter the probe's RGB and alpha independently, then multiply
+the sampled values (ps lp_*: ``texldl r2, s1; mul r2.xyz, r2.w, r2``).
+Keep the original channels and mip chain: premultiplying texels changes that
+calculation at bilinear, trilinear and cube-face boundaries.
 """
 from __future__ import annotations
 
@@ -96,18 +96,6 @@ def plan(source: SourceProbes, usage: dict[int, int], baked: set[int], limit: in
     return Plan([NEUTRAL, *kept], remap)
 
 
-def _display_texels(level: bytes) -> bytes:
-    """RGBA texels -> (rgb * a, 1): the value WaW programs use."""
-    out = bytearray(level)
-    for p in range(0, len(out), 4):
-        a = out[p + 3]
-        out[p] = (out[p] * a + 127) // 255
-        out[p + 1] = (out[p + 1] * a + 127) // 255
-        out[p + 2] = (out[p + 2] * a + 127) // 255
-        out[p + 3] = 255
-    return bytes(out)
-
-
 def image_name(t6_index: int) -> str:
     return f"reflection_probe{t6_index}"
 
@@ -151,7 +139,7 @@ def stage(report, world, source: SourceProbes | None, image_roots: list[Path], p
             continue  # stage_images synthesizes it
         dst = project_root / techsets.oat_image_path(name)
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_bytes(iwi.dds_to_iwi(files[source_index].read_bytes(), rgba_texels=_display_texels))
+        dst.write_bytes(iwi.dds_to_iwi(files[source_index].read_bytes()))
         report.images.append({"name": name, "source": str(files[source_index]),
                               "reflection_probe": source.images[source_index]})
     bsp = project_root / "BSP"

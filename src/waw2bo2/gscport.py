@@ -454,7 +454,8 @@ WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
 # The map's own damage and last stand (source_player_damage): BO2's _zm sets
 # the same names to its functions for the BO2 code still running.
 WAW_LEVEL_FIELDS.update({name: "waw_" + name for name in (
-    "overrideplayerdamage", "playerlaststand_func", "player_becomes_zombie", "laststandpistol")})
+    "overrideplayerdamage", "playerlaststand_func", "player_becomes_zombie", "laststandpistol",
+    "global_damage_func", "global_damage_func_ads")})
 # level.zones is the map's: its zone manager is the only one (zones.py drops
 # BO2's start); BO2's glue reads the same fields (is_enabled, volumes...).
 WAW_LEVEL_FIELDS.update({"zone_manager_init_func": "waw_zone_manager_init_func",
@@ -2094,7 +2095,7 @@ class Translator:
                               | level_fields_assigned(tokens, main.body_close))
             else:
                 elsewhere |= level_fields_assigned(tokens)
-        fields = (read & main_assigned) - elsewhere | set(SOURCE_DAMAGE_FIELDS)
+        fields = ((read & main_assigned) - elsewhere | set(SOURCE_DAMAGE_FIELDS)) - set(SOURCE_ACTOR_DAMAGE_FIELDS)
         return self.extract_level_state(ZOMBIEMODE, "main", fields)
 
     def extract_source_player_damage(self) -> str | None:
@@ -3487,6 +3488,12 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     tr.post_calls += tr.quote_hooks()
     tr.pre_calls += tr.native_replacements()
     tr.pre_calls += tr.skill_signals_hook()
+    # In WaW, _load::main initializes skill before _zombiemode::main installs
+    # these callbacks. T6 initializes skill inside _zm::init, between our pre
+    # and post entries. Preserve that order: setSkill clears the callbacks.
+    actor_damage_state = tr.extract_level_state(ZOMBIEMODE, 'main', set(SOURCE_ACTOR_DAMAGE_FIELDS))
+    if actor_damage_state:
+        tr.post_calls.append(f'{CORE}::{actor_damage_state}();')
     for name in sorted(actor_types):
         tr.want('aitype\\' + name)
     hint_registry = tr.extract_entry(r"maps\_zombiemode", "init_strings")
@@ -3688,6 +3695,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     (out_dir / "_waw2bo2_stubs.gsc").write_text(tr.stub_source(), encoding="utf-8")
     # filled by materialisolation once HUD materials are converted
     (out_dir / "_waw2bo2_hud_materials.gsc").write_text(hud_material_table_source({}), encoding="utf-8")
+    (out_dir / "_waw2bo2_models.gsc").write_text("table()\n{\n    return [];\n}\n", encoding="utf-8")
     (out_dir / "_waw2bo2_assets.gsc").write_text(assets_source(fx_table or {}, map_name), encoding="utf-8")
     # filled with the linked mod.ff's weapons by build-mod
     (out_dir / BO2_WEAPONS_SCRIPT).write_text(bo2_weapons_source(), encoding="utf-8")
@@ -3915,9 +3923,19 @@ def characters_source() -> str:
         f"    {COMPAT}::init();",
         "    level.is_zombie_level = 1;",
         f"    {ported}::init_loadout();",
+        f"    replacefunc( {API['player_loadout_glue']['native_start_weapon']}, ::give_start_weapon );",
         "    // WaW's _loadout names the start and last-stand weapons; BO2's",
         "    // _zm::init_levelvars sets its own defaults right after this hook",
         "    level thread waw_loadout_weapons( level.player_switchweapon, level.laststandpistol );",
+        "}",
+        "",
+        "// WaW _loadout::give_loadout grants with GiveWeapon only. T6's",
+        "// extra GiveStartAmmo adds a full clip to the source reserve.",
+        "give_start_weapon( switch_to_weapon )",
+        "{",
+        "    self giveweapon( level.start_weapon );",
+        "    if ( isdefined( switch_to_weapon ) && switch_to_weapon )",
+        "        self switchtoweapon( level.start_weapon );",
         "}",
         "",
         "waw_loadout_weapons( start, pistol )",
@@ -3997,6 +4015,7 @@ CALLBACKGLOBAL = "maps\\_callbackglobal"
 LASTSTAND = "maps\\_laststand"
 # _zombiemode::main points these at the map's damage and last stand functions
 SOURCE_DAMAGE_FIELDS = ("overrideplayerdamage", "playerlaststand_func", "player_becomes_zombie", "laststandpistol")
+SOURCE_ACTOR_DAMAGE_FIELDS = ("global_damage_func", "global_damage_func_ads")
 # s: BO2 end_game's intermission wait while a map's own end_game wait runs
 END_GAME_FALLBACK = 30
 
@@ -4148,6 +4167,9 @@ waw_tesla_init()
     if ( isdefined( level.zombie_vars["tesla_kills_for_powerup"] ) && isdefined( level.zombie_vars["tesla_max_enemies_killed"] ) )
         level.zombie_vars["tesla_kills_for_powerup"] = min( level.zombie_vars["tesla_kills_for_powerup"], level.zombie_vars["tesla_max_enemies_killed"] );
     {definition['native_register']}( ::waw_tesla_damage );
+    // The source actor dispatcher must also use this engine adapter: its
+    // listener ends on the target's death, while the shooter's chain must live.
+    level.waw_actor_damage_filter = ::waw_tesla_damage;
 }}
 
 waw_tesla_damage( mod, hit_location, hit_origin, player, amount )
@@ -4809,8 +4831,9 @@ waw2bo2_dog_actor_glue()
     // WaW: dog_MeleeDamage 100 x player_meleeDamageMultiplier 0.4 (_zombiemode_dogs::init)
     self.meleedamage = 40;
     self.thundergun_knockdown_func = ::dog_thundergun_knockdown;
-    // per-hit player points through BO2's actor damage plumbing
-    self thread maps\\mp\\zombies\\_zm_spawner::enemy_death_detection();
+    // T4's actor damage event calls the map's own global callbacks.
+    self thread maps\\mp\\waw\\_waw2bo2_zombie_behavior::waw2bo2_actor_damage();
+    self thread maps\\mp\\waw\\_waw2bo2_zombie_behavior::waw2bo2_actor_sound_cleanup();
     self thread waw2bo2_dog_keep_enemy();
     self thread waw2bo2_dog_combat_signal();
 }

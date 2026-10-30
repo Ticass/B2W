@@ -14,6 +14,30 @@ def _api() -> T6Api:
 
 
 class FrameworkHookTests(unittest.TestCase):
+    def test_actor_damage_callbacks_are_installed_after_native_skill_init(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'maps').mkdir()
+            (root / 'maps/testmap.gsc').write_text('main(){maps\\_zombiemode::main();}')
+            (root / 'maps/_zombiemode.gsc').write_text(
+                'main(){level.global_damage_func=maps\\_zombiemode_spawner::zombie_damage;'
+                'level.global_damage_func_ads=maps\\_zombiemode_spawner::zombie_damage_ads;}')
+            (root / 'maps/_zombiemode_spawner.gsc').write_text(
+                'zombie_damage(mod,hit,origin,player){} zombie_damage_ads(mod,hit,origin,player){}')
+            gscport.port_map(gscport.Sources([root], [], None), _api(), 'testmap', root / 'out')
+            base = root / 'out/maps/mp/waw'
+            core = gscport.gsc.parse((base / '_waw2bo2_core.gsc').read_text(), 'core')
+            names = [name for name, fn in core.functions.items()
+                     if 'level.waw_global_damage_func=' in
+                     gscport.gsc.emit(core.tokens[fn.body_open:fn.body_close]).replace(' ', '')]
+            self.assertEqual(len(names), 1)
+            main = (base / 'testmap.gsc').read_text()
+            pre, post = main.split('waw_main_post()', 1)
+            self.assertNotIn('::' + names[0] + '();', pre)
+            self.assertIn('::' + names[0] + '();', post)
+            state = core.functions['framework_level_state']
+            self.assertNotIn(names[0] + '();', gscport.gsc.emit(core.tokens[state.body_open:state.body_close]))
+
     def test_custom_tesla_initializer_is_not_also_started_as_a_framework_hook(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -44,6 +68,7 @@ class FrameworkHookTests(unittest.TestCase):
             core = (generated / '_waw2bo2_core.gsc').read_text()
             main = (generated / 'testmap.gsc').read_text()
             self.assertIn('register_zombie_damage_callback( ::waw_tesla_damage )', core)
+            self.assertIn('level.waw_actor_damage_filter = ::waw_tesla_damage;', core)
             self.assertIn('player.waw_tesla_chain_active = true;', core)
             self.assertIn('player thread waw_tesla_run_chain', core)
             self.assertIn('target zombiemode_tesla__tesla_damage_init( hit_location, hit_origin, self )', core)

@@ -28,6 +28,17 @@ class WeaponTests(unittest.TestCase):
             result = weapons.convert('custom', {**source, **changes}, schema, schema)
             self.assertEqual(result.fields['impactType'], 'tank_shell')
 
+    def test_projectile_keeps_authored_burst_without_extra_bullet_impact(self):
+        schema = {'weaponType': 'WFT_WEAPONTYPE', 'impactType': 'WFT_IMPACT_TYPE',
+                  'projExplosionEffect': 'CSPFT_FX'}
+        source = {'weaponType': 'projectile', 'impactType': 'bullet_ap',
+                  'projExplosionEffect': 'misc/fx_exp_raygun_impact'}
+        result = weapons.convert('custom_ray', source, schema, schema)
+        self.assertEqual(result.fields['impactType'], 'none')
+        self.assertEqual(result.fields['projExplosionEffect'], 'waw/misc/fx_exp_raygun_impact')
+        bullet = weapons.convert('rifle', {**source, 'weaponType': 'bullet'}, schema, schema)
+        self.assertEqual(bullet.fields['impactType'], 'bullet_ap')
+
     def test_shared_ammo_groups_preserve_limits_without_engine_collisions(self):
         schema = {"sharedAmmoCapName": "CSPFT_STRING", "sharedAmmoCap": "CSPFT_INT",
                   "ammoName": "CSPFT_STRING", "clipName": "CSPFT_STRING"}

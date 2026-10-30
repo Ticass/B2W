@@ -1,5 +1,11 @@
 # WaW → BO2 Custom Map Converter Handoff
 
+**Build ordering:** Never run `bridge-link` concurrently with `build-mod` or
+`baseline_shader_materials`. The latter temporarily rewrites staged material
+technique sets to BO2 donors. Concurrent map linking can silently package those
+temporary bindings and hang during loading. Link sequentially, then compare
+extracted map material techniqueSet identities with staging before installation.
+
 ## Power-ups, stopwatch, quotes, map audio, 2026-10-25 (afternoon/evening)
 
 Worktree `C:\WawConverter-audio`. On `main` (pushed, user asked): everything up to 12b1387
@@ -2808,3 +2814,210 @@ Open:
   SHA-256 hashes; `verification.json` records completion. Live gameplay has not
   been tested on the new build. Existing light-grid/shadow and sound-curve
   approximation warnings remain in `build.log`.
+
+## 2026-10-29: Der Riese playtest fixes and open visual investigation
+
+- Workspace remains one checkout. Changes are uncommitted. Build driver:
+  `work/der_riese_acc/build.py`; full stage and gameplay mod in its `build/`.
+  Original installed package backup: `build/installed_backup_20261029_report`.
+- Source gameplay fixes: preserve WaW Betty module; keep source actor damage
+  callbacks after BO2 skill initialization clears callbacks; dispatch source
+  callbacks for actors and dogs. Keep the Tesla player-thread adapter/filter:
+  dispatching the chain on the victim's death-bound thread truncates the arc.
+  T6 DoDamage with an undefined inflictor and explicit later arguments silently
+  does zero damage. Compat now defaults inflictor to self, hitloc to none and
+  MOD to UNKNOWN; original explicit arguments win. User confirms Betty damage
+  and Waffe chains both work. Preserve these fixes.
+- Starting pistol source GiveWeapon already gives 8/32. The native extra
+  GiveStartAmmo made it 8/40; starting-weapon glue now avoids that extra grant.
+  Runtime verified 8/32. Source bleed-out no longer inherits a head location.
+  Stop actor audio on death. Ray Gun keeps authored projectile impact FX while
+  suppressing the extra bullet impact table. Dog balance and audio still need
+  subjective playtest confirmation.
+- Materials: lit projected blood uses source projection rather than plain
+  vertex-color fallback. Redirect only WaW's packed local-light ramp lookup
+  to the original light def's T6 per-light attenuation texture, preserving
+  other lightmap reads. Four-layer native stream donors run original WaW
+  programs for all lit slots. User confirms the 935 logo renders correctly.
+- Glass layering: converted Waffe glass inherited native decal depth offsets
+  1/2 instead of source offset0. Translated passes now retain source depth,
+  raster and blend fields while keeping T6-only stencil/routing fields.
+  Built, audited and installed in `build_visual_depth_20261029.log` /
+  `install_visual_depth_20261029.log`. User has not explicitly confirmed glass
+  overlap fixed. Smoke probe verified load, starting ammo, Waffe equip, and
+  sm_enable/r_spotLightShadows/sm_sunEnable all 1. Evidence:
+  `probe_visual_depth_20261029`. Temporary observer removed, user aids restored;
+  game left running (PID 8416 at this point). Do not interrupt user playtesting.
+- Open visuals: angle-dependent wet asphalt/brick/doors and Waffe; abrupt
+  weapon lighting transitions near spawn stairs; blue teleporter spill.
+  User corrected their shadow theory: the small silhouette was a teddy bear;
+  a zombie casts a proper shadow at the lamp. Do not report shadows globally
+  disabled. Source has 79 shadow-enabled lights, shadow geometry preserved.
+  Grid corner-obstruction traces and reduced probe selection remain gaps.
+- Roof column pinpointed by user: above Thompson room near Double Tap, NOT
+  between the chimneys (perspective). Nearby floor lantern isn't proven to be
+  its source. Authored moon ray at (-786.848,-1030.09,326.88), directly above
+  Thompson (-777.7,-1022.8,133.2); source audit in `roof_ray_20261029`.
+- New candidate: source no-fog zfeather VS outputs clip.w / 32 for its depth
+  varying; previous scene-depth adapter returned unscaled T6 depth. This can
+  keep effects behind geometry visible. `soft_particle_depth_scale` reads the
+  literal from the paired source vertex program and the floatZ adapter matches
+  it. Fogged ray VS writes unscaled depth and remains scale1; unrelated water
+  readers unchanged. Rebuild `build_ray_depth_20261029.log` underway when this
+  entry was written; completed successfully in 380.1s, zero missing assets,
+  93,010 map / 46,507 mod arguments and 4,212 bone hitboxes audited with zero
+  violations. NOT installed or visually verified yet (user still playing).
+  Full suite 829
+  passes, 1 skipped (`tests_ray_full_20261029.log`), diff check clean.
+- User authorizes frequent Clanker Discord webhook updates. Credential stored
+  in `%LOCALAPPDATA%/WawConverter/discord_webhook.txt`; never print it. Last
+  post described roof location, shadow correction and depth-unit candidate.
+- IDA MCP database opens failed for existing local T6 databases; no new binary
+  findings claimed. Computer Use was stopped with Escape on previous turn;
+  do not unexpectedly raise or close the user's game.
+- Further user screenshots show harsh white pools in teleporter room and
+  intense blue teleporter lighting. Treat primary-light strength/falloff and
+  angle-dependent specular as still open; roof soft-depth candidate does not
+  claim to fix them. Existing unit chain uses exposure0 / hdr0.x=1/4, so
+  sqrt(4*hdr*linear) is neutral at this exposure; do not halve source colors
+  merely on an assumption that HDR is 1.
+
+
+## 2026-10-29 latest Der Riese visual build and release
+
+- Supersedes the earlier depth-scaling candidate above: normalize the no-fog
+  soft-particle vertex varying to T6 camera depth; do not scale sampled scene
+  depth down by 32. User confirmed flames returned. Temporary fire fixture on
+  the spawn platform was removed; it is not in the packaged map.
+- Sheen isolation must include generated layered materials: the broad white
+  brick face at x350/y388..624 uses *43n_1, while its exposed edge uses
+  wc/berlin_wall_brick_clean_plain4. Named base-material tests missed the face.
+  User confirmed the no-reflection/specular strips removed the liquid sheen.
+- probes.py now retains original cube RGB, alpha and mip data. The original
+  shader multiplies filtered RGB by filtered alpha; pre-multiplying 8-bit
+  texels and forcing sampled alpha to 1 changed that operation. All 31 kept
+  cubes were byte-checked against DDS-to-IWI conversion. User confirmed the
+  clean build (no stripes, normal specular retained) looks correct.
+- User then reported persistent white bullet marks, not brief impact flashes.
+  Native wc/gfx_impact_concrete* programs read native T6 lightmaps, but marks
+  inherit the receiver's WaW page index/UV. New lightmap layout shares one
+  image per page: T6 encoding left, exact WaW encoding right. FBX halves native
+  lightmap u; translated WaW vertex programs recover u and pixel samplers
+  select the right half. Both plan references resolve to the same image.
+  No native-tool rebuild or per-map rule was introduced.
+- Latest build: build_dual_lightmap_20261029.log, 335.6s; zero missing assets,
+  93,010 map / 46,507 mod arguments and 4,212 bone hitboxes across 108 models
+  audited with zero violations. Full suite: 831 tests, 1 skipped. Installed via
+  install_dual_lightmap_20261029.log. Native MagicBullet fixture completed with
+  weapon zombie_colt; observer removed automatically. Final visual check was
+  stopped by user's physical Escape; bullet-mark correction is NOT yet
+  visually confirmed. Lamp halo/harsh light appearance remains open.
+- Prior sheen-approved installed package backed up in
+  work/der_riese_acc/installed_backup_sheen_accepted_20261029 (five ff/ipak files).
+  Original WaW reference config restored from the test backup, except normal
+  r_specular 1 retained per user's preference. Do not globally disable specular.
+- User explicitly requested latest build upload to Google Drive and a Clanker
+  post. Clean package prepared with the official package command at
+  work/der_riese_acc/releases/20261029_latest/zm_der_riese_waw, plus README and
+  manifest; no local logs/global observer or test-aid scripts. Archive:
+  DerRiese_WaW_Port_2026-10-29_Latest.zip (1,284,251,019 bytes), SHA256
+  46b59a4e84614d8a63513869fd07081c704a7e8e999dc777cded57aa47106f9d.
+  Drive connector upload limit is 512 MiB, so upload uses existing rclone
+  gdrive: configuration; credential must never be printed. Official rclone
+  v1.75.2 downloaded and checksum-verified under work/release_upload_tools.
+  Upload log: work/der_riese_acc/upload_latest_20261029.log. Release status
+  should be checked against that log and the current chat before posting.
+
+- Release upload completed and remote size/MD5 verified. Drive file:
+  https://drive.google.com/file/d/1YiWQ8bfAQmlGOQ-tyDiE2RL3Jcr6btQY/view
+  Read-only anyone-with-link permission verified, discovery disabled.
+  Clanker post confirmed:
+  https://discord.com/channels/1557610224641245245/1561936195183706142/1565527270985044050
+  Release receipt: work/der_riese_acc/releases/release_receipt_20261029.json.
+  Post explicitly labels this a playtest build, with bullet-mark visual check
+  pending and lamp-halo appearance still open.
+
+## 2026-10-30: remaining white models and clock detail
+
+- User clarified flamethrower whiteness affected its mystery-box world model;
+  the viewmodel was fine. The last Oct 29 install had model identity isolation
+  and native reflection decoding, but no completed visual check.
+- This session observed Quick Revive blue/textured. Found original technique
+  metadata absent for box flamethrower, filing cabinet, chalkboard, spine and
+  teleporter lamp materials. Shared WaW technique definitions existed in
+  common.ff but the extractor exported technique metadata only through local
+  materials (references exported empty comma-prefixed sets).
+- Added standalone T4 source technique dumper, retaining material-driven dumps
+  through a shared helper; saved native source changes in vendor/OpenAssetTools.patch.
+  all2raw/WaW dependency extraction now includes techniqueset; assetresolve
+  follows material -> original techniqueset and resolves waw_techniquesets files.
+  Compact cache subsets retain these files. Regression test added.
+- Native extractor built successfully. Recovered original programs from common.ff
+  to work/der_riese_acc/source_techniques_20261030. Targeted rebind script/log and
+  lighting_rebind_proof_20261030.json record 24 active source passes per affected
+  material, including weapon material variants. Rebuilt map and gameplay zones,
+  installed through package. Backup: installed_backup_lighting_20261030.
+  Map linked with 0 missing assets. Full suite ran 837 tests, OK (1 skipped);
+  47 focused tests passed after final cache changes. Native patch reverse check passed.
+- Mod material audit: 45,743 arguments, 0 violations. Extracted map audit:
+  88,756 arguments; two debug-slot-34 sky material texture-hash violations
+  (mc/mtl_skybox_zombie_factory and _stars), not part of the changed materials.
+- User stopped final computer-use check with Escape; no further UI input was
+  issued that turn. Temporary probe runner cleans itself up after its bounded
+  fixture. Probe result was not used to claim flamethrower visual confirmation.
+- User subsequently reports only tiny white specks on clock remain, supplying
+  codex-clipboard-beb46856-b34b-451a-aad8-2cb84ce97841.png. Static inspection:
+  zombie_wallclock_main has original mc/mtl_glow_blue geometry at cardinal dial
+  markers and hand tips. Despite the asset name, WaW glow_blue is uniformly
+  RGBA(239,239,239,255), colorTint=(1,1,1,1). Staged IWI exactly matches original
+  DDS conversion; translated unlit shader samples color, applies fog and 0.5
+  scene-buffer scaling, with no specular/reflection term. Those small luminous
+  details are authored by WaW; no clock-specific dimming/removal was made.
+- Drive release remains the older Oct 29 package; no new upload or Discord post.
+
+## 2026-10-30: loading hang after lighting install — corrected
+
+- The earlier Oct 30 map link was mistakenly run concurrently with build-mod.
+  baseline_shader_materials temporarily changed source files during the map link:
+  1,038 extracted material techniqueSet identities differed from staging. The
+  two sky argument violations reported above were symptoms of that bad package.
+  Windows reported AppHangB1 during loading. This was a build-order mistake.
+- Re-ran bridge-link sequentially after build-mod finished; zero missing assets.
+  Extracted rebuilt map: all 1,094 material techniqueSet identities match staging;
+  93,076 argument lookups audited, zero violations, zero missing techsets. Updated
+  gameplay material bindings (including both box flamethrower variants) match too.
+- Installed corrected package; map/mod ff and ipak SHA-256 hashes match builds.
+  Two fresh game processes reached player spawn and ran 30 seconds afterward,
+  both observer DONE markers recorded, no script runtime errors. Second process
+  PID 3220 left running and responding. Temporary observer removed; test aids
+  restored by the runner. No computer-use input was needed for these checks.
+- Evidence: link_loading_fix_20261030.log, audit_loading_fix_20261030.log,
+  probe_loading_20261030/{first_load_observations,observations}.log,
+  loading_fix_receipt_20261030.json. Preserve sequential build ordering above.
+
+## 2026-10-30: stock knife, blood and impact-material correction
+
+- User confirmed the original WaW clock has white glow details after comparing
+  original WaW directly. Leave the clock unchanged. Remaining reports concerned
+  the knife, bright blood and persistent white bullet marks after the sheen fix.
+- Native stock gameplay materials had not received the source-cube decoder:
+  BO2 divides RGB by alpha; the restored source cubes require multiplying the
+  filtered channels. nativeprobes.bind_native_materials now adapts stock gameplay
+  readers while preserving translated overlays, native textures and pass states.
+  First pass adapted 186 stock materials, including the native knife and blood.
+- impactmaterials stages original WaW mc/wc impact materials and routes native
+  mark identities to them, including T6's metal05_blend variant. This keeps the
+  original source art, blend state and lighting programs. Additional textures
+  ship in a separate <project>_impact_materials.ipak, retaining the baseline pack.
+  Staged 40 source impact materials; exported metal/concrete pixels verified.
+- Installed package through install_source_impact_materials_20261030.log. Native
+  mod roundtrip verifies shader identities and texture routing. Argument audit:
+  46,981 checked, zero violations and zero missing technique sets. Full suite:
+  840 tests ran, OK with one skipped. Diff check and extractor patch reverse
+  check pass. Probe fired three native zombie_colt impacts into asphalt and
+  completed its 40-second observation. Observer removed automatically.
+- Final computer-use inspection was stopped by physical Escape, so no automated
+  visual confirmation was claimed. User then said "Nice!" and explicitly asked
+  to push a dedicated branch and merge to main. Preserve these source changes
+  together with the earlier gameplay fixes recorded above. Build/test artifacts
+  remain ignored under work/. Drive release remains unchanged.

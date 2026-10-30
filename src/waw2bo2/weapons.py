@@ -348,6 +348,14 @@ def convert(name: str, source: dict[str, str], t4_schema: dict[str, str], t6_sch
         out.fields['impactType'] = 'none'
         out.translations['impactType'] = {'source': 'tank_shell', 'target': 'none',
             'reason': 'T4 projectile without explosion FX; T6 shell impact table adds one'}
+    # T6 also emits the bullet surface table for a projectile marked as a
+    # bullet impact. Its authored projectile explosion is already carried;
+    # the table adds an unrelated bullet strike beside the Ray Gun burst.
+    if source.get('weaponType') == 'projectile' and source.get('impactType', '').startswith('bullet_') and \
+            source.get('projExplosionEffect'):
+        out.fields['impactType'] = 'none'
+        out.translations['impactType'] = {'source': source['impactType'], 'target': 'none',
+            'reason': 'projectile carries its authored explosion; suppress additional T6 bullet impact table'}
     return out
 
 
