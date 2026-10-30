@@ -686,9 +686,40 @@ waw2bo2_zombie_actor_glue()
     self setphysparams( 15, 0, 48 );
     // WaW engine zombie melee: 60 (ai melee weapon)
     self.meleedamage = 60;
-    // per-hit player points through T6's actor damage plumbing
-    self thread maps\\mp\\zombies\\_zm_spawner::enemy_death_detection();
+    // T4's engine dispatches actor damage to the map's global callbacks.
+    self thread waw2bo2_actor_damage();
+    self thread waw2bo2_actor_sound_cleanup();
     self thread waw2bo2_zombie_animstate();
+}}
+
+waw2bo2_actor_damage()
+{{
+    self endon( "death" );
+    for ( ;; )
+    {{
+        self waittill( "damage", amount, attacker, direction, point, mod );
+        if ( !isdefined( amount ) || !isalive( self ) )
+            continue;
+        if ( !isdefined( attacker ) || !isplayer( attacker ) )
+            continue;
+        if ( isdefined( level.waw_actor_damage_filter ) &&
+             self [[ level.waw_actor_damage_filter ]]( mod, self.damagelocation, point, attacker, amount ) )
+            continue;
+        callback = level.waw_global_damage_func;
+        if ( maps\\mp\\zombies\\_zm_utility::isads( attacker ) && (mod == "MOD_RIFLE_BULLET" || mod == "MOD_PISTOL_BULLET") )
+            callback = level.waw_global_damage_func_ads;
+        if ( isdefined( callback ) )
+            self [[ callback ]]( mod, self.damagelocation, point, attacker );
+    }}
+}}
+
+// T6 leaves one-shot entity voices playing after actor death. T4 stopped
+// those voices; the map's death vocal is a separate positional sound.
+waw2bo2_actor_sound_cleanup()
+{{
+    self waittill( "death" );
+    if ( isdefined( self ) )
+        self stopsounds();
 }}
 
 // T6 picks a zombie's movement and death from its animation states

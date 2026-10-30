@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 INDEX_VERSION = 1
-DUMP_ASSETS = "material,image,fx,xmodel,weapon,xanim,sound,loadedsound,rawfile,comworld,physpreset,snddriverglobals"
-DUMP_MARKER = ".waw2bo2_dump_v5_collsurfs"  # v5: xmodel collSurfs/contents in the JSON
+DUMP_ASSETS = "material,techniqueset,image,fx,xmodel,weapon,xanim,sound,loadedsound,rawfile,comworld,physpreset,snddriverglobals"
+DUMP_MARKER = ".waw2bo2_dump_v6_source_techniques"  # v6: export referenced source technique definitions directly
 
 
 def _zone_rank(zone: str) -> tuple:

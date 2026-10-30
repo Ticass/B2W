@@ -300,6 +300,8 @@ def stage(project: Path, roots: list[Path], iwds: list[Path], stock=None,
         for name, material in overlays['overlays'].items():
             init.append(f'    level.waw2bo2_vision_overlays["{name}"] = "{material}";')
             init.append(f'    precacheshader( "{material}" );')
+        for material in overlays.get('diag_bloom_override', []):
+            init.append(f'    precacheshader( "{material}" );')
         report['overlay'] = overlays
         # Film now runs exactly in the overlay; the LUT keeps the shoulder inverse.
         grades = [{'r_filmenable': '0'} for _ in grades]

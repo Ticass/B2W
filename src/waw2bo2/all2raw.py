@@ -19,7 +19,7 @@ SCHEMA = 3
 # Every asset type the patched T4 unlinker can export: the map's own tables
 # (mp/zombiemode.csv overrides script defaults) are as much its content as
 # its scripts.
-WAW_ASSETS = ('clipmap,mapents,gfxworld,gameworldsp,material,image,fx,xmodel,weapon,xanim,sound,'
+WAW_ASSETS = ('clipmap,mapents,gfxworld,gameworldsp,material,techniqueset,image,fx,xmodel,weapon,xanim,sound,'
               'loadedsound,rawfile,comworld,lightdef,physpreset,physconstraints,snddriverglobals,localize,'
               'stringtable')
 
@@ -354,8 +354,8 @@ def reuse_compact_subset(root: Path, temporary: Path, inputs: dict) -> dict | No
         return None
     comparable = {k: v for k, v in inputs.items() if k not in ('schema', 'assets')}
     prefixes = {'zone_source'}
-    for kind, paths in {'material': ('materials', 'shader_bin'),
-                        'techniqueset': ('techniquesets', 'shader_bin'), 'image': ('images',),
+    for kind, paths in {'material': ('materials', 'waw_techniquesets', 'shader_bin'),
+                        'techniqueset': ('techniquesets', 'waw_techniquesets', 'shader_bin'), 'image': ('images',),
                         'snddriverglobals': ('sounddriverglobals',), 'zbarrier': ('zbarrier',),
                         'xmodel': ('xmodel', 'model_export')}.items():
         if kind in wanted:

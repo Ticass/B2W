@@ -14,16 +14,19 @@ A T6 page is one W x 3H RGBA8 texture of three stacked pages, bound as
 Final T6 colour = sqrt(hdr * (albedo^2 * lighting + ...)); WaW writes
 albedo * lighting in gamma space.
 
-Two encodings of each page are produced:
+Two encodings of each page are packed side by side in one 2W x 3H image:
   * WaW-encoded: [secondary top, secondary bottom, primary] stacked in T6's
     shape; translated WaW programs sample it through an exact UV remap
     (``WAW_PAGE_UV``). The primary is box-filtered to the W x H layer size
     (reported: sun shadow detail at half resolution).
-  * T6-encoded, for surfaces still drawn by T6 donor programs: ambient =
+  * T6-encoded on the left, for native materials (including bullet marks): ambient =
     WaW's own lighting at a flat normal, squared into T6's linear units
     (hdrControl0.x assumed 1), directional colour 0, sun visibility from the
     primary. Bump-dependent WaW lighting is not representable there
     (reported as an approximation).
+Native world UVs use half-width u. Original WaW vertex programs recover u,
+and their pixel samplers remap it onto the right half. A native mark inherits
+its receiving surface's page/UV, so both kinds of reader must share the image.
 """
 from __future__ import annotations
 
@@ -35,7 +38,7 @@ from pathlib import Path
 
 from . import iwi
 
-# WaW sampler -> (scale, offset) applied to v inside the WaW-encoded page.
+# WaW sampler -> (scale, offset) applied to v inside the source half.
 WAW_PAGE_UV = {
     'lightmapSamplerSecondary': (2.0 / 3.0, 0.0),
     'lightmapSamplerPrimary': (1.0 / 3.0, 2.0 / 3.0),
@@ -145,32 +148,38 @@ def build_page(secondary: Path, primary: Path | None) -> tuple[int, int, bytes, 
 def _stage_page(task):
     index, secondary, primary, project_root = task
     width, height, waw, t6 = build_page(secondary, primary)
-    names = {'waw': f'lightmap{index}_waw_secondary', 't6': f'lightmap{index}_t6_secondary'}
-    for key, data in (('waw', waw), ('t6', t6)):
-        if os.environ.get('WAW2BO2_DIAG_PAGEID'):
-            # Diagnostic build: a 4x4 code in the page's last texels
-            # (red = page index, blue = WaW-encoded, green = T6-encoded).
-            palette = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 255, 255)]
-            code = bytes([*(palette[index % 5] if key == 'waw' else (255, 0, 255)), 255])
-            data = bytearray(data)
-            for y in range(max(0, height * 3 - 4), height * 3):
-                for x in range(max(0, width - 4), width):
-                    o = (y * width + x) * 4
-                    data[o:o + 4] = code
-            data = bytes(data)
-        dst = project_root / 'images' / f'{names[key]}.iwi'
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_bytes(_iwi_rgba(width, height * 3, data))
-    return {'index': index, 'width': width, 'height': height, **names}
+    # Marks inherit their receiver's page index, but retain native materials.
+    # Both page references must therefore support both shader encodings. Native
+    # UVs address the left half; translated programs sample WaW on the right.
+    name = f'lightmap{index}_dual_secondary'
+    names = {'waw': name, 't6': name}
+    stride = width * 4
+    dual = b''.join(t6[p:p + stride] + waw[p:p + stride] for p in range(0, len(waw), stride))
+    if os.environ.get('WAW2BO2_DIAG_PAGEID'):
+        # Retain the diagnostic code at the right edge of the source half.
+        palette = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 255, 255)]
+        code = bytes([*palette[index % 5], 255])
+        dual = bytearray(dual)
+        for y in range(max(0, height * 3 - 4), height * 3):
+            for x in range(max(0, width * 2 - 4), width * 2):
+                o = (y * width * 2 + x) * 4
+                dual[o:o + 4] = code
+        dual = bytes(dual)
+    dst = project_root / 'images' / f'{name}.iwi'
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(_iwi_rgba(width * 2, height * 3, dual))
+    return {'index': index, 'width': width * 2, 'height': height, 'layout': 't6_left_waw_right', **names}
 
 
 def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set[str]) -> dict:
-    """Write both encodings of every lightmap page the world uses.
+    """Write a shared dual-encoding image for every lightmap page.
 
     ``waw_materials``: materials whose lit passes are translated WaW programs
     reading WaW-encoded pages. Writes images/<name>.iwi and BSP/lightmaps.json:
     {"pages": [{"waw": img, "t6": img}], "wawMaterials": [...]} - the linker
     gives a surface page i for WaW materials and page count + i otherwise.
+    Both page references resolve to the same image, including for inherited
+    native decal reads; no duplicate texture allocation is needed.
     """
     report = {'pages': [], 'warnings': [], 'errors': []}
     pages = []

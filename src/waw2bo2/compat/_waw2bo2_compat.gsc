@@ -508,6 +508,18 @@ waw_dodamage( amount, origin, attacker, inflictor, hitloc, mod, flags, weapon )
     // exploding death may already have removed; T6 dodamage needs a vector.
     if ( !isdefined( origin ) )
         origin = self.origin;
+    // An omitted T4 inflictor defaults to the damaged actor. T6 accepts an
+    // undefined slot but applies zero damage when later optional arguments
+    // are supplied (measured against the same live actor: 0 vs 10 damage).
+    if ( !isdefined( inflictor ) )
+        inflictor = self;
+    // T4 defaults script damage to an unlocated, unknown hit. T6 otherwise
+    // keeps the actor's preceding bullet location (a headless bleed-out
+    // inherits the headshot bonus). Explicit source arguments still win.
+    if ( !isdefined( hitloc ) )
+        hitloc = "none";
+    if ( !isdefined( mod ) )
+        mod = "MOD_UNKNOWN";
     if ( isdefined( weapon ) )
         self dodamage( amount, origin, attacker, inflictor, hitloc, mod, flags, weapon );
     else if ( isdefined( flags ) )
@@ -2154,12 +2166,46 @@ waw_visionsetnaked( vision, time )
 // any wait statements") is then skipped.
 waw_precachemodel( name )
 {
+    name = waw_model_name( name );
     if ( !isdefined( level.waw2bo2_precached ) )
         level.waw2bo2_precached = [];
     if ( isdefined( level.waw2bo2_precached[name] ) )
         return;
     level.waw2bo2_precached[name] = 1;
     precachemodel( name );
+}
+
+waw_model_name( name )
+{
+    if ( !isdefined( level.waw2bo2_model_names ) )
+        level.waw2bo2_model_names = maps\mp\waw\_waw2bo2_models::table();
+    if ( isdefined( name ) && isdefined( level.waw2bo2_model_names[name] ) )
+        return level.waw2bo2_model_names[name];
+    return name;
+}
+
+waw_setmodel( name )
+{
+    self setmodel( waw_model_name( name ) );
+}
+
+waw_setviewmodel( name )
+{
+    self setviewmodel( waw_model_name( name ) );
+}
+
+waw_attach( name, tag, ignoreCollision )
+{
+    if ( isdefined( ignoreCollision ) )
+        return self attach( waw_model_name( name ), tag, ignoreCollision );
+    return self attach( waw_model_name( name ), tag );
+}
+
+waw_detach( name, tag )
+{
+    if ( isdefined( tag ) )
+        return self detach( waw_model_name( name ), tag );
+    return self detach( waw_model_name( name ) );
 }
 
 // ---- perks ----

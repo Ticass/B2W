@@ -143,7 +143,10 @@ def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset
                 # colour (green); drawn as their base layer it must not tint
                 colors.extend((1.0, 1.0, 1.0, 1.0) if surface.material in blend_data_materials else v.color)
                 uvs.extend((v.uv[0], 1.0 - v.uv[1]))
-                lightmap_uvs.extend((v.lightmap_uv[0], 1.0 - v.lightmap_uv[1]))
+                # Native decals inherit the receiver's lightmap UV/page. Keep
+                # them in the native half of the dual-encoding page; translated
+                # WaW vertex programs recover the original u before sampling.
+                lightmap_uvs.extend((v.lightmap_uv[0] * 0.5, 1.0 - v.lightmap_uv[1]))
             # The bridge reverses every triangle (it assumes Blender's CCW
             # winding). WaW triangles already use BO2's winding, so write them
             # reversed here; otherwise every surface is back-face culled.

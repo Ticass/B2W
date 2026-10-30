@@ -47,6 +47,32 @@ class HashTests(unittest.TestCase):
 
 
 class TranslatorAdapterTests(unittest.TestCase):
+    def test_exported_native_lightmap_uv_and_waw_vertex_contract_agree(self):
+        import re
+        from waw2bo2 import fbx, world
+        vertices = [world.Vertex(p, (1, 1, 1, 1), (0, 0), (0.6, 0.4),
+                                 (0, 0, 1), (1, 0, 0), 1)
+                    for p in ((0, 0, 0), (1, 0, 0), (0, 1, 0))]
+        surface = world.Surface(0, 3, 1, 0, 'wall', 0, 0, 1, 0, (0, 0, 0), (1, 1, 0))
+        gfx = world.GfxWorld('m', 'm', '', vertices, [0, 1, 2], [surface], [])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'world.fbx'
+            fbx.write_world_fbx(gfx, path)
+            values = re.search(r'Name: "LightmapUV".*?UV: \*\d+ \{ a: ([^}]+)',
+                               path.read_text(), re.S)[1]
+            native_u = float(values.split(',')[0])
+        self.assertAlmostEqual(native_u, 0.3)
+        self.assertAlmostEqual(native_u * 2, vertices[0].lightmap_uv[0])
+        vs = 'vs_3_0\ndcl_position v0\ndcl_texcoord v1\ndcl_position o0\ndcl_texcoord o1\nmov o0, v0\nmov o1, v1\n'
+        contract = {'inputs': {'v0': {'semantic': 'POSITION0', 'width': 4},
+                               'v1': {'semantic': 'TEXCOORD0', 'width': 2, 'adapter': 'waw_uv_lightmap'}},
+                    'outputs': {'o0': {'semantic': 'SV_Position', 'width': 4},
+                                'o1': {'semantic': 'TEXCOORD0', 'width': 4}},
+                    'constants': {}, 'samplers': {}}
+        hlsl, _ = shaders.translate(vs, contract)
+        self.assertIn('input.v1_lmap * float2(2.0, 1.0)', hlsl)
+        shaders.compile_hlsl(hlsl, 'vs_5_0')
+
     def test_packed_vector_adapter_reencodes_unit_scale(self):
         contract = {'inputs': {'v0': {'semantic': 'POSITION0', 'width': 4},
                                'v3': {'semantic': 'NORMAL0', 'width': 3, 'adapter': 'waw_ubyte4_vector'}},
@@ -71,7 +97,7 @@ class TranslatorAdapterTests(unittest.TestCase):
         self.assertEqual(signature[('TEXCOORD', 1)][0], 2)
         self.assertEqual(signature[('SV_POSITION', 0)][0], 0)
 
-    def test_aliased_lightmap_samplers_share_one_slot_with_remapped_v(self):
+    def test_aliased_lightmap_samplers_share_one_slot_with_dual_page_uvs(self):
         ps = '''ps_3_0
 dcl_texcoord v0
 dcl_2d s2
@@ -82,11 +108,12 @@ add oC0, r0, r1
 '''
         contract = {'inputs': {'v0': {'semantic': 'TEXCOORD0', 'width': 4}},
                     'outputs': {'oC0': {'semantic': 'SV_Target0', 'width': 4}}, 'constants': {},
-                    'samplers': {'s3': {'texture': 13, 'sampler': 13, 'v_scale_offset': list(lightmaps.WAW_PAGE_UV['lightmapSamplerSecondary'])},
-                                 's2': {'texture': 13, 'sampler': 13, 'v_scale_offset': list(lightmaps.WAW_PAGE_UV['lightmapSamplerPrimary'])}}}
+                    'samplers': {'s3': {'texture': 13, 'sampler': 13, 'u_scale_offset': [0.5, 0.5], 'v_scale_offset': list(lightmaps.WAW_PAGE_UV['lightmapSamplerSecondary'])},
+                                 's2': {'texture': 13, 'sampler': 13, 'u_scale_offset': [0.5, 0.5], 'v_scale_offset': list(lightmaps.WAW_PAGE_UV['lightmapSamplerPrimary'])}}}
         hlsl, _ = shaders.translate(ps, contract)
         self.assertEqual(hlsl.count('register(t13)'), 1)
         self.assertIn('0.6666666666666666', hlsl)
+        self.assertIn('* 0.5 + 0.5', hlsl)
         shaders.compile_hlsl(hlsl, 'ps_5_0')
 
     def test_point_load_reads_texels_without_sampler_state(self):
@@ -158,7 +185,7 @@ class LightmapPageTests(unittest.TestCase):
             pixel = t6[y * w * 4:y * w * 4 + 4]
             self.assertAlmostEqual(pixel[0] / pixel[3], ((20 + y) / 255) ** 2, delta=0.002)
 
-    def test_reported_512_by_2048_secondary_stages_512_by_3072_images(self):
+    def test_native_marks_and_waw_receivers_share_a_dual_encoding_page(self):
         w, h = 512, 1024
         n = w * h * 4
         top = bytes([128, 64, 255, 255]) * (w * h)
@@ -169,16 +196,21 @@ class LightmapPageTests(unittest.TestCase):
             world = SimpleNamespace(surfaces=[SimpleNamespace(material='wall', lightmap_index=0)])
             report = lightmaps.stage(world, [root], root / 'project', {'wall'})
             self.assertEqual(report['errors'], [])
-            self.assertEqual((report['pages'][0]['width'], report['pages'][0]['height']), (w, h))
+            self.assertEqual((report['pages'][0]['width'], report['pages'][0]['height']), (2 * w, h))
             plan = json.loads((root / 'project/BSP/lightmaps.json').read_text())
+            self.assertEqual(plan['pages'][0]['waw'], plan['pages'][0]['t6'])
             for encoding in ('waw', 't6'):
                 blob = (root / 'project/images' / (plan['pages'][0][encoding] + '.iwi')).read_bytes()
-                self.assertEqual(struct.unpack_from('<HH', blob, 6), (w, 3 * h))
+                self.assertEqual(struct.unpack_from('<HH', blob, 6), (2 * w, 3 * h))
                 self.assertEqual(struct.unpack_from('<I', blob, 32)[0], len(blob))
-                self.assertEqual(len(blob), 64 + 3 * n)
-                if encoding == 'waw':
-                    self.assertEqual(blob[64:64 + 2 * n], top + bottom)
-                self.assertEqual(blob[64 + 2 * n + 3::4], bytes([255]) * (w * h))
+                self.assertEqual(len(blob), 64 + 6 * n)
+                # A native decal inherits the receiving surface's page and
+                # half-width UV. Its sample must reach native encoded ambient,
+                # while the translated receiver reaches exact source bytes.
+                self.assertEqual(blob[64 + w * 4:64 + 2 * w * 4], top[:w * 4])
+                self.assertEqual(blob[64 + 2 * h * 2 * w * 4 + 3::4], bytes([255]) * (2 * w * h))
+                ambient = blob[64:68]
+                self.assertAlmostEqual(ambient[0] / ambient[3], (128 / 255) ** 2, delta=0.01)
 
     def test_odd_secondary_height_and_incompatible_primary_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

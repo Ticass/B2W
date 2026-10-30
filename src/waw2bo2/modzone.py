@@ -158,7 +158,7 @@ def baseline_shader_materials(project: Path, stock: Path):
     try:
         for root, entry in entries:
             runtime = entry.get('shader_runtime', {})
-            if not runtime.get('active'):
+            if not runtime.get('active') and not runtime.get('native_probe_passes'):
                 continue
             path = root / entry['file']
             if not path.is_file() or path in originals:
@@ -255,6 +255,17 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
             for folder in ('techniquesets', 'shader_bin', 'english/localizedstrings'):
                 if (root/folder).is_dir():
                     shutil.copytree(root/folder, overlay/folder, dirs_exist_ok=True)
+    from . import impactmaterials
+    source_impact_materials = impactmaterials.bind(project, dump, overlay, stock)
+    bound.update(source_impact_materials)
+    native_probe_materials = {}
+    if (project/'BSP/reflectionprobes.json').is_file():
+        # The restored source cube channels also reach stock knives, blood and
+        # other native gameplay materials; every reader must use their encoding.
+        from . import nativeprobes
+        native_probe_materials = nativeprobes.bind_native_materials(dump, overlay, stock)
+        bound.update(native_probe_materials)
+        (work/'native_probe_materials.json').write_text(json.dumps(native_probe_materials, indent=1))
     # Stringtables must also override loaded/stock assets. The linker's
     # independent search paths are sorted, so adding a project path beside
     # BO2's raw path is insufficient to guarantee source priority.
@@ -271,6 +282,16 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
     zone = (work/'zone_source/mod.zone').read_text(encoding='utf-8')
+    # Baseline models already contain material pointers. Explicit entries make
+    # the linker replace those pointers even when a model itself is reused.
+    for relative in {*native_probe_materials, *source_impact_materials}:
+        name = relative.removeprefix('materials/').removesuffix('.json')
+        zone += f'\nmaterial,{name}\n'
+    if source_impact_materials:
+        # Source textures are additional to the baseline's existing image pack.
+        # Retain that pack and write new raw images into a separate one.
+        pack_name = project.name+'_impact_materials'
+        zone = re.sub(r'(?m)^>ipak,.*$', f'>level.ipak_read,{pack_name}\n>ipak,{pack_name}', zone)
     # Raw weapon files live under mp/sp; loaded assets use engine-internal names.
     zone = re.sub(r'(?m)^weapon,(?:mp|sp)/', 'weapon,', zone)
     # The template's "fximpacttable,,ImpactFx" names the stock singleton the
@@ -301,7 +322,11 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
     for relative in bound:
         expected = json.loads((overlay/relative).read_text())
         actual = json.loads((check/relative).read_text())
-        if actual['techniqueSet'] != expected['techniqueSet'] or actual['textures'] != expected['textures']:
+        # A leading comma requests an already loaded image; the extracted asset
+        # reports its resolved name. All sampler state and other fields remain exact.
+        texture_routes = lambda m: [{**t, 'image': t.get('image', '').removeprefix(',')}
+                                    for t in m.get('textures', [])]
+        if actual['techniqueSet'] != expected['techniqueSet'] or texture_routes(actual) != texture_routes(expected):
             raise RuntimeError(f'bound material or texture routing changed: {relative}')
         technique = json.loads((check/'techniquesets'/f'{actual["techniqueSet"]}.json').read_text())
         for item in technique['techniques']:
@@ -311,6 +336,11 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
                     if name.startswith('waw/runtime_') and (check/'shader_bin'/f'{stage}_{name}.cso').read_bytes()[:4] != b'DXBC':
                         raise RuntimeError(f'linked translated shader is not DXBC: {name}')
     shutil.copy2(linked, ff)
+    if source_impact_materials:
+        from . import ipakfix
+        for pack in output.glob('*_impact_materials.ipak'):
+            ipakfix.repair(pack)
+            shutil.copy2(pack, ff.parent/pack.name)
     (work/'shader_activation.json').write_text(json.dumps({'materials': sorted(bound),
         'baseline': str(baseline), 'output': str(ff), 'preserved_ipak': True}, indent=2))
 

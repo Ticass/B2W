@@ -57,15 +57,15 @@ class ProbePlanTests(unittest.TestCase):
 
 
 class ProbeImageTests(unittest.TestCase):
-    def test_cube_holds_waw_display_value_rgb_times_alpha(self):
+    def test_cube_preserves_independent_rgb_and_alpha(self):
         # BGRA bytes: b=50 g=100 r=200 a=51 (0.2)
-        out = iwi.dds_to_iwi(cube_dds(4, (50, 100, 200, 51)), rgba_texels=probes._display_texels)
+        out = iwi.dds_to_iwi(cube_dds(4, (50, 100, 200, 51)))
         self.assertEqual(out[:4], b'IWi\x1b')
         fmt, flags = out[4], out[5]
         self.assertEqual(fmt, iwi.FMT_RGBA)
         self.assertTrue(flags & iwi.FLAG_CUBEMAP)
         texel = out[64:68]
-        self.assertEqual(tuple(texel), (40, 20, 10, 255))
+        self.assertEqual(tuple(texel), (200, 100, 50, 51))
         self.assertEqual(len(out), 64 + 4 * 4 * 4 * 6)
 
 
@@ -88,6 +88,10 @@ class ProbeStageTests(unittest.TestCase):
             written = json.loads((root / 'out/BSP/reflectionprobes.json').read_text())
             self.assertTrue((root / 'out/images/reflection_probe2.iwi').is_file())
             self.assertFalse((root / 'out/images/reflection_probe0.iwi').exists())  # neutral, from stage_images
+            # Source RGB and alpha reach the GPU separately, so the source PS
+            # multiplies filtered samples rather than pre-multiplied texels.
+            self.assertEqual(tuple((root / 'out/images/reflection_probe2.iwi').read_bytes()[64:68]),
+                             (255, 0, 0, 85))
         self.assertEqual(report.errors, [])
         self.assertEqual(plan.kept, [0, 1, 2])
         self.assertEqual([s.reflection_probe_index for s in surfaces], [0, 1, 2, 2])

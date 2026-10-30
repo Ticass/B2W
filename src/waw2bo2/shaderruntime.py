@@ -518,6 +518,11 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
         contract['outputs'][reg] = {'semantic': semantic, 'width': width}
 
     names = registers(source_assembly)
+    # WaW packs the local light's ramp into its secondary lightmap. T6 binds
+    # that same source light def's ramp per light instead. Recognize the
+    # distance -> atlas placement -> single ramp sample, preserving the
+    # authored curve even when the map uses several different light defs.
+    ramp = next((r for r, (n, _) in names.items() if n == 'attenuationSampler'), None)
     native_fields = {**buffers(vs), **buffers(ps)}
     sqrt_hdr = native_sqrt_hdr_output(ps)
     hdr = native_fields.get('hdrControl0')
@@ -545,6 +550,10 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
         if arg['type'] != 5:
             raise shaders.ShaderError(f'original literal argument needs source embedding: {reg}')
         name = names.get(reg, (None, 0))[0]
+        if ramp and name == 'lightFalloffPlacement':
+            contract['constants'][reg] = {'expr': 'float4(1, 0, 0, 0.5)', 'uses': []}
+            contract.setdefault('unit_conversions', []).append('local light ramp: source light def bound per light')
+            continue
         if name == 'gameTime' and name not in native_fields:
             # T6 CONST_SRC_CODE_GAMETIME (0x19): stock pixel passes route it to
             # buffer 2 row 4 (type 5, location 64; 382 stock passes)
@@ -585,6 +594,8 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
     for reg, dim in ir['samplers'].items():
         arg = source_samplers.get(reg)
         source_name = names.get(reg, (None, 0))[0]
+        if reg == ramp:
+            source_name = 'attenuationSampler'
         if arg is None and source_name not in PER_SURFACE_SAMPLERS:
             raise shaders.ShaderError(f'no original sampler argument for {reg}')
         if arg is not None and arg['type'] == 2:
@@ -649,7 +660,8 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
                     entry['constant'] = [1.0, 1.0, 1.0, 1.0]  # diagnostic: shadow test always lit
             elif source_name == 'floatZSampler':
                 # Native soft-particle PS decodes reciprocal depth as zNear.x/abs(z).
-                # WaW soft-particle PS consumes camera-space depth directly.
+                # Match T6's camera-depth units. The paired vertex adapter
+                # removes WaW's packed /32 depth scale from zfeather varyings.
                 near = native_fields.get('zNear')
                 if near is None or not re.search(
                         rf'div (r\d+\.[xyzw]), cb0\[{near[1] // 16}\]\.x, \1\b', ps):
@@ -694,14 +706,14 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
                 # direction). WaW programs read the WaW-encoded page, selected
                 # through the surface's lightmapIndex, at their exact sub-page.
                 entry['v_scale_offset'] = list(lightmaps.WAW_PAGE_UV[source_name])
+                entry['u_scale_offset'] = [0.5, 0.5]
                 contract['lightmap'] = 'waw'
             elif source_name == 'reflectionProbeSampler' and sqrt_hdr:
-                # The bridge stages WaW's probes as WaW's own value, rgb * a in
-                # display units, with alpha 1 (probes.py): the WaW program's
-                # rgb * a reads it unchanged. 8-bit T6 linear (rgb / a, squared
-                # display) cannot hold WaW's dark probes.
-                entry.update(texel_expr='float4(T.xyz, 1.0)')
-                contract.setdefault('unit_conversions', []).append('reflectionProbe: WaW display rgb * a, staged')
+                # Preserve the source channels: the original program multiplies
+                # RGB by alpha after filtering. Baking that product into texels
+                # (or forcing sampled alpha to 1) changes the source calculation.
+                # These are WaW display values, not T6's encoded linear probes.
+                contract.setdefault('unit_conversions', []).append('reflectionProbe: source RGBA, multiply after filtering')
             else:
                 raise shaders.ShaderError(f'code texture {source_name} needs a unit adapter')
         contract['samplers'][reg] = entry
@@ -710,6 +722,53 @@ def paired_pixel_contract(source_assembly, source_pass, native_pass, native_root
             if bit:
                 native_pass['customSamplerFlags'] = native_pass.get('customSamplerFlags', 0) | bit
     return contract
+
+
+def local_light_ramp(assembly):
+    """The sole secondary-lightmap read is a placed 1D attenuation lookup."""
+    names = registers(assembly)
+    placement = next((r for r, (n, _) in names.items() if n == 'lightFalloffPlacement'), None)
+    sampler = next((r for r, (n, _) in names.items() if n == 'lightmapSamplerSecondary'), None)
+    if placement is None or sampler is None:
+        return None
+    pattern = (r'\bmad(?:_pp)?\s+(r\d+)\.xy,\s*r\d+\.[xyzw],\s*' + re.escape(placement)
+               + r',\s*' + re.escape(placement) + r'\.zwzw\s*\n\s*texld(?:_pp)?\s+r\d+,\s*\1,\s*'
+               + re.escape(sampler) + r'\b')
+    return sampler if re.search(pattern, assembly) else None
+
+
+def bind_local_light_ramp(assembly, source_pass, source_material=None):
+    """Redirect only the atlas-ramp read; later lightmap reads keep their page."""
+    sampler = local_light_ramp(assembly)
+    if sampler is None:
+        return assembly, source_pass
+    names = registers(assembly)
+    placement = next(r for r, (n, _) in names.items() if n == 'lightFalloffPlacement')
+    adapted = copy.deepcopy(source_pass)
+    unused = next((f's{i}' for i in range(16) if f's{i}' not in names), None)
+    if unused is None and is_scorch_program(source_material):
+        # All scorch samplers return the same unscorched zero in T6. Merge
+        # those aliases to free a source register in 16-sampler WaW passes.
+        scorch = [r for r, (n, _) in names.items() if n.startswith('terrainScorchTextureSampler')]
+        if len(scorch) > 1:
+            unused = scorch[1]
+            for alias in scorch[1:]:
+                assembly = re.sub(r'^\s*dcl_2d ' + re.escape(alias) + r'\s*$', '', assembly, flags=re.M)
+                assembly = re.sub(r'\b' + re.escape(alias) + r'\b', scorch[0], assembly)
+            removed = {int(r[1:]) for r in scorch[1:]}
+            adapted['args'] = [a for a in adapted['args'] if not (a['type'] == 4 and a['dest'] in removed)]
+    if unused is None:
+        return assembly, source_pass
+    pattern = (r'(\bmad(?:_pp)?\s+(r\d+)\.xy,\s*r\d+\.[xyzw],\s*' + re.escape(placement)
+               + r',\s*' + re.escape(placement) + r'\.zwzw\s*\n\s*texld(?:_pp)?\s+r\d+,\s*\2,\s*)'
+               + re.escape(sampler) + r'\b')
+    assembly, count = re.subn(pattern, lambda m: m[1] + unused, assembly)
+    if count != 1:
+        raise shaders.ShaderError('ambiguous local light ramp lookup')
+    assembly = '// attenuationSampler ' + unused + ' 1\n' + assembly
+    assembly = assembly.replace('ps_3_0', 'ps_3_0\n    dcl_2d ' + unused, 1)
+    adapted['args'].append({'type': 4, 'dest': int(unused[1:]), 'value': 0})
+    return assembly, adapted
 
 
 # Extra-layer streams of layered world techniques (MTL_WORLDVERT_TEX_*):
@@ -739,6 +798,42 @@ def is_scorch_program(source_material):
 # Trail geometry evaluates the falloff face-on, as WaW draws a ribbon facing
 # the camera.
 FACE_ON_FALLOFF_PARMS = (0.0, 0.0, 0.0, 1.0)
+
+
+def soft_particle_depth_scale(assembly):
+    """Depth units of WaW's zfeather varying, relative to clip.w.
+
+    Recognize the source program's clip-position write and packed UV/depth
+    output, rather than imposing the zfeather scale on water or other readers.
+    """
+    position = re.search(r'^\s*mov (o\d+), (r\d+)\s*$', assembly, re.M)
+    if position is None:
+        return 1.0
+    depth = re.search(r'^\s*mul o\d+\.zw, ' + position[2] + r'\.w, (c\d+)\.xyyz\s*$', assembly, re.M)
+    if depth is None:
+        return 1.0
+    literal = re.search(r'^\s*def ' + depth[1] + r', ([^\n]+)', assembly, re.M)
+    if literal is None:
+        return 1.0
+    values = [float(v.strip()) for v in literal[1].split(',')]
+    return values[0] if values[1:] == [1.0, 0.0, 0.0] else 1.0
+
+
+def normalize_soft_particle_depth(assembly, pixel_assembly):
+    """Carry native camera depth to a source soft-particle depth comparison.
+
+    Scaling the scene texture instead shrinks the physical feather distance
+    and suppresses flames against walls. Keep the source feather parameters
+    and normalize the varying, while leaving readers without floatZ alone.
+    """
+    scale = soft_particle_depth_scale(assembly)
+    if scale == 1.0 or not any(n == 'floatZSampler' for n, _ in registers(pixel_assembly).values()):
+        return assembly, False
+    pattern = r'(^\s*)mul (o\d+)\.zw, (r\d+)\.w, c\d+\.xyyz\s*$'
+    adapted, count = re.subn(pattern, r'\1mov \2.zw, \3.w', assembly, flags=re.M)
+    if count != 1:
+        raise shaders.ShaderError('ambiguous packed soft-particle depth varying')
+    return adapted, True
 
 
 def vertex_contract(source_assembly, source_pass, native_pass, native_root, paired=False, source_material=None,
@@ -1086,8 +1181,14 @@ def source_slot(present, source_name, slot):
     """WaW technique index feeding T6 ``slot``; ``present(i)`` tells whether
     WaW technique ``i`` exists."""
     index = SLOTS[slot]
+    if 'projected_decal' in source_name and slot == 2:
+        # Lit blood decals have no EMISSIVE technique: their projection is
+        # LIT. Their UNLIT fallback still paints the red decal volume.
+        for projection in (SLOTS[3], SLOTS[4]):
+            if present(projection):
+                return projection
     if 'projected_decal' in source_name and present(SLOTS[3]) and \
-            (slot == 2 or (slot == 4 and not present(SLOTS[4]))):
+            slot == 4 and not present(SLOTS[4]):
         # WaW draws a projected decal through EMISSIVE (projected_decal_*);
         # its UNLIT technique is a plain vertcol fallback that paints the
         # decal box itself (mc_projected_decal_unlit: 420's rise craters).
@@ -1238,6 +1339,8 @@ def source_technique(original, source_name, slot):
 # output straight or premultiplied colour exactly as their WaW state expects.
 PASS_STATE_FIELDS = ('srcBlendRgb', 'dstBlendRgb', 'blendOpRgb', 'srcBlendAlpha',
                      'dstBlendAlpha', 'blendOpAlpha', 'alphaTest')
+SOURCE_RASTER_FIELDS = ('depthTest', 'depthWrite', 'polygonOffset', 'cullFace',
+                        'colorWriteRgb', 'colorWriteAlpha')
 
 
 def _additive(state):
@@ -1269,7 +1372,12 @@ def apply_source_pass_states(source_material, output_material, runtime):
         wanted, native = src_states[src_entries[index]], states[entries[slot]]
         if slot not in waw_slots and not (_additive(wanted) and not _additive(native)):
             continue
-        update = {k: wanted[k] for k in PASS_STATE_FIELDS if k in wanted}
+        # A native glass/decal donor may bias depth toward the camera. Keeping
+        # that bias with the source model's program draws glass through its
+        # metal housing. Preserve the source raster contract for translated
+        # passes, retaining T6-only stencil/routing fields from the donor.
+        fields = PASS_STATE_FIELDS + (SOURCE_RASTER_FIELDS if slot in waw_slots else ())
+        update = {k: wanted[k] for k in fields if k in wanted}
         if all(native.get(k) == v for k, v in update.items()):
             continue
         merged = {**native, **update}
@@ -1322,6 +1430,19 @@ DIAGNOSTIC_SLOT_COLORS = {4: '0.0, 0.5, 0.0', 5: '0.5, 0.5, 0.0', 6: '0.5, 0.25,
 
 def bind_material(source_material, output_material, roots, project_root, native_root, falloff_placement=None,
                   light_shadows=True, trail_geometry=False):
+    result = _bind_material(source_material, output_material, roots, project_root, native_root,
+                            falloff_placement, light_shadows, trail_geometry)
+    # Original WaW cube channels are shared by translated and native readers.
+    # A remaining donor pass must not divide source RGB by source alpha.
+    from . import nativeprobes
+    count = nativeprobes.bind(output_material, project_root, native_root)
+    if count:
+        result['native_probe_passes'] = count
+    return result
+
+
+def _bind_material(source_material, output_material, roots, project_root, native_root, falloff_placement=None,
+                   light_shadows=True, trail_geometry=False):
     """``falloff_placement``: the map's WaW lightFalloffPlacement; ``light_shadows``
     False when every primary light is staged unshadowed (shadowed slots unreachable).
     ``trail_geometry``: the material draws T6 FX trails (see vertex_contract);
@@ -1363,10 +1484,13 @@ def bind_material(source_material, output_material, roots, project_root, native_
         if vertex_binary:
             try:
                 vertex_assembly = embed_literals(_assembly(vertex_binary), source_pass, 'vs')
+                vertex_assembly, normalized_depth = normalize_soft_particle_depth(vertex_assembly, _assembly(binary))
                 vertex_binding = vertex_contract(vertex_assembly, source_pass, target_pass, native_root, paired=True,
                                                  source_material=source_material,
                                                  layered=bool(pristine.get('worldVertFormat')),
                                                  trail_geometry=trail_geometry)
+                if normalized_depth:
+                    vertex_binding['soft_particle_depth'] = 'packed WaW depth to T6 camera depth'
                 if vertex_binding.get('face_on_falloff'):
                     result['face_on_falloff'] = True
                 vertex_hlsl, vertex_info = shaders.translate(vertex_assembly, vertex_binding)
@@ -1374,7 +1498,8 @@ def bind_material(source_material, output_material, roots, project_root, native_
                 vertex_code = shaders.compile_hlsl(vertex_hlsl, 'vs_5_0')
                 linked = [{'semantic': s, 'width': w} for s, w in vertex_info['outputs'].values()]
                 assembly = embed_literals(_assembly(binary), source_pass, 'ps')
-                contract = paired_pixel_contract(assembly, source_pass, target_pass, native_root, linked,
+                assembly, pixel_pass = bind_local_light_ramp(assembly, source_pass, source_material)
+                contract = paired_pixel_contract(assembly, pixel_pass, target_pass, native_root, linked,
                                                  vertex_binding.get('lighting_visibility'), source_material,
                                                  falloff_placement, output_material)
                 contract.update(output_scale)
@@ -1430,8 +1555,8 @@ def bind_material(source_material, output_material, roots, project_root, native_
                     # colour (both halves, flat weight) at the lm_* lightmap UV.
                     scale, offset = secondary['v_scale_offset']
                     target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
-                    top = f'tex_s3.Sample(samp_s3, float2(v1.z, v1.w * 0.5 * {scale!r} + {offset!r}))'
-                    bottom = f'tex_s3.Sample(samp_s3, float2(v1.z, (v1.w * 0.5 + 0.5) * {scale!r} + {offset!r}))'
+                    top = f'tex_s3.Sample(samp_s3, float2(v1.z * 0.5 + 0.5, v1.w * 0.5 * {scale!r} + {offset!r}))'
+                    bottom = f'tex_s3.Sample(samp_s3, float2(v1.z * 0.5 + 0.5, (v1.w * 0.5 + 0.5) * {scale!r} + {offset!r}))'
                     contract['epilogue'] = {'lines': [f'{target} = float4({top}.rgb + {bottom}.rgb * 0.6, 1.0);'], 'uses': []}
                 hlsl, info = shaders.translate(assembly, contract)
                 if os.environ.get('WAW2BO2_DIAG_TERMS'):
@@ -1452,7 +1577,9 @@ def bind_material(source_material, output_material, roots, project_root, native_
                                if e.get('texture') == WORLD_SURFACE_TEXTURE_SLOTS['lightmapSamplerSecondary'][0]), None)
                     if lm:
                         target = next(r for r, e in contract['outputs'].items() if e['semantic'].upper() == 'SV_TARGET0')
-                        hlsl = hlsl.replace('Output output;', f'{target} = float4(tex_{lm}.Load(int3(1022, 3070, 0)).rgb * 8.0, 1.0);' + chr(10) + 'Output output;', 1)
+                        hlsl = hlsl.replace('Output output;', f'{{ uint dw, dh; tex_{lm}.GetDimensions(dw, dh); '
+                                            f'{target} = float4(tex_{lm}.Load(int3(dw - 2, dh - 2, 0)).rgb * 8.0, 1.0); }}'
+                                            + chr(10) + 'Output output;', 1)
                 dxbc = shaders.compile_hlsl(hlsl, 'ps_5_0')
                 check_linkage(vertex_code, dxbc)
                 if source_name.startswith('mc_sky'):

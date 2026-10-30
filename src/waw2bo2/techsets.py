@@ -101,14 +101,19 @@ class Match:
     notes: list[str]
 
 
-def _layer_cost(src, dst, notes: list[str]) -> int | None:
+def _layer_cost(src, dst, notes: list[str], source_programs=False) -> int | None:
     sblend, sidx, sfeat = src
     dblend, _didx, dfeat = dst
     cost = 0
     if sblend != dblend:
+        if source_programs and sidx > 0 and {sblend, dblend} <= {'b', 'm'}:
+            # Only a stream/argument donor: the original WaW program performs
+            # the blend, and staging requires every lit pass to be translated.
+            cost += 1
+            notes.append(f"layer {sidx}: source program supplies '{sblend}' blend")
         # alpha-test/add have no layered T6 equivalent in zm_nuked; blend is
         # the closest (keeps the alpha channel meaningful).
-        if {sblend, dblend} <= {"t", "b", "a"}:
+        elif {sblend, dblend} <= {"t", "b", "a"}:
             cost += 6
             notes.append(f"layer {sidx}: blend '{sblend}' -> '{dblend}'")
         else:
@@ -165,7 +170,7 @@ MODEL_FALLBACK = {
 }
 
 
-def _match_lit(src: Techset, source: str, candidates: list[str], want_family: str) -> Match | None:
+def _match_lit(src: Techset, source: str, candidates: list[str], want_family: str, source_programs=False) -> Match | None:
     best: Match | None = None
     for cand in candidates:
         dst = parse(cand)
@@ -177,7 +182,7 @@ def _match_lit(src: Techset, source: str, candidates: list[str], want_family: st
         cost = 2 * len(src.modifiers)
         ok = True
         for s, d in zip(src.layers, dst.layers):
-            c = _layer_cost(s, d, notes)
+            c = _layer_cost(s, d, notes, source_programs)
             if c is None:
                 ok = False
                 break
@@ -187,7 +192,7 @@ def _match_lit(src: Techset, source: str, candidates: list[str], want_family: st
     return best
 
 
-def match(source: str, candidates: list[str]) -> Match:
+def match(source: str, candidates: list[str], source_programs=False) -> Match:
     src = parse(source)
     if source == 'm_rope':
         # The same techrope_global_black asset uses m_rope in WaW and
@@ -245,7 +250,7 @@ def match(source: str, candidates: list[str]) -> Match:
         return Match(source, best.target, best.cost + 15 * len(dropped), dropped + best.notes)
 
     want_family = {"world": "world", "model": "model", "model_vertex": "model"}.get(src.family, "layered")
-    best = _match_lit(src, source, candidates, want_family)
+    best = _match_lit(src, source, candidates, want_family, source_programs)
     # T6 has fewer blend layers than T4 (zm_nuked tops out at three); keep the
     # base layers and drop the rest rather than refusing the material.
     trimmed = src

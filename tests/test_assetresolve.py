@@ -17,6 +17,21 @@ class StockFixture:
 
 
 class ResolverTests(unittest.TestCase):
+    def test_material_recovers_referenced_source_technique(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, stock_root = root / 'map', root / 'common'
+            self.write(source, 'materials/box_weapon.json', json.dumps({
+                'techniqueSet': ',mc_l_sm_r0c0s0_clothcharr', 'textures': []}))
+            self.write(stock_root, 'waw_techniquesets/mc_l_sm_r0c0s0_clothcharr.json',
+                       json.dumps({'techniques': [{'passes': [{'pixelShader': 'original'}]}]}))
+            stock = StockFixture({('techniqueset', 'mc_l_sm_r0c0s0_clothcharr'): ('common', stock_root)})
+            resolver = assetresolve.Resolver([source], stock)
+            report = resolver.expand({('material', 'box_weapon')})
+            self.assertEqual(report['missing'], [])
+            self.assertIn(['material', 'box_weapon', 'techniqueset', 'mc_l_sm_r0c0s0_clothcharr'], report['edges'])
+            self.assertIn(stock_root, resolver.roots)
+
     def write(self, root, relative, value):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)

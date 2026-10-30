@@ -33,6 +33,60 @@ add oC0, r0, c7
 
 
 class RuntimeShaderTests(unittest.TestCase):
+    def test_source_glass_does_not_inherit_donor_decal_depth_bias(self):
+        source_state = {'depthTest': 'less_equal', 'depthWrite': False,
+                        'polygonOffset': 'offset0', 'cullFace': 'back',
+                        'colorWriteRgb': True, 'colorWriteAlpha': True,
+                        'blendOpRgb': 'add', 'srcBlendRgb': 'one',
+                        'dstBlendRgb': 'invsrcalpha'}
+        source = {'techniqueSet': 'mc_l_sm_b0c0s0',
+                  'stateBits': [source_state], 'stateBitsEntry': [-1]*8+[0]}
+        donor_state = dict(source_state, polygonOffset='offset2', depthWrite=True,
+                           stencilFront={'func': 'equal'})
+        output = {'stateBits': [donor_state], 'stateBitsEntry': [-1]*4+[0]}
+        runtime.apply_source_pass_states(source, output, {'active': [{'slot': 4}]})
+        state = output['stateBits'][output['stateBitsEntry'][4]]
+        self.assertEqual(state['polygonOffset'], 'offset0')
+        self.assertFalse(state['depthWrite'])
+        self.assertEqual(state['stencilFront'], {'func': 'equal'})
+        self.assertEqual(donor_state['polygonOffset'], 'offset2')
+
+    def test_full_sampler_pass_reuses_identical_neutral_scorch_slots(self):
+        names = ['lightmapSamplerSecondary' if i == 3 else
+                 f'terrainScorchTextureSampler{i - 12}' if i >= 12 else f'colorMapSampler{i}'
+                 for i in range(16)]
+        assembly = '// lightFalloffPlacement c10 1\n' + ''.join(
+            f'// {name} s{i} 1\n' for i, name in enumerate(names))
+        assembly += 'ps_3_0\n' + ''.join(f'dcl_2d s{i}\n' for i in range(16))
+        assembly += 'mad r0.xy, r0.w, c10, c10.zwzw\ntexld_pp r0, r0, s3\ntexld r1, v1, s15\n'
+        source = {'args': [{'type': 4, 'dest': i, 'value': i} for i in range(16)]}
+        adapted, args = runtime.bind_local_light_ramp(assembly, source, {'techniqueSet': 'l_sm_r0c0_sco'})
+        self.assertIn('// attenuationSampler s13 1', adapted)
+        self.assertIn('texld_pp r0, r0, s13', adapted)
+        self.assertIn('texld r1, v1, s12', adapted)
+        self.assertNotIn('s16', adapted)
+        self.assertEqual(len(args['args']), 14)
+
+    def test_per_light_ramp_redirect_keeps_later_lightmap_samples(self):
+        assembly = '''// lightFalloffPlacement c10 1
+// lightmapSamplerSecondary s3 1
+ps_3_0
+dcl_2d s3
+mad r0.xy, r0.w, c10, c10.zwzw
+texld_pp r0, r0, s3
+texld_pp r0, r0, s3
+texld_pp r1, r1, s3
+'''
+        original = {'args': [{'type': 4, 'dest': 3, 'value': 0}]}
+        adapted, args = runtime.bind_local_light_ramp(assembly, original)
+        self.assertIn('texld_pp r0, r0, s0', adapted)
+        self.assertEqual(adapted.count('texld_pp r0, r0, s3'), 1)
+        self.assertIn('texld_pp r1, r1, s3', adapted)
+        self.assertEqual(len(original['args']), 1)
+        self.assertEqual(len(args['args']), 2)
+        unchanged = assembly.replace('c10.zwzw', 'c10.xyxy')
+        self.assertEqual(runtime.bind_local_light_ramp(unchanged, original), (unchanged, original))
+
     def test_distance_falloff_recovers_object_space_camera_and_xy_stream(self):
         native = '''// cbuffer PerScene
 // {
@@ -255,7 +309,7 @@ mov o1, v1
         with self.assertRaisesRegex(shaders.ShaderError, 'truncates'):
             shaders.translate(assembly, contract)
 
-    def test_soft_particle_depth_adapter_preserves_camera_distance(self):
+    def test_soft_particle_depth_adapter_matches_source_varying_units(self):
         source = """// floatZSampler s0 1
 ps_3_0
 dcl_texcoord v0.xy
@@ -279,11 +333,33 @@ div r0.x, cb0[58].x, r0.x
                 {'args': []}, Path('.'), [{'semantic': 'TEXCOORD0', 'width': 2}])
         hlsl, _ = shaders.translate(source, contract)
         self.assertIn('t6_cb0[58].x / max(abs(', hlsl)
+        self.assertNotIn('* 0.03125', hlsl)
         for distance in (1.0, 50.0, 10000.0):
             near, reciprocal = 0.1, 0.1 / distance
             self.assertAlmostEqual(near / reciprocal, distance)
+        # A ray behind a wall must have a negative feather distance. The old
+        # mixed units made this positive (100 - 200/32), keeping the ray lit.
+        self.assertLess(100 - 200, 0)
+        # A flame five units in front of a wall retains its authored fade.
+        self.assertAlmostEqual((100 - 95) * .025, .125)
         if os.name == 'nt':
             self.assertEqual(shaders.compile_hlsl(hlsl, 'ps_5_0')[:4], b'DXBC')
+
+    def test_depth_units_are_read_from_source_zfeather_vertex_program(self):
+        source = 'vs_3_0\ndef c10, 0.03125, 1, 0, 0\nmov o0, r0\nmul o2.zw, r0.w, c10.xyyz\n'
+        self.assertEqual(runtime.soft_particle_depth_scale(source), 1/32)
+        self.assertEqual(runtime.soft_particle_depth_scale(source.replace('0.03125', '0.0625')), 1/16)
+        self.assertEqual(runtime.soft_particle_depth_scale(source.replace('r0.w', 'r1.w')), 1)
+        self.assertEqual(runtime.soft_particle_depth_scale('vs_3_0\nmov o0, r0\n'), 1)
+
+    def test_packed_particle_depth_is_normalized_without_scaling_feather(self):
+        vertex = 'vs_3_0\ndef c10, 0.03125, 1, 0, 0\nmov o0, r0\nmul o2.zw, r0.w, c10.xyyz\n'
+        pixel = '// floatZSampler s4 1\nps_3_0\n'
+        adapted, changed = runtime.normalize_soft_particle_depth(vertex, pixel)
+        self.assertTrue(changed)
+        self.assertIn('mov o2.zw, r0.w', adapted)
+        self.assertNotIn('mul o2.zw', adapted)
+        self.assertEqual(runtime.normalize_soft_particle_depth(vertex, 'ps_3_0\n'), (vertex, False))
 
 
     def test_water_adds_depth_and_scene_color_when_donor_has_neither(self):
@@ -342,8 +418,9 @@ sqrt o0.xyz, r0.xyzx
                 native_pass, Path('.'), [{'semantic': 'TEXCOORD0', 'width': 2}, {'semantic': 'TEXCOORD1', 'width': 3}])
         self.assertEqual(contract['samplers']['s0']['texture'], 13)
         self.assertEqual(contract['samplers']['s1']['texture'], 15)
-        # the staged probe holds WaW's rgb * a with alpha 1 (probes.py)
-        self.assertEqual(contract['samplers']['s1']['texel_expr'], 'float4(T.xyz, 1.0)')
+        # The original PS must receive filtered source alpha, not a forced 1.
+        self.assertNotIn('texel_expr', contract['samplers']['s1'])
+        self.assertNotIn('alpha_expr', contract['samplers']['s1'])
         self.assertEqual(native_pass['customSamplerFlags'], 3)
 
     def test_waw_alpha_test_becomes_a_discard(self):
@@ -436,6 +513,11 @@ class AffineInverseTests(unittest.TestCase):
 
 
 class ProjectedDecalSlotTests(unittest.TestCase):
+    def test_lit_blood_decal_uses_projection_instead_of_red_volume(self):
+        present = lambda index: index in (4, 8, 10, 12)
+        self.assertEqual(runtime.source_slot(present, 'mc_projected_decal_lit', 2), 8)
+        self.assertEqual(runtime.source_slot(present, 'mc_projected_decal_lit', 4), 8)
+
     def test_unlit_projected_decal_draws_its_emissive_projection(self):
         # mc_projected_decal_unlit: UNLIT is vertcol_simple_fog (paints the box),
         # EMISSIVE is projected_decal_dtex_unlit (420's rise craters drew as boxes)

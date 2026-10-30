@@ -387,6 +387,11 @@ def _translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
             dims = 'xy' if samplers[sampler] == '2d' else 'xyz'
             uv = f'({coord}).{dims}'
             v_remap = bindings.get('samplers', {}).get(sampler, {}).get('v_scale_offset')
+            u_remap = bindings.get('samplers', {}).get(sampler, {}).get('u_scale_offset')
+            if u_remap is not None:
+                if samplers[sampler] != '2d' or op not in ('texld', 'texldl'):
+                    raise ShaderError(f'u remap needs a 2D texld/texldl: {original}')
+                uv = f'float2(({uv}).x * {float(u_remap[0])!r} + {float(u_remap[1])!r}, ({uv}).y)'
             if v_remap is not None:
                 # the target packs this texture into a sub-rectangle of a page
                 if samplers[sampler] != '2d' or op not in ('texld', 'texldl'):
@@ -500,8 +505,9 @@ def _translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
             init.append(f'{reg} = float4({name}, 0, 0);')
         elif adapter == 'waw_uv_lightmap':
             # WaW world vertices carry texture and lightmap UVs in one float4;
-            # T6 streams them as TEXCOORD0 and TEXCOORD1
-            init.append(f'{reg} = float4({name}, input.{reg}_lmap);')
+            # T6 streams them separately. The exported u addresses the native
+            # left half; recover source u for the original WaW program.
+            init.append(f'{reg} = float4({name}, input.{reg}_lmap * float2(2.0, 1.0));')
         elif adapter == 'waw_position':
             init.append(f'{reg} = float4({name}, 1);')
         elif adapter == 'waw_ubyte4_vector':

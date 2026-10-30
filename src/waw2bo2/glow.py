@@ -38,6 +38,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 
 from . import shaders, techsets
@@ -337,4 +338,37 @@ def stage(project_root: Path, visions: dict[str, dict], techset_dump: Path) -> d
             report['notes'][vision] = notes
     if native_pass.get('stableArgCount') is None:
         raise ValueError('native HUD pass lacks argument counts')
+    if os.environ.get('WAW2BO2_DIAG_BLOOM_OVERRIDE'):
+        report['diag_bloom_override'] = _diag_bloom_override(project_root, techset_dump)
+        report['materials'] += report['diag_bloom_override']
     return report
+
+
+# Diagnostic (WAW2BO2_DIAG_BLOOM_OVERRIDE, never shipped): T6 binds its bloom
+# composite materials once at renderer init (sub_731C30). Same-named magenta
+# materials in mod.ff show whether a mod can replace those passes at all.
+DIAG_BLOOM_MATERIALS = ('bloom_apply', 'bloom_apply_hq', 'bloom_apply_null')
+
+
+def _diag_bloom_override(project_root: Path, techset_dump: Path) -> list[str]:
+    code = shaders.compile_hlsl('float4 main(float4 pos : SV_Position) : SV_Target0 { return float4(1, 0, 1, 1); }\n',
+                                'ps_5_0')
+    shader = 'diag_bloom_' + hashlib.sha256(code).hexdigest()[:20]
+    target = project_root / 'shader_bin' / f'ps_{shader}.cso'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(code)
+    for name in DIAG_BLOOM_MATERIALS:
+        material = json.loads((techset_dump / 'materials' / f'{name}.json').read_text(encoding='utf-8'))
+        technique = json.loads((techset_dump / 'techniquesets' / f'{material["techniqueSet"]}.json').read_text(encoding='utf-8'))
+        technique['name'] = f'{shader}_{name}'
+        for tech in technique['techniques']:
+            for p in (tech or {}).get('passArray', []):
+                p['pixelShader'] = {'name': shader}
+        path = project_root / 'techniquesets' / f'{technique["name"]}.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(technique, indent=2), encoding='utf-8')
+        material['techniqueSet'] = technique['name']
+        out = project_root / techsets.oat_material_path(name)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(material, indent=2) + '\n', encoding='utf-8')
+    return list(DIAG_BLOOM_MATERIALS)

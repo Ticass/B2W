@@ -6,6 +6,21 @@ from waw2bo2.t6api import T6Api
 
 
 class BettyRuntimeTests(unittest.TestCase):
+    def test_source_betty_startup_runs_from_zombiemode_main(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode.gsc').write_text(
+                'main(){maps\\_zombiemode_betty::init();}')
+            (root / 'maps/_zombiemode_betty.gsc').write_text(
+                'init(){level thread give_betties_after_rounds();}\n'
+                'give_betties_after_rounds(){level waittill("between_round_over");}')
+            tr = gscport.Translator(gscport.Sources([root], [], None),
+                                    T6Api(builtins={}, scripts={}), gscport.PortReport())
+            self.assertEqual(tr.framework_hooks(),
+                             [r'maps\mp\waw\_zombiemode_betty::init();'])
+            self.assertIn(r'maps\_zombiemode_betty', tr.queue)
+
     def test_spawned_radius_keeps_source_ai_mask_and_dimensions(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
