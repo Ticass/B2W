@@ -52,11 +52,20 @@ init()
     if ( isdefined( level.waw2bo2_compat_ready ) )
         return;
     level.waw2bo2_compat_ready = 1;
+    // Optional scripts can replace the T4 health field semantics without a
+    // static import of this map-only script (which would break other maps).
+    level.waw2bo2_health_setter = ::waw_set_health;
+    level.waw2bo2_perk_observer_api = 1;
     // Converted maps run on Plutonium T6. WaW scorebar libraries use this
     // flag to leave TAB's scoreboard to the native client.
     if ( !isdefined( level.isPlutonium ) )
         level.isPlutonium = 1;
     precacheshader( "waypoint_revive" );
+    // Isolation gives even engine-preloaded HUD materials (e.g. white) new
+    // names. Register those names before play, not only their zone assets.
+    level.waw2bo2_hud_materials = maps\mp\waw\_waw2bo2_hud_materials::table();
+    foreach ( material in level.waw2bo2_hud_materials )
+        precacheshader( material );
     // T6 zombies defaults perk_weapRateEnhanced on: specialty_rof fires an
     // extra bullet per shot (Double Tap 2.0, also a bullet beside every Ray
     // Gun bolt). WaW's engine default is 0; the map's perks only set the rate.
@@ -508,11 +517,16 @@ waw_dodamage( amount, origin, attacker, inflictor, hitloc, mod, flags, weapon )
     // exploding death may already have removed; T6 dodamage needs a vector.
     if ( !isdefined( origin ) )
         origin = self.origin;
-    // An omitted T4 inflictor defaults to the damaged actor. T6 accepts an
-    // undefined slot but applies zero damage when later optional arguments
-    // are supplied (measured against the same live actor: 0 vs 10 damage).
+    // T4 DoDamage (0x51C8D0 -> 0x4F5D70) defaults both damage entities to
+    // worldspawn. T6 accepts an undefined attacker but applies zero damage
+    // when later optional arguments are supplied (nukes and headless bleed).
+    if ( !isdefined( attacker ) )
+        attacker = getentbynum( worldentnumber() );
     if ( !isdefined( inflictor ) )
-        inflictor = self;
+        inflictor = attacker;
+    // T4 truncates the float, then G_Damage clamps damage to at least one.
+    // T6 drops zero damage; a 0.4-point bleed otherwise never finishes.
+    amount = max( 1, int( amount ) );
     // T4 defaults script damage to an unlocated, unknown hit. T6 otherwise
     // keeps the actor's preceding bullet location (a headless bleed-out
     // inherits the headshot bonus). Explicit source arguments still win.
@@ -2002,8 +2016,9 @@ waw_revive_marker_visible( viewer, target )
         return false;
     if ( !isdefined( viewer.team ) || !isdefined( target.team ) || viewer.team != target.team )
         return false;
-    return isdefined( target.laststand ) && target.laststand &&
-        isdefined( target.revivetrigger );
+    // WaW _laststand::player_is_in_laststand uses the revive trigger.
+    // Its playerlaststand never sets BO2's script-only .laststand flag.
+    return isdefined( target.revivetrigger );
 }
 
 waw_revive_waypoints()
@@ -2262,7 +2277,10 @@ waw_setperk( perk )
     {
         // WaW's native Quick Revive only speeds up reviving another player;
         // solo it does nothing, as in WaW (a map's own solo revive is script).
+        already_owned = self hasperk( perk );
         self setperk( perk );
+        if ( !already_owned && isdefined( level.waw2bo2_perk_granted_callback ) )
+            self [[ level.waw2bo2_perk_granted_callback ]]( perk );
         return;
     }
     if ( !isdefined( self.waw2bo2_perks ) )
