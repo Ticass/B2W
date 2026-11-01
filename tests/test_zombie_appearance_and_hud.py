@@ -156,6 +156,16 @@ class ZombieAppearanceAndHudTests(unittest.TestCase):
         # T6 draws waypoints at waypointIconWidth * width / 8: 32 was 4x WaW
         self.assertIn('setshader( "waypoint_revive", 8, 8 )', body)
 
+    def test_revive_waypoint_accepts_waw_down_state_without_bo2_flag(self):
+        source = (gscport.COMPAT_DIR / '_waw2bo2_compat.gsc').read_text()
+        script = gsc.parse(source, 'compat')
+        fn = script.functions['waw_revive_marker_visible']
+        body = gsc.emit(script.tokens[fn.body_open:fn.body_close + 1])
+        # WaW owns co-op downs: its predicate is a defined revive trigger,
+        # and it never writes BO2's .laststand field.
+        self.assertIn('return isdefined( target.revivetrigger );', body)
+        self.assertNotIn('target.laststand', body)
+
     def test_actor_scripts_can_resolve_stock_mod_tools_sources_after_map_overrides(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

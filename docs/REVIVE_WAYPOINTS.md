@@ -4,7 +4,10 @@ The compatibility layer now explicitly draws the `waypoint_revive` material
 for active teammates of a downed player. This provides a script HUD path when
 BO2's native teammate indicator does not appear in a converted WaW map.
 
-The target must be alive, in last stand, and have a revive trigger. The viewer
+The target must be alive and have a revive trigger (WaW's own last-stand
+predicate). Do not additionally require BO2's `self.laststand` field: WaW's
+co-op `playerlaststand` never writes it. That extra condition suppressed the
+indicator on source-driven co-op downs. The viewer
 must be alive, in the playing session state, on the target's team, and a
 different player. Each viewer/target pair owns one client HUD element, which
 tracks the target's position with a 40-unit height offset. The level checks
@@ -42,3 +45,13 @@ Live two-player verification should cover movement, revive completion,
 bleedout, disconnect, and repeated downs. Native revive rendering is not
 disabled, so builds where that indicator also works need a visual check for
 overlapping markers.
+
+2026-10-31: rebuilt Der Riese with the source-down predicate correction.
+A host plus test-client run reached a source co-op down with a revive trigger,
+no BO2 `laststand` field, and marker eligibility true. Reviving removed the
+trigger and eligibility became false. The bot can move into spectator state
+after spawning; a follow-up diagnostic confirmed spectators remain correctly
+excluded. These checks verify the server HUD path, not the icon's visual
+appearance on a remote human client. Twelve related tests passed. Evidence:
+`work/der_riese_acc/probe_revive_indicators_20261031/` (the first successful
+playing-viewer run is in its archived console logs).
