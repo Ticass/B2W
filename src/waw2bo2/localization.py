@@ -188,6 +188,9 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
     # them like plain references, wherever a source (stock WaW) defines them.
     from .wawhud import ENGINE_STRINGS
     strings.update(ENGINE_STRINGS)
+    # So are the translated WaW in-game menus' @ references (wawmenu.py).
+    from .wawmenu import requested_strings
+    strings.update(requested_strings(project))
     # Include real keys passed through ordinary string variables as well.
     known = set(sources)
     if stock is not None:

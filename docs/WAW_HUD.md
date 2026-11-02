@@ -76,3 +76,50 @@ The `CGAME_SB_*` labels are staged from WaW's `code_post_gfx` strings.
 Flamethrower heat (`hud.menu` heatinfo, T4 `sub_44F540`): the weapon's
 `hudIcon` filled left to right in (0.89, 0.18, 0.01) by heat, with a yellow
 1.01-scale copy fading every 800 ms while overheated.
+
+## Pause menu (Escape)
+
+`wawmenu.py` translates WaW's own in-game menus instead of drawing an imitation.
+T4 loads the engine menulists `ui/ingame.txt` (stock `common.ff`) and
+`ui/hud.txt` (the map's zone, re-shipped in `<map>_patch.ff`). Their sources in
+the Mod Tools `raw/ui` are preprocessed as WaW's menu compiler does (`PC`
+defined; `#include`, macros, `#ifdef`, line continuations, constant folding),
+every `menuDef`/`itemDef` is parsed, and the closure reachable from
+`pausedmenu` is kept: `pausedmenu`, `objectiveinfo`, `overheadmap` and the
+restart/quit popups. The result is `zm/waw_menus.csv`: rects, styles, colours,
+fonts, `visible when()`/`exp` expressions (as RPN) and item scripts. The menus'
+materials (`menu_black_line`, `menu_button_backing_*`, `menu_map_<wawmap>`, ...)
+are staged from the map's zones then the stock zones, and the glyphs their
+resolved text uses go to `zm/waw_menu_glyphs.csv`. The `MENU_*`/`PLATFORM_*`
+strings are requested from WaW's localization like any other reference.
+
+`compat/waw_menu.lua` interprets that table inside BO2's `class` menu, which
+stays the engine host (it pauses solo games). Rects use T4 ScrPlace alignment
+(SUBLEFT = centred 4:3 frame, RIGHT/FULLSCREEN anchors), text uses
+`Item_SetTextExtents` alignment with `R_NormalizedTextScale` (48 * scale /
+pixelHeight) and T4 `UI_GetFontHandle` (t4sp 0x5B6400: DEFAULT picks
+small/extraBig/big/normal by textscale * screen height / 480 against
+ui_smallFont 0.25, ui_extraBigFont 0.55, ui_bigFont 0.4). Focus, highlight and
+focus colour come from the items' own `onFocus` local variables. Scripts run as
+in T4: `open`/`close`/`showMenu`/`hideMenu`, `setfocus`/`focusfirst`,
+`setLocalVar*`, `setdvar`, `exec`/`execnow`, `scriptMenuResponse`.
+
+Engine glue (`compat/waw_menu_glue.json`): WaW dvars the menus test map to T6
+state (`zombiemode` 1, `mapname` the source map, `sv_running`, session modes);
+`options_new_pc` opens T6's `OptionsMenu`, because WaW's options edit T4
+engine settings; `cl_paused` is cleared before `disconnect`/`fast_restart`, as
+T6's own popups do; when no WaW menu is left open the host resumes through
+`CoD.InGameMenu.BackButtonPressed` (unpause, `ingame_menu_closed`).
+
+Not ported: WaW's cursor (T6 draws its own), the `mouse_over`/`mouse_click` UI
+sounds (no WaW UI aliases are staged yet; `play` only fires for a `sound:<alias>` table row),
+the objective-list ownerdraw (zombies has no objectives), and co-op
+`scriptMenuResponse "endround"`, whose WaW handler (`_ingamemenus.gsc`) is not
+part of the port; the response reaches T6's menu-response handling unchanged (unverified in game). Sources come from
+`raw/ui`; the compiled zone menus were checked to match (strings, materials),
+but a custom map that ships modified compiled pause menus without sources gets
+the stock ones. Set `waw_menu_debug` 1 to log menu opens and ignored commands.
+
+```powershell
+python tools/compile_menu_layers.py work/menu_layer_fix/hksc/hksc.exe waw_menu
+```

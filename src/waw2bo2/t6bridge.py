@@ -2325,11 +2325,28 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         # port_scripts runs before these dependencies are generated.
         api = t6api.build(bo2_root, stage / 't6api_cache.json', t6_unlinker)
         report.errors += [f'scripts: link: {e}' for e in gscport.link_check(project_root, api)]
+    menu_ready = False
+    if stock_waw is not None and report.scripts and waw_map_script is not None:
+        # WaW's own pause menu (ui/hud.txt + ui/ingame.txt) replaces BO2's class menu.
+        from . import wawmenu
+        (project_root / wawmenu.MANIFEST).unlink(missing_ok=True)
+        try:
+            report.content['waw_menu'] = progress.timed('Translate WaW in-game menus', wawmenu.stage_source,
+                project_root, [r / 'raw' for r in (waw_mod_tools, waw_root) if r is not None], waw_map_script.stem)
+            menu_ready = True
+        except wawmenu.MenuSourceError as error:
+            report.warnings.append(f'FRAMEWORK_BO2 pause menu: {error}; BO2 pause menu kept')
     localization_report = progress.timed('Stage localization', localization.stage, project_root, roots, iwd_dirs or [], stock_waw,
         t4_unlinker, stage / 'localization_dumps',
         [root / 'raw' for root in (waw_mod_tools, waw_root) if root is not None], bo2_root,
         t6_unlinker=t6_unlinker, t6_stock_dump=techset_dump)
     report.content['localization'] = localization_report
+    if menu_ready:
+        localized = {e['key']: e['value'] for e in localization_report.get('entries', [])}
+        menu_assets = progress.timed('Stage WaW menu art', wawmenu.stage_assets, project_root, roots, stock_waw, localized,
+                                    wavelets)
+        report.content['waw_menu'].update(menu_assets)
+        report.warnings += [f'WAW_MENU_ASSET_MISSING {name}: drawn empty' for name in menu_assets['missing']]
     report.errors += localization_report['errors']
     report.warnings += localization_report['warnings']
     with (project_root / MOD_EXTRA_ZONE).open('a', encoding='utf-8') as zone:

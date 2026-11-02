@@ -28,6 +28,7 @@ LUI = {UIElement={new=element},UIImage={new=element},createMenu={
     Scoreboard=function() calls.board=(calls.board or 0)+1;return 'stock board' end}}
 require=function(name)
     assert(name~='T6.Zombie.AmmoAreaZombie', 'map-owned ammo module must not load in the frontend')
+    if name=='T6.Waw_Menu' then dofile('src/waw2bo2/compat/waw_menu.lua') end
 end
 RegisterMaterial=function(m) return m end
 Engine={Localize=function(k)return string.char(21)..k..string.char(21) end,IsWeaponType=function(w,t) return w==t end,

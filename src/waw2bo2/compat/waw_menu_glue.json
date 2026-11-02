@@ -1,0 +1,26 @@
+{
+  "_doc": "Engine glue for the translated WaW in-game menus (wawmenu.py, waw_menu.lua). Each entry names the T4 engine state a menu reads or the engine menu it opens, and the T6 equivalent with its reason. Nothing here is a game rule.",
+  "engine_menus": {
+    "options_new_pc": {
+      "t6_menu": "OptionsMenu",
+      "reason": "WaW's options tree edits T4 engine settings (r_*, snd_*, bindings); T6 has its own renderer, sound and binding settings, so OPTIONS opens T6's settings menu."
+    }
+  },
+  "dvars": {
+    "zombiemode": "1: the converted level is a zombies map (T4 sets it before loading one).",
+    "mapname": "the source WaW map name (menu_map_<map>, the HAS_INGAME_MAP test).",
+    "sv_running": "T6 sv_running: this client hosts the level.",
+    "splitscreen": "Engine.IsSplitscreen().",
+    "onlinegame": "T6 session is neither offline nor system link.",
+    "systemlink": "T6 SESSIONMODE_SYSTEMLINK.",
+    "systemlinkparty": "T6 SESSIONMODE_SYSTEMLINK.",
+    "xblive_privatematch": "T6 GAMEMODE_PRIVATE_MATCH in an online session.",
+    "arcademode": "0: T6 has no arcade mode.",
+    "credits_active": "empty: T6 has no credits level.",
+    "ui_shipping_cheats": "0."
+  },
+  "leave_commands": {
+    "_reason": "T6's in-game menu clears cl_paused before a command that leaves or restarts the level (RestartGamePopup, EndGamePopup).",
+    "commands": ["disconnect", "fast_restart", "map_restart", "quit", "checkpoint_restart"]
+  }
+}
