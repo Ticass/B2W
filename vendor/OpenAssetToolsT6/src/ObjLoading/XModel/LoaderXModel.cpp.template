@@ -519,6 +519,15 @@ namespace
             return rigidBoneIndexForTri;
         }
 
+        static bool AllTrisRigid(const std::vector<size_t>& vertexIndices, const XSurface& surface, const XModelCommon& common)
+        {
+            return std::ranges::all_of(GetRigidBoneIndicesForTris(vertexIndices, surface, common),
+                                       [](const std::optional<size_t>& bone)
+                                       {
+                                           return bone.has_value();
+                                       });
+        }
+
         static void ReorderRigidTrisByBoneIndex(const std::vector<size_t>& vertexIndices, const XSurface& surface, const XModelCommon& common)
         {
             const auto rigidBoneIndexForTri = GetRigidBoneIndicesForTris(vertexIndices, surface, common);
@@ -1014,7 +1023,12 @@ namespace
                 const auto maxWeightCount =
                     common.m_vertex_bone_weights[xmodelToCommonVertexIndexLookup[xmodelToCommonVertexIndexLookup.size() - 1]].weightCount;
 
-                if (maxWeightCount <= 1) // XModel is rigid: one bone per vertex (rigid vert lists, as WaW)
+                // Rigid vert lists only when every triangle stays on one bone. T6 draws a
+                // rigid surface one vert list at a time (t6zm sub_75C930), each list only
+                // its own triOffset/triCount: a triangle joining verts of two bones (WaW
+                // head LOD1-3 neck rings, j_spine4/j_neck/j_head) is in no list and was
+                // never drawn. Such surfaces are skinned instead, one weight per vertex.
+                if (maxWeightCount <= 1 && AllTrisRigid(xmodelToCommonVertexIndexLookup, surface, common))
                 {
                     CreateVertListData(surface, xmodelToCommonVertexIndexLookup, common);
                 }
