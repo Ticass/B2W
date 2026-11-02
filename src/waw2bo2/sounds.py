@@ -1356,7 +1356,8 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
             first = document["aliases"][0]
             bus = first.get("bus", {}).get("name") if isinstance(first.get("bus"), dict) else first.get("bus")
             spatialized = bool(first["source"].get("flags", 0) & (1 << 6))
-            r = audioremaster.role(bus, spatialized, document["name"], remaster["music"], remaster["ambience"])
+            r = audioremaster.role(bus, spatialized, document["name"], remaster["music"], remaster["ambience"],
+                                   remaster.get("stingers"))
             if r is not None:
                 roles[document["name"].lower()] = r
         new, errors = t6_alias_rows(document, weapon_aliases, report["reverb_send"])

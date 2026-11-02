@@ -2149,8 +2149,10 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         from . import audioremaster
         amb_text = wawtext.read(source_amb) if source_amb is not None else ""
         events_file = project_root / "content_source/announcer_events.json"
-        remaster = {"profiles": audioremaster.stock_profiles(bo2_root),
+        stinger_states = gscport.API["audio_remaster"]["music_stingers"]
+        remaster = {"profiles": audioremaster.stock_profiles(bo2_root, sorted(set(stinger_states.values()))),
                     "music": audioremaster.music_table_aliases(amb_text),
+                    "stingers": audioremaster.music_stingers(amb_text, stinger_states),
                     "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)}
                                 | sounds.ambient_emitter_aliases(project_root / "BSP" / "entities.json"),
                     "announcer_events": json.loads(events_file.read_text()) if events_file.is_file() else {},

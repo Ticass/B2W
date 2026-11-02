@@ -103,6 +103,62 @@ class RemasterMixTests(unittest.TestCase):
             self.assertEqual(report['roles']['announcer']['aliases'], 2)
 
 
+class StingerTests(unittest.TestCase):
+    def test_round_and_game_over_stingers_take_bo2s_stinger_mix(self):
+        # Der Riese's round start chalk sat in BO2's scored-loop mix (snp_x3,
+        # front pan) under the game; BO2's own round start is a stinger
+        from waw2bo2 import audioremaster
+        with tempfile.TemporaryDirectory() as temp:
+            bo2 = Path(temp)
+            (bo2 / 'raw/soundbank').mkdir(parents=True)
+            head = 'Name,Bus,VolumeGroup,DuckGroup,Duck,PanType,IsMusic,ReverbSend,CenterSend,Pan,VolMax\n'
+            row = 'mus_zombie_round_start,bus_music,grp_music,snp_music,zmb_mus_rounds,2d,yes,0,0,music_all,{}\n'
+            (bo2 / 'raw/soundbank/zmb_a.all.aliases.csv').write_text(head + row.format(96) + row.format(96))
+            (bo2 / 'raw/soundbank/zmb_b.all.aliases.csv').write_text(head + row.format(89))
+            (bo2 / 'raw/soundbank/zmb_c.all.aliases.csv').write_text(head + row.format(89))
+            profiles = audioremaster.stock_profiles(bo2, ['mus_zombie_round_start', 'mus_absent'])
+            stinger = profiles['stinger:mus_zombie_round_start']
+            self.assertEqual(stinger['volume'], 96)  # the loudest map's level
+            self.assertEqual((stinger['mix']['DuckGroup'], stinger['mix']['Pan']), ('snp_music', 'music_all'))
+            self.assertNotIn('stinger:mus_absent', profiles)
+            amb = ('main()\n{\n declareMusicState("round_begin");\n musicAlias("chalk", 2);\n'
+                   ' musicAliasloop("mx_zombie_wave_1", 0, 4);\n declareMusicState ("WAVE_1");\n'
+                   ' musicAlias("other", 1);\n}\n')
+            stingers = audioremaster.music_stingers(amb, {'round_begin': 'mus_zombie_round_start'})
+            self.assertEqual(stingers, {'chalk': 'mus_zombie_round_start'})
+            self.assertEqual(audioremaster.role('music', False, 'waw/chalk', {'chalk'}, set(), stingers),
+                             'stinger:mus_zombie_round_start')
+            self.assertEqual(audioremaster.role('music', False, 'waw/mx_zombie_wave_1', set(), set(), stingers),
+                             'music')
+            rows = [{'Name': 'waw/chalk', 'Bus': 'bus_music', 'VolumeGroup': 'grp_music', 'PanType': '2d',
+                     'DuckGroup': 'snp_x3', 'Pan': 'front', 'VolMin': '96', 'VolMax': '96'}]
+            audioremaster.remaster(rows, {'waw/chalk': 'stinger:mus_zombie_round_start'}, profiles)
+            self.assertEqual((rows[0]['DuckGroup'], rows[0]['Duck'], rows[0]['Pan'], rows[0]['VolMax']),
+                             ('snp_music', 'zmb_mus_rounds', 'music_all', '96'))
+
+
+class EndGameMusicTests(unittest.TestCase):
+    def test_maps_end_game_music_is_extracted_without_its_sp_ending(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'maps').mkdir()
+            (root / 'maps/_zombiemode.gsc').write_text(
+                'end_game()\n{\n level waittill( "end_game" );\n level.intermission = true;\n'
+                ' setmusicstate( "end_of_game" );\n setbusstate( "default" );\n wait 2;\n MissionFailed();\n}\n')
+            tr = gscport.Translator(gscport.Sources([root], [], None), T6Api({}, {}), gscport.PortReport())
+            self.assertEqual(tr.extract_end_game_music(), 'zombiemode__end_game_music')
+            body = tr.level_state_parts[-1]
+            self.assertIn('end_of_game', body)
+            self.assertNotIn('MissionFailed', body)
+            self.assertNotIn('intermission', body)
+
+    def test_patch_matches_bo2s_end_game(self):
+        zm = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops II\raw\maps\mp\zombies\_zm.gsc')
+        if not zm.is_file():
+            self.skipTest('BO2 raw scripts not installed')
+        self.assertEqual(zm.read_text(encoding='utf-8').count(gscport.WAW_GAME_OVER_MUSIC[0]), 1)
+
+
 class PowerupModelTests(unittest.TestCase):
     def test_map_powerup_models_replace_bo2s(self):
         with tempfile.TemporaryDirectory() as temp:

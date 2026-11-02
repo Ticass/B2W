@@ -35,7 +35,7 @@ def _median(values: list[float]) -> float:
     return values[middle] if len(values) % 2 else (values[middle - 1] + values[middle]) / 2
 
 
-def stock_profiles(bo2_root: Path) -> dict[str, dict]:
+def stock_profiles(bo2_root: Path, stingers=()) -> dict[str, dict]:
     """Role -> {mix: most common stock MIX_COLUMNS values, volume: median VolMax
     of the rows with that mix, rows: how many stock rows it was measured on}."""
     rows: dict[str, list[dict]] = {role: [] for role in STOCK_FAMILY}
@@ -62,10 +62,53 @@ def stock_profiles(bo2_root: Path) -> dict[str, dict]:
                    for v in [_number(r.get("VolMax"))] if v is not None]
         profiles[role] = {"mix": dict(zip(MIX_COLUMNS, mix)), "volume": _median(volumes) if volumes else None,
                           "rows": count}
+    for name in stingers or ():
+        profile = _stinger_profile(bo2_root, name)
+        if profile is not None:
+            profiles["stinger:" + name] = profile
     if rows.get("ambience"):
         profiles["ambience"]["emitters"] = stock_emitters(rows["ambience"])
     profiles["groups"] = stock_group_levels(bo2_root)
     return profiles
+
+
+# A stinger plays to every speaker, as BO2's own (Pan music_all).
+STINGER_COLUMNS = MIX_COLUMNS + ("Pan",)
+
+
+def _stinger_profile(bo2_root: Path, name: str) -> dict | None:
+    """Mix and level of one stock BO2 music stinger: its most common mix over
+    the zombie maps and the loudest map's level. BO2 ships its round stingers
+    at 89 (TranZit era) to 96 dB (Mob of the Dead, Buried); at the median
+    WaW's round change music played too low under the game (user, 2026-11-02)."""
+    found: dict[str, list[dict]] = {}
+    for path in sorted((bo2_root / "raw/soundbank").glob("zmb_*.aliases.csv")):
+        with path.open(encoding="utf-8", errors="replace", newline="") as f:
+            found[path.name] = [r for r in csv.DictReader(f) if (r.get("Name") or "").lower() == name]
+    rows = [r for group in found.values() for r in group]
+    if not rows:
+        return None
+    mix = Counter(tuple(r.get(c, "") for c in STINGER_COLUMNS) for r in rows).most_common(1)[0][0]
+    levels = [_median(v) for group in found.values()
+              for v in [[x for r in group for x in [_number(r.get("VolMax"))] if x is not None]] if v]
+    return {"mix": dict(zip(STINGER_COLUMNS, mix)), "volume": max(levels) if levels else None,
+            "rows": len(rows)}
+
+
+_STATE_CALL = re.compile(r'\b(declareMusicState|musicAliasloop|musicAlias)\s*\(\s*"([^"]+)"', re.IGNORECASE)
+
+
+def music_stingers(amb_source: str | None, states: dict[str, str]) -> dict[str, str]:
+    """Map alias -> stock BO2 stinger for the one-shot musicAlias of each music
+    state in ``states`` (round_begin's chalk, end_of_game's game over)."""
+    out, state = {}, None
+    for m in _STATE_CALL.finditer(amb_source or ""):
+        call, value = m.group(1).lower(), m.group(2)
+        if call == "declaremusicstate":
+            state = value
+        elif call == "musicalias" and state in states:
+            out.setdefault(value.lower(), states[state])
+    return out
 
 
 # What places a 3D sound in the level: BO2's values replace WaW's for ambience.
@@ -123,9 +166,12 @@ def music_table_aliases(amb_source: str | None) -> set[str]:
     return {m.group(1).lower() for m in _MUSIC_CALL.finditer(amb_source or "")}
 
 
-def role(bus: str | None, spatialized: bool, name: str, music: set[str], ambience: set[str]) -> str | None:
+def role(bus: str | None, spatialized: bool, name: str, music: set[str], ambience: set[str],
+         stingers: dict[str, str] | None = None) -> str | None:
     """The role WaW's own data gives an alias (None keeps its converted mix)."""
     short = name.lower().removeprefix("waw/")
+    if stingers and short in stingers:
+        return "stinger:" + stingers[short]
     if bus == "music" or short in music:
         return "music"
     if bus == "ambience" or short in ambience:

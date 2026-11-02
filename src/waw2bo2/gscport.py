@@ -1960,6 +1960,39 @@ class Translator:
         self.level_state_parts.append(gsc.emit(tokens))
         return name
 
+    # music statements of the map's end_game: T4's music state system, played
+    # by the map's own client music (declareMusicState in its _amb.csc)
+    END_GAME_MUSIC = {"setmusicstate", "setbusstate"}
+
+    def extract_end_game_music(self) -> str | None:
+        """_zombiemode::end_game's music (setmusicstate( "end_of_game" ),
+        setbusstate) as one function. BO2's _zm end_game stays the engine
+        glue that ends the game (WaW's MissionFailed/ExitLevel are T4 SP);
+        its change_zombie_music( "game_over" ) gives way to this."""
+        script = self.sources.get(ZOMBIEMODE)
+        fn = script.functions.get("end_game") if script is not None else None
+        if fn is None:
+            return None
+        toks = script.tokens
+        kept: list[gsc.Token] = []
+        for start, end in top_level_statements(toks, fn.body_open, fn.body_close):
+            stmt = toks[start:end]
+            calls = {stmt[k].low for k in range(len(stmt) - 1) if stmt[k].kind == gsc.IDENT and stmt[k + 1].text == "("}
+            if calls and calls <= self.END_GAME_MUSIC:
+                kept += [gsc.Token(s.kind, s.text, s.pre, s.line) for s in stmt]
+        if not kept:
+            return None
+        name = "zombiemode__end_game_music"
+        tokens = [gsc.Token(gsc.IDENT, name, f"\n// {ZOMBIEMODE}::end_game: the music it starts\n"),
+                  gsc.Token(gsc.PUNCT, "("), gsc.Token(gsc.PUNCT, ")"), gsc.Token(gsc.PUNCT, "{", "\n"),
+                  *kept, gsc.Token(gsc.PUNCT, "}", "\n"), gsc.Token(gsc.EOF, "")]
+        where = self.sources.origin.get(ZOMBIEMODE + ".gsc", ZOMBIEMODE)
+        self.report.rewrites["syntax fixes (T6 compiler)"] += fix_syntax(tokens)
+        self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=ZOMBIEMODE)
+        self.report.extracted.append(f"{ZOMBIEMODE}::end_game (music)")
+        self.level_state_parts.append(gsc.emit(tokens))
+        return name
+
     def extract_player_connect_fields(self) -> str | None:
         """The player fields _zombiemode::onPlayerConnect assigns on each
         connecting player (entity_num the map's VO and weapon code index by,
@@ -3389,6 +3422,10 @@ class Translator:
             self.want(SCORE_FRAMEWORK)
             self.pre_calls.insert(0, f"level.waw_player_add_points = "
                                      f"{ported_path(SCORE_FRAMEWORK)}::player_add_points;")
+        music = self.extract_end_game_music()
+        if music:
+            # the owned _zm end_game plays the map's game-over music (WAW_GAME_OVER_MUSIC)
+            self.pre_calls.insert(0, f"level.waw2bo2_end_game_music = {CORE}::{music};")
         connect = self.extract_player_connect_fields()
         if connect:
             self.pre_calls.insert(0, f"level thread {CORE}::{connect}();")
@@ -4891,6 +4928,18 @@ def waw_zombie_var_defaults(bootstrap: str) -> str:
     return gsc.emit(script.tokens) + WAW_ZOMBIE_VAR_HELPER
 
 
+# BO2's end_game starts its own game-over music; the map's end_game music
+# (Translator.extract_end_game_music) plays instead, nothing when the map has none.
+WAW_GAME_OVER_MUSIC = (
+    "    if ( isdefined( level.sndgameovermusicoverride ) )\n"
+    "        level thread maps\\mp\\zombies\\_zm_audio::change_zombie_music( level.sndgameovermusicoverride );\n"
+    "    else\n"
+    "        level thread maps\\mp\\zombies\\_zm_audio::change_zombie_music( \"game_over\" );\n",
+    "    // waw2bo2: the map's _zombiemode::end_game music, not BO2's game_over state\n"
+    "    if ( isdefined( level.waw2bo2_end_game_music ) )\n"
+    "        level thread [[ level.waw2bo2_end_game_music ]]();\n")
+
+
 BO2_PERK_OVERRIDES = (
     "maps/mp/zombies/_zm_perks.gsc",
     "clientscripts/mp/zombies/_zm_perks.csc",
@@ -5089,6 +5138,9 @@ def stage_bo2_perk_support(out_root: Path, bo2_root: Path, *, bo2_stock_perks: b
         if bootstrap.count(patch[0]) != 1:
             raise ValueError(f"BO2 server bootstrap {what} changed")
         bootstrap = bootstrap.replace(*patch)
+    if bootstrap.count(WAW_GAME_OVER_MUSIC[0]) != 1:
+        raise ValueError("BO2 server bootstrap game over music changed")
+    bootstrap = bootstrap.replace(*WAW_GAME_OVER_MUSIC)
     if bootstrap.count(WAW_ROUND_HEALTH[0]) != 1:
         raise ValueError("BO2 server bootstrap round health call changed")
     bootstrap = bootstrap.replace(*WAW_ROUND_HEALTH)

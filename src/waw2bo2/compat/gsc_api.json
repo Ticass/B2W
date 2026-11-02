@@ -176,7 +176,10 @@
   "audio_remaster": {
     "doc": "BO2's power-up grab calls leaderdialog( powerup_name ); the map's power-up script names WaW's line per power-up (gscport.Translator.announcer_hook, audioremaster)",
     "powerup_announcer": {"script": "maps\\_zombiemode_powerups", "function": "powerup_grab"},
-    "announcer_alias_prefix": "waw_"
+    "announcer_alias_prefix": "waw_",
+    "music_stingers_doc": "The one-shot music a WaW music state plays when the framework requests it (round start chalk, round over, game over) is BO2's stinger of the same moment, not its scored loops: it takes that BO2 alias's stock mix and level (audioremaster.stock_profiles)",
+    "music_stingers": {"round_begin": "mus_zombie_round_start", "round_end": "mus_zombie_round_over",
+                       "end_of_game": "mus_zombie_game_over"}
   },
   "map_content": {
     "doc": "Map content a replaced WaW framework script names, carried onto the BO2 system that replaces it (docs/MAP_CONTENT_AUDIT.md)",

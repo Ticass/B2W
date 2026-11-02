@@ -106,6 +106,18 @@ init()
     level thread power_bridge();
     level thread waw_zone_bookkeeping();
     level thread waw_window_board_visibility();
+    if ( !isdefined( level.zbarrier_zombie_tear_notetrack_override ) )
+        level.zbarrier_zombie_tear_notetrack_override = ::waw_window_tear_sound;
+}
+
+// WaW's tear anim "board" notetrack runs remove_chunk, which plays the map's
+// "break_barrier_piece" sound on the board. BO2's zbarrier board animation
+// carries BO2's own tear aliases instead (not in a converted map), so the
+// zbarrier notetrack hook plays the map's sound at the window.
+waw_window_tear_sound( node, chunk )
+{
+    if ( isdefined( level.zombie_sounds ) && isdefined( level.zombie_sounds["break_barrier_piece"] ) && isdefined( node.zbarrier ) )
+        playsoundatposition( level.zombie_sounds["break_barrier_piece"], node.zbarrier.origin );
 }
 
 // Windows are BO2 zbarriers (the approved entity-budget exception). WaW's
