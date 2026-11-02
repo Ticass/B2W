@@ -2,9 +2,11 @@
 -- Converted maps assemble the source HUD instead of the stock zombie widgets.
 require("T6.Waw_Hud_Base")
 require("T6.Waw_Hud_Runtime")
+CoD.WawHUD.hookScoreboard()
 local original = HUD_FirstSnapshot_Zombie
 HUD_FirstSnapshot_Zombie = function(hud, event)
     if not CoD.WawHUD.active() then return original(hud, event) end
+    CoD.WawHUD.hookScoreboard()
     local controller = event.controller
     local ammo = CoD.WawHUD.ammo(controller)
     local scores = CoD.WawHUD.scores(controller)

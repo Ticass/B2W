@@ -36,6 +36,16 @@ class LocalizationTests(unittest.TestCase):
         report = self.stage()
         self.assertEqual(report['entries'][0]['value'], 'For Weapon [Cost: &&1], For Ammo [Cost: &&2]')
 
+    def test_engine_scoreboard_labels_come_from_waw_text(self):
+        # T4 draws CGAME_SB_* itself; the converted HUD localizes them.
+        self.script.write_text('f(){}')
+        self.strings(self.root, 'code_post_gfx', {'CGAME_SB_POINTS': 'Points', 'CGAME_SB_KILLS': 'Kills'})
+        report = self.stage()
+        values = {e['output']: e['value'] for e in report['entries']}
+        self.assertEqual(values['WAW2BO2_CGAME_SB_POINTS'], 'Points')
+        self.assertEqual(values['WAW2BO2_CGAME_SB_KILLS'], 'Kills')
+        self.assertEqual(report['missing'], [])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
