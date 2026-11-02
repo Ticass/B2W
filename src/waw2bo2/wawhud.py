@@ -179,7 +179,9 @@ def stage_runtime(bo2: Path, project: Path, name: str) -> list[str]:
         # T4 sub_42B990 tests the source weapon name for "tesla_gun".
         counter_icon = 'ammo_counter_tesla' if 'tesla_gun' in weapon.lower() else ''
         rows.append([weapon, d.get('ammoCounterClip', 'None'), d.get('clipSize', '0'),
-                     d.get('overheatWeapon', '0'), d.get('displayName', ''), d.get('altWeapon', ''), counter_icon])
+                     d.get('overheatWeapon', '0'), d.get('displayName', ''), d.get('altWeapon', ''), counter_icon,
+                     # T4 sub_44F540 draws a heat weapon's hudIcon as its gauge.
+                     d.get('hudIcon', '') if d.get('overheatWeapon') == '1' else ''])
     write_table(project / WEAPONS, rows)
     modules = [RUNTIME, BASE, SUPPORT, *[p for module, base, _ in WRAPPERS for p in (module, base)]]
     return [f'rawfile,{p}' for p in modules] + [f'stringtable,{p}' for p in (MAPS, WEAPONS, GLYPHS)] + [

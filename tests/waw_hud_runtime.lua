@@ -9,6 +9,8 @@ local function element()
     function e:setImage(i) self.image=i end
     function e:setOwner(c) self.owner=c end
     function e:setUseGameTime(value) self.gameTime=value end
+    function e:setUseStencil(value) self.stencil=value end
+    function e:beginAnimation(n,t) self.animation=n end
     function e:addElement(c) self.children[#self.children+1]=c end
     function e:registerEventHandler(n,f) self.handlers[n]=f end
     function e:dispatchEventToChildren(_) end
@@ -38,7 +40,7 @@ UIExpression={DvarString=function() return map end,DvarInt=function()return 0 en
             if key=='COLT' and k==4 then return 'colt' end
             if key=='FLAME' and k==4 then return 'flame' end
             if key=='colt' then return ({'Magazine','8','0','COLT',''})[col] or '' end
-            if key=='flame' then return ({'None','100','1','FLAME',''})[col] or '' end
+            if key=='flame' then return ({'None','100','1','FLAME','','','hud_icon_flame'})[col] or '' end
         end
         return ''
     end}
@@ -61,11 +63,16 @@ assert(ammo.bullets[3].rgb[1]==1 and ammo.bullets[4].rgb[1]==0.3)
 event('hud_update_ammo',{ammoInClip=8,ammoStock=27})
 assert(#ammo.bullets==8 and ammo.bullets[8].rgb[1]==1 and ammo.stockText.text=='27')
 event('hud_update_weapon_select',{weapon='flame',weaponDisplayName='FLAME'})
-event('hud_update_overheat',{heatPercent=75,overheat=true})
-assert(ammo.stockText.text=='75%' and ammo.bullets[1].alpha==0)
+event('hud_update_overheat',{heatPercent=75,overheat=false})
+assert(ammo.stockText.text=='' and ammo.bullets[1].alpha==0 and ammo.heat.alpha==1)
+assert(ammo.heat.icon.image=='hud_icon_flame' and ammo.heat.fill.right==90 and ammo.heat.flash.alpha==0)
+event('hud_update_overheat',{heatPercent=100,overheat=true})
+assert(ammo.heat.flash.animation=='flash' and ammo.heat.fill.right==120)
+event('hud_update_overheat',{heatPercent=40,overheat=false})
+assert(ammo.heat.flash.alpha==0 and ammo.heat.fill.right==48)
 event('hud_update_weapon_select',{weapon='colt',weaponDisplayName='COLT'})
 event('hud_update_ammo',{ammoInClip=8,ammoStock=27})
-assert(not ammo.overheat and ammo.bullets[1].alpha>0)
+assert(not ammo.overheat and ammo.bullets[1].alpha>0 and ammo.heat.alpha==0)
 event('hud_update_offhand',{lethal={material='frag',ammo=2}})
 bits[2]=1;event('hud_update_bit_2',{});assert(ammo.alpha==0)
 bits[2]=0;event('hud_update_refresh',{});assert(ammo.alpha==1)

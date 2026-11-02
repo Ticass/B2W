@@ -143,7 +143,9 @@ function W.drawAmmo(e)
     local total = data and data.size or count
     -- No invented weapon metadata: unknown/custom counters remain numeric.
     e.clipText:setText(style and "" or count)
-    if e.overheat then e.clipText:setText("") end
+    -- T4 heat weapons show only the heat icon (sub_44F540), no counters.
+    if e.overheat then e.clipText:setText(""); e.stockText:setText("") end
+    e.heat:setAlpha(e.overheat and e.heatIcon ~= "" and not e.hideAmmo and 1 or 0)
     for i, bullet in ipairs(e.bullets) do bullet:setAlpha(0) end
     if not style or e.overheat or e.hideAmmo then
         if e.hideAmmo then e.clipText:setText(""); e.stockText:setText("") end
@@ -169,6 +171,11 @@ function W.drawAmmo(e)
         bullet:setRGB(color, color, color)
         bullet:setAlpha(0.65)
     end
+end
+function W.flash(e)
+    e:setAlpha(1)
+    e:beginAnimation("flash", 800)
+    e:setAlpha(0)
 end
 function W.updateAmmo(e, event)
     if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then
@@ -198,6 +205,11 @@ function W.updateWeapon(e, event)
         e.weaponData = {style = lookup(weapons, name, 1), size = tonumber(lookup(weapons, name, 2)) or 0,
             sprite = lookup(weapons, name, 6)}
         e.overheat = lookup(weapons, name, 3) == "1"
+        e.heatIcon = lookup(weapons, name, 7)
+        if e.heatIcon ~= "" then
+            local material = RegisterMaterial(e.heatIcon)
+            for _, part in ipairs({e.heat.icon, e.heat.fillIcon, e.heat.flash}) do part:setImage(material) end
+        end
         e.stockText:setRGB(1, 1, 1)
     end
     e.hideAmmo = event.inventorytype == 1 or event.inventorytype == 2 or
@@ -219,6 +231,29 @@ function W.ammo(controller)
     e.stockText = W.label(e.anchor, "objective", 18, -112.5, 6, false)
     e.clipText = W.label(e.anchor, "objective", 18, -125, 15, true)
     e.weaponText = W.label(e.anchor, "objective", 18, -64.5, -60, true)
+    -- hud.menu heatinfo heaticon (WEAPINFO_X +116, WEAPINFO_Y +15, 80x40):
+    -- T4 sub_44F540 draws the weapon's hudIcon, the left heat% of it in
+    -- (0.89, 0.18, 0.01) and, while overheated, a 1.01-scale yellow copy
+    -- whose alpha falls from 1 to 0 every 800 ms.
+    local heat = LUI.UIElement.new()
+    rect(heat, -111, -67.5, 120, 60)
+    e.anchor:addElement(heat)
+    heat.icon = image(heat, nil, 0, 0, 120, 60)
+    heat.fill = LUI.UIElement.new()
+    rect(heat.fill, 0, 0, 0, 60)
+    heat.fill:setUseStencil(true)
+    heat:addElement(heat.fill)
+    heat.fillIcon = image(heat.fill, nil, 0, 0, 120, 60)
+    heat.fillIcon:setRGB(0.89, 0.18, 0.01)
+    heat.flash = image(heat, nil, 0, 0, 121.2, 60.6)
+    heat.flash:setRGB(1, 1, 0)
+    heat.flash:setAlpha(0)
+    heat.flash:registerEventHandler("transition_complete_flash", function(self, event)
+        if heat.overheated and not event.interrupted then W.flash(self) end
+    end)
+    heat:setAlpha(0)
+    e.heat = heat
+    e.heatIcon = ""
     local offhands = {}
     for i, kind in ipairs({"tactical", "lethal"}) do
         local x = -201 + (i-1)*45
@@ -239,8 +274,17 @@ function W.ammo(controller)
     e:registerEventHandler("hud_update_weapon_select", W.updateWeapon)
     e:registerEventHandler("hud_update_overheat", function(self, event)
         self.overheat = true
-        self.stockText:setText(tostring(event.heatPercent or 0) .. "%")
-        self.stockText:setRGB(1, event.overheat and 0 or 1, event.overheat and 0 or 1)
+        local heat = self.heat
+        local value = math.max(0, math.min(100, tonumber(event.heatPercent) or 0))
+        rect(heat.fill, 0, 0, 120 * value / 100, 60)
+        if event.overheat and not heat.overheated then
+            heat.overheated = true
+            W.flash(heat.flash)
+        elseif not event.overheat and heat.overheated then
+            heat.overheated = false
+            heat.flash:beginAnimation("flash_off", 1)
+            heat.flash:setAlpha(0)
+        end
         W.drawAmmo(self)
     end)
     e:registerEventHandler("hud_update_fuel", function(self, event)
