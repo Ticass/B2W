@@ -484,7 +484,11 @@ namespace
             vertex.xyz.x = commonVertex.coordinates[0];
             vertex.xyz.y = commonVertex.coordinates[1];
             vertex.xyz.z = commonVertex.coordinates[2];
-            vertex.binormalSign = binormal[0] > 0.0f ? 1.0f : -1.0f;
+            // binormal = binormalSign * cross(normal, tangent), as the world vertices
+            // (BSPCreator) and WaW's own vertices (fbx.py) store it
+            const auto& n = commonVertex.normal;
+            const float cross[]{n[1] * tangent[2] - n[2] * tangent[1], n[2] * tangent[0] - n[0] * tangent[2], n[0] * tangent[1] - n[1] * tangent[0]};
+            vertex.binormalSign = cross[0] * binormal[0] + cross[1] * binormal[1] + cross[2] * binormal[2] < 0.0f ? -1.0f : 1.0f;
             vertex.color = Common::Vec4PackGfxColor(commonVertex.color);
             vertex.texCoord = Common::Vec2PackTexCoords(commonVertex.uv);
             vertex.normal = Common::Vec3PackUnitVec(commonVertex.normal);
@@ -1014,7 +1018,7 @@ namespace
             {
                 const auto commonVertexIndex = xmodelToCommonVertexIndexLookup[vertexIndex];
                 const auto& commonVertex = common.m_vertices[commonVertexIndex];
-                CreateVertex(surface.verts0[vertexIndex], commonVertex, tangentData.m_binormals[commonVertexIndex], tangentData.m_binormals[commonVertexIndex]);
+                CreateVertex(surface.verts0[vertexIndex], commonVertex, tangentData.m_tangents[commonVertexIndex], tangentData.m_binormals[commonVertexIndex]);
             }
 
             if (!common.m_bone_weight_data.weights.empty())
