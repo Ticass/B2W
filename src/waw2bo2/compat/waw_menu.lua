@@ -437,7 +437,8 @@ function M.refreshItem(host, layer, item)
         if d.style == 1 then material, color = "white", d.backcolor end
         if material ~= item.material then
             item.material = material
-            if material ~= "" then item.fill:setImage(RegisterMaterial(material)) end
+            -- wawmenu.stage_assets names the source materials waw_menu/<name>.
+            if material ~= "" then item.fill:setImage(RegisterMaterial("waw_menu/" .. material)) end
         end
         place(item.fill, rect[1], rect[2], rect[3], rect[4], item.ha, item.va)
         item.fill:setRGB(color[1], color[2], color[3])
@@ -497,7 +498,10 @@ local function newItem(host, layer, d)
         local hit = LUI.UIElement.new()
         hit:setLeftRight(true, false, 0, 0)
         hit:setTopBottom(true, false, 0, 0)
+        -- As T6's ButtonPrompt: mouse moves raise mouseenter/leave, buttons leftmouse*.
         hit:setHandleMouse(true)
+        hit:setHandleMouseMove(true)
+        hit:setHandleMouseButton(true)
         hit:registerEventHandler("mouseenter", function()
             if host.top == layer and item.shown then M.focus(host, layer, item); M.refresh(host) end
         end)
@@ -682,9 +686,10 @@ function M.create(controller)
     local host = CoD.InGameMenu.New("class", controller, nil)
     host.controller = controller
     host.layers, host.vars, host.hidden = {}, {}, {}
+    -- CoD.InGameMenu covers the safe area; T4 menus place against the full screen.
     host.canvas = LUI.UIElement.new()
-    host.canvas:setLeftRight(true, true, 0, 0)
-    host.canvas:setTopBottom(true, true, 0, 0)
+    host.canvas:setLeftRight(false, false, -screenWidth() / 2, screenWidth() / 2)
+    host.canvas:setTopBottom(false, false, -360, 360)
     host:addElement(host.canvas)
     host:registerEventHandler("gamepad_button", M.gamepad)
     host:registerEventHandler("button_prompt_back", M.escape)

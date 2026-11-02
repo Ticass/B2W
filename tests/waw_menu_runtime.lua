@@ -8,6 +8,8 @@ local function element()
     function e:setRGB(r, g, b) self.rgb = {r, g, b} end
     function e:setImage(i) self.image = i end
     function e:setHandleMouse(v) self.mouse = v end
+    function e:setHandleMouseMove(v) self.mouseMove = v end
+    function e:setHandleMouseButton(v) self.mouseButton = v end
     function e:addElement(c) self.children[#self.children + 1] = c; c.parent = self end
     function e:registerEventHandler(n, f) self.handlers[n] = f end
     function e:close() self.closed = true end
@@ -57,9 +59,20 @@ assert(host.top == pause and log.blur == 4.8)
 assert(pause.focus == pause.items[2] and host.vars.ui_highlight == 1)
 -- the source map name drives the map image
 assert(host.layers[2].items[1].material == "menu_map_nazi_zombie_factory")
+assert(host.layers[2].items[1].fill.image == "waw_menu/menu_map_nazi_zombie_factory")
+-- the canvas spans the full screen, not BO2's safe area
+assert(host.canvas.h[3] == -640 and host.canvas.v[4] == 360)
 -- focused text takes the menu focusColor, others forecolor
 local ink = pause.items[2].glyphs[1].ink
 assert(ink.rgb[1] == 1 and ink.rgb[2] == 0.5)
+-- buttons take mouse moves and clicks; hovering focuses, clicking activates
+local resumeHit = pause.items[2].hit
+assert(resumeHit.mouseMove and resumeHit.mouseButton)
+pause.items[3].hit.handlers.mouseenter()
+assert(pause.focus == pause.items[3])
+pause.items[3].hit.handlers.mouseleave()
+assert(pause.focus == nil)
+pause.items[2].hit.handlers.mouseenter()
 -- keyboard navigation wraps over visible buttons
 M.gamepad(host, {down = true, button = "up"})
 assert(pause.focus == pause.items[4])
