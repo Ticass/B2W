@@ -49,6 +49,12 @@
     "  A listener calling anything else stays on the client side, unported and reported."
   ],
   "source_driven": {
+    "ui\\hud.menu": {
+      "doc": "WaW engine-owned HUD, translated by wawhud.py and compat/waw_hud.lua; the map's own round, perk, power-up and score-highlight scripts still run.",
+      "glue": {
+        "engine_ownerdraws": "T6 renders UI through LUI, not T4 menu ownerdraw callbacks. Native client ammo/offhand/competitive-score events supply state; WaW menu/native drawing layout, weapon definitions, original materials and font atlas supply presentation. Registered converted maps only."
+      }
+    },
     "maps\\_zombiemode": {
       "doc": "WaW drives the rounds (docs/CONVERT_THE_WHOLE_MAP.md): calls into this script run the map's own function. glue: functions that stay BO2's because the T6 engine or BO2's player/AI plumbing owns that job; each needs a reason.",
       "glue": {
@@ -103,6 +109,7 @@
     }
   },
   "player_loadout_glue": {
+    "native_faces": "T6's client _load installs _clientfaceanim_zm::doface and native pf_* poses on spawn. When WaW _loadout owns player models, hook_bo2_client_characters clears that callback and the native corpse-face tree after T6 init, before the source client main. Those absolute facial poses target T6's face skeleton, not WaW's; source facial setup remains free to run.",
     "native_start_weapon": "maps\\mp\\zombies\\_zm_utility::give_start_weapon",
     "reason": "T6 spawns the player; GiveWeapon already grants the source weapon's total startAmmo. BO2's additional GiveStartAmmo grants a second clip's worth of reserve, which WaW's _loadout::give_loadout never does."
   },
@@ -234,7 +241,8 @@
     "script_linkname": {"getent": "waw_getent_linkname", "getentarray": "waw_getentarray_linkname"}
   },
   "source_script_functions": {
-    "maps\\_zombiemode_spawner": ["zombie_damage"]
+    "maps\\_zombiemode_spawner": ["zombie_damage"],
+    "maps\\_hud_util": ["createfontstring", "createserverfontstring"]
   },
   "core_scripts": {
     "common_scripts\\utility": "common_scripts\\utility",

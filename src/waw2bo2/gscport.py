@@ -504,6 +504,60 @@ def level_fields_assigned(tokens: list[gsc.Token], start: int = 2, end: int | No
             and tokens[i + 1].text == "="}
 
 
+def guarded_level_default(tokens: list[gsc.Token]) -> str | None:
+    """A source ``if (!isdefined(level.x)) level.x = value;`` initializer."""
+    words = [t.low for t in tokens]
+    if len(words) < 16 or words[:7] != ['if', '(', '!', 'isdefined', '(', 'level', '.']:
+        return None
+    field = words[7]
+    if words[8:10] != [')', ')']:
+        return None
+    body = words[10:]
+    if body[0] == '{' and body[-1] == '}':
+        body = body[1:-1]
+    if body[:4] != ['level', '.', field, '='] or body[-1] != ';' or body.count(';') != 1:
+        return None
+    return field
+
+
+def bridge_poi_record_comparisons(tokens: list[gsc.Token]) -> int:
+    """Compare WaW POI location records by their position on T6.
+
+    T6's ordinary array equality considers distinct [position, owner] records
+    equal. Its native POI utility therefore uses poi_locations_equal instead.
+    Keep the source allocator and cleanup, adapting only these typed records;
+    entity arrays such as attractor_array must retain ordinary comparisons.
+    Run after reference resolution so compatibility calls are not re-resolved.
+    """
+    fields = {'attractor_positions', 'claimed_attractor_positions'}
+    count = 0
+    for ref in gsc.references(tokens):
+        if ref.pointer or tokens[ref.index].low.split('::')[-1] not in (
+                'array_check_for_dupes', 'array_remove', 'waw_array_remove'):
+            continue
+        start = ref.index + 2
+        # A whole POI record array, not its size or an indexed position.
+        if not (tokens[start].kind == gsc.IDENT and tokens[start + 1].text == '.'
+                and tokens[start + 2].low in fields and tokens[start + 3].text == ','):
+            continue
+        name = tokens[ref.index].low.split('::')[-1]
+        if ref.qual_index is not None:
+            tokens[ref.qual_index].text = tokens[ref.qual_index + 1].text = ''
+        helper = 'waw_poi_record_available' if name == 'array_check_for_dupes' else 'waw_poi_record_remove'
+        tokens[ref.index].text = f'{COMPAT}::{helper}'
+        count += 1
+    for i, token in enumerate(tokens[:-6]):
+        if token.low not in fields or tokens[i - 1].text != '.' or tokens[i + 1].text != '[':
+            continue
+        end = gsc._match(tokens, i + 1, '[', ']')
+        if (tokens[end + 1].text == '==' and tokens[end + 2].kind == gsc.IDENT
+                and tokens[end + 3].text == ')'):
+            tokens[end].text += '[0]'
+            tokens[end + 2].text += '[0]'
+            count += 1
+    return count
+
+
 def bridge_revive_reads(tokens: list[gsc.Token]) -> int:
     """WaW's player being_revived field is absent from T6's player schema.
 
@@ -1507,6 +1561,7 @@ class Translator:
                 self.report.rewrites["map functions named like T6 builtins renamed (waw_*)"] += 1
         self.resolve_refs(tokens, script, where_file, included_bo2, defs,
                           neutralized_ranges=neutralized_ranges)
+        self.report.rewrites["WaW POI record comparisons use positions on T6"] += bridge_poi_record_comparisons(tokens)
         self.report.rewrites["WaW contact-kill monitors own AI attacks"] += bridge_contact_kill_attacks(tokens, script)
         self.report.rewrites["WaW being_revived reads bridged to T6 revive state"] += bridge_revive_reads(tokens)
         self.report.rewrites["WaW session stat reads bridged to T6 counters"] += bridge_player_stat_reads(tokens)
@@ -1817,6 +1872,9 @@ class Translator:
         keep = set()
         for n, (start, end) in enumerate(spans):
             stmt = toks[start:end]
+            if effect_keys is None and guarded_level_default(stmt) in read:
+                keep.add(n)
+                continue
             if effect_keys is not None and not (len(stmt) > 5 and stmt[3].text == "[" and stmt[4].kind == gsc.STRING
                                                 and stmt[4].text[1:-1].lower() in effect_keys):
                 continue  # a keyed effect table: only the entries ported scripts read
@@ -2089,13 +2147,20 @@ class Translator:
             tokens = gsc.tokenize(text)
             read |= {tokens[i].low for i in range(2, len(tokens) - 1)
                      if tokens[i].kind == gsc.IDENT and tokens[i - 1].text == "." and tokens[i - 2].low == "level"
-                     and tokens[i + 1].text != "="}
+                     and tokens[i + 1].text != "="
+                     and not (norm(path) == ZOMBIEMODE and main.body_open <= i <= main.body_close)}
             if norm(path) == ZOMBIEMODE:
                 elsewhere |= (level_fields_assigned(tokens, 2, main.body_open)
                               | level_fields_assigned(tokens, main.body_close))
             else:
                 elsewhere |= level_fields_assigned(tokens)
-        fields = ((read & main_assigned) - elsewhere | set(SOURCE_DAMAGE_FIELDS)) - set(SOURCE_ACTOR_DAMAGE_FIELDS)
+        # A guarded default is still needed when an event later changes the
+        # field (music suppression, for example). A later writer does not
+        # initialize that state before the first round.
+        defaults = {guarded_level_default(toks[a:b]) for a, b in
+                    top_level_statements(toks, main.body_open, main.body_close)} - {None}
+        fields = ((read & main_assigned) - elsewhere | (read & defaults) |
+                  set(SOURCE_DAMAGE_FIELDS)) - set(SOURCE_ACTOR_DAMAGE_FIELDS)
         return self.extract_level_state(ZOMBIEMODE, "main", fields)
 
     def extract_source_player_damage(self) -> str | None:
@@ -2365,6 +2430,7 @@ class Translator:
         self.report.rewrites["WaW deathanim assignments kept BO2's (ASD state)"] += keep_bo2_deathanims(tokens)
         self.resolve_refs(tokens, script, where, set(CORE_INCLUDES), {0}, extracting=core)
         self.report.rewrites["WaW HUD network font scales decoded"] += bridge_font_scales(tokens)
+        self.report.rewrites["WaW POI record comparisons use positions on T6"] += bridge_poi_record_comparisons(tokens)
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
         self.report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += mirror_team_zombie_vars(tokens)
         if (core, name) in self.intermission_funcs:
@@ -2904,6 +2970,22 @@ class Translator:
             f"    level thread {CORE}::{name}();\n}}\n")
         self.report.rewrites["WaW _load all_players_spawned -> source"] += 1
         return [f"{CORE}::waw2bo2_all_players_spawned();"]
+
+    def exploders_hook(self) -> list[str]:
+        """WaW's _load::main runs setupExploders after the map's createfx: it
+        numbers every exploder (getExploderId) in createfx order, the same
+        order the map's client numbers them. exploder() sends that number to
+        the client. BO2's _load ran before the map's createfx existed, so the
+        server had no numbers and no client exploder ever started (Der Riese
+        mainframe beam, heat sinks, steam). The map's own setupExploders runs
+        where WaW's _load runs it, inside _zombiemode::main."""
+        name = self.extract_entry(LOAD, "setupexploders")
+        if name is None:
+            self.report.unsupported.setdefault(FALLBACK, []).append(
+                f"{LOAD}: no setupExploders source; client exploders never start")
+            return []
+        self.report.rewrites["WaW _load setupExploders -> source"] += 1
+        return [f"{CORE}::{name}();"]
 
     def dog_rounds_hook(self) -> str | None:
         """WaW _zombiemode::main starts dog rounds through _zombiemode_dogs::init,
@@ -3480,6 +3562,7 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     # before the main is translated: waw_main_post makes these calls
     tr.extract_custom_intermission()
     tr.extract_end_game()
+    tr.post_calls += tr.exploders_hook()
     tr.post_calls += tr.juggernog_hooks()
     tr.post_calls += tr.announcer_hook(out_root)
     tr.post_calls += tr.powerup_models_hook()
@@ -4270,6 +4353,27 @@ def hook_bo2_weapons(main_gsc: Path) -> bool:
 
 
 CHARACTER_HOOKS = {"precachecustomcharacters": "precache", "givecustomcharacters": "give"}
+
+
+def hook_bo2_client_characters(main_csc: Path) -> bool:
+    """Keep T6's native face poses off source-owned WaW player skeletons.
+
+    _load installs the T6 facial callback during start_zombie_stuff. Clear it
+    before player spawn callbacks, but before the source client main too, so
+    any source-owned facial setup can still run. The native corpse helper
+    also uses face_anim_tree to decide whether to apply its death pose.
+    """
+    source = main_csc.read_text(encoding="utf-8")
+    marker = '    start_zombie_stuff();'
+    hook = ('    // WaW player face bones must not receive T6 facial poses.\n'
+            '    level._faceanimcbfunc = undefined;\n'
+            '    level.face_anim_tree = undefined;\n')
+    if hook in source:
+        return False
+    if marker not in source:
+        raise ValueError(f'{main_csc}: no start_zombie_stuff() to bind source player faces after')
+    main_csc.write_text(source.replace(marker, marker + '\n' + hook, 1), encoding="utf-8")
+    return True
 
 
 def hook_bo2_characters(main_gsc: Path) -> bool:

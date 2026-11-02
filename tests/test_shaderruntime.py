@@ -513,6 +513,24 @@ class AffineInverseTests(unittest.TestCase):
 
 
 class ProjectedDecalSlotTests(unittest.TestCase):
+    def test_copied_light_variants_keep_projection_blend_and_depth_state(self):
+        opaque = {'blendOpRgb': 'disabled', 'srcBlendRgb': 'one', 'dstBlendRgb': 'zero',
+                  'depthWrite': True, 'alphaTest': 'ge128'}
+        projected = {'blendOpRgb': 'add', 'srcBlendRgb': 'srcalpha', 'dstBlendRgb': 'invsrcalpha',
+                     'depthWrite': False, 'alphaTest': 'gt0'}
+        source = {'techniqueSet': 'mc_projected_decal_lit',
+                  'stateBits': [opaque, projected],
+                  'stateBitsEntry': [-1]*4 + [0, -1, -1, -1, 1]}
+        output = {'stateBits': [{**opaque, 'stencilFront': {'func': 'equal'}}],
+                  'stateBitsEntry': [0]*26}
+        active = [{'slot': 4}, {'slot': 7, 'decal_base': 4},
+                  {'slot': 18, 'dlight_base': 7}, {'slot': 11, 'spot_shape_base': 7}]
+        runtime.apply_source_pass_states(source, output, {'active': active})
+        for slot in (4, 7, 11, 18):
+            state = output['stateBits'][output['stateBitsEntry'][slot]]
+            self.assertEqual({k: state[k] for k in projected}, projected)
+            self.assertEqual(state['stencilFront'], {'func': 'equal'})
+
     def test_lit_blood_decal_uses_projection_instead_of_red_volume(self):
         present = lambda index: index in (4, 8, 10, 12)
         self.assertEqual(runtime.source_slot(present, 'mc_projected_decal_lit', 2), 8)

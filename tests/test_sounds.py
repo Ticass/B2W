@@ -521,6 +521,13 @@ class CurveTests(unittest.TestCase):
 
 
 class PlaybackBankTests(unittest.TestCase):
+    def test_actor_death_cleanup_leaves_world_audio_and_weapon_rows_alone(self):
+        rows = [{'Name': name, 'StopOnEntDeath': 'no'}
+                for name in ('waw/voice', 'WAW/VOICE', 'waw/music', 'waw/gun')]
+        self.assertEqual(sounds.apply_actor_death_cleanup(rows, {'waw/voice'}),
+                         ['WAW/VOICE', 'waw/voice'])
+        self.assertEqual([r['StopOnEntDeath'] for r in rows], ['yes', 'yes', 'no', 'no'])
+
     def bound(self):
         source, driver = fixture()
         source["aliases"][0].update(

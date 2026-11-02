@@ -1,5 +1,7 @@
 import struct
 import unittest
+import tempfile
+from pathlib import Path
 from waw2bo2 import animnotes, weapons
 
 
@@ -9,6 +11,45 @@ def header(frames):
 
 
 class AnimationSoundTests(unittest.TestCase):
+    def test_actor_aliases_follow_actor_tree_and_exclude_weapon_notes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for folder in ('aitype', 'animtrees', 'xanim'):
+                (root / folder).mkdir()
+            (root/'aitype/custom.gsc').write_text('#using_animtree("custom");')
+            (root/'animtrees/custom.atr').write_text('body { custom_attack native_idle }')
+            (root/'xanim/custom_attack').write_bytes(
+                header(20) + b'\x01sndnt#waw/voice\0' + struct.pack('<H', 5))
+            (root/'xanim/weapon').write_bytes(
+                header(20) + b'\x01sndnt#waw/gun\0' + struct.pack('<H', 5))
+            self.assertEqual(animnotes.actor_sound_aliases(root), {'waw/voice'})
+
+    def test_binds_nested_source_clips_without_touching_native_clips(self):
+        raw = header(20) + b'\x01sndnt#voice\0' + struct.pack('<H', 5)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root/'xanim/waw_anim_custom/attack'
+            source.parent.mkdir(parents=True)
+            source.write_bytes(raw)
+            native = root/'xanim/native_attack'
+            native.write_bytes(raw)
+            result = animnotes.bind_actor_sounds(root, {'voice'})
+            self.assertEqual(result[0]['animation'], 'waw_anim_custom/attack')
+            self.assertIn(b'sndnt#waw/voice', source.read_bytes())
+            self.assertEqual(native.read_bytes(), raw)
+
+    def test_authored_actor_audio_resolves_alias_without_changing_timing(self):
+        prefix = header(100)
+        original = (prefix + b'\x03sndnt#attack_vocals\0' + struct.pack('<H', 25)
+                    + b'sndnt#unknown\0' + struct.pack('<H', 30)
+                    + b'melee\0' + struct.pack('<H', 75))
+        result, changes = animnotes.bind_sound_events(original, {'attack_vocals'})
+        self.assertEqual(result[:len(prefix) + 1], original[:len(prefix) + 1])
+        self.assertIn(b'sndnt#waw/attack_vocals\0\x19\x00', result)
+        self.assertTrue(result.endswith(b'sndnt#unknown\0\x1e\x00melee\0\x4b\x00'))
+        self.assertEqual(changes, [{'source': 'attack_vocals', 'sound': 'waw/attack_vocals', 'frame': 25}])
+        self.assertEqual(animnotes.bind_sound_events(result, {'attack_vocals'}), (result, []))
+
     def raw(self):
         prefix = header(100)
         return prefix + b'\x02flip\0' + struct.pack('<H', 25) + b'other\0' + struct.pack('<H', 75), prefix

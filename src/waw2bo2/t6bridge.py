@@ -2012,6 +2012,10 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                               map_table_roots=[*(waw_patch_script_roots or []),
                                                *([waw_map_script.parent.parent] if waw_map_script else []),
                                                *(waw_script_roots or [])])
+    if stock_waw is not None and report.scripts:
+        from . import wawhud
+        report.content['waw_hud'] = progress.timed('Stage original WaW HUD', wawhud.stage_assets,
+                                                 project_root, roots, stock_waw)
     shader_report = progress.timed('Translate shaders', shaders.stage, roots, project_root / 'content_source/shaders')
     report.content['shaders'] = {k: v for k, v in shader_report.items() if k != 'shaders'}
     report.content['shaders']['report'] = 'content_source/shaders/stage.json'
@@ -2063,6 +2067,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         environment = environment.replace('init()\n{', 'init()\n{\n' + tesla_client, 1)
     (client_dir / '_waw2bo2_environment.csc').write_text(environment, encoding='utf-8')
     client_main = project_root / 'clientscripts/mp' / f'{project}.csc'
+    if (report.scripts or {}).get('characters'):
+        gscport.hook_bo2_client_characters(client_main)
     client_text = client_main.read_text(encoding='utf-8')
     # The donor's fog-volume monitor selects its own vision every frame.
     # Converted WaW scripts own both fog and vision changes instead.
@@ -2116,6 +2122,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                 stock_waw, sound_names)
     audio_report = progress.timed('Decode audio', audio.stage, project_root / "content_source", project_root / "content_source/pcm", audio_decoder, xwma_decoder)
     binding_report = sounds.bind_pcm(project_root / "content_source", project_root / "content_source/pcm")
+    from . import animnotes
+    report.content['animation_sound_identities'] = animnotes.bind_actor_sounds(project_root, sound_names)
     if t6_sound_driver is None and techset_dump is not None:
         t6_sound_driver = techset_dump / "sounddriverglobals/singleton.w2bsdg"
     curve_report = sounds.bind_curves(project_root / "content_source", t6_sound_driver, approximate_sound_curves)

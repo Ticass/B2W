@@ -297,7 +297,7 @@ def _stage_bridge(args: argparse.Namespace) -> int:
 
 
 def _build_mod(args: argparse.Namespace) -> int:
-    from . import gscport, modzone, overheathud
+    from . import gscport, modzone, overheathud, wawhud
     from .weapons import ENGINE_WEAPONS
 
     extra = args.stage.resolve() / "zone_raw" / args.project / t6bridge.MOD_EXTRA_ZONE
@@ -306,6 +306,8 @@ def _build_mod(args: argparse.Namespace) -> int:
     project_root = extra.parent
     extra_lines += [entry for entry in overheathud.stage(args.bo2.resolve(), project_root, args.work,
                                                        args.unlinker.resolve()) if entry not in extra_lines]
+    extra_lines += [entry for entry in wawhud.stage_runtime(args.bo2.resolve(), project_root, args.project)
+                    if entry not in extra_lines]
     modzone.stage_lobby_map_table(args.bo2.resolve() / "raw/zm/mapstable.csv", project_root, args.project)
     modzone.stage_lobby_gametype_table(args.bo2.resolve() / "raw/zm/gametypestable.csv", project_root, args.project)
     extra_lines += [entry for entry in modzone.stage_menu_assets(project_root, args.project) if entry not in extra_lines]

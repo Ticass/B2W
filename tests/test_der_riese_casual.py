@@ -13,7 +13,15 @@ class CasualScriptTests(unittest.TestCase):
     def test_all_static_dependencies_exist_in_stock_t6(self):
         data = load_snapshot()
         api = T6Api(data['builtins'], data['scripts'], data['methods'])
-        script = gsc.parse(SCRIPT.read_text(), str(SCRIPT))
+        self.check_script(SCRIPT)
+
+    def test_health_audit_has_only_stock_dependencies(self):
+        self.check_script(SCRIPT.with_name('der_riese_waw_health_audit.gsc'))
+
+    def check_script(self, path):
+        data = load_snapshot()
+        api = T6Api(data['builtins'], data['scripts'], data['methods'])
+        script = gsc.parse(path.read_text(), str(path))
         includes = [r.qualifier for r in gsc.references(script.tokens)
                     if r.qualifier]
         for ref in gsc.references(script.tokens):

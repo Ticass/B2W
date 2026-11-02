@@ -1315,6 +1315,16 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
     return streamed
 
 
+def apply_actor_death_cleanup(rows: list[dict], actor_aliases: set[str]) -> list[str]:
+    """Use native owner lifetime for actor animation voices only."""
+    matched = set()
+    for row in rows:
+        if row["Name"].lower() in actor_aliases:
+            row["StopOnEntDeath"] = "yes"
+            matched.add(row["Name"])
+    return sorted(matched)
+
+
 def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | None = None,
                   reverb_send: dict | None = None, remaster: dict | None = None,
                   engine_names: list[str] | None = None) -> dict:
@@ -1371,6 +1381,11 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
         if budget is not None:
             # the engine plays these for every step and shot: load them
             budget["played"] = sorted(set(budget.get("played", [])) | set(report["engine_names"]["copies"].values()))
+    from . import animnotes
+    actor_aliases = animnotes.actor_sound_aliases(project.parent)
+    # Animation notes play on the actor's native sound owner. Let the engine
+    # end those voices on death; positional death cries have a world owner.
+    report["actor_death_cleanup"] = apply_actor_death_cleanup(rows, actor_aliases)
     report["clamped"] = clamp_t6_ranges(rows)
     if budget is not None:
         report["loaded_to_streamed"] = fit_loaded_budget(rows, project / "pcm", budget, weapon_aliases)

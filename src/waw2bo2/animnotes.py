@@ -1,9 +1,81 @@
 """Adapt raw v17 weapon sound notifications without changing motion or timing."""
 import hashlib
 import json
+import re
 import struct
 from pathlib import Path
 from . import weapons
+
+
+def actor_sound_aliases(project: Path) -> set[str]:
+    """Sound notes owned by actors, discovered through their animation trees."""
+    trees = set()
+    for path in (project / 'aitype').rglob('*'):
+        if path.suffix.lower() in ('.gsc', '.csc'):
+            trees.update(re.findall(r'#using_animtree\s*\(\s*"([^"]+)"', path.read_text()))
+    clips = set()
+    for tree in trees:
+        path = project / 'animtrees' / (tree + '.atr')
+        if path.is_file():
+            clips.update(re.findall(r'[\w/]+', path.read_text()))
+    aliases = set()
+    for clip in clips:
+        path = project / 'xanim' / clip
+        if not path.is_file():
+            continue
+        raw = path.read_bytes()
+        if b'sndnt#' not in raw:
+            continue
+        start = notification_offset(raw)
+        pos = start + 1
+        for _ in range(raw[start]):
+            end = raw.index(b'\0', pos)
+            name = raw[pos:end].decode('latin-1')
+            if name.startswith('sndnt#'):
+                aliases.add(name[6:].lower())
+            pos = end + 3
+    return aliases
+
+
+def bind_sound_events(raw: bytes, aliases: set[str]) -> tuple[bytes, list[dict]]:
+    """Resolve authored engine sound notes to their converted alias identities.
+
+    Keep the motion, note count, order and frames byte-for-byte; only the
+    sound name changes. T6 dispatches sndnt# notes without a script adapter.
+    """
+    if b'sndnt#' not in raw:
+        return raw, []
+    if len(raw) < 4 or struct.unpack_from('<H', raw)[0] != 17:
+        raise weapons.WeaponError('sound notifications require a raw v17 animation')
+    start = notification_offset(raw)
+    pos, notes, changed = start + 1, [], []
+    for _ in range(raw[start]):
+        end = raw.index(b'\0', pos)
+        name = raw[pos:end].decode('latin-1')
+        frame = raw[end + 1:end + 3]
+        alias = name.removeprefix('sndnt#')
+        if name.startswith('sndnt#') and alias in aliases and not alias.startswith('waw/'):
+            changed.append({'source': alias, 'sound': 'waw/' + alias,
+                            'frame': struct.unpack('<H', frame)[0]})
+            name = 'sndnt#waw/' + alias
+        notes.append(name.encode('latin-1') + b'\0' + frame)
+        pos = end + 3
+    if pos != len(raw):
+        raise weapons.WeaponError('raw animation has no valid notification suffix')
+    return (raw[:start + 1] + b''.join(notes), changed) if changed else (raw, [])
+
+
+def bind_actor_sounds(project: Path, aliases: set[str]) -> list[dict]:
+    report = []
+    root = project / 'xanim'
+    for path in sorted(root.rglob('*')):
+        if not path.is_file() or not path.relative_to(root).as_posix().startswith('waw_anim_'):
+            continue
+        raw, changes = bind_sound_events(path.read_bytes(), aliases)
+        if changes:
+            path.write_bytes(raw)
+            report.append({'animation': path.relative_to(root).as_posix(), 'events': changes})
+    return report
 
 
 def add_sound_events(raw: bytes, sound_map: dict[str, str]) -> tuple[bytes, list[dict]]:
