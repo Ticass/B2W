@@ -1361,12 +1361,29 @@ def apply_source_pass_states(source_material, output_material, runtime):
     src_states = source_material.get('stateBits', [])
     name = source_material.get('techniqueSet', '')
     present = lambda i: i < len(src_entries) and 0 <= src_entries[i] < len(src_states)
-    waw_slots = {a['slot'] for a in runtime.get('active', [])}
+    active = {a['slot']: a for a in runtime.get('active', [])}
+    waw_slots = set(active)
     changed = []
-    for slot in SLOTS:
+    for slot in sorted(set(SLOTS) | waw_slots):
         if slot >= len(entries) or not 0 <= entries[slot] < len(states):
             continue
-        index = source_slot(present, name, slot)
+        # Generated T6 light variants run their base's translated program.
+        # Their blend/raster state must follow that same provenance, including
+        # a light base itself copied from a projected-decal pass. Otherwise
+        # opaque donor state exposes the decal's cube under dynamic lights.
+        source = slot
+        visited = set()
+        while source in active and source not in visited:
+            visited.add(source)
+            entry = active[source]
+            base = next((entry[key] for key in ('dlight_base', 'spot_shape_base', 'decal_base')
+                         if key in entry), None)
+            if base is None:
+                break
+            source = base
+        if source not in SLOTS:
+            continue
+        index = source_slot(present, name, source)
         if index is None:
             continue
         wanted, native = src_states[src_entries[index]], states[entries[slot]]

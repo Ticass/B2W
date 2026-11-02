@@ -20,6 +20,54 @@ def _api() -> T6Api:
 
 
 class SourcePlayerDamageTests(unittest.TestCase):
+    def test_waw_font_creation_keeps_global_hud_and_explicit_player_argument(self):
+        source = '''createFontString(font, scale, player){
+            if(isdefined(player)) elem = newClientHudElem(player);
+            else elem = newHudElem(self);
+            elem.font = font;
+            return elem;
+        }'''
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'maps').mkdir()
+            (root/'maps/_hud_util.gsc').write_text(source)
+            api = T6Api({'isdefined': (1, 1)}, {
+                'maps\\mp\\gametypes_zm\\_hud_util': {'createfontstring': 2}})
+            tr = gscport.Translator(gscport.Sources([root], [], None), api, gscport.PortReport())
+            resolved = tr.resolve_core('maps\\_hud_util', 'createfontstring', 2, 'test', set())
+            self.assertIn('hud_util__createfontstring', resolved)
+            while tr.core_queue:
+                tr.level_state_parts.append(tr.translate_extracted(*tr.core_queue.pop(0)))
+            result = '\n'.join(tr.level_state_parts)
+            self.assertIn('player)', result)
+            self.assertIn('waw_newhudelem(self)', result)
+            self.assertIn('waw_newclienthudelem(player)', result)
+            # T6 resolves script exports by their maximum argument count.
+            # The source's owner argument must fit the exported wrapper, or
+            # the map fails to load before the HUD/announcer thread can run.
+            self.assertGreaterEqual(len(tr.compat.functions['waw_newhudelem'].params), 1)
+
+    def test_main_keeps_guarded_defaults_even_with_later_event_writers(self):
+        source = '''main(){
+            if(!IsDefined(level.music_active)){ level.music_active = 0; }
+            if(!IsDefined(level.unused)){ level.unused = 7; }
+        }
+        start_song(){ level.music_active = 1; }
+        display_round(){ if(IsDefined(level.music_active) && !level.music_active) play_music(); }
+        '''
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'maps').mkdir()
+            (root/'maps/_zombiemode.gsc').write_text(source)
+            api = _api()
+            api.builtins['isdefined'] = (1, 1)
+            tr = gscport.Translator(gscport.Sources([root], [], None), api, gscport.PortReport())
+            self.assertIsNotNone(tr.extract_main_level_state())
+            result = '\n'.join(tr.level_state_parts)
+            self.assertIn('level.music_active = 0;', result)
+            self.assertIn('!IsDefined(level.music_active)', result)
+            self.assertNotIn('level.unused', result)
+
     def test_t6_callbacks_run_the_maps_own_damage_and_last_stand(self):
         callbacks = ("Callback_PlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, "
                      "vDir, sHitLoc, modelIndex, psOffsetTime )\n{\n"

@@ -7,6 +7,22 @@ from waw2bo2 import modelisolation
 
 
 class ModelIsolationTests(unittest.TestCase):
+    def test_model_names_do_not_rename_bones(self):
+        source = '''main(){
+            self setmodel("tag_origin");
+            self attach("shared", "tag_origin");
+            self gettagorigin("tag_origin");
+            self linkto(other, "tag_origin");
+            playfxontag(fx, self, "tag_origin");
+            api\\compat::waw_playfxontag(fx, self, "tag_origin");
+            self api\\compat::waw_attach("shared", "tag_origin");
+        }'''
+        result = modelisolation.rewrite_script(source, {
+            'tag_origin': 'waw_world_model/tag_origin', 'shared': 'waw_world_model/shared'})
+        self.assertEqual(result.count('"waw_world_model/tag_origin"'), 1)
+        self.assertEqual(result.count('"tag_origin"'), 6)
+        self.assertEqual(result.count('"waw_world_model/shared"'), 2)
+
     def test_render_collision_entities_scripts_and_dynamic_table_agree(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

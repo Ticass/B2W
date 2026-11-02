@@ -52,6 +52,10 @@ init()
     if ( isdefined( level.waw2bo2_compat_ready ) )
         return;
     level.waw2bo2_compat_ready = 1;
+    // T4 PM_RegisterDvars (0x40E298/0x40E2CE) defaults, before the map's
+    // own init_dvars and any authored overrides. T6 uses 128/300 instead.
+    setdvar( "bg_fallDamageMinHeight", 200 );
+    setdvar( "bg_fallDamageMaxHeight", 350 );
     // Optional scripts can replace the T4 health field semantics without a
     // static import of this map-only script (which would break other maps).
     level.waw2bo2_health_setter = ::waw_set_health;
@@ -280,6 +284,25 @@ waw_contact_kill_end()
     if ( isdefined( self.custom_damage_func ) && self.custom_damage_func == ::waw_contact_kill_damage )
         self.custom_damage_func = self.waw_contact_previous_damage;
     self.waw_contact_previous_damage = undefined;
+}
+
+// POI records are [position, owner]. T6's array == is not a location
+// comparison (see native _zm_utility::poi_locations_equal).
+waw_poi_record_available( array, value )
+{
+    for ( i = 0; i < array.size; i++ )
+        if ( array[i][0] == value[0] )
+            return false;
+    return true;
+}
+
+waw_poi_record_remove( array, value )
+{
+    result = [];
+    for ( i = 0; i < array.size; i++ )
+        if ( array[i][0] != value[0] )
+            result[result.size] = array[i];
+    return result;
 }
 
 waw_array_remove( array, value )
@@ -847,7 +870,10 @@ waw_tag_carrier( ent )
         return ent.waw_tag_carrier;
     carrier = spawn( "script_model", ent.origin );
     carrier.angles = ent.angles;
-    carrier setmodel( "tag_origin" );
+    // The converted WaW tag_origin has no visible mesh. Never hide() the
+    // carrier: T6 does not draw effects on a hidden entity's tags (the
+    // power-ups lost their glow).
+    carrier setmodel( waw_model_name( "tag_origin" ) );
     carrier linkto( ent );
     ent.waw_tag_carrier = carrier;
     level thread waw_tag_carrier_lifetime( carrier, ent );
@@ -1696,7 +1722,9 @@ waw_create_simple_hud( client )
     return hud;
 }
 
-waw_newhudelem()
+// WaW helpers pass their current owner to NewHudElem; it still creates a
+// server HUD. An explicit player HUD uses NewClientHudElem instead.
+waw_newhudelem( owner )
 {
     hud = newhudelem();
     hud.hidewheninmenu = 1;
@@ -2212,8 +2240,14 @@ waw_setviewmodel( name )
 waw_attach( name, tag, ignoreCollision )
 {
     if ( isdefined( ignoreCollision ) )
+    {
+        if ( !isdefined( tag ) )
+            tag = "";
         return self attach( waw_model_name( name ), tag, ignoreCollision );
-    return self attach( waw_model_name( name ), tag );
+    }
+    if ( isdefined( tag ) )
+        return self attach( waw_model_name( name ), tag );
+    return self attach( waw_model_name( name ) );
 }
 
 waw_detach( name, tag )

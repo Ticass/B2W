@@ -269,7 +269,8 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
     # Stringtables must also override loaded/stock assets. The linker's
     # independent search paths are sorted, so adding a project path beside
     # BO2's raw path is insufficient to guarantee source priority.
-    for name in ('mapstable.csv', 'gametypestable.csv', 'zm_statstable.csv', 'waw_menu_layers.csv', 'waw_menu_preview.csv'):
+    for name in ('mapstable.csv', 'gametypestable.csv', 'zm_statstable.csv', 'waw_menu_layers.csv', 'waw_menu_preview.csv',
+                 'waw_hud_maps.csv', 'waw_hud_weapons.csv', 'waw_hud_glyphs.csv'):
         source = project / 'zm' / name
         if source.is_file():
             target = overlay / 'zm' / name

@@ -94,6 +94,22 @@ class AppearanceTests(unittest.TestCase):
                 gscport.hook_bo2_characters(main)
 
 
+class ClientCharacterTests(unittest.TestCase):
+    def test_source_player_faces_are_bound_after_native_init_before_source_client(self):
+        with tempfile.TemporaryDirectory() as temp:
+            main = Path(temp) / 'map.csc'
+            main.write_text('main()\n{\n    start_zombie_stuff();\n'
+                            '    clientscripts\\mp\\waw\\_waw2bo2_client::init();\n'
+                            '    waitforclient( 0 );\n}\n')
+            self.assertTrue(gscport.hook_bo2_client_characters(main))
+            self.assertFalse(gscport.hook_bo2_client_characters(main))
+            text = main.read_text()
+            self.assertLess(text.index('start_zombie_stuff();'), text.index('level._faceanimcbfunc = undefined;'))
+            self.assertLess(text.index('level.face_anim_tree = undefined;'), text.index('_waw2bo2_client::init();'))
+            main.write_text('main() {}')
+            with self.assertRaises(ValueError):
+                gscport.hook_bo2_client_characters(main)
+
 class WeaponRegistrationTests(unittest.TestCase):
     def test_offhand_save_and_restore_use_weapon_translation(self):
         from waw2bo2.t6api import T6Api
