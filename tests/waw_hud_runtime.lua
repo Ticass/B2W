@@ -9,23 +9,37 @@ local function element()
     function e:setImage(i) self.image=i end
     function e:setOwner(c) self.owner=c end
     function e:setUseGameTime(value) self.gameTime=value end
+    function e:setUseStencil(value) self.stencil=value end
+    function e:beginAnimation(n,t) self.animation=n end
     function e:addElement(c) self.children[#self.children+1]=c end
     function e:registerEventHandler(n,f) self.handlers[n]=f end
     function e:dispatchEventToChildren(_) end
     return e
 end
 local calls = {ammo=0,score=0,heat=0}
-CoD = {Menu={NewSafeAreaFromState=function(name) local e=element();e.menuName=name;return e end},
+CoD = {Menu={NewSafeAreaFromState=function(name) local e=element();e.menuName=name;return e end,
+        NewFromState=function(name) local e=element();e.menuName=name;return e end,close=function(e) e.closed=true end},
+    SCOREBOARD_SORT_CLIENTNUM=1,
     OtherAmmoCounters={new=function() calls.heat=calls.heat+1; return 'stock heat' end},
     BIT_HUD_VISIBLE=1, BIT_UI_ACTIVE=2, BIT_IS_SCOPED=3}
 LUI = {UIElement={new=element},UIImage={new=element},createMenu={
     AmmoAreaZombie=function() calls.ammo=calls.ammo+1;return 'stock ammo' end,
-    CompetitiveScoreboard=function() calls.score=calls.score+1;return 'stock score' end}}
+    CompetitiveScoreboard=function() calls.score=calls.score+1;return 'stock score' end,
+    Scoreboard=function() calls.board=(calls.board or 0)+1;return 'stock board' end}}
 require=function(name)
     assert(name~='T6.Zombie.AmmoAreaZombie', 'map-owned ammo module must not load in the frontend')
 end
 RegisterMaterial=function(m) return m end
-Engine={Localize=function(k)return string.char(21)..k..string.char(21) end,IsWeaponType=function(w,t) return w==t end}
+Engine={Localize=function(k)return string.char(21)..k..string.char(21) end,IsWeaponType=function(w,t) return w==t end,
+    GetScoreBoardColumnName=function(_,i) return ({'ZMUI_SCORE','MPUI_KILLS','ZMUI_DOWNS','ZMUI_REVIVES','ZMUI_HEADSHOTS'})[i+1] end,
+    GetTeamPositions=function() return {{team=1}} end,
+    GetMatchScoreboardClientCount=function() return #boardClients end,
+    GetMatchScoreboardIndexAndClientNumForTeam=function(i) return i+10, boardClients[i+1] end,
+    GetFullGamertagForScoreboardIndex=function(i) return 'player'..i end,
+    GetPingForScoreboardIndex=function() return 48 end,
+    GetStatusIconForClient=function() return nil end,
+    GetScoreboardColumnForScoreboardIndex=function(i,c) return i*100+c end}
+boardClients={2,0}
 local bits = {[1]=1,[2]=0,[3]=0}
 UIExpression={DvarString=function() return map end,DvarInt=function()return 0 end,IsVisibilityBitSet=function(_,b)return bits[b] end,
     TableLookup=function(_,t,k,key,col)
@@ -38,7 +52,7 @@ UIExpression={DvarString=function() return map end,DvarInt=function()return 0 en
             if key=='COLT' and k==4 then return 'colt' end
             if key=='FLAME' and k==4 then return 'flame' end
             if key=='colt' then return ({'Magazine','8','0','COLT',''})[col] or '' end
-            if key=='flame' then return ({'None','100','1','FLAME',''})[col] or '' end
+            if key=='flame' then return ({'None','100','1','FLAME','','','hud_icon_flame'})[col] or '' end
         end
         return ''
     end}
@@ -48,6 +62,7 @@ calls.ammo=0
 dofile('src/waw2bo2/compat/waw_ammoarea.lua')
 dofile('src/waw2bo2/compat/waw_scoreboard.lua')
 dofile('src/waw2bo2/compat/waw_otherammo.lua')
+CoD.WawHUD.hookScoreboard()
 local ammo=LUI.createMenu.AmmoAreaZombie(0)
 assert(ammo.menuName=='AmmoAreaZombie') -- native engine routes events by menu name
 assert(calls.ammo==0)
@@ -61,11 +76,16 @@ assert(ammo.bullets[3].rgb[1]==1 and ammo.bullets[4].rgb[1]==0.3)
 event('hud_update_ammo',{ammoInClip=8,ammoStock=27})
 assert(#ammo.bullets==8 and ammo.bullets[8].rgb[1]==1 and ammo.stockText.text=='27')
 event('hud_update_weapon_select',{weapon='flame',weaponDisplayName='FLAME'})
-event('hud_update_overheat',{heatPercent=75,overheat=true})
-assert(ammo.stockText.text=='75%' and ammo.bullets[1].alpha==0)
+event('hud_update_overheat',{heatPercent=75,overheat=false})
+assert(ammo.stockText.text=='' and ammo.bullets[1].alpha==0 and ammo.heat.alpha==1)
+assert(ammo.heat.icon.image=='hud_icon_flame' and ammo.heat.fill.right==90 and ammo.heat.flash.alpha==0)
+event('hud_update_overheat',{heatPercent=100,overheat=true})
+assert(ammo.heat.flash.animation=='flash' and ammo.heat.fill.right==120)
+event('hud_update_overheat',{heatPercent=40,overheat=false})
+assert(ammo.heat.flash.alpha==0 and ammo.heat.fill.right==48)
 event('hud_update_weapon_select',{weapon='colt',weaponDisplayName='COLT'})
 event('hud_update_ammo',{ammoInClip=8,ammoStock=27})
-assert(not ammo.overheat and ammo.bullets[1].alpha>0)
+assert(not ammo.overheat and ammo.bullets[1].alpha>0 and ammo.heat.alpha==0)
 event('hud_update_offhand',{lethal={material='frag',ammo=2}})
 bits[2]=1;event('hud_update_bit_2',{});assert(ammo.alpha==0)
 bits[2]=0;event('hud_update_refresh',{});assert(ammo.alpha==1)
@@ -84,7 +104,16 @@ label:setText('?Ray Gun?');assert(label.text=='?Ray Gun?')
 label:setText('Panzerschreck');assert(label.text=='Panzerschreck')
 label:setText('12345'); local children=#label.children
 label:setText('7');label:setText('43210');assert(#label.children==children)
+local board=LUI.createMenu.Scoreboard(0)
+assert(board.menuName=='Scoreboard' and #board.rows==2)
+-- client number order; Points = BO2 score column 0, Headshots column 4
+assert(board.rows[1].cells[3].text=='player11' and board.rows[1].cells[5].text=='1100')
+assert(board.rows[1].cells[10].text=='48' and board.rows[2].cells[3].text=='player10')
+assert(board.rows[2].bg.image=='waw_hud/scorebar_zom_long_3' and board.rows[2].cells[3].rgb[1]==0.965)
+boardClients={0};board.handlers.update_scoreboard(board,{});assert(board.rows[2].alpha==0)
+board.handlers.close_scoreboard_menu(board,{});assert(board.closed)
 map='zm_transit'
+assert(LUI.createMenu.Scoreboard(0)=='stock board')
 assert(LUI.createMenu.AmmoAreaZombie(0)=='stock ammo')
 assert(LUI.createMenu.CompetitiveScoreboard(0)=='stock score')
 assert(CoD.OtherAmmoCounters.new()=='stock heat')

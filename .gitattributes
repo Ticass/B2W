@@ -3,3 +3,6 @@ src/waw2bo2/compat/menu_layers.lua text eol=lf
 src/waw2bo2/compat/menu_layers.luac binary
 src/waw2bo2/compat/menu_preview.lua text eol=lf
 src/waw2bo2/compat/menu_preview.luac binary
+src/waw2bo2/compat/waw_*.lua text eol=lf
+src/waw2bo2/compat/waw_*.luac binary
+tests/waw_hud_runtime.lua text eol=lf

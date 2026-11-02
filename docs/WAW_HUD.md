@@ -57,3 +57,22 @@ objects. `test_wawhud.py` also verifies original alpha/metrics survive staging
 and fails explicitly when source assets are missing. In-game visual checking
 is required before treating a package as a release. Set `waw_hud_debug` to 1 to
 log incoming ammo/weapon events for that check.
+
+## Scoreboard (TAB)
+
+T4 draws the zombies scoreboard in code (`sub_6680B0` -> `sub_667F80`):
+`sub_666820` picks the column table (co-op table when online or system link,
+solo table otherwise), `sub_666920` draws right-aligned `CGAME_SB_*` headers
+at scale 0.2, `sub_667680` draws each row: `scorebar_zom_long_<client+1>`
+tinted `cg_ScoresColor_Zombie` at `cg_ScoresColor_Transparency`, text in
+`cg_ScoresColor_Gamertag_<client>` (all from `coop_arcademode.cfg`, run by
+`default.cfg`). Geometry: width 510 centred, header baseline 103.4, rows
+12 high from 107.4, 4 apart. `W.scoreboard` rebuilds it in LUI from BO2's
+scoreboard data (`GetMatchScoreboardIndexAndClientNumForTeam`, columns
+matched by name). Plutonium ships a loose `hud/scoreboard.lua`, so the HUD
+entry wraps `LUI.createMenu.Scoreboard` instead of replacing that module.
+The `CGAME_SB_*` labels are staged from WaW's `code_post_gfx` strings.
+
+Flamethrower heat (`hud.menu` heatinfo, T4 `sub_44F540`): the weapon's
+`hudIcon` filled left to right in (0.89, 0.18, 0.01) by heat, with a yellow
+1.01-scale copy fading every 800 ms while overheated.

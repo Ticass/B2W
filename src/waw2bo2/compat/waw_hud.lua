@@ -143,7 +143,9 @@ function W.drawAmmo(e)
     local total = data and data.size or count
     -- No invented weapon metadata: unknown/custom counters remain numeric.
     e.clipText:setText(style and "" or count)
-    if e.overheat then e.clipText:setText("") end
+    -- T4 heat weapons show only the heat icon (sub_44F540), no counters.
+    if e.overheat then e.clipText:setText(""); e.stockText:setText("") end
+    e.heat:setAlpha(e.overheat and e.heatIcon ~= "" and not e.hideAmmo and 1 or 0)
     for i, bullet in ipairs(e.bullets) do bullet:setAlpha(0) end
     if not style or e.overheat or e.hideAmmo then
         if e.hideAmmo then e.clipText:setText(""); e.stockText:setText("") end
@@ -169,6 +171,11 @@ function W.drawAmmo(e)
         bullet:setRGB(color, color, color)
         bullet:setAlpha(0.65)
     end
+end
+function W.flash(e)
+    e:setAlpha(1)
+    e:beginAnimation("flash", 800)
+    e:setAlpha(0)
 end
 function W.updateAmmo(e, event)
     if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then
@@ -198,6 +205,11 @@ function W.updateWeapon(e, event)
         e.weaponData = {style = lookup(weapons, name, 1), size = tonumber(lookup(weapons, name, 2)) or 0,
             sprite = lookup(weapons, name, 6)}
         e.overheat = lookup(weapons, name, 3) == "1"
+        e.heatIcon = lookup(weapons, name, 7)
+        if e.heatIcon ~= "" then
+            local material = RegisterMaterial(e.heatIcon)
+            for _, part in ipairs({e.heat.icon, e.heat.fillIcon, e.heat.flash}) do part:setImage(material) end
+        end
         e.stockText:setRGB(1, 1, 1)
     end
     e.hideAmmo = event.inventorytype == 1 or event.inventorytype == 2 or
@@ -219,6 +231,29 @@ function W.ammo(controller)
     e.stockText = W.label(e.anchor, "objective", 18, -112.5, 6, false)
     e.clipText = W.label(e.anchor, "objective", 18, -125, 15, true)
     e.weaponText = W.label(e.anchor, "objective", 18, -64.5, -60, true)
+    -- hud.menu heatinfo heaticon (WEAPINFO_X +116, WEAPINFO_Y +15, 80x40):
+    -- T4 sub_44F540 draws the weapon's hudIcon, the left heat% of it in
+    -- (0.89, 0.18, 0.01) and, while overheated, a 1.01-scale yellow copy
+    -- whose alpha falls from 1 to 0 every 800 ms.
+    local heat = LUI.UIElement.new()
+    rect(heat, -111, -67.5, 120, 60)
+    e.anchor:addElement(heat)
+    heat.icon = image(heat, nil, 0, 0, 120, 60)
+    heat.fill = LUI.UIElement.new()
+    rect(heat.fill, 0, 0, 0, 60)
+    heat.fill:setUseStencil(true)
+    heat:addElement(heat.fill)
+    heat.fillIcon = image(heat.fill, nil, 0, 0, 120, 60)
+    heat.fillIcon:setRGB(0.89, 0.18, 0.01)
+    heat.flash = image(heat, nil, 0, 0, 121.2, 60.6)
+    heat.flash:setRGB(1, 1, 0)
+    heat.flash:setAlpha(0)
+    heat.flash:registerEventHandler("transition_complete_flash", function(self, event)
+        if heat.overheated and not event.interrupted then W.flash(self) end
+    end)
+    heat:setAlpha(0)
+    e.heat = heat
+    e.heatIcon = ""
     local offhands = {}
     for i, kind in ipairs({"tactical", "lethal"}) do
         local x = -201 + (i-1)*45
@@ -239,14 +274,172 @@ function W.ammo(controller)
     e:registerEventHandler("hud_update_weapon_select", W.updateWeapon)
     e:registerEventHandler("hud_update_overheat", function(self, event)
         self.overheat = true
-        self.stockText:setText(tostring(event.heatPercent or 0) .. "%")
-        self.stockText:setRGB(1, event.overheat and 0 or 1, event.overheat and 0 or 1)
+        local heat = self.heat
+        local value = math.max(0, math.min(100, tonumber(event.heatPercent) or 0))
+        rect(heat.fill, 0, 0, 120 * value / 100, 60)
+        if event.overheat and not heat.overheated then
+            heat.overheated = true
+            W.flash(heat.flash)
+        elseif not event.overheat and heat.overheated then
+            heat.overheated = false
+            heat.flash:beginAnimation("flash_off", 1)
+            heat.flash:setAlpha(0)
+        end
         W.drawAmmo(self)
     end)
     e:registerEventHandler("hud_update_fuel", function(self, event)
         self.stockText:setText(tostring(event.fuelPercent or 0) .. "%")
     end)
     return e
+end
+-- T4 sub_666820 zombie column tables {type, width, label, align}: online or
+-- system link games use the co-op table, others the solo one. Types: 0 name,
+-- 2 points, 3 ping, 4 status icon, 5 voice, 6 kills, 7 rank, 9 downs,
+-- 10 revives, 11 headshots. align 2 right-aligns 4 units inside the column.
+local boardColumns = {
+    coop = {{7, 0.08}, {4, 0.04}, {0, 0.28, nil, 0}, {5, 0.04}, {2, 0.093, "CGAME_SB_POINTS", 2},
+        {6, 0.093, "CGAME_SB_KILLS", 2}, {9, 0.093, "CGAME_SB_DOWNS", 2}, {10, 0.093, "CGAME_SB_REVIVES", 2},
+        {11, 0.093, "CGAME_SB_HEADSHOTS", 2}, {3, 0.093, "CGAME_SB_PING", 2}},
+    solo = {{4, 0.07}, {0, 0.606, nil, 0}, {2, 0.108, "CGAME_SB_POINTS", 2},
+        {6, 0.108, "CGAME_SB_KILLS", 2}, {11, 0.108, "CGAME_SB_HEADSHOTS", 2}}
+}
+-- BO2 scoreboard columns by their names; T4 stat types they carry.
+local boardStats = {{"HEADSHOT", 11}, {"REVIVE", 10}, {"DOWN", 9}, {"KILL", 6}, {"SCORE", 2}, {"POINT", 2}}
+-- default.cfg runs coop_arcademode.cfg: cg_ScoresColor_Gamertag_0..3,
+-- cg_ScoresColor_Zombie and cg_ScoresColor_Transparency.
+local boardNames = {{1, 1, 1}, {0.486, 0.812, 0.933}, {0.965, 0.792, 0.314}, {0.514, 0.925, 0.533}}
+-- T4 sub_667F80 geometry in 480-high units: cg_scoreboardWidth 510, height
+-- 435, banner 35; rows 12 high, 4 apart; header scale 0.2, rows 0.22 (em
+-- height 48 * scale); row baseline (pixelHeight * 0.22 + 12) * 0.64.
+local board = {width = 510, inner = 492, header = 103.4, rows = 107.4, row = 12, gap = 4}
+local function boardLayout()
+    local offline = Engine.SessionModeIsMode and CoD.SESSIONMODE_OFFLINE and
+        Engine.SessionModeIsMode(CoD.SESSIONMODE_OFFLINE)
+    return offline and boardColumns.solo or boardColumns.coop
+end
+local function boardText(parent, scale, x, baseline, right)
+    return W.label(parent, "score", 48 * scale * 1.5, x * 1.5, baseline * 1.5, right)
+end
+function W.boardStats(controller)
+    local stats = {}
+    for i = 0, 15 do
+        local name = Engine.GetScoreBoardColumnName(controller, i)
+        if not name or name == "" then break end
+        local upper = string.upper(name)
+        for _, entry in ipairs(boardStats) do
+            if string.find(upper, entry[1], 1, true) and not stats[entry[2]] then stats[entry[2]] = i; break end
+        end
+        if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then print("WAW HUD board column " .. i .. " " .. name) end
+    end
+    return stats
+end
+function W.boardPlayers(controller)
+    local players = {}
+    for _, position in ipairs(Engine.GetTeamPositions(controller) or {}) do
+        for i = 0, (Engine.GetMatchScoreboardClientCount(position.team) or 0) - 1 do
+            local index, clientNum = Engine.GetMatchScoreboardIndexAndClientNumForTeam(i, position.team,
+                CoD.SCOREBOARD_SORT_CLIENTNUM)
+            if index ~= nil and clientNum ~= nil then players[#players + 1] = {index = index, clientNum = clientNum} end
+        end
+    end
+    -- T4 lists zombie players in client number order.
+    table.sort(players, function(a, b) return a.clientNum < b.clientNum end)
+    return players
+end
+function W.updateBoard(e)
+    local controller = e.controller
+    local stats = e.stats
+    local players = W.boardPlayers(controller)
+    for i, player in ipairs(players) do
+        local row = e.rows[i]
+        if not row then
+            row = LUI.UIElement.new()
+            row:setLeftRight(true, true, 0, 0)
+            row.bg = image(row, nil, -246 * 1.5, 0, board.inner * 1.5, board.row * 1.5)
+            row.cells = {}
+            local x = -246
+            local baseline = (metric("score", 63)[7] * 0.22 + 12) * 0.64
+            for c, column in ipairs(e.columns) do
+                local width = column[2] * board.inner
+                if column[1] == 4 then
+                    row.cells[c] = image(row, nil, (x + (width - 13) / 2) * 1.5, 0, 19.5, 19.5)
+                    row.cells[c]:setAlpha(0)
+                elseif column[1] == 0 then
+                    row.cells[c] = boardText(row, 0.22, x, baseline, false)
+                elseif column[4] == 2 then
+                    row.cells[c] = boardText(row, 0.22, x + width - 4, baseline, true)
+                end
+                x = x + width
+            end
+            e.panel:addElement(row)
+            e.rows[i] = row
+        end
+        local y = board.rows + (i - 1) * (board.row + board.gap)
+        row:setTopBottom(true, false, y * 1.5, (y + board.row) * 1.5)
+        row.bg:setImage(RegisterMaterial("waw_hud/scorebar_zom_long_" .. ((player.clientNum % 4) + 1)))
+        row.bg:setRGB(0.424, 0.004, 0)
+        row.bg:setAlpha(0.35)
+        local color = boardNames[(player.clientNum % 4) + 1]
+        for c, column in ipairs(e.columns) do
+            local cell, kind, text = row.cells[c], column[1], nil
+            if kind == 0 then text = Engine.GetFullGamertagForScoreboardIndex(player.index)
+            elseif kind == 3 then text = Engine.GetPingForScoreboardIndex(player.index)
+            elseif stats[kind] then text = Engine.GetScoreboardColumnForScoreboardIndex(player.index, stats[kind])
+            elseif kind == 4 then
+                local icon = Engine.GetStatusIconForClient(player.clientNum)
+                cell:setAlpha(icon and 1 or 0)
+                if icon then cell:setImage(icon) end
+            end
+            if cell and kind ~= 4 then
+                cell:setText(text or "")
+                cell:setRGB(color[1], color[2], color[3])
+            end
+        end
+        row:setAlpha(1)
+    end
+    for i = #players + 1, #e.rows do e.rows[i]:setAlpha(0) end
+end
+function W.scoreboard(controller)
+    local e = CoD.Menu.NewFromState("Scoreboard")
+    e:setLeftRight(true, true, 0, 0)
+    e:setTopBottom(true, true, 0, 0)
+    e:setOwner(controller)
+    e.controller = controller
+    e.columns = boardLayout()
+    e.stats = W.boardStats(controller)
+    e.rows = {}
+    -- 640x480 placement centred on screen; the scoreboard is a centred column.
+    e.panel = LUI.UIElement.new()
+    e.panel:setLeftRight(false, false, 0, 0)
+    e.panel:setTopBottom(false, false, -360, 360)
+    e:addElement(e.panel)
+    local x = -246
+    for _, column in ipairs(e.columns) do
+        local width = column[2] * board.inner
+        if column[3] then
+            boardText(e.panel, 0.2, x + width, board.header, true):setText(Engine.Localize("WAW2BO2_" .. column[3]))
+        end
+        x = x + width
+    end
+    e.close = function(self) CoD.Menu.close(self) end
+    e:registerEventHandler("close_all_ingame_menus", e.close)
+    e:registerEventHandler("close_scoreboard_menu", e.close)
+    e:registerEventHandler("update_scoreboard", function(self) W.updateBoard(self) end)
+    W.updateBoard(e)
+    return e
+end
+-- Plutonium replaces hud/scoreboard.lua with a loose file, so the HUD entry
+-- wraps whichever Scoreboard menu is defined instead of shipping a module.
+function W.scoreboardMenu(controller)
+    if W.active() then return W.scoreboard(controller) end
+    return W.stockScoreboard(controller)
+end
+function W.hookScoreboard()
+    local original = LUI.createMenu.Scoreboard
+    if original and original ~= W.scoreboardMenu then
+        W.stockScoreboard = original
+        LUI.createMenu.Scoreboard = W.scoreboardMenu
+    end
 end
 function W.scores(controller)
     if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then print("WAW HUD create scores") end

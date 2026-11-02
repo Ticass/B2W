@@ -31,7 +31,11 @@ GLYPHS = 'zm/waw_hud_glyphs.csv'
 MANIFEST = 'content_source/waw_hud.json'
 ASSETS = ('ammo_counter_bullet', 'ammo_counter_riflebullet', 'ammo_counter_beltbullet',
           'ammo_counter_rocket', 'ammo_counter_shotgunshell', 'ammo_counter_tesla',
-          'scorebar_zom_1', 'scorebar_zom_2', 'scorebar_zom_3', 'scorebar_zom_4')
+          'scorebar_zom_1', 'scorebar_zom_2', 'scorebar_zom_3', 'scorebar_zom_4',
+          'scorebar_zom_long_1', 'scorebar_zom_long_2', 'scorebar_zom_long_3', 'scorebar_zom_long_4')
+# Engine-owned T4 scoreboard labels (code_post_gfx); staged with the map's strings.
+ENGINE_STRINGS = ('CGAME_SB_POINTS', 'CGAME_SB_KILLS', 'CGAME_SB_DOWNS', 'CGAME_SB_REVIVES',
+                  'CGAME_SB_HEADSHOTS', 'CGAME_SB_PING')
 
 
 def write_table(path: Path, rows) -> None:
@@ -179,7 +183,9 @@ def stage_runtime(bo2: Path, project: Path, name: str) -> list[str]:
         # T4 sub_42B990 tests the source weapon name for "tesla_gun".
         counter_icon = 'ammo_counter_tesla' if 'tesla_gun' in weapon.lower() else ''
         rows.append([weapon, d.get('ammoCounterClip', 'None'), d.get('clipSize', '0'),
-                     d.get('overheatWeapon', '0'), d.get('displayName', ''), d.get('altWeapon', ''), counter_icon])
+                     d.get('overheatWeapon', '0'), d.get('displayName', ''), d.get('altWeapon', ''), counter_icon,
+                     # T4 sub_44F540 draws a heat weapon's hudIcon as its gauge.
+                     d.get('hudIcon', '') if d.get('overheatWeapon') == '1' else ''])
     write_table(project / WEAPONS, rows)
     modules = [RUNTIME, BASE, SUPPORT, *[p for module, base, _ in WRAPPERS for p in (module, base)]]
     return [f'rawfile,{p}' for p in modules] + [f'stringtable,{p}' for p in (MAPS, WEAPONS, GLYPHS)] + [

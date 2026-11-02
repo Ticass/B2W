@@ -184,6 +184,10 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
                     if low.endswith('.str') and (low.startswith('localizedstrings/') or
                                                  low.startswith(language + '/localizedstrings/')):
                         add(z.read(name).decode('utf-8-sig', errors='replace'), f'{archive}:{name}', Path(name).stem)
+    # The converted WaW HUD draws T4's engine-owned scoreboard labels: request
+    # them like plain references, wherever a source (stock WaW) defines them.
+    from .wawhud import ENGINE_STRINGS
+    strings.update(ENGINE_STRINGS)
     # Include real keys passed through ordinary string variables as well.
     known = set(sources)
     if stock is not None:
