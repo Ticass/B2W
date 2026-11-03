@@ -88,6 +88,46 @@ waw_haseyes()
     return 0;
 }
 
+// WaW client SpawnFx + TriggerFX. T6's client spawnfx drops the given axis (a
+// createfx effect plays on the default one: Der Riese's eclipse sprite seen
+// edge-on) and no stock client script calls it; BO2 plays createfx through
+// playfx (clientscripts\mp\_fx create_triggerfx). The returned entity is what
+// WaW scripts keep and delete, and its shutdown stops the effect.
+waw_spawnfx( clientnum, fx, origin, delay, forward, up )
+{
+    ent = spawn( clientnum, origin, "script_origin" );
+    ent.waw_fx_client = clientnum;
+    ent.waw_fx = fx;
+    ent.waw_fx_delay = delay;
+    ent.waw_fx_forward = forward;
+    ent.waw_fx_up = up;
+    return ent;
+}
+
+waw_triggerfx( ent, time )
+{
+    if ( !isdefined( time ) )
+        time = ent.waw_fx_delay;
+    if ( isdefined( ent.waw_fx_playing ) )
+        deletefx( ent.waw_fx_client, ent.waw_fx_playing );
+    else
+        ent thread waw_fx_shutdown();
+    if ( !isdefined( ent.waw_fx_forward ) )
+        ent.waw_fx_playing = playfx( ent.waw_fx_client, ent.waw_fx, ent.origin );
+    else if ( !isdefined( ent.waw_fx_up ) )
+        ent.waw_fx_playing = playfx( ent.waw_fx_client, ent.waw_fx, ent.origin, ent.waw_fx_forward );
+    else
+        ent.waw_fx_playing = playfx( ent.waw_fx_client, ent.waw_fx, ent.origin, ent.waw_fx_forward, ent.waw_fx_up, time );
+}
+
+waw_fx_shutdown()
+{
+    client = self.waw_fx_client;
+    self waittill( "entityshutdown" );
+    if ( isdefined( self.waw_fx_playing ) )
+        deletefx( client, self.waw_fx_playing );
+}
+
 // Both sun tweak dvars are SAVED (0x1200): plain setdvar is refused for them.
 sun_state( localclientnum, state )
 {

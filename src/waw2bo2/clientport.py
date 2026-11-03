@@ -98,7 +98,8 @@ CLIENT_METHODS = {'setlightintensity': 'waw_setlightintensity', 'getlightintensi
 # says what each becomes).
 CLIENT_BUILTINS = {'setvolfog': 'waw_client_setvolfog', 'syncsystemstates': 'waw_syncsystemstates',
                    'updatedvarsfromprofile': 'waw_updatedvarsfromprofile', 'getsoundvolume': 'waw_getsoundvolume',
-                   'setclientdvar': 'waw_setclientdvar', 'prof_begin': 'waw_prof', 'prof_end': 'waw_prof'}
+                   'setclientdvar': 'waw_setclientdvar', 'prof_begin': 'waw_prof', 'prof_end': 'waw_prof',
+                   'spawnfx': 'waw_spawnfx', 'triggerfx': 'waw_triggerfx'}
 
 
 def client_norm(path: str) -> str:
