@@ -156,14 +156,17 @@ namespace
             return nullptr;
         }
 
-        static void AutoGenerateArmature(XModelCommon& common)
+        // A rigid model's glTF carries no skeleton. Its one bone keeps the
+        // source's name when the model JSON gives a single boneInfo (WaW's
+        // tag_origin model: scripts play effects on "tag_origin").
+        static void AutoGenerateArmature(XModelCommon& common, const std::string& name)
         {
             assert(common.m_bones.empty());
             assert(common.m_bone_weight_data.weights.empty());
             assert(common.m_vertex_bone_weights.size() == common.m_vertices.size());
 
             XModelBone rootBone{
-                .name = "root",
+                .name = name,
                 .parentIndex = std::nullopt,
                 .scale = {1.0f, 1.0f, 1.0f},
                 .globalOffset = {0.0f, 0.0f, 0.0f},
@@ -1103,7 +1106,10 @@ namespace
             }
 
             if (common->m_bones.empty())
-                AutoGenerateArmature(*common);
+                AutoGenerateArmature(*common, jXModel.boneInfo && jXModel.boneInfo->size() == 1u
+                                                  && !jXModel.boneInfo->front().bone.empty()
+                                                  ? jXModel.boneInfo->front().bone
+                                                  : std::string("root"));
 
             if (lodNumber == 0u)
             {

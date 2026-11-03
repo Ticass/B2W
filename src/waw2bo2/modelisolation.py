@@ -37,6 +37,17 @@ def rewrite_script(source: str, renamed: dict[str, str]) -> str:
                 depth -= 1
             if argument in wanted:
                 tags.add(i)
+    # A bone name held in a variable first (tag = "tag_origin"; then
+    # playfxontag( fx, ent, tag )) is a bone too: renaming it to the model's
+    # isolated name made the power-ups' glow carrier play on a missing tag.
+    tag_variables = {tokens[i].text.lower() for i in tags
+                     if tokens[i].kind == gsc.IDENT and tokens[i - 1].text in ('(', ',')
+                     and i + 1 < len(tokens) and tokens[i + 1].text in (')', ',')}
+    for i in range(2, len(tokens)):
+        if (tokens[i].kind == gsc.STRING and tokens[i - 1].text == '=' and tokens[i - 2].kind == gsc.IDENT
+                and tokens[i - 2].text.lower() in tag_variables
+                and (i < 3 or tokens[i - 3].text not in ('.', ']'))):
+            tags.add(i)
     for i, token in enumerate(tokens):
         if i not in tags and token.kind == gsc.STRING and token.text[1:-1] in renamed:
             token.text = '"' + renamed[token.text[1:-1]] + '"'

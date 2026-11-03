@@ -23,6 +23,20 @@ class ModelIsolationTests(unittest.TestCase):
         self.assertEqual(result.count('"tag_origin"'), 6)
         self.assertEqual(result.count('"waw_world_model/shared"'), 2)
 
+    def test_bone_names_held_in_a_tag_variable_stay_bones(self):
+        # compat waw_playfxontag: tag = "tag_origin" for the power-up glow
+        # carrier; renamed, the glow played on a missing tag
+        source = '''play(fx, ent, tag){
+            if ( !has(ent, tag) ) { ent = carrier(ent); tag = "tag_origin"; }
+            playfxontag(fx, ent, tag);
+            model = "tag_origin";
+            self.tag = "tag_origin";
+        }'''
+        result = modelisolation.rewrite_script(source, {'tag_origin': 'waw_world_model/tag_origin'})
+        self.assertIn('tag = "tag_origin";', result)
+        self.assertIn('model = "waw_world_model/tag_origin";', result)
+        self.assertIn('self.tag = "waw_world_model/tag_origin";', result)
+
     def test_render_collision_entities_scripts_and_dynamic_table_agree(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
