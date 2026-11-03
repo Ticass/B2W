@@ -94,6 +94,7 @@ class PerkOwnershipTests(unittest.TestCase):
                 + gscport.WAW_SELF_DAMAGE_CAP[0] + '    }\n' + gscport.WAW_PLAYER_DAMAGE_SCALE[0] + '}\n'
                 'init_levelvars()\n{\n    set_zombie_var( "zombie_spawn_delay", 2.0, 1, column );\n}\n'
                 'round_spawning()\n{\n' + gscport.WAW_ROUND_HEALTH[0] + '}\n'
+                'end_game()\n{\n' + gscport.WAW_GAME_OVER_MUSIC[0] + '}\n'
                 + gscport.WAW_SOURCE_PLAYER_DAMAGE[0] + '    finish();\n}\n'
                 'callback_playerlaststand()\n{\n' + gscport.WAW_SOURCE_PLAYER_LASTSTAND[0] + '}\n')
             out = root / 'out'

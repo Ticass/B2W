@@ -488,27 +488,34 @@ class AffineInverseTests(unittest.TestCase):
     def test_rows_invert_the_native_matrix(self):
         # WaW projected decals read inverseWorldMatrix / viewMatrix; T6 binds
         # worldMatrix / inverseViewMatrix, inverted in the program
-        import re
-        import numpy as np
-        rng = np.random.default_rng(3)
-        matrix = np.eye(4)
-        matrix[:3, :3] = rng.normal(size=(3, 3))
-        matrix[:3, 3] = rng.normal(size=3)
-        cb = {f't6_cb1[{4 + i}]': matrix[i] for i in range(4)}
+        # Plain Python, like the packaged converter (no numpy on the CI runners).
+        import random
 
-        def evaluate(expr):
-            for name, value in cb.items():
-                expr = expr.replace(name, f'np.array({list(value)})')
-            for c, i in zip('xyzw', range(4)):
-                expr = re.sub(r'(np\.array\(\[[^]]*\]\))\.' + c + r'\b', rf'\1[{i}]', expr)
-            expr = expr.replace('float3', 'F').replace('float4', 'F')
-            return eval(expr, {'np': np, 'cross': np.cross, 'dot': np.dot,
-                               'F': lambda *a: np.hstack([np.atleast_1d(x) for x in a])})
+        class Vec(tuple):
+            x = property(lambda self: self[0])
+            y = property(lambda self: self[1])
+            z = property(lambda self: self[2])
+            w = property(lambda self: self[3])
+            __truediv__ = lambda self, k: Vec(a / k for a in self)
+            __neg__ = lambda self: Vec(-a for a in self)
 
-        inverse = np.linalg.inv(matrix)
+        def flat(*parts):
+            return Vec(v for p in parts for v in (p if isinstance(p, tuple) else (p,)))
+
+        def cross(a, b):
+            return Vec((a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]))
+
+        rng = random.Random(3)
+        matrix = [[rng.gauss(0, 1) for _ in range(4)] for _ in range(3)] + [[0.0, 0.0, 0.0, 1.0]]
+        names = {'t6_cb1': [Vec(row) for row in [[1.0] * 4] * 4 + matrix]}
+        names.update(float3=flat, float4=flat, cross=cross, dot=lambda a, b: sum(p * q for p, q in zip(a, b)))
         for row in range(4):
             contract = runtime.affine_inverse_row((1, 64, 64), row)
-            self.assertTrue(np.allclose(evaluate(contract['expr']), inverse[row]))
+            inverse = eval(contract['expr'], names)
+            # each row of the inverse times the matrix is that row of the identity
+            for column in range(4):
+                value = sum(inverse[k] * matrix[k][column] for k in range(4))
+                self.assertAlmostEqual(value, 1.0 if column == row else 0.0, places=9)
         self.assertEqual(runtime.AFFINE_INVERSES['viewMatrix'], 'inverseViewMatrix')
 
 
