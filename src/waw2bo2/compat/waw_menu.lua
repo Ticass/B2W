@@ -598,11 +598,20 @@ commands.exec = function(host, layer, a)
         host.left = true
         Engine.SetDvar("cl_paused", 0)
     end
+    -- T6 RestartGamePopup: fast_restart only offline or in system link;
+    -- other sessions ask the server (restart_level_zm, BO2's restart).
+    if word == "fast_restart" and not session("SESSIONMODE_OFFLINE") and not session("SESSIONMODE_SYSTEMLINK") then
+        guarded(Engine.SendMenuResponse, host.controller, "restartgamepopup", "restart_level_zm")
+        return
+    end
     guarded(Engine.Exec, host.controller, command)
 end
 commands.execnow = commands.exec
+-- A T6 menu response reaches the server by a precached menu's index; WaW's
+-- popup names are not precached, the host "class" menu is (BO2's endround
+-- response then ends the game as WaW's _ingamemenus does).
 commands.scriptmenuresponse = function(host, layer, a)
-    guarded(Engine.SendMenuResponse, host.controller, layer.def.name, a[1] or "")
+    guarded(Engine.SendMenuResponse, host.controller, "class", a[1] or "")
 end
 -- WaW hides the "save and quit" item when no save device exists (zombies never saves).
 commands.nosavehide = function(host, layer, a) host.hidden[string.lower(a[1] or "")] = true end

@@ -104,6 +104,19 @@ host = LUI.createMenu.class(0)
 M.activate(host, host.top, host.top.items[4])
 assert(log.opened == "OptionsMenu" and host.saved and host.closed)
 
+-- WaW's restart and quit in an online session: T6's restart response, and
+-- script responses under the precached host menu
+host = LUI.createMenu.class(0)
+Engine.SessionModeIsMode = function() return false end
+local execs = #log.exec
+M.run(host, host.top, "exec fast_restart")
+assert(#log.exec == execs and log.responses[#log.responses] == "restartgamepopup:restart_level_zm")
+M.run(host, host.top, "scriptMenuResponse endround")
+assert(log.responses[#log.responses] == "class:endround")
+Engine.SessionModeIsMode = function(m) return m == 1 end
+M.run(host, host.top, "exec fast_restart")
+assert(log.exec[#log.exec] == "fast_restart")
+
 -- not a converted map: BO2's menu
 CoD.WawHUD.active = function() return false end
 assert(LUI.createMenu.class(0) == "stock class")
