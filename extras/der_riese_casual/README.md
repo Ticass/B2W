@@ -3,10 +3,11 @@
 Optional fixes for the **WaW Der Riese port running in Plutonium T6**.
 
 Install `der_riese_waw_casual_fixes.gsc` into
-`%LOCALAPPDATA%\Plutonium\storage\t6\scripts\zm\` and use the accompanying
-updated `zm_der_riese_waw.ff` in
-`%LOCALAPPDATA%\Plutonium\storage\t6\mods\zm_der_riese_waw\`.
-Replace any older copy of the optional script. Restart the map after installing.
+`%LOCALAPPDATA%\Plutonium\storage\t6\scripts\zm\`. Every Der Riese release
+since 2026-10-31 already ships the map side it needs: keep the release's own
+`zm_der_riese_waw.ff` and never copy an older one over it (the map zone must
+match that release's mod.ff and ipaks). Replace any older copy of the optional
+script. Restart the map after installing.
 
 - Solo QR enters engine last stand through `FinishPlayerDamage`. A replaced
   T6 callback routes that down to native `_zm_laststand::playerlaststand`.
