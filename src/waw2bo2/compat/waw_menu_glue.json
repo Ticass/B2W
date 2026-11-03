@@ -20,7 +20,7 @@
     "ui_shipping_cheats": "0."
   },
   "leave_commands": {
-    "_reason": "T6's in-game menu clears cl_paused before a command that leaves or restarts the level (RestartGamePopup, EndGamePopup).",
+    "_reason": "Before a command that leaves or restarts the level, T6's popups (RestartGamePopup.Close, EndGamePopup.Close) clear the world blur, call LockInput(false) and SetUIActive(false), close every in-game menu and clear cl_paused; without that the restarted level keeps the cursor and takes no input. Restarts also run RestartGamePopup.RestartLevel's ui_busyBlockIngameMenu 1, stopControllerRumble, fade and silence.",
     "commands": [
       "disconnect",
       "fast_restart",
@@ -30,7 +30,7 @@
     ]
   },
   "menu_responses": {
-    "reason": "A T6 menu response reaches the server by a precached menu's index. WaW's popup names are not precached; scriptMenuResponse goes out under the host 'class' menu, so BO2's _zm_gametype handler receives it (endround ends the game).",
+    "reason": "A T6 menu response reaches the server by a precached menu's index. WaW's popup names are not precached. endround goes out as T6's EndGamePopup.FinishEndGame sends it, under popup_leavegame after the leave above; other responses go under the host 'class' menu. BO2's _zm_gametype handler receives them (endround ends the game).",
     "restart": "fast_restart runs as T6's RestartGamePopup does: the command offline or in system link, otherwise the 'restart_level_zm' response under 'restartgamepopup'."
   }
 }

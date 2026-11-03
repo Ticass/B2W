@@ -483,6 +483,16 @@ function M.activate(host, layer, item)
     M.settle(host)
 end
 
+-- T4 Menu_HandleMouseMove: of the items under the cursor, the last in the
+-- menu takes focus (and so the click).
+function M.hovered(layer)
+    local top
+    for _, item in ipairs(layer.items) do
+        if item.hover and focusable(item) then top = item end
+    end
+    return top
+end
+
 local function newItem(host, layer, d)
     local item = {data = d, glyphs = {}}
     item.root = LUI.UIElement.new()
@@ -502,15 +512,24 @@ local function newItem(host, layer, d)
         hit:setHandleMouse(true)
         hit:setHandleMouseMove(true)
         hit:setHandleMouseButton(true)
+        -- Items overlap (a popup's full-screen "close self" item lies under its
+        -- buttons), so focus and the click go to the item T4 picks, not to
+        -- whichever element LUI reaches first.
         hit:registerEventHandler("mouseenter", function()
-            if host.top == layer and item.shown then M.focus(host, layer, item); M.refresh(host) end
+            item.hover = true
+            if host.top == layer then M.focus(host, layer, M.hovered(layer)); M.refresh(host) end
         end)
         hit:registerEventHandler("mouseleave", function()
-            if layer.focus == item then M.focus(host, layer, nil); M.refresh(host) end
+            item.hover = false
+            if host.top == layer then M.focus(host, layer, M.hovered(layer)); M.refresh(host) end
         end)
-        hit:registerEventHandler("leftmousedown", function() return true end)
+        hit:registerEventHandler("leftmousedown", function() layer.pressed = true; return true end)
         hit:registerEventHandler("leftmouseup", function()
-            if host.top == layer and item.shown then M.activate(host, layer, item) end
+            -- every overlapping element sees the same release: act on it once
+            if host.top == layer and layer.pressed then
+                layer.pressed = false
+                M.activate(host, layer, M.hovered(layer))
+            end
             return true
         end)
         item.root:addElement(hit)
@@ -539,7 +558,11 @@ function M.openLayer(host, name, modal)
     if def.blurworld > 0 then guarded(Engine.BlurWorld, host.controller, def.blurworld) end
     M.refresh(host)
     M.run(host, layer, def.onopen)
-    debug("open " .. name)
+    local buttons = {}
+    for _, item in ipairs(layer.items) do
+        if focusable(item) then buttons[#buttons + 1] = item.data.name end
+    end
+    debug("open " .. name .. " buttons " .. table.concat(buttons, " "))
     return layer
 end
 
@@ -591,27 +614,54 @@ commands.setlocalvarstring = function(host, layer, a) host.vars[a[1]] = a[2] or 
 commands.setdvar = function(host, layer, a)
     guarded(Engine.Exec, host.controller, "set " .. a[1] .. " \"" .. (a[2] or "") .. "\"")
 end
+-- T6 RestartGamePopup.Close / EndGamePopup.Close before the level goes: the
+-- menu hands input back (LockInput, SetUIActive) and closes every in-game
+-- menu, then unpauses. Without it the restarted level keeps the cursor and
+-- takes no input.
+function M.leave(host)
+    if host.left then return end
+    host.left, host.resumed = true, true
+    guarded(Engine.BlurWorld, host.controller, 0)
+    guarded(Engine.LockInput, host.controller, false)
+    guarded(Engine.SetUIActive, host.controller, false)
+    host:processEvent({name = "close_all_ingame_menus", controller = host.controller})
+    Engine.SetDvar("cl_paused", 0)
+end
+local RESTART = {fast_restart = true, map_restart = true, checkpoint_restart = true}
 commands.exec = function(host, layer, a)
     local command = a[1] or ""
     local word = string.lower(string.match(command, "^%s*(%S+)") or "")
-    if LEAVE[word] then
-        host.left = true
-        Engine.SetDvar("cl_paused", 0)
+    if LEAVE[word] then M.leave(host) end
+    -- T6 RestartGamePopup.RestartLevel before restarting.
+    if RESTART[word] then
+        guarded(function() Dvar.ui_busyBlockIngameMenu:set(1) end)
+        for _, c in ipairs({"stopControllerRumble", "fade 0 0 0 255 0 0 1", "silence"}) do
+            guarded(Engine.Exec, host.controller, c)
+        end
     end
     -- T6 RestartGamePopup: fast_restart only offline or in system link;
     -- other sessions ask the server (restart_level_zm, BO2's restart).
     if word == "fast_restart" and not session("SESSIONMODE_OFFLINE") and not session("SESSIONMODE_SYSTEMLINK") then
+        debug("response restartgamepopup restart_level_zm")
         guarded(Engine.SendMenuResponse, host.controller, "restartgamepopup", "restart_level_zm")
         return
     end
+    debug("exec " .. command)
     guarded(Engine.Exec, host.controller, command)
 end
 commands.execnow = commands.exec
 -- A T6 menu response reaches the server by a precached menu's index; WaW's
--- popup names are not precached, the host "class" menu is (BO2's endround
--- response then ends the game as WaW's _ingamemenus does).
+-- popup names are not precached. endround goes out as T6's EndGamePopup sends
+-- it (popup_leavegame, after its Close), others under the host "class" menu.
 commands.scriptmenuresponse = function(host, layer, a)
-    guarded(Engine.SendMenuResponse, host.controller, "class", a[1] or "")
+    local response = a[1] or ""
+    local menu = "class"
+    if string.lower(response) == "endround" then
+        M.leave(host)
+        menu = "popup_leavegame"
+    end
+    debug("response " .. menu .. " " .. response)
+    guarded(Engine.SendMenuResponse, host.controller, menu, response)
 end
 -- WaW hides the "save and quit" item when no save device exists (zombies never saves).
 commands.nosavehide = function(host, layer, a) host.hidden[string.lower(a[1] or "")] = true end
@@ -706,6 +756,8 @@ function M.create(controller)
     host:registerEventHandler("waw_menu_tick", function(self) M.refresh(self) end)
     local timer = LUI.UITimer and guarded(LUI.UITimer.new, 250, "waw_menu_tick", false)
     if timer then host:addElement(timer) end
+    debug("onlinegame " .. M.dvar("onlinegame") .. " sv_running " .. M.dvar("sv_running")
+        .. " systemlink " .. M.dvar("systemlink") .. " private " .. M.dvar("xblive_privatematch"))
     M.openLayer(host, "pausedmenu", true)
     M.settle(host)
     return host

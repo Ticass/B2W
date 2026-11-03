@@ -107,15 +107,17 @@ in T4: `open`/`close`/`showMenu`/`hideMenu`, `setfocus`/`focusfirst`,
 Engine glue (`compat/waw_menu_glue.json`): WaW dvars the menus test map to T6
 state (`zombiemode` 1, `mapname` the source map, `sv_running`, session modes);
 `options_new_pc` opens T6's `OptionsMenu`, because WaW's options edit T4
-engine settings; `cl_paused` is cleared before `disconnect`/`fast_restart`, as
-T6's own popups do; when no WaW menu is left open the host resumes through
+engine settings; before `disconnect`/`fast_restart` the menu leaves as T6's own
+popups do (`RestartGamePopup.Close`: blur off, `LockInput`/`SetUIActive` false,
+`close_all_ingame_menus`, `cl_paused` 0; restarts add `RestartLevel`'s fade and
+silence), and `scriptMenuResponse endround` goes out under `popup_leavegame`
+like `EndGamePopup`; when no WaW menu is left open the host resumes through
 `CoD.InGameMenu.BackButtonPressed` (unpause, `ingame_menu_closed`).
 
 Not ported: WaW's cursor (T6 draws its own), the `mouse_over`/`mouse_click` UI
 sounds (no WaW UI aliases are staged yet; `play` only fires for a `sound:<alias>` table row),
-the objective-list ownerdraw (zombies has no objectives), and co-op
-`scriptMenuResponse "endround"`, whose WaW handler (`_ingamemenus.gsc`) is not
-part of the port; the response reaches T6's menu-response handling unchanged (unverified in game). Sources come from
+the objective-list ownerdraw (zombies has no objectives), and WaW's
+`_ingamemenus.gsc` `endround` handler (BO2's `_zm_gametype` one answers it). Sources come from
 `raw/ui`; the compiled zone menus were checked to match (strings, materials),
 but a custom map that ships modified compiled pause menus without sources gets
 the stock ones. Set `waw_menu_debug` 1 to log menu opens and ignored commands.

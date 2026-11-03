@@ -56,6 +56,7 @@ POPUP = '''{
 	{
 		name			popup_nosave_quit
 		onEsc { close self; open "pausedmenu"; }
+		itemDef { type 1 rect -600 -800 2000 2000 visible 1 action { close self; } }
 		itemDef { type 1 rect 100 135 200 24 1 1 exp text( "@MENU_QUIT_WARNING" ); textfont 1 textscale 0.5476 visible 1 decoration }
 		itemDef { name resume_game type 1 rect 78 254 180 22 1 1 exp text( "@MENU_RESUMEGAME_CAP" ); textfont 1 textscale 0.4 visible 1
 			action { close self; close "pausedmenu"; } }

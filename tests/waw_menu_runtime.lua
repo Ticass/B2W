@@ -21,6 +21,7 @@ CoD = {SESSIONMODE_OFFLINE = 1, SESSIONMODE_SYSTEMLINK = 2,
         local e = element(); e.menuName = name
         function e:saveState() self.saved = true end
         function e:openMenu(menu) log.opened = menu end
+        function e:processEvent(ev) if ev.name == "close_all_ingame_menus" then self:close() end end
         return e
     end, BackButtonPressed = function(host) log.back = log.back + 1; host:close() end}}
 LUI = {UIElement = {new = element}, UIImage = {new = element},
@@ -29,7 +30,9 @@ RegisterMaterial = function(m) return m end
 Engine = {Localize = function(k) return "text " .. k end, Exec = function(_, c) log.exec[#log.exec + 1] = c end,
     SetDvar = function(n, v) log[n] = v end, SessionModeIsMode = function(m) return m == 1 end,
     GetAspectRatio = function() return 16 / 9 end, BlurWorld = function(_, v) log.blur = v end,
-    SendMenuResponse = function(_, m, r) log.responses[#log.responses + 1] = m .. ":" .. r end}
+    SendMenuResponse = function(_, m, r) log.responses[#log.responses + 1] = m .. ":" .. r end,
+    LockInput = function(_, v) log.locked = v end, SetUIActive = function(_, v) log.uiActive = v end}
+Dvar = {ui_busyBlockIngameMenu = {set = function(_, v) log.busy = v end}}
 local dvars = {sv_running = "1", r_mode = "1920x1080"}
 UIExpression = {DvarString = function(_, n) return dvars[n] or "" end, DvarInt = function() return 0 end,
     TableLookup = function(_, t, _, key, col)
@@ -89,10 +92,20 @@ assert(host.top.def.name == "pausedmenu" and #host.layers == 2 and log.back == 0
 pause = host.top
 M.activate(host, pause, pause.items[3])
 local popup = host.top
-M.activate(host, popup, popup.items[3])
+-- the mouse over QUIT also lies over the full-screen "close self" item: the
+-- later item takes the click, as in T4, whichever element LUI reaches first
+popup.items[1].hit.handlers.mouseenter()
+popup.items[4].hit.handlers.mouseenter()
+assert(popup.focus == popup.items[4])
+popup.items[1].hit.handlers.leftmousedown()
+popup.items[4].hit.handlers.leftmousedown()
+popup.items[1].hit.handlers.leftmouseup()
+popup.items[4].hit.handlers.leftmouseup()
 assert(log.exec[#log.exec] == "disconnect" and log.cl_paused == 0)
 assert(log.exec[#log.exec - 1] == 'set ui_skipMainLockout "1"')
 assert(host.closed and log.back == 0)
+-- leaving hands input back as T6's popups do (RestartGamePopup.Close)
+assert(log.locked == false and log.uiActive == false)
 
 -- RESUME goes through BO2's in-game back path (unpause, ingame_menu_closed)
 host = LUI.createMenu.class(0)
@@ -105,17 +118,21 @@ M.activate(host, host.top, host.top.items[4])
 assert(log.opened == "OptionsMenu" and host.saved and host.closed)
 
 -- WaW's restart and quit in an online session: T6's restart response, and
--- script responses under the precached host menu
+-- endround under T6's popup_leavegame (EndGamePopup.FinishEndGame)
 host = LUI.createMenu.class(0)
 Engine.SessionModeIsMode = function() return false end
 local execs = #log.exec
 M.run(host, host.top, "exec fast_restart")
-assert(#log.exec == execs and log.responses[#log.responses] == "restartgamepopup:restart_level_zm")
+assert(#log.exec == execs + 3 and log.exec[#log.exec] == "silence")
+assert(log.responses[#log.responses] == "restartgamepopup:restart_level_zm")
+log.locked = nil
+host = LUI.createMenu.class(0)
 M.run(host, host.top, "scriptMenuResponse endround")
-assert(log.responses[#log.responses] == "class:endround")
+assert(log.responses[#log.responses] == "popup_leavegame:endround" and log.locked == false and host.closed)
 Engine.SessionModeIsMode = function(m) return m == 1 end
+host = LUI.createMenu.class(0)
 M.run(host, host.top, "exec fast_restart")
-assert(log.exec[#log.exec] == "fast_restart")
+assert(log.exec[#log.exec] == "fast_restart" and log.exec[#log.exec - 1] == "silence" and log.busy == 1)
 
 -- not a converted map: BO2's menu
 CoD.WawHUD.active = function() return false end
