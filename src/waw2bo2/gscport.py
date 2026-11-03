@@ -44,6 +44,7 @@ API = json.loads((COMPAT_DIR / "gsc_api.json").read_text(encoding="utf-8"))
 # BO2 parameter names of the scripts core_scripts maps to (signature_differs)
 BO2_PARAMS = load_params_snapshot()
 COMPAT = "maps\\mp\\waw\\_waw2bo2_compat"
+FIXES = "maps\\mp\\waw\\_waw2bo2_fixes"
 STUBS = "maps\\mp\\waw\\_waw2bo2_stubs"
 ASSETS = "maps\\mp\\waw\\_waw2bo2_assets"
 CORE = "maps\\mp\\waw\\_waw2bo2_core"
@@ -2221,6 +2222,8 @@ class Translator:
         init = self.extract_entry(LASTSTAND, "init")
         if init:
             lines.append(f"\t{init}();")
+        # opt-in g_fix_last_stand (compat/waw_fixes.json) wraps the override
+        lines.append(f"\t{FIXES}::wrap_player_damage();")
         name = "waw2bo2_source_player_damage"
         self.level_state_parts.append(
             f"\n// WaW drives player damage and last stand: the map's engine entries\n{name}()\n{{\n"
@@ -3803,8 +3806,8 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
     report.fx += re.findall(r'waw_loadfx\s*\(\s*"([^"]+)"', "\n".join(core_parts), re.IGNORECASE)
     core_parts.append("\n// level state of WaW framework inits BO2 does not run (called by waw_main_pre)\n"
                       "framework_level_state()\n{\n" + "".join(f"\t{fn}();\n" for fn in framework_state) + "}\n")
-    (out_dir / "_waw2bo2_compat.gsc").write_text((COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8"),
-                                                 encoding="utf-8")
+    for script in ("_waw2bo2_compat.gsc", "_waw2bo2_fixes.gsc"):
+        (out_dir / script).write_text((COMPAT_DIR / script).read_text(encoding="utf-8"), encoding="utf-8")
     from . import hintdefaults
     (out_dir / '_waw2bo2_hint_defaults.gsc').write_text(hintdefaults.source(out_root), encoding='utf-8')
     core_head = ["// waw2bo2: WaW framework functions BO2 has no counterpart for, extracted from the map's",
@@ -4701,7 +4704,8 @@ WAW_SOURCE_PLAYER_LASTSTAND = (
     "    [[ maps\\mp\\zombies\\_zm_laststand::playerlaststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
     "vdir, shitloc, psoffsettime, deathanimduration );\n",
     "    // waw2bo2: WaW drives last stand: the map's Callback_PlayerLastStand\n"
-    "    if ( isdefined( level.waw2bo2_source_player_laststand ) )\n    {\n"
+    "    // (a down g_fix_last_stand sent to T6's last stand takes BO2's below)\n"
+    "    if ( isdefined( level.waw2bo2_source_player_laststand ) && !self maps\\mp\\waw\\_waw2bo2_fixes::native_laststand() )\n    {\n"
     "        self [[ level.waw2bo2_source_player_laststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
     "vdir, shitloc, psoffsettime, deathanimduration );\n        return;\n    }\n\n"
     "    [[ maps\\mp\\zombies\\_zm_laststand::playerlaststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "

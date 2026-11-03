@@ -62,6 +62,12 @@ class ParenthesisedCallerTests(unittest.TestCase):
         self.assertEqual(gscport.fix_syntax(script.tokens), 0)
         self.assertEqual(gsc.emit(script.tokens), source)
 
+    def test_foreach_over_a_call_is_not_a_method(self):
+        script = gsc.parse('f() { foreach ( e in getentarray( "a", "targetname" ) ) e hide(); }', 'maps/x')
+        refs = {r.name.lower(): r for r in gsc.references(script.tokens) if r.name.lower() != 'f'}
+        self.assertFalse(refs['getentarray'].method)
+        self.assertTrue(refs['hide'].method)
+
     def test_unwrapped_callers_still_resolve_as_methods(self):
         script = gsc.parse('f(who, pad) { (who) IsTouching(pad); (who.part) hide(); '
                            'if (who) plain(); while (who) other(); }', 'maps/teleporter')

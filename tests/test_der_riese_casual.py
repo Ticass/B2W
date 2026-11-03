@@ -6,17 +6,13 @@ from waw2bo2 import gsc, gscport
 from waw2bo2.t6api import T6Api, load_snapshot
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / 'extras/der_riese_casual/der_riese_waw_casual_fixes.gsc'
+SCRIPT = ROOT / 'extras/der_riese_casual/der_riese_waw_health_audit.gsc'
 
 
 class CasualScriptTests(unittest.TestCase):
-    def test_all_static_dependencies_exist_in_stock_t6(self):
-        data = load_snapshot()
-        api = T6Api(data['builtins'], data['scripts'], data['methods'])
-        self.check_script(SCRIPT)
-
+    # The casual fixes themselves are console dvars now (compat/waw_fixes.json).
     def test_health_audit_has_only_stock_dependencies(self):
-        self.check_script(SCRIPT.with_name('der_riese_waw_health_audit.gsc'))
+        self.check_script(SCRIPT)
 
     def check_script(self, path):
         data = load_snapshot()

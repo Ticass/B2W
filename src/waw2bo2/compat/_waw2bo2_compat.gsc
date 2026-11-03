@@ -56,10 +56,8 @@ init()
     // own init_dvars and any authored overrides. T6 uses 128/300 instead.
     setdvar( "bg_fallDamageMinHeight", 200 );
     setdvar( "bg_fallDamageMaxHeight", 350 );
-    // Optional scripts can replace the T4 health field semantics without a
-    // static import of this map-only script (which would break other maps).
-    level.waw2bo2_health_setter = ::waw_set_health;
-    level.waw2bo2_perk_observer_api = 1;
+    // Opt-in console fixes (compat/waw_fixes.json), all off by default.
+    maps\mp\waw\_waw2bo2_fixes::register();
     // Converted maps run on Plutonium T6. WaW scorebar libraries use this
     // flag to leave TAB's scoreboard to the native client.
     if ( !isdefined( level.isPlutonium ) )
@@ -2381,9 +2379,10 @@ waw_set_maxhealth( value )
 // maximum health to the new value (its scripts save .maxhealth around a write
 // they do not mean to cap: _gameskill's regen, _collectibles_game). T6 keeps
 // the cap, so the setter's effect is applied here; AI have no such setter.
+// g_fix_tesla_bug turns the cap write off, as Plutonium T4's dvar does.
 waw_set_health( value )
 {
-    if ( isplayer( self ) )
+    if ( isplayer( self ) && !maps\mp\waw\_waw2bo2_fixes::enabled( "g_fix_tesla_bug" ) )
         self setmaxhealth( value );
     self.health = value;
 }

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+import json
 import re
 
 from . import gsc
@@ -99,4 +100,13 @@ def markdown(project: str, cov: dict[str, dict[str, str]]) -> str:
         out += ["", f"## {key} ({', '.join(f'{k} {v}' for k, v in sorted(counts.items()))})", "",
                 "| function | in the port |", "|---|---|"]
         out += [f"| {name} | {status} |" for name, status in rows.items()]
+    out += ["", "## Opt-in fixes (compat/waw_fixes.json, off by default)", "",
+            "| console dvar | changes from WaW |", "|---|---|"]
+    out += [f"| {name} {fix['default']} | {fix['changes']} |" for name, fix in optional_fixes().items()]
     return "\n".join(out) + "\n"
+
+
+def optional_fixes() -> dict[str, dict]:
+    """The console fixes a player can turn on; none changes the map unless set."""
+    path = Path(__file__).parent / 'compat' / 'waw_fixes.json'
+    return json.loads(path.read_text(encoding='utf-8'))['fixes']

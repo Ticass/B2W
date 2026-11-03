@@ -208,8 +208,9 @@ def references(tokens: list[Token], start: int = 0, end: int | None = None) -> l
             continue
         if prev is not None and prev.text == ".":
             continue
+        # `foreach ( x in f() )`: `in` is the loop keyword, not a receiver
         method = prev is not None and (prev.kind in (IDENT, STRING) and prev.low not in ("thread", "return", "else",
-                                                                                        "wait", "case", "do")
+                                                                                        "wait", "case", "do", "in")
                                        or prev.text in (")", "]"))
         if method and prev.text == ")":
             # `if ( x ) f()` / `while (...) f()` is a statement, not `(expr) f()`

@@ -110,6 +110,8 @@ class SourcePlayerDamageTests(unittest.TestCase):
         self.assertEqual(state, "zombiemode__main_level_state")
         self.assertIn("level.waw2bo2_source_player_damage = ::callbackglobal__callback_playerdamage;", core)
         self.assertIn("level.waw2bo2_source_player_laststand = ::callbackglobal__callback_playerlaststand;", core)
+        # opt-in g_fix_last_stand wraps the override after the map set it
+        self.assertIn("maps\\mp\\waw\\_waw2bo2_fixes::wrap_player_damage();", core)
         # the map's main points its own fields (BO2's _zm owns the same names)
         self.assertIn("level.waw_overrideplayerdamage = ", core)
         self.assertIn("level.waw_player_becomes_zombie = ", core)

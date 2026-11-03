@@ -1,0 +1,15 @@
+{
+  "_doc": "Optional fixes: console dvars a player turns on by hand (g_fix_last_stand 1). Every fix is off by default, so a converted map plays exactly as its WaW code does; none is detected or enabled per map. Each entry names the WaW behaviour it changes and the one hook it uses. _waw2bo2_fixes.gsc registers these dvars and reads them when the hook runs, so a fix can be toggled mid-game. A fix that is not listed here must not exist (tests/test_fixes.py).",
+  "fixes": {
+    "g_fix_tesla_bug": {
+      "default": 0,
+      "changes": "WaW's engine setter for a player's .health also sets the player's maximum health (compat waw_set_health). A Wunderwaffe self-hit (Der Riese tesla_pvp_thread) writes health 1 and leaves the player at 1/1 with no regeneration. With the fix, a health write keeps the maximum, as Plutonium T4's own health-sets-max dvar does; explicit .maxhealth writes (Juggernog, perk loss) still change it.",
+      "hook": "compat waw_set_health"
+    },
+    "g_fix_last_stand": {
+      "default": 0,
+      "changes": "Solo with Quick Revive, a lethal hit ends the game in WaW's _zombiemode player_damage_override. With the fix it enters T6's native last stand and revive instead (downed pistol, revive HUD, self-revive), at most three times per game; the third Quick Revive purchase hides the machine. Co-op downs and every other down run the map's own code.",
+      "hook": "the map's level.overridePlayerDamage (wrapped where WaW registers player damage) and the owned callback_playerlaststand glue"
+    }
+  }
+}
