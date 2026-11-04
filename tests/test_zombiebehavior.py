@@ -47,6 +47,15 @@ class ZombieBehaviorTests(unittest.TestCase):
             self.assertLess(runtime.index('source_state::prepare_round'), runtime.index('self source::choose'))
             self.assertIn('level.waw_speed_round != level.round_number', runtime)
 
+    def test_zombies_keep_t4_native_pain_so_a_hit_cancels_the_swing(self):
+        # T4's disable_pain only skips the clip; allowpain 0 kills the stall
+        runtime = zombiebehavior.runtime_source(gscport.API['zombie_runtime'], None)
+        glue = runtime[runtime.index('waw2bo2_zombie_actor_glue()'):]
+        glue = glue[:glue.index('}')]
+        self.assertIn('self.allowpain = 1;', glue)
+        self.assertNotIn('self.allowpain = 0;', glue)
+        self.assertIn('self.a.disablepain = 1;', glue)
+
     def test_stock_round_speed_uses_source_initial_and_previous_round_values(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

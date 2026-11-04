@@ -680,7 +680,9 @@ waw2bo2_zombie_actor_glue()
     self.team = level.zombie_team;
     // T6 reaction/pain animscripts; WaW's zombie AI had none
     self.a.disablepain = 1;
-    self.allowpain = 0;
+    // T4 actors start with the native pain state on: disable_pain only skips
+    // the pain clip, so a nonfatal hit still cancels the swing (the stall).
+    self.allowpain = 1;
     self maps\\mp\\zombies\\_zm_utility::disable_react();
     // the template's actor capsule (72 tall broke upstairs windows)
     self setphysparams( 15, 0, 48 );
