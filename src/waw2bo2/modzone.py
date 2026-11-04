@@ -803,7 +803,10 @@ def link_lobby(bo2: Path, project_root: Path, project: str, work: Path,
     names = [f"menu_{project}_map", f"menu_{project}_map_blur",
              f"menu_{project}_zclassic_default", f"loadscreen_{project}_zclassic_default",
              f"loadscreen_{project}_zclassic_"]
-    authored = stage_menu_assets(project_root, project)
+    # mod.ff is resident beside this zone and already links the loading song's
+    # bank: DB_AddXAsset drops with "Attempting to override asset" on a second
+    # copy, unlike the materials and strings both zones share.
+    authored = [entry for entry in stage_menu_assets(project_root, project) if not entry.startswith('soundbank,')]
     for name in names:
         if menu_metadata(project_root).get('icon'):
             if not (project_root / 'materials' / f'{name}.json').is_file():
