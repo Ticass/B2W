@@ -109,6 +109,31 @@ class ModZoneTests(unittest.TestCase):
             self.assertEqual(strings['ZMUI_CLASSIC_WAW_ZM_CUSTOM_LOC_CAPS'], 'SURVIVAL')
             self.assertNotIn('ZMUI_GRIEF_ZM_CUSTOM_CAPS', strings)
 
+    def test_loading_song_bank_links_into_mod_ff_only(self):
+        # A second copy in mod_load.ff is a fatal "Attempting to override asset".
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project, bo2, work = root / 'project', root / 'bo2', root / 'work'
+            bank = 'waw_zm_custom_menu.all'
+            (project / 'soundbank').mkdir(parents=True)
+            (project / 'soundbank' / (bank + '.aliases.csv')).write_text('Name')
+            (project / 'menu.json').write_text(json.dumps({'title': 'T', 'description': 'D',
+                                                           'loading_song': {'bank': bank}}))
+            (bo2 / 'raw/materials').mkdir(parents=True)
+            (bo2 / 'raw/materials/menu_zm_map_frame.json').write_text('{}')
+
+            def link(command, **_):
+                (work / 'out').mkdir(exist_ok=True)
+                (work / 'out/mod_load.ff').write_bytes(b'ff')
+                return subprocess.CompletedProcess(command, 0, '', '')
+
+            self.assertIn('soundbank,' + bank, modzone.stage_menu_assets(project, 'zm_custom'))
+            with patch.object(modzone, 'stage_lobby_map_table'), patch.object(modzone, 'stage_lobby_gametype_table'),                     patch.object(modzone, 'captured', link):
+                modzone.link_lobby(bo2, project, 'zm_custom', work, root / 'Linker.exe')
+            zone = (work / 'lobby/zone_source/mod_load.zone').read_text()
+            self.assertIn('localize,menu_zm_custom', zone)
+            self.assertNotIn('soundbank', zone)
+
     def test_unbranded_map_still_localizes_its_lobby_names(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
