@@ -250,6 +250,23 @@ class StockMapPolicyTests(unittest.TestCase):
         code = [t.low for t in script.tokens[bolted.body_open:bolted.body_close + 1]]
         self.assertLess(code.index("wait"), code.index("playfxontag"))
 
+    def test_loops_over_an_undefined_size_end_as_the_t4_thread_would(self):
+        def lowered(source):
+            tokens = gsc.tokenize(source)
+            count = gscport.lower_undefined_size_loops(tokens)
+            return " ".join(gsc.emit(tokens).split()), count
+
+        text, count = lowered("for (i=0; i < t[0].spots.size; i++) { x(); }")
+        self.assertEqual(count, 1)
+        self.assertIn("for (i=0; isdefined( t[0].spots ) && ( i < t[0].spots.size ); i++)", text)
+        text, count = lowered("while (a.size > 0 && b.size) wait 1;")
+        self.assertEqual(count, 1)
+        self.assertIn("while (isdefined( a ) && isdefined( b ) && ( a.size > 0 && b.size ))", text)
+        for source in ("for (i=0; i < get().size; i++) x();", "for (;;) wait 1;",
+                       "for (i=0; i < 3; i++) y = list.size;",
+                       "while (isdefined(a) && a.size) wait 1;"):
+            self.assertEqual(lowered(source)[1], 0, source)
+
     def test_live_ragdoll_dies_at_frame_end_unless_its_script_killed_it(self):
         script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
         start = script.functions["waw_startragdoll"]

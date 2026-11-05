@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix Yote's Lair hanging at "Waiting for other players". It starts a zipline script with no zipline in the map: WaW ends that thread on the first undefined value, while T6 carries on and `i < undefined` never ends the loop. Loops over a `.size` now stop when the array is undefined.
 - Fix Project X hanging at "Waiting for other players" with `potential infinite loop in script`, and failing with `G_Spawn: no free entities`. A missing sound's notify now waits a frame, so a map replaying its ambient sound on that notify cannot spin; looping effects play on their tag and no longer cost an entity each; zone volumes without a `script_noteworthy` no longer get a second entity.
 - Fix zombies sinking into the floor at Project X windows while tearing boards and after climbing in. BO2 plays its tear and window-entry animations from the barrier's origin, with the zombie's feet a constant 30.9 units below it (stock animations); Project X's WaW window goals sit only 8-16 above the floor. Converted barriers now stand that height above the WaW collision floor under them. Windows whose boards are unnumbered or freely named (Project X: `window_south_1`) are now also aligned with their boards; before, all 23 stood ~17 units outside them.
 

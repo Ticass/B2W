@@ -1133,6 +1133,83 @@ def lower_zombie_weapon_keys(tokens: list[gsc.Token]) -> int:
     return changed
 
 
+def _close_paren(tokens: list[gsc.Token], start: int) -> int | None:
+    depth = 0
+    for i in range(start, len(tokens)):
+        depth += (tokens[i].text == '(') - (tokens[i].text == ')')
+        if not depth:
+            return i
+    return None
+
+
+def _size_owner(tokens: list[gsc.Token], dot: int, floor: int) -> int | None:
+    """First token of the plain field path before `.size`; None for a call result."""
+    k = dot - 1
+    while k >= floor:
+        if tokens[k].text == ']':
+            depth = 0
+            while k >= floor:
+                if tokens[k].text == '(':
+                    return None
+                depth += (tokens[k].text == ']') - (tokens[k].text == '[')
+                if not depth:
+                    break
+                k -= 1
+            k -= 1
+            continue
+        if tokens[k].kind != gsc.IDENT:
+            return None
+        if k > floor and tokens[k - 1].text == '.':
+            k -= 2
+            continue
+        return None if k > floor and tokens[k - 1].text in ('::', ']', ')') else k
+    return None
+
+
+def lower_undefined_size_loops(tokens: list[gsc.Token]) -> int:
+    """`i < x.size` in a loop condition -> `isdefined( x ) && ( i < x.size )`.
+
+    T4 ends the thread on the first use of undefined. T6 carries on, and
+    `i < undefined` is true, so the loop never ends and the server hangs:
+    Yote's Lair threads a zipline script with no zipline in the map, which
+    dies quietly in WaW and spun forever here."""
+    changed = 0
+    for i in range(len(tokens) - 2, -1, -1):
+        if tokens[i].low not in ('for', 'while') or tokens[i + 1].text != '(':
+            continue
+        close = _close_paren(tokens, i + 1)
+        if close is None:
+            continue
+        first, last = i + 2, close
+        if tokens[i].low == 'for':
+            depth, stops = 0, []
+            for k in range(i + 2, close):
+                depth += (tokens[k].text in '([') - (tokens[k].text in ')]') if tokens[k].text else 0
+                if tokens[k].text == ';' and not depth:
+                    stops.append(k)
+            if len(stops) != 2 or stops[1] == stops[0] + 1:
+                continue
+            first, last = stops[0] + 1, stops[1]
+        existing = ''.join(t.low for t in tokens[first:last])
+        owners = []
+        for k in range(first + 1, last - 1):
+            if tokens[k].text != '.' or tokens[k + 1].low != 'size':
+                continue
+            start = _size_owner(tokens, k, first)
+            text = None if start is None else ''.join(t.text for t in tokens[start:k])
+            if text and 'isdefined(' + text.lower() + ')' not in existing and text not in owners:
+                owners.append(text)
+        if not owners:
+            continue
+        guard = ' && '.join(f'isdefined( {owner} )' for owner in owners)
+        tokens.insert(last, gsc.Token(gsc.PUNCT, ')', ' '))
+        fragment = gsc.tokenize(guard + ' && (')[:-1]
+        fragment[0].pre, tokens[first].pre = tokens[first].pre, ' '
+        tokens[first:first] = fragment
+        changed += 1
+    return changed
+
+
 def lower_stationary_fx_carriers(tokens: list[gsc.Token]) -> int:
     """Play effects on inert tag_origin carriers at their authored transform.
 
@@ -1572,7 +1649,7 @@ class Translator:
         self.report.rewrites["run-time HUD material names -> converted table"] += bridge_dynamic_hud_materials(tokens)
         self.report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += mirror_team_zombie_vars(tokens)
         header = (f"// Translated from World at War by waw2bo2 (gscport). Source: {where_file}\n")
-        return header + gsc.emit(tokens)
+        return header + self.guard_size_loops(gsc.emit(tokens))
 
     def adapt_native_arguments(self, tokens: list[gsc.Token], ref, native: str, argc, where: str) -> None:
         """A WaW call resolved to the BO2 function of the same name, whose
@@ -2429,6 +2506,14 @@ class Translator:
         tokens[0].pre += f'#using_animtree( "{animation_tree_name(tree)}" );\n'
         self.rewrite_animation_refs(tokens, tree, where)
 
+    def guard_size_loops(self, text: str) -> str:
+        """Last, on the finished text: it adds tokens, and earlier passes hold
+        token indices; the guard also sees every field name as it ends up."""
+        tokens = gsc.tokenize(text)
+        changed = lower_undefined_size_loops(tokens)
+        self.report.rewrites["loops over a .size that may be undefined"] += changed
+        return gsc.emit(tokens) if changed else text
+
     def source_lowerings(self, tokens: list[gsc.Token]) -> None:
         """WaW semantics lowered onto T6 for ported and extracted source code alike."""
         self.report.rewrites["maxhealth assignments through setmaxhealth for players"] += lower_maxhealth_assignments(tokens)
@@ -2473,7 +2558,7 @@ class Translator:
             self.report.rewrites["intermission player link -> T6 script camera"] += bridge_intermission_camera(tokens)
         text = gsc.emit(tokens)
         patch = self.post_patches.get((core, name))
-        return patch(text) if patch else text
+        return self.guard_size_loops(patch(text) if patch else text)
 
     def round_loop_missing_anchors(self, core: str = None, function: str = "round_think") -> list[str] | None:
         """The SOURCE_ROUND_ANCHORS the map's round loop lacks ([] when it can
