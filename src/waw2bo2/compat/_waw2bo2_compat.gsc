@@ -851,13 +851,10 @@ waw_playfxontag( fx, ent, tag )
     }
     if ( isdefined( level.waw2bo2_bolted_loops ) && isdefined( level.waw2bo2_bolted_loops[fx] ) )
     {
-        // T6's transient PlayFXOnTag event cannot own an indefinitely looping
-        // source effect. A script FX entity gives the bolt an explicit lifetime.
-        carrier = spawnfx( fx, ent gettagorigin( tag ), anglestoforward( ent.angles ), anglestoup( ent.angles ) );
-        carrier.waw_fx = fx;
-        triggerfx( carrier );
-        level thread waw_bolted_fx_lifetime( carrier, ent, tag );
-        return carrier;
+        // T6 needs the new model's tag on the network first: a map spawning
+        // its effect carrier and playing on it in one frame gets nothing.
+        ent thread waw_bolted_fx( fx, tag );
+        return;
     }
     playfxontag( fx, ent, tag );
 }
@@ -898,27 +895,16 @@ waw_tag_carrier_lifetime( carrier, ent )
         carrier delete();
 }
 
-waw_bolted_fx_lifetime( carrier, parent, tag )
+waw_bolted_fx( fx, tag )
 {
-    // A triggered FX entity keeps playing where it was triggered: moving its
-    // origin leaves the effect behind (the Wunderwaffe's travelling bolt
-    // between zombies, the mystery box sky marker). Once the parent moves,
-    // the effect rides the parent's tag natively, as BO2's moving effects do,
-    // and ends with the parent.
-    start = carrier.origin;
-    while ( isdefined( parent ) && isdefined( carrier ) )
-    {
-        if ( distancesquared( parent gettagorigin( tag ), start ) > 1 )
-        {
-            fx = carrier.waw_fx;
-            carrier delete();
-            playfxontag( fx, parent, tag );
-            return;
-        }
-        wait 0.05;
-    }
-    if ( isdefined( carrier ) )
-        carrier delete();
+    // Played on the tag, never through a spawnfx entity: WaW's effects cost no
+    // entity, and one FX entity per looping effect ran Project X's 78 power
+    // lights out of T6's 912. Measured on T6: the loop plays for a player who
+    // arrives later, follows its parent and ends when the parent is deleted.
+    self endon( "death" );
+    wait 0.05;
+    if ( isdefined( self ) )
+        playfxontag( fx, self, tag );
 }
 
 waw_playloopedfx( fx, delay, origin, cull, forward, up )
@@ -1254,7 +1240,10 @@ waw_playsound( alias, notifyname, stoppable )
 waw_sound_missing( notifyname )
 {
     self endon( "death" );
-    waittillframeend;
+    // A whole frame, never waittillframeend: a map replaying its ambient sound
+    // on the notify (Project X's mapsound loops) restarts this in the same
+    // frame-end pass and spins forever ("potential infinite loop in script").
+    wait 0.05;
     self notify( notifyname );
 }
 

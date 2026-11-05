@@ -7,9 +7,10 @@ that shooter-owned thread. This prevents competing projectile damage callbacks
 from admitting multiple chains and avoids giving the initially hit actor ownership
 of the traversal. The requested chain limit is ten targets.
 
-Indefinitely looping source effects attached to script entities use managed T6
-FX entities. Their position follows the source tag, and their lifetime ends when
-the source parent disappears. Finite effects retain native PlayFXOnTag behavior.
+Indefinitely looping source effects attached to script entities play through
+native PlayFXOnTag one frame later, so a carrier spawned in the same frame has
+its tag. They follow the source tag and end with the source parent, and cost no
+entity, as in WaW.
 
 The converter stages the source Tesla client library, translating its effects,
 weapon names, and real-time waits, and bridges its single-argument level events.

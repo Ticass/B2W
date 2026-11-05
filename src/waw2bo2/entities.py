@@ -167,9 +167,15 @@ def convert_entities(ents: list[dict[str, str]], project: str,
             # stays. BO2's glue (in_enabled_playable_area, powerup drop points,
             # _zm_spawner's playable areas) looks for "player_volume": a twin on
             # the same brush model, after the original so the zone's volumes[0]
-            # is still the map's.
-            twin = {**ent, "script_noteworthy": "player_volume"}
-            renamed[f"info_volume script_noteworthy {ent.get('script_noteworthy')} + player_volume twin"] += 1
+            # is still the map's. A volume without one needs no twin: no script
+            # can look it up by a value it lacks, and each twin costs one of the
+            # map's 912 entities (Project X: 62, "G_Spawn: no free entities").
+            if ent.get("script_noteworthy"):
+                twin = {**ent, "script_noteworthy": "player_volume"}
+                renamed[f"info_volume script_noteworthy {ent.get('script_noteworthy')} + player_volume twin"] += 1
+            else:
+                ent["script_noteworthy"] = "player_volume"
+                renamed["info_volume without script_noteworthy -> player_volume"] += 1
         if cls == 'script_struct' and ent.get('targetname') == 'player_respawn_point' and \
                 not ent.get('script_noteworthy') and not ent.get('script_string'):
             # WaW nearby-team anchors target indexed player locations. T6's

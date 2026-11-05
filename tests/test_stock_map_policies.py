@@ -233,6 +233,23 @@ class StockMapPolicyTests(unittest.TestCase):
         self.assertIn('materials["h" + "ud_chalk_1"] = "waw_world/hud_chalk_1";', source)
         self.assertNotIn('"hud_chalk_1"', source)
 
+    def test_missing_sound_notify_waits_a_frame_so_replay_loops_cannot_spin(self):
+        script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
+        missing = script.functions["waw_sound_missing"]
+        code = [t.low for t in script.tokens[missing.body_open:missing.body_close + 1]]
+        self.assertLess(code.index("wait"), code.index("notify"))
+        self.assertNotIn("waittillframeend", code)
+
+    def test_looping_effects_cost_no_entity(self):
+        script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
+        play = script.functions["waw_playfxontag"]
+        code = [t.low for t in script.tokens[play.body_open:play.body_close + 1]]
+        self.assertIn("waw_bolted_fx", code)
+        self.assertNotIn("spawnfx", code)
+        bolted = script.functions["waw_bolted_fx"]
+        code = [t.low for t in script.tokens[bolted.body_open:bolted.body_close + 1]]
+        self.assertLess(code.index("wait"), code.index("playfxontag"))
+
     def test_live_ragdoll_dies_at_frame_end_unless_its_script_killed_it(self):
         script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
         start = script.functions["waw_startragdoll"]
