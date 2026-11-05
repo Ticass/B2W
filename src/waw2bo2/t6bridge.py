@@ -2663,6 +2663,9 @@ def _stage_weapons(report: StageReport, roots: list[Path], project_root: Path, n
     for name, bones in sorted(weapon_report["models"].get("reparented_roots", {}).items()):
         report.warnings.append(f"SKELETON_REPARENTED xmodel {name}: root bones {bones} share one bind transform; "
                                f"secondary roots became identity children of the primary (globals unchanged)")
+    for name in weapon_report["models"].get("rebound_to_root", []):
+        report.warnings.append(f"WORLD_MODEL_REBOUND xmodel {name}: over the mod tools linker's animated vertex "
+                               f"limit; weights moved to the root bone, all bones kept (world models do not animate)")
     for name, why in sorted(weapon_report["models"]["unsupported"].items()):
         report.warnings.append(f"UNSUPPORTED_XMODEL {name} (weapon model): {why}")
     graph_file = project_root / 'content_source/weapons.dependencies.json'

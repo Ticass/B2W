@@ -1,4 +1,6 @@
+import base64
 import json
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -178,6 +180,36 @@ class WeaponTests(unittest.TestCase):
             report = weapons.stage_models([root], invalid, {"gun"})
             self.assertIn("gun", report["unsupported"])
             self.assertFalse((invalid / "xmodel/waw_xmodel/gun.json").exists())
+
+    def test_world_model_over_the_animated_limit_rebinds_to_its_root(self):
+        count = weapons.ANIMATED_LOD_VERTICES + 1
+        blob = bytes((1, 2, 0, 0)) * count + struct.pack("<4f", 0.5, 0.5, 0, 0) * count
+        data = {"nodes": [{"name": "tag_weapon", "children": [1, 2]}, {"name": "tag_brass"}, {"name": "tag_flash"}],
+                "skins": [{"joints": [0, 1, 2]}], "materials": [],
+                "buffers": [{"uri": "data:application/octet-stream;base64," + base64.b64encode(blob).decode()}],
+                "bufferViews": [{"buffer": 0, "byteOffset": 0}, {"buffer": 0, "byteOffset": 4 * count}],
+                "accessors": [{"count": count}, {"bufferView": 0, "componentType": 5121, "count": count, "type": "VEC4"},
+                              {"bufferView": 1, "componentType": 5126, "count": count, "type": "VEC4"}],
+                "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "JOINTS_0": 1, "WEIGHTS_0": 2}}]}]}
+        model = {"_game": "t4", "flags": 0, "type": "animated", "lods": [{"distance": 10, "file": "model_export/gun.gltf"}]}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "source"
+            (root / "xmodel").mkdir(parents=True)
+            (root / "model_export").mkdir()
+            (root / "xmodel/gun.json").write_text(json.dumps(model))
+            (root / "model_export/gun.gltf").write_text(json.dumps(data))
+            view = Path(temp) / "view"
+            report = weapons.stage_models([root], view, {"gun"})
+            self.assertEqual(report["rebound_to_root"], [])
+            self.assertEqual(json.loads((view / "xmodel/waw_xmodel/gun.json").read_text())["type"], "animated")
+            world = Path(temp) / "world"
+            report = weapons.stage_models([root], world, {"gun"}, {"waw_xmodel/gun"})
+            self.assertEqual(report["rebound_to_root"], ["gun"])
+            self.assertEqual(json.loads((world / "xmodel/waw_xmodel/gun.json").read_text())["type"], "rigid")
+            staged = json.loads((world / "model_export/waw_xmodel/gun_lod0.gltf").read_text())
+            self.assertEqual(staged["skins"], data["skins"])
+            result = base64.b64decode(staged["buffers"][0]["uri"].split(",", 1)[1])
+            self.assertEqual(result, bytes(4) * count + struct.pack("<4f", 1, 0, 0, 0) * count)
 
     def test_staging_priority_alternate_closure_and_original_animations(self):
         with tempfile.TemporaryDirectory() as temp:
