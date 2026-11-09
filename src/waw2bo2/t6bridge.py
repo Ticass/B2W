@@ -2111,6 +2111,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
     sound_names = {n["name"] for n in sound_graph["nodes"] if n["kind"] == "sound"}
     report.content['entity_sounds_bound'] = sounds.bind_entity_sounds(project_root / "BSP" / "entities.json", sound_names)
+    report.content['script_sound_comparisons_bound'] = sounds.bind_script_sound_comparisons(
+        project_root / "BSP" / "entities.json", project_root / "maps")
     unreferenced = sorted(zone_sound_names - sound_names)
     (project_root / "content_source").mkdir(parents=True, exist_ok=True)
     (project_root / "content_source/sounds.unreferenced.json").write_text(

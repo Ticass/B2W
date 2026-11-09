@@ -409,6 +409,51 @@ def bind_entity_sounds(entities_json: Path, converted: set[str]) -> int:
     return count
 
 
+_SCRIPT_SOUND_COMPARE = re.compile(
+    r'(?P<lead>\bscript_sound\s*[!=]=\s*)"(?P<a>[^"\\\n]+)"|"(?P<b>[^"\\\n]+)"(?P<tail>\s*[!=]=\s*[\w.\[\]]*\bscript_sound\b)',
+    re.I)
+
+
+def bind_script_sound_comparisons(entities_json: Path, scripts_root: Path) -> int:
+    """The map's scripts compare an entity's script_sound to a literal
+    (Der Riese's check_for_change looks for "perks_rattle" bump triggers under
+    the perk machines: prone there gives 25 points). bind_entity_sounds gave
+    those entities the converted waw/<name>; the literal takes the same name
+    when every entity holding that value was bound, so the test still holds.
+    A value also left raw on another entity stays as written."""
+    if not entities_json.is_file() or not scripts_root.is_dir():
+        return 0
+    bound, raw = {}, set()
+    for entity in json.loads(entities_json.read_text(encoding="utf-8"))["entities"]:
+        value = entity.get("script_sound")
+        if not isinstance(value, str):
+            continue
+        if value.startswith("waw/"):
+            bound[value[4:].lower()] = value
+        else:
+            raw.add(value.lower())
+    names = {k: v for k, v in bound.items() if k not in raw}
+    if not names:
+        return 0
+    count = 0
+
+    def swap(m):
+        nonlocal count
+        literal = m["a"] if m["a"] is not None else m["b"]
+        new = names.get(literal.lower())
+        if new is None:
+            return m[0]
+        count += 1
+        return f'{m["lead"]}"{new}"' if m["a"] is not None else f'"{new}"{m["tail"]}'
+
+    for path in sorted(scripts_root.rglob("*.gsc")):
+        text = path.read_text(encoding="utf-8")
+        updated = _SCRIPT_SOUND_COMPARE.sub(swap, text)
+        if updated != text:
+            path.write_text(updated, encoding="utf-8")
+    return count
+
+
 def ambient_emitter_aliases(entities_json: Path) -> set[str]:
     """Aliases the map's ambient emitters play (script_label line_emitter /
     looper / random structs), lowercase, without the waw/ prefix: level
@@ -1167,6 +1212,9 @@ ENGINE_SOUND_FAMILIES = (
     (r"fly_step_crouch_(walk|run)(_npc)?_(?P<s>[a-z]+)", (r"step_\1_\g<s>",)),
     (r"fly_step_prone_plr_(?P<s>[a-z]+)", (r"step_prone_plr_\g<s>", r"step_prone_\g<s>")),
     (r"fly_step_prone_npc_(?P<s>[a-z]+)", (r"step_prone_\g<s>",)),
+    # a landing that hurts: T4 cg sub_661D70 registers land_damage(_plr)
+    (r"fly_land_damage_plr", ("land_damage_plr", "land_damage")),
+    (r"fly_land_damage_npc", ("land_damage",)),
     (r"fly_land_plr_(?P<s>[a-z]+)(_big)?(_sec)?", (r"land_plr_\g<s>", r"land_\g<s>")),
     (r"fly_land_npc_(?P<s>[a-z]+)(_big)?", (r"land_\g<s>",)),
     (r"fly_bodyfall_(large|small)_(?P<s>[a-z]+)", (r"bodyfall_\g<s>_\1",)),

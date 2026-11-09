@@ -72,7 +72,7 @@ function W.label(parent, role, height, x, baseline, right)
         local scale = height / math.max(1, metric(role, 63)[7])
         local width = 0
         for _, c in ipairs(chars) do width = width + metric(role, c)[4] * scale end
-        local cursor = right and -width or 0
+        local cursor = (right == "center" and -width / 2) or (right and -width) or 0
         for i, c in ipairs(chars) do
             local m = metric(role, c)
             local part = self.parts[i]
@@ -128,13 +128,14 @@ local function area(name, controller)
     e:setAlpha(0)
     return e
 end
--- Source T4 sub_42B710/850/990/BB00/BC40. Coordinates are 480-high units.
+-- Source T4 sub_42B710/850/990/BB00/BC40 {sprite, width, height, step}.
+-- Coordinates are 480-high units (rocket 0x8E4568.., belt 0x8E4578..).
 local clips = {
     Magazine = {"ammo_counter_bullet", 4, 8, 4},
     ShortMagazine = {"ammo_counter_riflebullet", 32, 8, 40},
     Shotgun = {"ammo_counter_shotgunshell", 16, 8, 20},
-    Rocket = {"ammo_counter_rocket", 12, 64, 72},
-    Beltfed = {"ammo_counter_beltbullet", 12, 8, 4}
+    Rocket = {"ammo_counter_rocket", 64, 16, 72},
+    Beltfed = {"ammo_counter_beltbullet", 8, 4, 8}
 }
 function W.drawAmmo(e)
     local count = math.max(0, tonumber(e.clip) or 0)
@@ -157,11 +158,13 @@ function W.drawAmmo(e)
     for i = 1, math.min(300, total) do
         local x, y = -118.5 - (width + (i-1)*step) * 1.5, -6 - height * 0.75
         if data.style == "Beltfed" then
+            -- sub_42BC40: rows of 20 that snake back, 2 units apart, starting
+            -- (count / 20) * height / 4 below the anchor; no half-height lift.
             local row = math.floor((i - 1) / 20)
             local col = (i - 1) % 20
             if row % 2 == 1 then col = 19 - col end
-            x = -118.5 - (col + 1) * 6
-            y = -6 + math.floor(total/20)*3 - (row + 1)*3
+            x = -118.5 - (col + 1) * step * 1.5
+            y = -6 + (math.floor(total/20) * height * 0.25 - (row + 1) * 2) * 1.5
         end
         local bullet = e.bullets[i]
         if not bullet then bullet = image(e.anchor, "waw_hud/" .. sprite, x, y, width*1.5, height*1.5); e.bullets[i] = bullet end
@@ -170,6 +173,62 @@ function W.drawAmmo(e)
         local color = i <= count and 1 or 0.3
         bullet:setRGB(color, color, color)
         bullet:setAlpha(0.65)
+    end
+end
+-- T4 sub_42CDF0 (CG_PLAYER_WEAPON_LOW_AMMO_WARNING): the clip at or under
+-- clipSize * lowAmmoWarningThreshold (sub_44EE30) shows "Reload" with
+-- reserve left (not on one-round clips), "LOW AMMO" without, "No Ammo" when
+-- both are empty. Each pulses between its two colours (sub_42B2E0 dvar
+-- defaults: freq 1.7, min 0, max 1.5, i.e. it rests on colour 2 at the crest).
+local lowAmmo = {
+    reload = {"WAW2BO2_PLATFORM_RELOAD", {0.9, 0.9, 0.9, 0.8}, {1, 1, 1, 1}},
+    noreload = {"WAW2BO2_PLATFORM_LOW_AMMO_NO_RELOAD", {0.7, 0.7, 0, 0.8}, {1, 1, 0, 1}},
+    noammo = {"WAW2BO2_WEAPON_NO_AMMO", {0.8, 0, 0, 0.8}, {1, 0, 0, 1}}
+}
+local pulse = {freq = 1.7, min = 0, max = 1.5}
+function W.lowAmmoState(e)
+    local data = e.weaponData
+    if not data or e.overheat or e.hideAmmo or not e.weaponName then return nil end
+    local clip, stock = tonumber(e.clip), tonumber(e.stock)
+    local size, threshold = data.size or 0, data.threshold or 0
+    if not clip or not stock or clip < 0 or size <= 0 then return nil end
+    if math.min(size, 999) * threshold < math.min(clip, 999) then return nil end
+    if stock <= 0 then return clip ~= 0 and "noreload" or "noammo" end
+    if size == 1 then return nil end
+    return "reload"
+end
+function W.pulseColor(warning, t)
+    local half = (pulse.max - pulse.min) * 0.5
+    local f = math.max(0, math.min(1, math.sin(t * pulse.freq * 0.0062831853) * half + pulse.min + half))
+    local a, b = warning[2], warning[3]
+    return a[1] + (b[1]-a[1])*f, a[2] + (b[2]-a[2])*f, a[3] + (b[3]-a[3])*f, a[4] + (b[4]-a[4])*f
+end
+function W.drawLowAmmo(e)
+    local state = W.lowAmmoState(e)
+    local warn = e.lowAmmo
+    if not state then
+        warn:setAlpha(0)
+        warn.state = nil
+        return
+    end
+    local warning = lowAmmo[state]
+    if warn.state ~= state then
+        warn.state = state
+        warn.text:setText(Engine.Localize(warning[1]))
+    end
+    local r, g, b, a = W.pulseColor(warning, warn.time or 0)
+    warn:setRGB(r, g, b)
+    warn:setAlpha(a)
+end
+-- T4 sub_42BF20/sub_44ED70: the reserve turns (1, 0.3, 0.3) at or under a
+-- fifth of the weapon's maximum.
+function W.drawStock(e)
+    local data, stock = e.weaponData, tonumber(e.stock)
+    if data and stock and data.maxAmmo and data.maxAmmo >= 0 and
+            math.min(data.maxAmmo, 999) * 0.2 >= math.min(stock, 999) then
+        e.stockText:setRGB(1, 0.3, 0.3)
+    else
+        e.stockText:setRGB(1, 1, 1)
     end
 end
 function W.flash(e)
@@ -182,8 +241,13 @@ function W.updateAmmo(e, event)
         print("WAW HUD ammo " .. tostring(event.ammoInClip) .. " / " .. tostring(event.ammoStock))
     end
     if event.ammoInClip ~= nil then e.clip = event.ammoInClip end
-    if event.ammoStock ~= nil then e.stockText:setText(event.ammoStock) end
+    if event.ammoStock ~= nil then
+        e.stock = event.ammoStock
+        e.stockText:setText(event.ammoStock)
+    end
     W.drawAmmo(e)
+    W.drawStock(e)
+    W.drawLowAmmo(e)
 end
 function W.updateWeapon(e, event)
     if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then
@@ -202,20 +266,72 @@ function W.updateWeapon(e, event)
             if alt ~= "" then name = alt end
         end
         if lookup(weapons, name, 1) == "AltWeapon" then name = lookup(weapons, name, 5) end
+        e.weaponName = name ~= "" and name or nil
         e.weaponData = {style = lookup(weapons, name, 1), size = tonumber(lookup(weapons, name, 2)) or 0,
-            sprite = lookup(weapons, name, 6)}
+            sprite = lookup(weapons, name, 6), maxAmmo = tonumber(lookup(weapons, name, 8)),
+            threshold = tonumber(lookup(weapons, name, 9)) or 0}
         e.overheat = lookup(weapons, name, 3) == "1"
         e.heatIcon = lookup(weapons, name, 7)
         if e.heatIcon ~= "" then
             local material = RegisterMaterial(e.heatIcon)
             for _, part in ipairs({e.heat.icon, e.heat.fillIcon, e.heat.flash}) do part:setImage(material) end
         end
-        e.stockText:setRGB(1, 1, 1)
     end
     e.hideAmmo = event.inventorytype == 1 or event.inventorytype == 2 or
         (e.weapon and (Engine.IsWeaponType(e.weapon, "melee") or Engine.IsWeaponType(e.weapon, "grenade")))
     W.drawAmmo(e)
+    W.drawStock(e)
+    W.drawLowAmmo(e)
     updateVisibility(e, event)
+end
+-- hud.menu PC "DPad" (rect 0 -42, centre bottom): slot 1 up, 3 left, 4 right,
+-- 28x28 icons (CG_PLAYER_ACTIONSLOT_n, HUD_ALPHA) with their ammo count, and
+-- the "[key]" label under each usable slot (objectiveFont 0.25). Source
+-- scripts fill them with SetActionSlot (the bouncing betty on slot 4).
+local slotRects = {[1] = -14, [3] = -88, [4] = 60}
+local function slotKey(controller, index)
+    local command = "+actionslot " .. index
+    local ok, key = pcall(function()
+        if Engine.GetKeyBindingLocalizedString then return Engine.GetKeyBindingLocalizedString(controller, command) end
+        return UIExpression.KeyBinding(controller, command)
+    end)
+    return ok and key or ""
+end
+function W.actionSlots(e, controller)
+    local pad = LUI.UIElement.new()
+    pad:setLeftRight(false, false, 0, 0)
+    pad:setTopBottom(false, true, -63, -63)
+    e:addElement(pad)
+    local slots = {}
+    for index, x in pairs(slotRects) do
+        local slot = {}
+        slot.icon = image(pad, nil, x * 1.5, -1.5, 42, 42)
+        slot.count = W.label(pad, "score", 18, (x + 28) * 1.5 + 3, 40.5, false)
+        slot.key = W.label(pad, "objective", 18, (x + 14) * 1.5, 60, "center")
+        slot.icon:setAlpha(0)
+        slots[index] = slot
+    end
+    local function hide(slot)
+        slot.icon:setAlpha(0)
+        slot.count:setText("")
+        slot.key:setText("")
+    end
+    e:registerEventHandler("hud_update_actionslots", function(self, event)
+        for _, slot in pairs(slots) do slot.seen = false end
+        for key, data in pairs(event.actionSlots or {}) do
+            local index = tonumber(data.slotIndex or data.index or key)
+            local slot = index and slots[index]
+            local material = data.material or (data.materialName and RegisterMaterial(data.materialName))
+            if slot and material then
+                slot.seen = true
+                slot.icon:setImage(material)
+                slot.icon:setAlpha(0.65)
+                slot.count:setText(data.ammo ~= nil and data.ammo or "")
+                slot.key:setText("[" .. W.plainText(slotKey(controller, index)) .. "]")
+            end
+        end
+        for _, slot in pairs(slots) do if not slot.seen then hide(slot) end end
+    end)
 end
 function W.ammo(controller)
     if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then print("WAW HUD create ammo") end
@@ -264,11 +380,32 @@ function W.ammo(controller)
     e:registerEventHandler("hud_update_offhand", function(self, event)
         for kind, parts in pairs(offhands) do
             local data = event[kind]
-            parts.icon:setAlpha(data and 0.65 or 0)
-            parts.count:setText(data and data.ammo or "")
-            if data and data.material then parts.icon:setImage(data.material) end
+            -- T6 drops an empty offhand from the event; T4 keeps drawing the
+            -- held grenade's icon with a 0 count.
+            if data and data.material then
+                parts.icon:setImage(data.material)
+                parts.material = true
+            end
+            local shown = data ~= nil or parts.material
+            parts.icon:setAlpha(shown and 0.65 or 0)
+            parts.count:setText(shown and (data and data.ammo or 0) or "")
         end
     end)
+    -- hud.menu lowammowarning: rect -10 15 100 30, centred; UI_FONT_DEFAULT
+    -- (normalFont), TEXTSIZE_SMALL, centred text.
+    local warn = LUI.UIElement.new()
+    warn:setLeftRight(false, false, 0, 0)
+    warn:setTopBottom(false, false, 0, 0)
+    warn.text = W.label(warn, "score", 18, 60, 45 + 9, "center")
+    warn:setAlpha(0)
+    e:addElement(warn)
+    e.lowAmmo = warn
+    e:registerEventHandler("waw_low_ammo_pulse", function(self)
+        warn.time = (warn.time or 0) + 50
+        if warn.state then W.drawLowAmmo(self) end
+    end)
+    if LUI.UITimer then e:addElement(LUI.UITimer.new(50, "waw_low_ammo_pulse", false, e)) end
+    W.actionSlots(e, controller)
     e:registerEventHandler("hud_update_ammo", W.updateAmmo)
     e:registerEventHandler("hud_update_weapon", W.updateWeapon)
     e:registerEventHandler("hud_update_weapon_select", W.updateWeapon)

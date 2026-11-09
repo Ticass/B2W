@@ -141,6 +141,12 @@
        ]},
       {"native": "maps\\mp\\zombies\\_zm_powerups::powerup_drop", "function": "powerup_drop"},
       {"native": "maps\\mp\\zombies\\_zm_powerups::check_for_instakill", "function": "check_for_instakill"}
+    ],
+    "maps\\_zombiemode_score": [
+      {"native": "maps\\mp\\zombies\\_zm_score::add_to_player_score", "function": "add_to_player_score",
+       "why": "BO2 glue that pays points (the zbarrier window repair reward, the revive) reaches BO2's score primitive; the map's own add_to_player_score draws its score_highlight popup"},
+      {"native": "maps\\mp\\zombies\\_zm_score::minus_to_player_score", "function": "minus_to_player_score",
+       "why": "the same for BO2 glue that takes points"}
     ]
   },
   "zombie_vocals": {

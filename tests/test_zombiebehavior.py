@@ -55,6 +55,8 @@ class ZombieBehaviorTests(unittest.TestCase):
         self.assertIn('self.allowpain = 1;', glue)
         self.assertNotIn('self.allowpain = 0;', glue)
         self.assertIn('self.a.disablepain = 1;', glue)
+        # pain restarts the move script; the walk clip must survive it
+        self.assertIn('self.preserve_asd_substates = 1;', glue)
 
     def test_stock_round_speed_uses_source_initial_and_previous_round_values(self):
         with tempfile.TemporaryDirectory() as temp:

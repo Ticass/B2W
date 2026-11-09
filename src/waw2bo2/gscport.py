@@ -2922,7 +2922,10 @@ class Translator:
                 arity = self.api.scripts.get(native_script.lower(), {}).get(native)
                 if fn is None or arity is None:
                     continue
-                name = self.extract_entry(core, entry["function"])
+                # a script ported whole keeps its function in its own file
+                preserved = norm(core) in API.get("preserved_scripts", [])
+                name = entry["function"] if preserved else self.extract_entry(core, entry["function"])
+                target = ported_path(core) if preserved else CORE
                 params = [f"arg{i}" for i in range(arity)]
                 passed = ", ".join(params[:len(fn.params)])
                 # named by BO2's script too: _zm_powerups::init and
@@ -2931,7 +2934,7 @@ class Translator:
                 keep = "".join(f"    // {k['reason']}\n    {k['call']};\n" for k in entry.get("keep", []))
                 parts.append(f"// {core}::{entry['function']} in place of {entry['native']}\n"
                              f"{wrapper}( {', '.join(params)} )\n{{\n{keep}"
-                             f"    return self {CORE}::{name}( {passed} );\n}}\n")
+                             f"    return self {target}::{name}( {passed} );\n}}\n")
                 calls.append(f"replacefunc( {entry['native']}, {CORE}::{wrapper} );")
         if parts:
             self.level_state_parts.append("\n" + "\n".join(parts))
@@ -5076,6 +5079,7 @@ waw2bo2_dog_actor_glue()
     // T4's actor damage event calls the map's own global callbacks.
     self thread maps\\mp\\waw\\_waw2bo2_zombie_behavior::waw2bo2_actor_damage();
     self thread maps\\mp\\waw\\_waw2bo2_zombie_behavior::waw2bo2_actor_sound_cleanup();
+    self thread maps\\mp\\waw\\_waw2bo2_zombie_behavior::waw2bo2_actor_kill_credit();
     self thread waw2bo2_dog_keep_enemy();
     self thread waw2bo2_dog_combat_signal();
 }
