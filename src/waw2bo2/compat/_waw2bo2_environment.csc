@@ -91,11 +91,14 @@ waw_haseyes()
 // WaW client SpawnFx + TriggerFX. T6's client spawnfx drops the given axis (a
 // createfx effect plays on the default one: Der Riese's eclipse sprite seen
 // edge-on) and no stock client script calls it; BO2 plays createfx through
-// playfx (clientscripts\mp\_fx create_triggerfx). The returned entity is what
-// WaW scripts keep and delete, and its shutdown stops the effect.
+// playfx (clientscripts\mp\_fx create_triggerfx). The returned handle is what
+// WaW scripts keep and delete (waw_client_delete stops the effect). It is a
+// struct, not a client entity: T6 has 768 client entities per local client
+// (CG_Spawn), and a map with many createfx one-shots ran out of them.
 waw_spawnfx( clientnum, fx, origin, delay, forward, up )
 {
-    ent = spawn( clientnum, origin, "script_origin" );
+    ent = spawnstruct();
+    ent.origin = origin;
     ent.waw_fx_client = clientnum;
     ent.waw_fx = fx;
     ent.waw_fx_delay = delay;
@@ -110,8 +113,6 @@ waw_triggerfx( ent, time )
         time = ent.waw_fx_delay;
     if ( isdefined( ent.waw_fx_playing ) )
         deletefx( ent.waw_fx_client, ent.waw_fx_playing );
-    else
-        ent thread waw_fx_shutdown();
     if ( !isdefined( ent.waw_fx_forward ) )
         ent.waw_fx_playing = playfx( ent.waw_fx_client, ent.waw_fx, ent.origin );
     else if ( !isdefined( ent.waw_fx_up ) )
@@ -120,12 +121,18 @@ waw_triggerfx( ent, time )
         ent.waw_fx_playing = playfx( ent.waw_fx_client, ent.waw_fx, ent.origin, ent.waw_fx_forward, ent.waw_fx_up, time );
 }
 
-waw_fx_shutdown()
+// The map's client Delete(): a waw_spawnfx handle stops its effect, any other
+// entity is deleted as before.
+waw_client_delete()
 {
-    client = self.waw_fx_client;
-    self waittill( "entityshutdown" );
-    if ( isdefined( self.waw_fx_playing ) )
-        deletefx( client, self.waw_fx_playing );
+    if ( isdefined( self.waw_fx_client ) )
+    {
+        if ( isdefined( self.waw_fx_playing ) )
+            deletefx( self.waw_fx_client, self.waw_fx_playing );
+        self.waw_fx_playing = undefined;
+        return;
+    }
+    self delete();
 }
 
 // Both sun tweak dvars are SAVED (0x1200): plain setdvar is refused for them.

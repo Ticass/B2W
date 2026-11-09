@@ -92,8 +92,10 @@ def staged_client_modules(map_name: str, project: str) -> dict[str, str]:
 
 # WaW light intensity is gamma; T6 primary light colours are staged linear.
 # haseyes: WaW's engine zombie-eye state, which T6 actors do not carry.
+# delete: SpawnFx handles are structs (T6's client entity pool is 768), so
+# deleting one stops its effect instead.
 CLIENT_METHODS = {'setlightintensity': 'waw_setlightintensity', 'getlightintensity': 'waw_getlightintensity',
-                  'haseyes': 'waw_haseyes'}
+                  'haseyes': 'waw_haseyes', 'delete': 'waw_client_delete'}
 # WaW client builtins T6's client VM lacks (compat _waw2bo2_environment.csc
 # says what each becomes).
 CLIENT_BUILTINS = {'setvolfog': 'waw_client_setvolfog', 'syncsystemstates': 'waw_syncsystemstates',

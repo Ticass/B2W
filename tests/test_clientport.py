@@ -39,7 +39,7 @@ class MapClientPortTests(unittest.TestCase):
             'clientscripts/testmap_fx.csc': '#include clientscripts\\_fx;\n'
                 'main()\n{\n\tlevel._effect["fire"] = loadfx("env/fire");\n\tlevel thread lamp();\n}\n'
                 'lamp()\n{\n\tlevel waittill("pl1");\n\tSetVolFog(1,2,3,4,0.1,0.2,0.3,5);\n'
-                '\tfx = SpawnFx(0, level._effect["fire"], (0,0,0), -5, (1,0,0), (0,0,1));\n\ttriggerFX(fx);\n}\n',
+                '\tfx = SpawnFx(0, level._effect["fire"], (0,0,0), -5, (1,0,0), (0,0,1));\n\ttriggerFX(fx);\n\tfx delete();\n}\n',
             'clientscripts/_fx.csc': 'fx_init(clientNum)\n{\n\tclientscripts\\_lights::init_lights(clientNum);\n}\n',
             'clientscripts/_lights.csc': 'init_lights(clientNum)\n{\n\tlights = GetStructArray("light", "classname");\n'
                 '\tplaysound(clientNum, "light", (0,0,0));\n\tlight = spawn(clientNum, (0,0,0));\n'
@@ -67,9 +67,12 @@ class MapClientPortTests(unittest.TestCase):
         # T6's client spawnfx loses the axis: compat plays through playfx
         self.assertIn('_waw2bo2_environment::waw_spawnfx(0, ', fx)
         self.assertIn('_waw2bo2_environment::waw_triggerfx(fx)', fx)
+        # SpawnFx handles are structs (T6 has 768 client entities): Delete stops the effect
+        self.assertIn('fx clientscripts\\mp\\waw\\_waw2bo2_environment::waw_client_delete()', fx)
         compat = (gscport.COMPAT_DIR / '_waw2bo2_environment.csc').read_text(encoding='utf-8')
         self.assertIn('playfx( ent.waw_fx_client, ent.waw_fx, ent.origin, ent.waw_fx_forward, ent.waw_fx_up, time )',
                       compat)
+        self.assertNotIn('spawn( clientnum', compat)
         hook = clientport.finish_map_client(out, report, {'env/fire': 'waw/env/fire'}, {}, {'light'})
         lights = (out / 'clientscripts/mp/waw/_lights.csc').read_text()
         self.assertIn('GetStructArray("light", "classname")', lights)   # a lookup key, not the "light" alias
