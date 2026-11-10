@@ -67,6 +67,51 @@ waw_updatedvarsfromprofile( client )
 }
 
 // T6 has no client sound volume query: a WaW fade-out loop ends at once.
+// Every alias the map's client scripts play is the map's own (waw/); names
+// they build at runtime ("pa_audio_link_" + count) reach the bank here.
+waw_client_alias( alias )
+{
+    if ( getsubstr( alias, 0, 4 ) == "waw/" )
+        return alias;
+    return "waw/" + alias;
+}
+
+// waw_client_sound_debug 1: every sound the map's client scripts start goes
+// to the console (WAW CLIENT SOUND), so a probe can see the client side ran.
+waw_client_sound_log( kind, alias, origin )
+{
+    if ( getdvar( "waw_client_sound_debug" ) != "1" )
+        return;
+    where = "";
+    if ( isdefined( origin ) )
+        where = " " + origin;
+    println( "WAW CLIENT SOUND " + kind + " " + waw_client_alias( alias ) + where );
+}
+
+waw_client_playsound( clientnum, alias, origin )
+{
+    if ( !isdefined( alias ) || alias == "" )
+        return -1;
+    waw_client_sound_log( "play", alias, origin );
+    if ( isdefined( origin ) )
+        return playsound( clientnum, waw_client_alias( alias ), origin );
+    return playsound( clientnum, waw_client_alias( alias ) );
+}
+
+// WaW clientscripts\_audio::playLoopAt: a looping sound on a fake entity of
+// its own, returned to the caller (BO2's playloopat takes no client and
+// returns nothing).
+waw_playloopat( clientnum, alias, origin, fade )
+{
+    if ( !isdefined( fade ) )
+        fade = 0;
+    fake_ent = spawnfakeent( clientnum );
+    setfakeentorg( clientnum, fake_ent, origin );
+    waw_client_sound_log( "loop", alias, origin );
+    playloopsound( clientnum, fake_ent, waw_client_alias( alias ), fade );
+    return fake_ent;
+}
+
 waw_getsoundvolume( id )
 {
     return 0;
@@ -91,11 +136,14 @@ waw_haseyes()
 // WaW client SpawnFx + TriggerFX. T6's client spawnfx drops the given axis (a
 // createfx effect plays on the default one: Der Riese's eclipse sprite seen
 // edge-on) and no stock client script calls it; BO2 plays createfx through
-// playfx (clientscripts\mp\_fx create_triggerfx). The returned entity is what
-// WaW scripts keep and delete, and its shutdown stops the effect.
+// playfx (clientscripts\mp\_fx create_triggerfx). The returned handle is what
+// WaW scripts keep and delete (waw_client_delete stops the effect). It is a
+// struct, not a client entity: T6 has 768 client entities per local client
+// (CG_Spawn), and a map with many createfx one-shots ran out of them.
 waw_spawnfx( clientnum, fx, origin, delay, forward, up )
 {
-    ent = spawn( clientnum, origin, "script_origin" );
+    ent = spawnstruct();
+    ent.origin = origin;
     ent.waw_fx_client = clientnum;
     ent.waw_fx = fx;
     ent.waw_fx_delay = delay;
@@ -110,8 +158,6 @@ waw_triggerfx( ent, time )
         time = ent.waw_fx_delay;
     if ( isdefined( ent.waw_fx_playing ) )
         deletefx( ent.waw_fx_client, ent.waw_fx_playing );
-    else
-        ent thread waw_fx_shutdown();
     if ( !isdefined( ent.waw_fx_forward ) )
         ent.waw_fx_playing = playfx( ent.waw_fx_client, ent.waw_fx, ent.origin );
     else if ( !isdefined( ent.waw_fx_up ) )
@@ -120,12 +166,18 @@ waw_triggerfx( ent, time )
         ent.waw_fx_playing = playfx( ent.waw_fx_client, ent.waw_fx, ent.origin, ent.waw_fx_forward, ent.waw_fx_up, time );
 }
 
-waw_fx_shutdown()
+// The map's client Delete(): a waw_spawnfx handle stops its effect, any other
+// entity is deleted as before.
+waw_client_delete()
 {
-    client = self.waw_fx_client;
-    self waittill( "entityshutdown" );
-    if ( isdefined( self.waw_fx_playing ) )
-        deletefx( client, self.waw_fx_playing );
+    if ( isdefined( self.waw_fx_client ) )
+    {
+        if ( isdefined( self.waw_fx_playing ) )
+            deletefx( self.waw_fx_client, self.waw_fx_playing );
+        self.waw_fx_playing = undefined;
+        return;
+    }
+    self delete();
 }
 
 // Both sun tweak dvars are SAVED (0x1200): plain setdvar is refused for them.

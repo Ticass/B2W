@@ -1,6 +1,7 @@
 """Align native animated barricades with authored WaW plank planes."""
 import json
 import math
+import re
 import struct
 from pathlib import Path
 
@@ -193,3 +194,193 @@ def drop_replaced_chunks(bsp: Path) -> dict:
         data['entities'] = kept
         path.write_text(json.dumps(data, indent=1) + '\n', encoding='utf-8')
     return {'windows': len(replaced), 'dropped_brushes': dropped}
+
+
+# ---- WaW window rebuild motion on the native boards ----
+#
+# Windows stay BO2 zbarriers (the entity-budget exception), whose boards fly
+# back with the barrier asset's repair animations (o_zombie_board_N_repair: a
+# 1.1 s flip with a bounce). WaW has no rebuild animation: the map's own
+# _zombiemode_blockers replace_chunk moves the board in script. It shows the
+# board where it landed, lifts it to its height (MoveTo only_z) while turning
+# it upright (RotateTo), waits, then pushes it into the window (MoveTo og_origin).
+# The same motion is written over each native board's repair animation, from
+# its stock start pose (where the pull left it) to its stock rest pose, timed
+# by the map's literals. The barrier asset and entities stay as they are.
+
+REPLACE_CHUNK_SCRIPTS = ('maps\\_zombiemode_blockers_new', 'maps\\_zombiemode_blockers')
+REPAIR_FPS = 30
+
+
+def replace_chunk_timing(text: str) -> dict | None:
+    """The map's replace_chunk timings (seconds) without the fast-reload perk:
+    lift (MoveTo only_z), turn (RotateTo), hold (wait after the turn) and
+    push (MoveTo og_origin). None when the function does not have that shape."""
+    start = re.search(r'^replace_chunk\s*\(', text, re.M | re.I)
+    if start is None:
+        return None
+    rest = text[start.end():]
+    nxt = re.search(r'^[A-Za-z_]\w*\s*\([^;{]*\)\s*$\s*\{', rest, re.M)
+    body = rest[:nxt.start()] if nxt else rest
+    body = re.sub(r'//[^\n]*', '', body)
+    num = r'(\d*\.?\d+)'
+    lift = re.search(r'MoveTo\s*\(\s*only_z\s*,\s*' + num + r'\s*\)\s*;\s*\w+\s+RotateTo\s*\([^;]*,\s*' + num
+                     + r'\s*\)\s*;[^;]*;\s*wait\s*\(\s*' + num + r'\s*\)', body, re.I)
+    push = re.findall(r'MoveTo\s*\(\s*\w+\.og_origin\s*,\s*' + num + r'\s*\)', body, re.I)
+    if lift is None or not push:
+        return None
+    # the perk branch comes first in WaW; the last og_origin move is the plain one
+    return {'lift': float(lift.group(1)), 'turn': float(lift.group(2)), 'hold': float(lift.group(3)),
+            'push': float(push[-1])}
+
+
+def _decode_repair(raw: bytes) -> dict:
+    """Header, root (delta) translation and the single bone's tracks (first
+    and last key) of a raw v17/v19 board animation, in the layout
+    animnotes.notification_offset walks."""
+    version, frames, bones, flags, kind, fps = struct.unpack_from('<3H2BH', raw)
+    if bones != 1 or not flags & 2 or flags & 1:
+        raise ValueError('board animation: expected one bone, root motion, not looping')
+    pos = 10
+
+    def u16():
+        nonlocal pos
+        pos += 2
+        return struct.unpack_from('<H', raw, pos - 2)[0]
+
+    def skip_indices(n):
+        # tracks keyed on every frame omit their frame indices
+        nonlocal pos
+        if n < frames:
+            pos += n if frames - 1 < 256 else 2 * n
+
+    def trans():
+        nonlocal pos
+        n = u16()
+        if n == 0:
+            return [(0.0, 0.0, 0.0)] * 2
+        if n == 1:
+            v = struct.unpack_from('<3f', raw, pos)
+            pos += 12
+            return [v, v]
+        skip_indices(n)
+        small = raw[pos]
+        mins, rng = struct.unpack_from('<3f', raw, pos + 1), struct.unpack_from('<3f', raw, pos + 13)
+        pos += 25
+        width, top, fmt = (1, 255, 'B') if small else (2, 65535, 'H')
+        keys = [struct.unpack_from('<3' + fmt, raw, pos + i * 3 * width) for i in range(n)]
+        pos += n * 3 * width
+        return [tuple(mins[k] + rng[k] * key[k] / top for k in range(3)) for key in (keys[0], keys[-1])]
+
+    def quat(stored):
+        nonlocal pos
+        n = u16()
+        if n == 0:
+            return None
+        if n > 1:
+            skip_indices(n)
+        keys = [struct.unpack_from(f'<{stored // 2}h', raw, pos + i * stored) for i in range(n)]
+        pos += n * stored
+        return [keys[0], keys[-1]]
+
+    if quat(2) is not None:
+        raise ValueError('board animation: root rotation is not supported')
+    root = trans()
+    flip, half = raw[pos], raw[pos + 1]
+    pos += 2
+    end = raw.index(b'\0', pos)
+    bone = raw[pos:end]
+    pos = end + 1
+    if half & 1:
+        raise ValueError('board animation: simple (z-only) bone rotation is not supported')
+    rotation = quat(6)
+    offset = trans()
+    if rotation is None:
+        raise ValueError('board animation: the board bone has no rotation track')
+    return {'header': (version, kind, fps), 'flip': flip, 'bone': bone, 'root': root,
+            'rotation': [_unpack_quat(q) for q in rotation], 'offset': offset, 'tail': raw[pos:]}
+
+
+def _unpack_quat(q) -> tuple:
+    x, y, z = (v / 32767.0 for v in q)
+    return x, y, z, math.sqrt(max(0.0, 1.0 - x * x - y * y - z * z))
+
+
+def _slerp(a, b, f):
+    dot = sum(p * q for p, q in zip(a, b))
+    if dot < 0:
+        b, dot = tuple(-q for q in b), -dot
+    if dot > 0.9995:
+        r = tuple(p + (q - p) * f for p, q in zip(a, b))
+    else:
+        theta = math.acos(dot)
+        s0, s1 = math.sin((1 - f) * theta) / math.sin(theta), math.sin(f * theta) / math.sin(theta)
+        r = tuple(s0 * p + s1 * q for p, q in zip(a, b))
+    length = math.sqrt(sum(v * v for v in r))
+    r = tuple(v / length for v in r)
+    # stored without w: keep the half with w >= 0
+    return r if r[3] >= 0 else tuple(-v for v in r)
+
+
+def _lerp(a, b, f):
+    return tuple(p + (q - p) * f for p, q in zip(a, b))
+
+
+def _pack_trans(values) -> bytes:
+    mins = [min(v[k] for v in values) for k in range(3)]
+    rng = [max(v[k] for v in values) - mins[k] for k in range(3)]
+    keys = b''.join(struct.pack('<3H', *(round((v[k] - mins[k]) / rng[k] * 65535) if rng[k] else 0
+                                          for k in range(3))) for v in values)
+    return (struct.pack('<H', len(values)) + bytes([0]) + struct.pack('<3f', *mins)
+            + struct.pack('<3f', *rng) + keys)
+
+
+def waw_repair_animation(raw: bytes, timing: dict) -> bytes:
+    """The board's stock repair animation retimed as WaW's replace_chunk:
+    lift to the rest height while turning upright, hold, push into place."""
+    stock = _decode_repair(raw)
+    (start, rest), (q0, q1), (o0, o1) = stock['root'], stock['rotation'], stock['offset']
+    settle = max(timing['lift'], timing['turn']) + timing['hold']
+    total = settle + timing['push']
+    frames = max(2, round(total * REPAIR_FPS) + 1)
+    roots, quats, offsets = [], [], []
+    for i in range(frames):
+        t = i / REPAIR_FPS if i < frames - 1 else total
+        turn = min(1.0, t / timing['turn']) if timing['turn'] > 0 else 1.0
+        if t <= settle:
+            lift = min(1.0, t / timing['lift']) if timing['lift'] > 0 else 1.0
+            root = (start[0], start[1], start[2] + (rest[2] - start[2]) * lift)
+        else:
+            push = min(1.0, (t - settle) / timing['push']) if timing['push'] > 0 else 1.0
+            root = _lerp((start[0], start[1], rest[2]), rest, push)
+        roots.append(root)
+        quats.append(_slerp(q0, q1, turn))
+        offsets.append(_lerp(o0, o1, turn))
+    version, kind, _ = stock['header']
+    out = struct.pack('<3H2BH', version, frames, 1, 2, kind, REPAIR_FPS)
+    out += struct.pack('<H', 0) + _pack_trans(roots)
+    out += bytes([stock['flip'], 0]) + stock['bone'] + b'\0'
+    out += struct.pack('<H', frames) + b''.join(
+        struct.pack('<3h', *(round(v * 32767) for v in q[:3])) for q in quats)
+    out += _pack_trans(offsets)
+    return out + stock['tail']
+
+
+def board_repair_animations(barrier_asset: str) -> list[str]:
+    """boardAnimN of a T6 zbarrier asset (InfoString text)."""
+    fields = barrier_asset.split('\\')
+    pairs = dict(zip(fields[1::2], fields[2::2]))
+    return [pairs[f'boardAnim{i}'] for i in range(1, 64) if pairs.get(f'boardAnim{i}')]
+
+
+def stage_waw_repair_animations(barrier_asset: str, bo2: Path, timing: dict, destination: Path) -> dict:
+    """Write each board's WaW-timed repair animation to destination/xanim
+    under its stock name (the mod link puts this layer before the stock raw
+    folder, so the stock barrier asset plays it)."""
+    written = {}
+    for name in board_repair_animations(barrier_asset):
+        target = destination / 'xanim' / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(waw_repair_animation((bo2 / 'raw/xanim' / name).read_bytes(), timing))
+        written[name] = round(max(timing['lift'], timing['turn']) + timing['hold'] + timing['push'], 3)
+    return written

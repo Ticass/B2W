@@ -64,6 +64,15 @@ function W.label(parent, role, height, x, baseline, right)
     local e = LUI.UIElement.new()
     rect(e, x, baseline, 0, 0)
     e.parts = {}
+    e.color = {1, 1, 1}
+    -- A label is one image per glyph (shadow + ink): setRGB on the label
+    -- itself colours nothing, so the ink of every glyph takes the colour.
+    function e:setColor(r, g, b)
+        local c = self.color
+        if c[1] == r and c[2] == g and c[3] == b then return end
+        self.color = {r, g, b}
+        for _, part in ipairs(self.parts) do part.ink:setRGB(r, g, b) end
+    end
     function e:setText(value)
         local text = W.plainText(value)
         if self.text == text then return end
@@ -85,6 +94,8 @@ function W.label(parent, role, height, x, baseline, right)
                 local ink = image(part, nil, 0, 0, 0, 0)
                 ink:setLeftRight(true, true, 0, 0)
                 ink:setTopBottom(true, true, 0, 0)
+                ink:setRGB(self.color[1], self.color[2], self.color[3])
+                part.ink = ink
                 function part:setImage(material) shadow:setImage(material); ink:setImage(material) end
                 self:addElement(part)
                 self.parts[i] = part
@@ -178,7 +189,8 @@ end
 -- T4 sub_42CDF0 (CG_PLAYER_WEAPON_LOW_AMMO_WARNING): the clip at or under
 -- clipSize * lowAmmoWarningThreshold (sub_44EE30) shows "Reload" with
 -- reserve left (not on one-round clips), "LOW AMMO" without, "No Ammo" when
--- both are empty. Each pulses between its two colours (sub_42B2E0 dvar
+-- both are empty; nothing while the weapon reloads (weaponstate 7..11, the
+-- script's waw_hud_reloading event). Each pulses between its two colours (sub_42B2E0 dvar
 -- defaults: freq 1.7, min 0, max 1.5, i.e. it rests on colour 2 at the crest).
 local lowAmmo = {
     reload = {"WAW2BO2_PLATFORM_RELOAD", {0.9, 0.9, 0.9, 0.8}, {1, 1, 1, 1}},
@@ -188,7 +200,7 @@ local lowAmmo = {
 local pulse = {freq = 1.7, min = 0, max = 1.5}
 function W.lowAmmoState(e)
     local data = e.weaponData
-    if not data or e.overheat or e.hideAmmo or not e.weaponName then return nil end
+    if not data or e.overheat or e.hideAmmo or not e.weaponName or e.reloading then return nil end
     local clip, stock = tonumber(e.clip), tonumber(e.stock)
     local size, threshold = data.size or 0, data.threshold or 0
     if not clip or not stock or clip < 0 or size <= 0 then return nil end
@@ -217,7 +229,7 @@ function W.drawLowAmmo(e)
         warn.text:setText(Engine.Localize(warning[1]))
     end
     local r, g, b, a = W.pulseColor(warning, warn.time or 0)
-    warn:setRGB(r, g, b)
+    warn.text:setColor(r, g, b)
     warn:setAlpha(a)
 end
 -- T4 sub_42BF20/sub_44ED70: the reserve turns (1, 0.3, 0.3) at or under a
@@ -226,9 +238,9 @@ function W.drawStock(e)
     local data, stock = e.weaponData, tonumber(e.stock)
     if data and stock and data.maxAmmo and data.maxAmmo >= 0 and
             math.min(data.maxAmmo, 999) * 0.2 >= math.min(stock, 999) then
-        e.stockText:setRGB(1, 0.3, 0.3)
+        e.stockText:setColor(1, 0.3, 0.3)
     else
-        e.stockText:setRGB(1, 1, 1)
+        e.stockText:setColor(1, 1, 1)
     end
 end
 function W.flash(e)
@@ -388,7 +400,10 @@ function W.ammo(controller)
             end
             local shown = data ~= nil or parts.material
             parts.icon:setAlpha(shown and 0.65 or 0)
-            parts.count:setText(shown and (data and data.ammo or 0) or "")
+            local count = tonumber(data and data.ammo) or 0
+            parts.count:setText(shown and count or "")
+            -- T4 sub_46EBE0: an empty offhand's count is (0.89, 0.18, 0.01)
+            if count == 0 then parts.count:setColor(0.89, 0.18, 0.01) else parts.count:setColor(1, 1, 1) end
         end
     end)
     -- hud.menu lowammowarning: rect -10 15 100 30, centred; UI_FONT_DEFAULT
@@ -406,6 +421,10 @@ function W.ammo(controller)
     end)
     if LUI.UITimer then e:addElement(LUI.UITimer.new(50, "waw_low_ammo_pulse", false, e)) end
     W.actionSlots(e, controller)
+    e:registerEventHandler("waw_hud_reloading", function(self, event)
+        self.reloading = event.data and event.data[1] == 1
+        W.drawLowAmmo(self)
+    end)
     e:registerEventHandler("hud_update_ammo", W.updateAmmo)
     e:registerEventHandler("hud_update_weapon", W.updateWeapon)
     e:registerEventHandler("hud_update_weapon_select", W.updateWeapon)

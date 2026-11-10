@@ -52,6 +52,7 @@ init()
     if ( isdefined( level.waw2bo2_compat_ready ) )
         return;
     level.waw2bo2_compat_ready = 1;
+    precachestring( &"waw_hud_reloading" );
     // T4 PM_RegisterDvars (0x40E298/0x40E2CE) defaults, before the map's
     // own init_dvars and any authored overrides. T6 uses 128/300 instead.
     setdvar( "bg_fallDamageMinHeight", 200 );
@@ -1740,9 +1741,17 @@ waw_newclienthudelem( client )
 // The map's effect-only client listeners run on the server (gscport
 // client_fx_listeners) and wait for "waw_client_" + msg, a server notify the
 // native clientnotify never raises.
+// A client waiting on a name it builds at runtime ("tp" + pad) registers no
+// system for it; BO2's levelNotify system carries any name (the client glue
+// answers it for the names it has no system for).
 waw_clientnotify( msg )
 {
+    if ( getdvar( "waw_client_sound_debug" ) == "1" )
+        println( "WAW SERVER CLIENTNOTIFY " + msg + " levelNotify " + ( isdefined( level._clientsys )
+            && isdefined( level._clientsys["levelNotify"] ) ) );
     clientnotify( msg );
+    if ( isdefined( level._clientsys ) && isdefined( level._clientsys["levelNotify"] ) )
+        maps\mp\_utility::setclientsysstate( "levelNotify", msg );
     level notify( "waw_client_" + msg );
 }
 
@@ -1909,6 +1918,7 @@ waw_player_stats()
         self.waw2bo2_grenade_monitor = 1;
         self thread waw_grenade_diagnostics();
         self thread waw_inventory_size();
+        self thread waw_hud_reload_state();
     }
     // WaW sets score_total when a player connects (_zombiemode::onPlayerConnect),
     // BO2 only at spawn; the map's power-up drop watcher sums it meanwhile
@@ -1928,6 +1938,24 @@ waw_player_stats()
     self.stats["perks"] = 0;
     self.stats["headshots"] = 0;
     self.stats["zombie_gibs"] = 0;
+}
+
+// T4's HUD reads the weapon state itself: the low ammo warning is not drawn
+// while the weapon reloads (sub_42CDF0, weaponstate 7..11). T6's LUI has no
+// weapon state, so the WaW HUD is told when it changes.
+waw_hud_reload_state()
+{
+    self endon( "disconnect" );
+    reloading = 0;
+    for ( ;; )
+    {
+        wait 0.05;
+        now = self isreloading();
+        if ( now == reloading )
+            continue;
+        reloading = now;
+        self luinotifyevent( &"waw_hud_reloading", 1, reloading );
+    }
 }
 
 // WaW Mule Kick packs keep self.InventorySize (2, or 3 with the perk) for the

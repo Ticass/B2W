@@ -1,5 +1,77 @@
 # Sound gain, attenuation, and voice limits
 
+## The stock class mix (2026-11-09)
+
+BO2 is the reference for the mix; WaW supplies the audio and the order
+between its own sounds. Three steps, all measured on each build from the two
+stock games (`audioremaster.py`, `sounds.py`), with no constant of ours.
+
+**1. Class.** A class is `<VolumeGroup>|<PanType>`. WaW's driver bus is the
+role its designers gave an alias, and `gsc_api.json` `audio_remaster`
+`bus_groups` names the BO2 volume group of the same role for each of WaW's 23
+buses. The table is checked against the stock games: both name the sounds
+the engine plays by event and surface (BO2 `fly_step_run_npc_dirt` is WaW
+`step_run_dirt`), so every stock BO2 engine alias with a stock WaW twin votes
+for its bus (`sounds.learn_bus_groups`). Measured: `character` = `grp_foley`
+(612 of 612 twins), `projectile` = `grp_impacts` (330 of 334), `explosion` =
+`grp_explosion` (27 of 27). A vote that differs from the table wins and is a
+`SOUND_BUS_GROUP` warning. A weapon's own sound on the catch-all `full_vol`
+bus stays a weapon sound. Roles the map's own data names (music table,
+stingers, ambient package, announcer) keep their earlier handling.
+
+**2. Stock class profile** (`audioremaster.stock_classes`, from
+`raw/soundbank/zmb_*.aliases.csv` and `globals/curves.csv`): the class's most
+common bus and duck group, the falloff curve of its ordinary 3D rows with
+that curve's area, and the percentiles of DistMin, falloff length, priority
+and occlusion. Stock BO2 uses one falloff, `default`, on 80,528 of 81,544 3D
+rows.
+
+**3. Transfer by rank** (`audioremaster.transfer`). A value's rank among
+stock WaW's values of the class gives the stock BO2 value of the same rank.
+WaW's single authored default lands on BO2's typical value, and the map keeps
+its own order. Reach is compared as *falloff length*: (DistMax - DistMin)
+times the area under the alias's own curve (`sounds.falloff_descriptor`), so
+it does not depend on curve names. DistMax is then solved on BO2's curve:
+`DistMin' + falloff' / area(default)`. The min curve plays over
+[0, DistMin] and the max curve over [DistMin, DistMax] in both engines
+(stock BO2 third-person gunfire: near layer `cosdelay`/`alloff` 900/900, far
+layer `sindelay`/`default` 900/6000). Rows that are not an ordinary falloff
+(WaW's far gunshot layers) keep their authored shape and distances. The
+level still moves by the class median, now read against stock WaW's median
+so a map holding only the loud members of a class is not pulled down. When
+the stock WaW zones are not extracted, the map's own rows are the reference
+(`AUDIO_MIX` warning).
+
+**Twins.** A converted alias that plays where BO2 plays one specific stock
+alias takes that alias's own row (`TWIN_COLUMNS`: placement, curves, limits,
+priority, pan), keeping WaW's file, pitch and level: the engine name copies
+(983 on Der Riese) and the zombie vocal events (`vocal_twins`).
+
+Why converted maps sounded unbalanced, measured on Der Riese against the
+stock tables (10th / 50th / 90th percentile):
+
+| Class | Measure | Stock BO2 | Before | After |
+| --- | --- | --- | --- | --- |
+| voice 3D | distance at -6 dB | 375 / 375 / 550 | 678 / 1134 / 1134 | 375 / 375 / 459 |
+| voice 3D | PriorityMax | 70 / 90 / 90 | 25 / 25 / 50 | 90 / 90 / 90 |
+| foley 3D | distance at -20 dB | 201 / 397 / 648 | 144 / 521 / 1248 | 245 / 390 / 497 |
+| foley 3D | ReverbSend | 0 / 30 / 50 | 68 / 69 / 71 | 0 / 40 / 50 |
+| impacts 3D | VolMax | 83 / 90 / 90 | in foley, 73 | 87 / 90 / 91 |
+| explosion 3D | VolMax | 92 / 95 / 95 | in weapon, 82 | 94 / 95 / 95 |
+| weapon 3D | distance at -6 dB | 220 / 239 / 2035 | 343 / 1022 / 4086 | 214 / 220 / 320 |
+
+WaW's slow curves (BO2 `cos` shape, area 0.61 against 0.31 for `default`)
+made a voice authored to 1700 units carry twice as far as a stock BO2 voice
+at 1250; voices also lost voice stealing to footsteps. Everything on WaW's
+`projectile`, `explosion`, `physics` and `full_vol` buses sat in BO2's foley
+or weapon group and took its level and duck group.
+
+Not carried, reported in `sounds.bank.json` `not_translated`: BO2's
+alias-triggered ducks (the `Duck` column: stock gunfire and impacts duck the
+mix), and voice limits where WaW authored none. The class level assumes the
+two games' audio files are equally loud within a class; file loudness is not
+measured. The mix is checked against the tables, not by ear.
+
 ## Rooms, ambient packages and reverb level
 
 A WaW map's `clientscripts/<map>_amb.csc` declares its ambient rooms and
