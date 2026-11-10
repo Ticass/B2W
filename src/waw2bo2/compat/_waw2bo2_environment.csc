@@ -156,6 +156,8 @@ waw_triggerfx( ent, time )
 {
     if ( !isdefined( time ) )
         time = ent.waw_fx_delay;
+    if ( getdvar( "waw_client_sound_debug" ) == "1" )
+        println( "WAW CLIENT FX trigger " + ent.origin );
     if ( isdefined( ent.waw_fx_playing ) )
         deletefx( ent.waw_fx_client, ent.waw_fx_playing );
     if ( !isdefined( ent.waw_fx_forward ) )
