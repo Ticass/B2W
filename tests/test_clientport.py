@@ -90,6 +90,10 @@ class MapClientPortTests(unittest.TestCase):
         self.assertNotIn('waw_forwarded[state]', glue)
         self.assertIn('waw_deliver( state, localclientnum );', glue)
         self.assertIn('waw_deliver( "pl1", localclientnum );', glue)
+        # a client that connected while the map's main was still running gets
+        # the map's lights and createfx too (2026-11-10: no fires, no lights)
+        self.assertIn('level thread on_connect( i, 1 );', glue)
+        self.assertIn('if ( isdefined( level.waw_connected[localclientnum] ) )', glue)
         self.assertIn('clientscripts\\mp\\waw\\_fx::fx_init( localclientnum );', glue)
         self.assertEqual(report['unbound_fx'], [])
 

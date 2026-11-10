@@ -72,3 +72,12 @@ and skipped those names on the `levelNotify` system, but the probe shows message
 sound. Fix: `clientport` glue delivers every name from `levelNotify` (`waw_deliver`, one notify per message).
 After it, power-on played light_start/light x16, switch_progress x23, gen_start/gen_loop x4, break x2,
 pa_power_on x16, power_up_2d, and t2d the teleport 2D pair. Debug: dvar `waw_client_sound_debug 1`.
+
+## Lights and fires gone (2026-11-10, regression in the posted build)
+
+The map's client main now runs the map's _amb script and finishes after the local client has connected,
+so BO2's connect path ran before the glue installed `on_connect`: the map's `_fx::fx_init` (its lights,
+then its 249 createfx effects) never started. The Nov 9 16:19 build had the flames; the 21:39 one and later
+did not (bisect, `work/der_riese_acc/probe_fx_20261110`). Fix: the glue's init starts `on_connect` for
+local clients that already connected (once per client). After it: 158 createfx effects started at connect,
+the barrel fire burns. Debug log lines (dvar `waw_client_sound_debug 1`): WAW CLIENT GLUE / CONNECT / FX.

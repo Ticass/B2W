@@ -309,6 +309,15 @@ init()
         level.struct_class_names["classname"]["light"] = undefined;
     level.waw_client_connect = level.onplayerconnect;
     level.onplayerconnect = ::on_connect;
+    if ( getdvar( "waw_client_sound_debug" ) == "1" )
+        println( "WAW CLIENT GLUE ready, createfx " + isdefined( level.waw_createfxent ) );
+    // The map's main can wait (its own client modules do), and a local client
+    // that connected meanwhile has already been through BO2's connect path
+    // (zombies\\_players::on_connect) without this hook: its lights and
+    // createfx would never start (2026-11-10, no fires or lights).
+    players = getlocalplayers();
+    for ( i = 0; i < players.size; i++ )
+        level thread on_connect( i, 1 );
 }
 
 // What clientscripts\\mp\\_utility::registersystem stores, without its
@@ -347,9 +356,18 @@ waw_deliver( state, localclientnum )
     level notify( state, localclientnum );
 }
 
-on_connect( localclientnum )
+// late: the client connected before init installed this (BO2 already ran
+// the connect callback it replaced). Once per local client either way.
+on_connect( localclientnum, late )
 {
-    if ( isdefined( level.waw_client_connect ) )
+    if ( !isdefined( level.waw_connected ) )
+        level.waw_connected = [];
+    if ( isdefined( level.waw_connected[localclientnum] ) )
+        return;
+    level.waw_connected[localclientnum] = 1;
+    if ( getdvar( "waw_client_sound_debug" ) == "1" )
+        println( "WAW CLIENT CONNECT " + localclientnum + " late " + isdefined( late ) );
+    if ( isdefined( level.waw_client_connect ) && !isdefined( late ) )
         level thread [[ level.waw_client_connect ]]( localclientnum );
     if ( isdefined( level.waw_createfxent ) )
         level.createfxent = level.waw_createfxent;
