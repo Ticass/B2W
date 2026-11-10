@@ -63,6 +63,8 @@ class Surface:
     # and its technique set's MaterialWorldVertexFormat (0: single layer)
     layer_data_offset: int = 0
     world_vert_format: int = 0
+    # WaW cell owning this surface (visibility.assign); -1 for brush models
+    cell: int = -1
     index: int = -1  # position in the source surface array (shadow geometry refers to it)
     # a no-draw copy that only casts shadows for primary_light_index (t6bridge.shadow_occluder_copies)
     shadow_copy: bool = False
@@ -93,6 +95,8 @@ class GfxWorld:
     layer_data: bytes = b""
     # v6: per primary light, the static geometry of its shadow map and its region
     shadow_lights: list = field(default_factory=list)
+    # cells, portals and point tree (visibility.py); None links one cell
+    visibility: dict | None = None
 
 
 @dataclass(slots=True)

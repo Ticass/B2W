@@ -39,7 +39,7 @@ class MapClientPortTests(unittest.TestCase):
             'clientscripts/testmap_fx.csc': '#include clientscripts\\_fx;\n'
                 'main()\n{\n\tlevel._effect["fire"] = loadfx("env/fire");\n\tlevel thread lamp();\n}\n'
                 'lamp()\n{\n\tlevel waittill("pl1");\n\tSetVolFog(1,2,3,4,0.1,0.2,0.3,5);\n'
-                '\tfx = SpawnFx(0, level._effect["fire"], (0,0,0), -5, (1,0,0), (0,0,1));\n\ttriggerFX(fx);\n}\n',
+                '\tfx = SpawnFx(0, level._effect["fire"], (0,0,0), -5, (1,0,0), (0,0,1));\n\ttriggerFX(fx);\n\tfx delete();\n}\n',
             'clientscripts/_fx.csc': 'fx_init(clientNum)\n{\n\tclientscripts\\_lights::init_lights(clientNum);\n}\n',
             'clientscripts/_lights.csc': 'init_lights(clientNum)\n{\n\tlights = GetStructArray("light", "classname");\n'
                 '\tplaysound(clientNum, "light", (0,0,0));\n\tlight = spawn(clientNum, (0,0,0));\n'
@@ -51,7 +51,11 @@ class MapClientPortTests(unittest.TestCase):
         self.assertEqual(report['entry'], 'clientscripts\\mp\\waw\\testmap')
         self.assertEqual(set(report['modules']), {'clientscripts\\mp\\waw\\' + m for m in
                                                   ('testmap', 'testmap_fx', '_fx', '_lights', '_utility')})
-        self.assertEqual(len(report['dropped']), 3)   # _load, the staged amb, waitforclient
+        # _load and waitforclient; the map's _amb main runs (only its room, package
+        # and music declarations move to the generated BO2-runtime _amb script)
+        self.assertEqual(len(report['dropped']), 2)
+        main_text = (out / 'clientscripts/mp/waw/testmap.csc').read_text()
+        self.assertIn('testmap_amb::main()', main_text)
         self.assertEqual(report['fx'], ['env/fire'])
         self.assertEqual(report['events'], ['pl1'])
         main = (out / 'clientscripts/mp/waw/testmap.csc').read_text()
@@ -67,9 +71,12 @@ class MapClientPortTests(unittest.TestCase):
         # T6's client spawnfx loses the axis: compat plays through playfx
         self.assertIn('_waw2bo2_environment::waw_spawnfx(0, ', fx)
         self.assertIn('_waw2bo2_environment::waw_triggerfx(fx)', fx)
+        # SpawnFx handles are structs (T6 has 768 client entities): Delete stops the effect
+        self.assertIn('fx clientscripts\\mp\\waw\\_waw2bo2_environment::waw_client_delete()', fx)
         compat = (gscport.COMPAT_DIR / '_waw2bo2_environment.csc').read_text(encoding='utf-8')
         self.assertIn('playfx( ent.waw_fx_client, ent.waw_fx, ent.origin, ent.waw_fx_forward, ent.waw_fx_up, time )',
                       compat)
+        self.assertNotIn('spawn( clientnum', compat)
         hook = clientport.finish_map_client(out, report, {'env/fire': 'waw/env/fire'}, {}, {'light'})
         lights = (out / 'clientscripts/mp/waw/_lights.csc').read_text()
         self.assertIn('GetStructArray("light", "classname")', lights)   # a lookup key, not the "light" alias
@@ -78,6 +85,11 @@ class MapClientPortTests(unittest.TestCase):
         self.assertIn('loadfx("waw/env/fire")', (out / 'clientscripts/mp/waw/testmap_fx.csc').read_text())
         glue = (out / 'clientscripts/mp/waw/_waw2bo2_client.csc').read_text()
         self.assertIn('forward_notify( "pl1", ::waw_notify_0 );', glue)
+        # every message reaches the client through levelNotify, named ones too
+        # (2026-11-10 probe: "pl1" only ever arrived there); one notify per message
+        self.assertNotIn('waw_forwarded[state]', glue)
+        self.assertIn('waw_deliver( state, localclientnum );', glue)
+        self.assertIn('waw_deliver( "pl1", localclientnum );', glue)
         self.assertIn('clientscripts\\mp\\waw\\_fx::fx_init( localclientnum );', glue)
         self.assertEqual(report['unbound_fx'], [])
 

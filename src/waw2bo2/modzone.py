@@ -23,6 +23,12 @@ from . import timeline
 from .progress import captured
 
 TEMPLATE_MAP = "zm_test"
+# Folder under the map's asset root holding raw assets that take the place of
+# the stock ones mod.ff links under the same name (the WaW-timed window board
+# repair animations, barriers.stage_waw_repair_animations). The linker finds
+# the stock raw folder before the asset root, so link_mod puts this folder in
+# its first layer.
+MOD_OVERRIDE = "mod_override"
 # its sound bank; not shipped (every sound comes from WaW)
 TEMPLATE_SOUNDBANK = "zmb_test.all"
 # world assets live in the map fastfile (the bridge links skinnedverts too;
@@ -943,6 +949,10 @@ def link_mod(bo2: Path, work: Path, unlinker: Path, extra_lines: list[str] = (),
     recovered_images: list[dict] = []
     protected = {line.strip() for line in extra_lines if line.strip() and not line.lstrip().startswith("//")}
     table_override = work / 'lobby_input'
+    shutil.rmtree(table_override / 'xanim', ignore_errors=True)
+    if asset_root is not None and (asset_root / MOD_OVERRIDE).is_dir():
+        # stock-named assets the map replaces: same first layer as the tables
+        shutil.copytree(asset_root / MOD_OVERRIDE, table_override, dirs_exist_ok=True)
     if asset_root is not None:
         for name in ('mapstable.csv', 'gametypestable.csv', 'zm_statstable.csv'):
             source = asset_root / 'zm' / name

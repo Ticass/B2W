@@ -7,9 +7,11 @@ The official BO2 linker consumes these infostrings and WaW's raw v17 xanims.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shutil
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from . import wawtext
@@ -380,16 +382,20 @@ def model_lod_source(roots: list[Path], owner: Path, file: str) -> Path | None:
     return next((root / file for root in dict.fromkeys([owner, *roots]) if (root / file).is_file()), None)
 
 
-def stage_models(roots: list[Path], project: Path, names: set[str]) -> dict:
+def stage_models(roots: list[Path], project: Path, names: set[str],
+                 world_models: frozenset[str] | set[str] = frozenset()) -> dict:
     """Preserve weapon skeletons and LODs; never use the static-prop skin stripper.
 
     Models/material names are isolated from stock BO2. Multi-root skeletons
     require a loader fix and are explicitly rejected, not made rigid. Materials
     and image dependencies are reported for the subsequent translation stage.
+    ``world_models`` (output names in a weapon worldModel slot) may be rebound
+    to their root bone when the mod tools linker refuses them as animated.
     """
     staged, missing, unsupported, materials = [], [], {}, set()
     physpresets: dict[str, dict] = {}
     reparented: dict[str, list[str]] = {}
+    rebound: list[str] = []
     no_collision: list[str] = []
     for name in sorted(names):
         model_materials = set()
@@ -442,6 +448,11 @@ def stage_models(roots: list[Path], project: Path, names: set[str]) -> dict:
                 lods.append((dict(lod, file=destination.as_posix()), destination, data))
             if not lods:
                 raise WeaponError("xmodel has no LODs")
+            if renamed in world_models and model.get("type") == "animated" and \
+                    any(_lod_vertices(data) > ANIMATED_LOD_VERTICES for _, _, data in lods) and \
+                    all([_rebind_to_root(data) for _, _, data in lods]):
+                model["type"] = "rigid"
+                rebound.append(name)
         except (WeaponError, OSError, KeyError, ValueError) as exc:
             unsupported[name] = str(exc)
             continue
@@ -474,7 +485,54 @@ def stage_models(roots: list[Path], project: Path, names: set[str]) -> dict:
                        "materials": sorted(model_materials)})
     return {"status": "source_models_staged_materials_not_translated", "models": staged, "missing": missing,
             "unsupported": unsupported, "materials": sorted(materials), "physpresets": physpresets,
-            "reparented_roots": reparented, "collision_not_carried": no_collision}
+            "reparented_roots": reparented, "rebound_to_root": rebound,
+            "collision_not_carried": no_collision}
+
+
+# BO2 mod tools linker: "Lod exceeds limit of {} vertices for animated models"
+# (rigid models may hold more: 39830-vertex view models link).
+ANIMATED_LOD_VERTICES = 32767
+
+
+def _lod_vertices(gltf: dict) -> int:
+    """Vertices in a LOD; primitives of one mesh export share their accessors."""
+    positions = {p["attributes"]["POSITION"] for mesh in gltf.get("meshes", []) for p in mesh["primitives"]}
+    return sum(gltf["accessors"][index]["count"] for index in positions)
+
+
+def _rebind_to_root(gltf: dict) -> bool:
+    """Weight every vertex fully to the root joint, keeping all the joints.
+
+    A weapon's world model plays no animation, so its tags hold their bind
+    transforms and blends between them place a vertex where the root alone
+    does. Returns False, data untouched, for a layout other than the dumper's
+    one skin of ubyte joints and float weights."""
+    if len(gltf.get("skins", [])) != 1 or len(gltf.get("buffers", [])) != 1:
+        return False
+    joints = gltf["skins"][0]["joints"]
+    children = {c for j in joints for c in gltf["nodes"][j].get("children", [])}
+    roots = [i for i, j in enumerate(joints) if j not in children]
+    prefix, separator, payload = gltf["buffers"][0]["uri"].partition(";base64,")
+    pairs = {(p["attributes"].get("JOINTS_0"), p["attributes"].get("WEIGHTS_0"))
+             for mesh in gltf["meshes"] for p in mesh["primitives"]}
+    if len(roots) != 1 or not separator or any(None in pair for pair in pairs):
+        return False
+    views = []
+    for joint_index, weight_index in pairs:
+        joint, weight = gltf["accessors"][joint_index], gltf["accessors"][weight_index]
+        if (joint["componentType"], weight["componentType"]) != (5121, 5126) or \
+                joint["type"] != "VEC4" or weight["type"] != "VEC4":
+            return False
+        views.append((joint, weight))
+    data = bytearray(base64.b64decode(payload))
+    for joint, weight in views:
+        offsets = [gltf["bufferViews"][a["bufferView"]].get("byteOffset", 0) + a.get("byteOffset", 0)
+                   for a in (joint, weight)]
+        count = joint["count"]
+        data[offsets[0]:offsets[0] + 4 * count] = bytes((roots[0], 0, 0, 0)) * count
+        data[offsets[1]:offsets[1] + 16 * count] = struct.pack("<4f", 1, 0, 0, 0) * count
+    gltf["buffers"][0]["uri"] = prefix + separator + base64.b64encode(bytes(data)).decode("ascii")
+    return True
 
 
 TRS_KEYS = ("translation", "rotation", "scale", "matrix")
@@ -639,7 +697,9 @@ def stage(roots: list[Path], project: Path, names: set[str] | None = None, stock
                              "native roundtrip and in-game validation"])
     # extra_requests (models the map scripts use) only widen the resolved
     # roots; those models belong to the map zone under their WaW names.
-    report["models"] = stage_models(roots, project, dependencies.get("xmodel", set()))
+    world_models = {value for weapon in converted.values() for key, value in weapon.fields.items()
+                    if WORLD_MODEL_SLOT.match(key)}
+    report["models"] = stage_models(roots, project, dependencies.get("xmodel", set()), world_models)
     if graph is not None:
         report["dependency_graph"] = "weapons.dependencies.json"
         report["resolved_roots"] = graph["roots"]
@@ -816,6 +876,7 @@ def _stage_image(roots: list[Path], project: Path, name: str, output: str, wavel
 # Model-index variants (camo / script-selected model slots). An absent one
 # leaves the weapon usable; the primary models do not.
 VARIANT_MODEL_SLOT = re.compile(r"^(gunModel|worldModel)([2-9]|1[0-6])$")
+WORLD_MODEL_SLOT = re.compile(r"^worldModel([2-9]|1[0-6])?$")
 ENGINE_WEAPONS = {"none"}
 # User-authorized ordinary lethal replacement. Never classify unknown/special
 # grenades by offhand class alone: custom equipment can share that class.

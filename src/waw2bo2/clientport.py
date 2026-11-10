@@ -83,20 +83,36 @@ CLIENT_RUNTIME = {
 
 
 def staged_client_modules(map_name: str, project: str) -> dict[str, str]:
-    """The map's client modules another staging step ports (stage_tesla,
-    t6bridge.write_amb_csc on BO2's audio runtime): WaW module -> staged one."""
+    """The map's client modules another staging step ports (stage_tesla) or
+    BO2's audio runtime answers: WaW module -> staged one. The map's _amb
+    script is not one of them: its room, package and music declarations run
+    from the generated clientscripts\\mp\\<project>_amb (t6bridge.write_amb_csc,
+    on BO2's _ambientpackage and _music), and everything else it does (loops
+    on its structs, PA lines, power and teleporter audio) is the map's code,
+    ported like any module (port_map_client ``declared``)."""
     return {'clientscripts\\_zombiemode_tesla': 'clientscripts\\mp\\waw\\_zombiemode_tesla',
             'clientscripts\\_audio': 'clientscripts\\mp\\_audio',
-            f'clientscripts\\{map_name.lower()}_amb': f'clientscripts\\mp\\{project}_amb'}
+            'clientscripts\\_ambientpackage': 'clientscripts\\mp\\_ambientpackage'}
+
+
+# Functions of a WaW module BO2's runtime module answers differently: WaW
+# _audio::playLoopAt( client, alias, origin, fade ) returns its fake entity,
+# BO2's playloopat( alias, origin ) takes no client. Compat keeps WaW's.
+CLIENT_MODULE_FUNCTIONS = {('clientscripts\\_audio', 'playloopat'): 'waw_playloopat'}
 
 
 # WaW light intensity is gamma; T6 primary light colours are staged linear.
 # haseyes: WaW's engine zombie-eye state, which T6 actors do not carry.
+# delete: SpawnFx handles are structs (T6's client entity pool is 768), so
+# deleting one stops its effect instead.
 CLIENT_METHODS = {'setlightintensity': 'waw_setlightintensity', 'getlightintensity': 'waw_getlightintensity',
-                  'haseyes': 'waw_haseyes'}
+                  'haseyes': 'waw_haseyes', 'delete': 'waw_client_delete'}
 # WaW client builtins T6's client VM lacks (compat _waw2bo2_environment.csc
 # says what each becomes).
-CLIENT_BUILTINS = {'setvolfog': 'waw_client_setvolfog', 'syncsystemstates': 'waw_syncsystemstates',
+# playsound: the map's client scripts build alias names at runtime
+# ("pa_audio_link_" + count); every alias they play is the map's (waw/).
+CLIENT_BUILTINS = {'playsound': 'waw_client_playsound',
+                   'setvolfog': 'waw_client_setvolfog', 'syncsystemstates': 'waw_syncsystemstates',
                    'updatedvarsfromprofile': 'waw_updatedvarsfromprofile', 'getsoundvolume': 'waw_getsoundvolume',
                    'setclientdvar': 'waw_setclientdvar', 'prof_begin': 'waw_prof', 'prof_end': 'waw_prof',
                    'spawnfx': 'waw_spawnfx', 'triggerfx': 'waw_triggerfx'}
@@ -127,14 +143,17 @@ def _statement(tokens: list, index: int) -> tuple[int, int]:
 
 
 def port_map_client(sources, map_name: str, out_root: Path, staged: dict[str, str] | None = None,
-                    builtins: set[str] | None = None) -> dict:
+                    builtins: set[str] | None = None, declared: dict[str, set[str]] | None = None) -> dict:
     """Translate clientscripts\\<map> and every client module it reaches into
     out_root/clientscripts/mp/waw. String literals keep their WaW names until
     finish_map_client (effects convert later). ``staged``: modules another step
     ports (staged_client_modules); the map main's calls to them are dropped
     since BO2's client main starts them. ``builtins``: T6 builtin names the map's
-    function names must not take. Returns the port report, empty when
-    the map has no client main."""
+    function names must not take. ``declared``: WaW module -> the calls in
+    its main() a generated BO2-runtime script already makes (the _amb
+    script's room, package and music declarations); those statements are
+    left out, the rest of the module runs. Returns the port report, empty
+    when the map has no client main."""
     main_path = CLIENT_PREFIX + map_name.lower()
     if sources.get(main_path, '.csc') is None:
         return {}
@@ -184,6 +203,28 @@ def port_map_client(sources, map_name: str, out_root: Path, staged: dict[str, st
                 # BO2's client main runs these: its _load, the separately
                 # staged tesla/amb libraries and the wait for client 0
                 statements.add(_statement(tokens, ref.qual_index if ref.qual_index is not None else ref.index))
+        own_main = script.functions.get('main')
+        made = (declared or {}).get(path)
+        if made and own_main is not None:
+            count = 0
+            for ref in refs:
+                if own_main.body_open < ref.index < own_main.body_close and ref.qualifier is None \
+                        and not ref.pointer and not ref.method and ref.name.lower() in made:
+                    start, end = _statement(tokens, ref.index)
+                    for t in tokens[start:end + 1]:
+                        t.text = ''
+                    count += 1
+            tokens[own_main.body_open].text += (
+                f'\n\t// waw2bo2: the {count} room, package and music declarations run from the generated '
+                f'_amb script on BO2\'s audio runtime')
+            report.setdefault('declared', {})[path] = count
+        for ref in refs:
+            key = (client_norm(ref.qualifier), ref.name.lower()) if ref.qualifier else None
+            if key in CLIENT_MODULE_FUNCTIONS and tokens[ref.index].text and not ref.pointer:
+                tokens[ref.qual_index].text = ENVIRONMENT
+                tokens[ref.index].text = CLIENT_MODULE_FUNCTIONS[key]
+                if key[1] not in report['compat']:
+                    report['compat'].append(key[1])
         for start, end in sorted(statements):
             dropped = ' '.join(t.text for t in tokens[start:end + 1])
             report['dropped'].append(dropped)
@@ -242,10 +283,14 @@ CLIENT_GLUE_SOURCE = PORT_HEADER + ''' T6 glue around the map's own client scrip
 
 init()
 {
-    // A server clientnotify reaches the T6 client as the state change of a
-    // client system named after the message; WaW's _load answered it through
-    // its levelNotify system with a level notify carrying the local client.
-@FORWARDS@    @ENTRY@::main();
+    // WaW's _load answered a server clientnotify through its levelNotify
+    // system with a level notify carrying the local client. Compat
+    // waw_clientnotify sends every message through BO2's levelNotify system,
+    // the path measured to reach the client (2026-11-10 probe: "pac0"/"tp0"
+    // arrived, "pl1"/"t2d" never came as systems of their own). The named
+    // systems stay registered; waw_deliver takes whichever arrives first.
+@FORWARDS@    forward_notify( "levelNotify", ::waw_level_notify );
+    @ENTRY@::main();
     // BO2's connect path (zombies\\_players::on_connect) runs its own
     // _fx::fx_init before level.onplayerconnect: its light mixer would take
     // the map's lights and its createfx playback would double the map's
@@ -275,6 +320,31 @@ forward_notify( name, callback )
     if ( !isdefined( level._systemstates[name] ) )
         level._systemstates[name] = spawnstruct();
     level._systemstates[name].callback = callback;
+    if ( !isdefined( level.waw_forwarded ) )
+        level.waw_forwarded = [];
+    level.waw_forwarded[name] = 1;
+}
+
+waw_level_notify( localclientnum, state )
+{
+    if ( getdvar( "waw_client_sound_debug" ) == "1" && isdefined( state ) )
+        println( "WAW CLIENT LEVELNOTIFY " + state );
+    if ( isdefined( state ) && state != "" )
+        waw_deliver( state, localclientnum );
+}
+
+// One level notify per message even when both of its paths deliver it.
+waw_deliver( state, localclientnum )
+{
+    if ( !isdefined( level.waw_delivered ) )
+        level.waw_delivered = [];
+    now = getrealtime();
+    if ( isdefined( level.waw_delivered[state] ) && now - level.waw_delivered[state] < 100 )
+        return;
+    level.waw_delivered[state] = now;
+    if ( getdvar( "waw_client_sound_debug" ) == "1" )
+        println( "WAW CLIENT DELIVER " + state );
+    level notify( state, localclientnum );
 }
 
 on_connect( localclientnum )
@@ -341,7 +411,7 @@ def finish_map_client(project_root: Path, report: dict, effects: dict[str, str],
             .replace('@CONNECT@', f'    {fx_module}::fx_init( localclientnum );\n'
                      if fx_module in report.get('modules', []) else '')
             .replace('@HANDLERS@', ''.join(f'\nwaw_notify_{i}( localclientnum, state )\n{{\n'
-                                           f'    level notify( "{name}", localclientnum );\n}}\n'
+                                           f'    waw_deliver( "{name}", localclientnum );\n}}\n'
                                            for i, name in enumerate(events))))
     dest = project_root / (CLIENT_GLUE.replace('\\', '/') + '.csc')
     dest.parent.mkdir(parents=True, exist_ok=True)

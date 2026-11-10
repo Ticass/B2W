@@ -36,7 +36,9 @@ ASSETS = ('ammo_counter_bullet', 'ammo_counter_riflebullet', 'ammo_counter_beltb
           'scorebar_zom_long_1', 'scorebar_zom_long_2', 'scorebar_zom_long_3', 'scorebar_zom_long_4')
 # Engine-owned T4 scoreboard labels (code_post_gfx); staged with the map's strings.
 ENGINE_STRINGS = ('CGAME_SB_POINTS', 'CGAME_SB_KILLS', 'CGAME_SB_DOWNS', 'CGAME_SB_REVIVES',
-                  'CGAME_SB_HEADSHOTS', 'CGAME_SB_PING')
+                  'CGAME_SB_HEADSHOTS', 'CGAME_SB_PING',
+                  # T4 sub_42CDF0, the low ammo warning ownerdraw
+                  'PLATFORM_RELOAD', 'PLATFORM_LOW_AMMO_NO_RELOAD', 'WEAPON_NO_AMMO')
 
 
 def write_table(path: Path, rows) -> None:
@@ -220,10 +222,16 @@ def stage_runtime(bo2: Path, project: Path, name: str) -> list[str]:
         d = weapons.read_info_file(info)
         # T4 sub_42B990 tests the source weapon name for "tesla_gun".
         counter_icon = 'ammo_counter_tesla' if 'tesla_gun' in weapon.lower() else ''
+        # The HUD finds the held weapon by its display name; an alt mode often
+        # shares its rifle's (m7_launcher / m1garand_gl), so it is reached only
+        # through the rifle's altWeapon column when T6 reports the alt mode.
+        display = '' if d.get('inventoryType', '').lower() == 'altmode' else d.get('displayName', '')
         rows.append([weapon, d.get('ammoCounterClip', 'None'), d.get('clipSize', '0'),
-                     d.get('overheatWeapon', '0'), d.get('displayName', ''), d.get('altWeapon', ''), counter_icon,
+                     d.get('overheatWeapon', '0'), display, d.get('altWeapon', ''), counter_icon,
                      # T4 sub_44F540 draws a heat weapon's hudIcon as its gauge.
-                     d.get('hudIcon', '') if d.get('overheatWeapon') == '1' else ''])
+                     d.get('hudIcon', '') if d.get('overheatWeapon') == '1' else '',
+                     # T4 sub_44ED70 (stock red at 20% of max), sub_44EE30 (low ammo warning)
+                     d.get('maxAmmo', '0'), d.get('lowAmmoWarningThreshold', '0')])
     write_table(project / WEAPONS, rows)
     # WaW's own pause menu (wawmenu.py); without it the entry keeps BO2's class menu.
     from . import wawmenu

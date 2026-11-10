@@ -566,6 +566,21 @@ namespace
             }
             OUTF("  leaves {} max surfaces per leaf {} max smodels per leaf {}\n", leaves, maxSurfs, maxModels);
         }
+        const auto v3 = [](const vec3_t& v) { return std::format("({:.2f} {:.2f} {:.2f})", v.x, v.y, v.z); };
+        OUTF("planeCount {} planes {} nodes", world.planeCount, static_cast<const void*>(world.dpvsPlanes.planes));
+        for (auto n = 0; n < world.nodeCount && n < 16; n++)
+            OUTF(" {}", world.dpvsPlanes.nodes[n]);
+        OUTF("\n");
+        for (auto c = 0; c < world.dpvsPlanes.cellCount; c++)
+            for (auto p = 0; p < world.cells[c].portalCount; p++)
+            {
+                const auto& portal = world.cells[c].portals[p];
+                OUTF("portal cell {} to {} plane {:.3f} {:.3f} {:.3f} {:.3f} side {} {} {} verts {} first {} axis0 {} axis1 {} bounds {} {}\n", c,
+                     portal.cell - world.cells, portal.plane.coeffs.x, portal.plane.coeffs.y, portal.plane.coeffs.z, portal.plane.coeffs.w,
+                     static_cast<int>(portal.plane.side[0]), static_cast<int>(portal.plane.side[1]), static_cast<int>(portal.plane.side[2]),
+                     static_cast<int>(portal.vertexCount), v3(portal.vertices[0]), v3(portal.hullAxis[0]), v3(portal.hullAxis[1]), v3(portal.bounds[0]),
+                     v3(portal.bounds[1]));
+            }
         OUTF("sortedSurfIndex first: {} {} {} {}\n", world.dpvs.sortedSurfIndex[0], world.dpvs.sortedSurfIndex[1], world.dpvs.sortedSurfIndex[2],
              world.dpvs.sortedSurfIndex[3]);
         for (const auto& [techset, count] : shown)

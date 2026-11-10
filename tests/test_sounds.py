@@ -545,7 +545,9 @@ class PlaybackBankTests(unittest.TestCase):
         rows, errors = sounds.t6_alias_rows(self.bound())
         self.assertEqual(errors, [])
         row = rows[0]
-        self.assertEqual(sorted(row), sorted(sounds.T6_ALIAS_COLUMNS))
+        # every CSV column, plus WaW's own falloff for the stock mix transfer
+        self.assertEqual(sorted(row), sorted([*sounds.T6_ALIAS_COLUMNS, "_waw"]))
+        self.assertTrue(row["_waw"]["standard"])
         self.assertEqual((row["Name"], row["Secondary"]), ("waw/custom_fire", "waw/echo"))
         self.assertAlmostEqual(float(row["VolMin"]), 100 + 20 * math.log10(.9 * .68), places=4)
         self.assertAlmostEqual(float(row["VolMax"]), 100 + 20 * math.log10(.68), places=4)

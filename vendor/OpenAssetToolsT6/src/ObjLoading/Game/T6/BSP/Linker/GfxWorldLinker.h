@@ -27,7 +27,8 @@ namespace BSP
         void CleanGfxWorld(T6::GfxWorld& gfxWorld) const;
         void LoadGfxLights(T6::GfxWorld& gfxWorld) const;
         bool LoadLightGrid(T6::GfxWorld& gfxWorld) const;
-        void LoadGfxCells(T6::GfxWorld& gfxWorld) const;
+        void LoadGfxCells(const BSPData& bsp, T6::GfxWorld& gfxWorld) const;
+        bool LoadSourceCells(const BSPData& bsp, T6::GfxWorld& gfxWorld) const;
         void LoadModels(T6::GfxWorld& gfxWorld) const;
         bool LoadReflectionProbeData(T6::GfxWorld& gfxWorld) const;
         bool LoadLightmapData(T6::GfxWorld& gfxWorld) const;

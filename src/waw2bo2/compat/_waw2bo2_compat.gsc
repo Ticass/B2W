@@ -52,6 +52,7 @@ init()
     if ( isdefined( level.waw2bo2_compat_ready ) )
         return;
     level.waw2bo2_compat_ready = 1;
+    precachestring( &"waw_hud_reloading" );
     // T4 PM_RegisterDvars (0x40E298/0x40E2CE) defaults, before the map's
     // own init_dvars and any authored overrides. T6 uses 128/300 instead.
     setdvar( "bg_fallDamageMinHeight", 200 );
@@ -851,13 +852,10 @@ waw_playfxontag( fx, ent, tag )
     }
     if ( isdefined( level.waw2bo2_bolted_loops ) && isdefined( level.waw2bo2_bolted_loops[fx] ) )
     {
-        // T6's transient PlayFXOnTag event cannot own an indefinitely looping
-        // source effect. A script FX entity gives the bolt an explicit lifetime.
-        carrier = spawnfx( fx, ent gettagorigin( tag ), anglestoforward( ent.angles ), anglestoup( ent.angles ) );
-        carrier.waw_fx = fx;
-        triggerfx( carrier );
-        level thread waw_bolted_fx_lifetime( carrier, ent, tag );
-        return carrier;
+        // T6 needs the new model's tag on the network first: a map spawning
+        // its effect carrier and playing on it in one frame gets nothing.
+        ent thread waw_bolted_fx( fx, tag );
+        return;
     }
     playfxontag( fx, ent, tag );
 }
@@ -898,27 +896,16 @@ waw_tag_carrier_lifetime( carrier, ent )
         carrier delete();
 }
 
-waw_bolted_fx_lifetime( carrier, parent, tag )
+waw_bolted_fx( fx, tag )
 {
-    // A triggered FX entity keeps playing where it was triggered: moving its
-    // origin leaves the effect behind (the Wunderwaffe's travelling bolt
-    // between zombies, the mystery box sky marker). Once the parent moves,
-    // the effect rides the parent's tag natively, as BO2's moving effects do,
-    // and ends with the parent.
-    start = carrier.origin;
-    while ( isdefined( parent ) && isdefined( carrier ) )
-    {
-        if ( distancesquared( parent gettagorigin( tag ), start ) > 1 )
-        {
-            fx = carrier.waw_fx;
-            carrier delete();
-            playfxontag( fx, parent, tag );
-            return;
-        }
-        wait 0.05;
-    }
-    if ( isdefined( carrier ) )
-        carrier delete();
+    // Played on the tag, never through a spawnfx entity: WaW's effects cost no
+    // entity, and one FX entity per looping effect ran Project X's 78 power
+    // lights out of T6's 912. Measured on T6: the loop plays for a player who
+    // arrives later, follows its parent and ends when the parent is deleted.
+    self endon( "death" );
+    wait 0.05;
+    if ( isdefined( self ) )
+        playfxontag( fx, self, tag );
 }
 
 waw_playloopedfx( fx, delay, origin, cull, forward, up )
@@ -1254,7 +1241,10 @@ waw_playsound( alias, notifyname, stoppable )
 waw_sound_missing( notifyname )
 {
     self endon( "death" );
-    waittillframeend;
+    // A whole frame, never waittillframeend: a map replaying its ambient sound
+    // on the notify (Project X's mapsound loops) restarts this in the same
+    // frame-end pass and spins forever ("potential infinite loop in script").
+    wait 0.05;
     self notify( notifyname );
 }
 
@@ -1751,9 +1741,17 @@ waw_newclienthudelem( client )
 // The map's effect-only client listeners run on the server (gscport
 // client_fx_listeners) and wait for "waw_client_" + msg, a server notify the
 // native clientnotify never raises.
+// A client waiting on a name it builds at runtime ("tp" + pad) registers no
+// system for it; BO2's levelNotify system carries any name (the client glue
+// answers it for the names it has no system for).
 waw_clientnotify( msg )
 {
+    if ( getdvar( "waw_client_sound_debug" ) == "1" )
+        println( "WAW SERVER CLIENTNOTIFY " + msg + " levelNotify " + ( isdefined( level._clientsys )
+            && isdefined( level._clientsys["levelNotify"] ) ) );
     clientnotify( msg );
+    if ( isdefined( level._clientsys ) && isdefined( level._clientsys["levelNotify"] ) )
+        maps\mp\_utility::setclientsysstate( "levelNotify", msg );
     level notify( "waw_client_" + msg );
 }
 
@@ -1920,6 +1918,7 @@ waw_player_stats()
         self.waw2bo2_grenade_monitor = 1;
         self thread waw_grenade_diagnostics();
         self thread waw_inventory_size();
+        self thread waw_hud_reload_state();
     }
     // WaW sets score_total when a player connects (_zombiemode::onPlayerConnect),
     // BO2 only at spawn; the map's power-up drop watcher sums it meanwhile
@@ -1939,6 +1938,24 @@ waw_player_stats()
     self.stats["perks"] = 0;
     self.stats["headshots"] = 0;
     self.stats["zombie_gibs"] = 0;
+}
+
+// T4's HUD reads the weapon state itself: the low ammo warning is not drawn
+// while the weapon reloads (sub_42CDF0, weaponstate 7..11). T6's LUI has no
+// weapon state, so the WaW HUD is told when it changes.
+waw_hud_reload_state()
+{
+    self endon( "disconnect" );
+    reloading = 0;
+    for ( ;; )
+    {
+        wait 0.05;
+        now = self isreloading();
+        if ( now == reloading )
+            continue;
+        reloading = now;
+        self luinotifyevent( &"waw_hud_reloading", 1, reloading );
+    }
 }
 
 // WaW Mule Kick packs keep self.InventorySize (2, or 3 with the perk) for the

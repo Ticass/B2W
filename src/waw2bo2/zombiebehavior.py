@@ -680,7 +680,14 @@ waw2bo2_zombie_actor_glue()
     self.team = level.zombie_team;
     // T6 reaction/pain animscripts; WaW's zombie AI had none
     self.a.disablepain = 1;
-    self.allowpain = 0;
+    // T4 actors start with the native pain state on: disable_pain only skips
+    // the pain clip, so a nonfatal hit still cancels the swing (the stall).
+    self.allowpain = 1;
+    // A pain state restarts T6's move animscript, whose moverun re-rolls the
+    // movement substate (a new walk clip every hit). T4 kept the actor's run
+    // animation through pain; T6 keeps the substate when this flag is set and
+    // the state is unchanged (zm_run::setanimstatefromspeed).
+    self.preserve_asd_substates = 1;
     self maps\\mp\\zombies\\_zm_utility::disable_react();
     // the template's actor capsule (72 tall broke upstairs windows)
     self setphysparams( 15, 0, 48 );
@@ -689,7 +696,25 @@ waw2bo2_zombie_actor_glue()
     // T4's engine dispatches actor damage to the map's global callbacks.
     self thread waw2bo2_actor_damage();
     self thread waw2bo2_actor_sound_cleanup();
+    self thread waw2bo2_actor_kill_credit();
     self thread waw2bo2_zombie_animstate();
+}}
+
+// T4's engine credited an actor's killer itself: the scoreboard's kills and
+// headshots columns read the player's kills/headshots fields, which no WaW
+// script writes. T6 leaves that to BO2's spawner (zombie_death_event), which
+// the map's own spawner replaces.
+waw2bo2_actor_kill_credit()
+{{
+    self waittill( "death", attacker );
+    if ( !isdefined( attacker ) && isdefined( self ) )
+        attacker = self.attacker;
+    if ( !isdefined( attacker ) || !isplayer( attacker ) )
+        return;
+    attacker.kills++;
+    if ( isdefined( self ) && isdefined( self.damagelocation ) && isdefined( self.damagemod ) &&
+         self.damagemod != "MOD_MELEE" && ( self.damagelocation == "head" || self.damagelocation == "helmet" ) )
+        attacker.headshots++;
 }}
 
 waw2bo2_actor_damage()

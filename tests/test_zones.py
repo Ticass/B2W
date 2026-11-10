@@ -145,13 +145,18 @@ class SynthesizedZoneTests(unittest.TestCase):
         zone_set = zones.zone_names(["spawn_area"], ['"spawn_area", "lobby_area", "enter_lobby"'])
         self.assertEqual(zone_set, {"spawn_area", "lobby_area"})
         out, _, summary = entities.convert_entities(ents, "zm_x", zone_names=zone_set)
-        # the map's volume as the map has it, then BO2's player_volume twin
-        lobby, twin = [e for e in out if e.get("targetname") == "lobby_area"]
-        self.assertEqual((lobby["classname"], lobby["model"], lobby["target"], lobby.get("script_noteworthy")),
-                         ("info_volume", "*6", "lobby_area_spawners", None))
-        self.assertEqual((twin["classname"], twin["model"], twin["target"], twin["script_noteworthy"]),
+        # no script_noteworthy for the map to read: one volume, no twin entity
+        lobby, = [e for e in out if e.get("targetname") == "lobby_area"]
+        self.assertEqual((lobby["classname"], lobby["model"], lobby["target"], lobby["script_noteworthy"]),
                          ("info_volume", "*6", "lobby_area_spawners", "player_volume"))
         self.assertEqual(next(e for e in out if e.get("targetname") == "playable_area")["classname"], "trigger_multiple")
+
+    def test_a_volume_the_map_names_keeps_its_noteworthy_beside_a_twin(self):
+        ents = [{"classname": "worldspawn"},
+                {"classname": "info_volume", "targetname": "yard", "script_noteworthy": "player_zone", "model": "*6"}]
+        out, _, _ = entities.convert_entities(ents, "zm_x", zone_names={"yard"})
+        volumes = [e["script_noteworthy"] for e in out if e.get("targetname") == "yard"]
+        self.assertEqual(volumes, ["player_zone", "player_volume"])
 
     def test_the_maps_zone_manager_runs_and_bo2s_never_starts(self):
         template = ('main()\n{\n    level.zones = [];\n    level.zone_manager_init_func = ::zm_x_zone_init;\n'

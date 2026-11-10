@@ -141,6 +141,12 @@
        ]},
       {"native": "maps\\mp\\zombies\\_zm_powerups::powerup_drop", "function": "powerup_drop"},
       {"native": "maps\\mp\\zombies\\_zm_powerups::check_for_instakill", "function": "check_for_instakill"}
+    ],
+    "maps\\_zombiemode_score": [
+      {"native": "maps\\mp\\zombies\\_zm_score::add_to_player_score", "function": "add_to_player_score",
+       "why": "BO2 glue that pays points (the zbarrier window repair reward, the revive) reaches BO2's score primitive; the map's own add_to_player_score draws its score_highlight popup"},
+      {"native": "maps\\mp\\zombies\\_zm_score::minus_to_player_score", "function": "minus_to_player_score",
+       "why": "the same for BO2 glue that takes points"}
     ]
   },
   "zombie_vocals": {
@@ -179,7 +185,19 @@
     "announcer_alias_prefix": "waw_",
     "music_stingers_doc": "The one-shot music a WaW music state plays when the framework requests it (round start chalk, round over, game over) is BO2's stinger of the same moment, not its scored loops: it takes that BO2 alias's stock mix and level (audioremaster.stock_profiles)",
     "music_stingers": {"round_begin": "mus_zombie_round_start", "round_end": "mus_zombie_round_over",
-                       "end_of_game": "mus_zombie_game_over"}
+                       "end_of_game": "mus_zombie_game_over"},
+    "bus_groups_doc": "WaW's driver bus (the mix role its designers gave an alias) -> the BO2 volume group of the same role. BO2 cannot load WaW's buses; the class then takes its bus, duck group, falloff, priority and level from the stock zombie tables (audioremaster.stock_classes). Checked on every build against the engine sounds both games name alike (sounds.learn_bus_groups: character = grp_foley, projectile = grp_impacts, explosion = grp_explosion); a vote that differs wins and is reported SOUND_BUS_GROUP. full_vol is WaW's unattenuated bus for scripted events (box, perks, power, round cues): BO2 mixes those in grp_hdrfx (stock zmb_box, zmb_powerup, zmb_spawn, zmb_cha_ching, zmb_power). A bus not named here keeps the keyword match of sounds._category",
+    "bus_groups": {"full_vol": "grp_hdrfx", "music": "grp_music", "ambience": "grp_ambience", "voice": "grp_voice",
+                   "banzai": "grp_voice", "pis_1st": "grp_weapon", "pis_3rd": "grp_weapon", "smg_1st": "grp_weapon",
+                   "smg_3rd": "grp_weapon", "rfl_1st": "grp_weapon", "rfl_3rd": "grp_weapon", "hvy_wpn": "grp_weapon",
+                   "decay": "grp_weapon", "dist_wpn": "grp_weapon", "dist_hmg": "grp_weapon",
+                   "projectile": "grp_impacts", "explosion": "grp_explosion", "physics": "grp_physics",
+                   "character": "grp_foley", "reload": "grp_foley", "vehicle": "grp_vehicle",
+                   "vehicle_mp": "grp_vehicle", "ui": "grp_menu"},
+    "weapon_dependency_group_doc": "A sound a converted weapon names (fire, rechamber, notetracks) that its author put on the catch-all bus is a weapon sound: it takes the weapon group instead of the catch-all's",
+    "weapon_dependency_group": {"grp_hdrfx": "grp_weapon"},
+    "vocal_twins_doc": "The stock BO2 alias each zombie vocal event plays (zombie_vocals maps the event to the map's WaW alias): the WaW alias plays where BO2's engine plays that stock alias, so it takes that alias's own placement, limits and priority (audioremaster.stock_twins), keeping WaW's audio and level. BO2 names the ambient event's alias 'ambience'",
+    "vocal_twins": {"alias": "zmb_vocals_{actor}_{category}", "category_names": {"ambient": "ambience"}}
   },
   "map_content": {
     "doc": "Map content a replaced WaW framework script names, carried onto the BO2 system that replaces it (docs/MAP_CONTENT_AUDIT.md)",

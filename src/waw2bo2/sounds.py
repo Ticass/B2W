@@ -409,6 +409,51 @@ def bind_entity_sounds(entities_json: Path, converted: set[str]) -> int:
     return count
 
 
+_SCRIPT_SOUND_COMPARE = re.compile(
+    r'(?P<lead>\bscript_sound\s*[!=]=\s*)"(?P<a>[^"\\\n]+)"|"(?P<b>[^"\\\n]+)"(?P<tail>\s*[!=]=\s*[\w.\[\]]*\bscript_sound\b)',
+    re.I)
+
+
+def bind_script_sound_comparisons(entities_json: Path, scripts_root: Path) -> int:
+    """The map's scripts compare an entity's script_sound to a literal
+    (Der Riese's check_for_change looks for "perks_rattle" bump triggers under
+    the perk machines: prone there gives 25 points). bind_entity_sounds gave
+    those entities the converted waw/<name>; the literal takes the same name
+    when every entity holding that value was bound, so the test still holds.
+    A value also left raw on another entity stays as written."""
+    if not entities_json.is_file() or not scripts_root.is_dir():
+        return 0
+    bound, raw = {}, set()
+    for entity in json.loads(entities_json.read_text(encoding="utf-8"))["entities"]:
+        value = entity.get("script_sound")
+        if not isinstance(value, str):
+            continue
+        if value.startswith("waw/"):
+            bound[value[4:].lower()] = value
+        else:
+            raw.add(value.lower())
+    names = {k: v for k, v in bound.items() if k not in raw}
+    if not names:
+        return 0
+    count = 0
+
+    def swap(m):
+        nonlocal count
+        literal = m["a"] if m["a"] is not None else m["b"]
+        new = names.get(literal.lower())
+        if new is None:
+            return m[0]
+        count += 1
+        return f'{m["lead"]}"{new}"' if m["a"] is not None else f'"{new}"{m["tail"]}'
+
+    for path in sorted(scripts_root.rglob("*.gsc")):
+        text = path.read_text(encoding="utf-8")
+        updated = _SCRIPT_SOUND_COMPARE.sub(swap, text)
+        if updated != text:
+            path.write_text(updated, encoding="utf-8")
+    return count
+
+
 def ambient_emitter_aliases(entities_json: Path) -> set[str]:
     """Aliases the map's ambient emitters play (script_label line_emitter /
     looper / random structs), lowercase, without the waw/ prefix: level
@@ -899,6 +944,8 @@ T6_ALIAS_COLUMNS = [
 T6_STORAGE = {1: "loaded", 2: "streamed", 3: "primed"}
 # Fields WaW has and this playback mapping does not carry (yet). Reported, not silent.
 PLAYBACK_NOT_TRANSLATED = ["driver routing/ducking (stock BO2 groups; original bus gain baked into alias)", "speaker map (stock pan)",
+                           "alias-triggered ducks (BO2's Duck column: stock gunfire and impacts duck the mix)",
+                           "voice limits where WaW authored none (kept unlimited; BO2's 58 voices steal by priority)",
                            "WaW room reverb presets (I3DL2; stock BO2 radverb of the same room class used)",
                            "reverb send level (offset measured from stock BO2 and WaW sends)",
                            "softest voice limit (approximated with priority)", "chain alias",
@@ -916,10 +963,26 @@ REVERB_MIN_SAMPLES = 20
 T6_LIMIT_TYPES = {0: "none", 1: "oldest", 2: "reject", 3: "priority", 4: "priority"}
 
 
-def _category(row: dict) -> tuple[str, str, str, str]:
+# Bus and duck group of a BO2 volume group until the stock tables say more
+# (audioremaster.stock_classes routes each class as BO2's own rows are).
+GROUP_ROUTING = {"grp_music": ("bus_music", "snp_music"), "grp_voice": ("bus_voice", "snp_voice"),
+                 "grp_menu": ("bus_ui", "snp_foley"), "grp_ambience": ("bus_fx", "snp_ambience"),
+                 "grp_weapon": ("bus_fx", "snp_wpn_3p")}
+
+
+def _category(row: dict, bus_groups: dict | None = None) -> tuple[str, str, str, str]:
     """Stock BO2 bus/group/duck group for the WaW bus by its role; BO2 cannot
-    load WaW's own buses (they live in the driver asset)."""
+    load WaW's own buses (they live in the driver asset). ``bus_groups`` is
+    the WaW bus -> BO2 volume group table (gsc_api audio_remaster, checked
+    against the stock games by learn_bus_groups); a bus it does not name
+    falls back to the name keywords below."""
     bus = row["bus"]["name"].lower()
+    group = (bus_groups or {}).get(bus)
+    if group:
+        target, duck = GROUP_ROUTING.get(group, ("bus_fx", "snp_foley"))
+        if group == "grp_weapon" and "1st" in bus:
+            duck = "snp_wpn_1p"
+        return target, group, duck, "yes" if group == "grp_music" else "no"
     if "music" in bus or "mus" == bus[:3]:
         return "bus_music", "grp_music", "snp_music", "yes"
     if any(k in bus for k in ("voice", "vox", "dialog")):
@@ -959,11 +1022,42 @@ def bo2_send_levels(soundbank: Path) -> dict[str, list[float]]:
     return levels
 
 
-def waw_send_levels(alias_roots: list[Path], globals_data: dict) -> dict[str, list[float]]:
-    """Nonzero alias sends (dB) of WaW aliases per BO2 group the converter
-    assigns them; an alias in several zones counts once."""
-    levels: dict[str, list[float]] = {}
-    seen = set()
+def curve_area(points: list) -> float:
+    """Area under a falloff curve over its normalized distance."""
+    return sum((x1 - x0) * (y0 + y1) / 2 for (x0, y0), (x1, y1) in zip(points, points[1:]))
+
+
+def is_falloff(points: list) -> bool:
+    """A curve that starts at full gain and never rises: an ordinary distance
+    falloff, the shape of BO2's ``default``."""
+    return abs(points[0][1] - 1) <= CURVE_TOLERANCE and all(
+        b[1] <= a[1] + CURVE_TOLERANCE for a, b in zip(points, points[1:]))
+
+
+def is_all_on(points: list) -> bool:
+    """Full gain over the whole distance (BO2 ``allon``, WaW ``defaultmin``),
+    whatever the value at the last point."""
+    return all(abs(p[1] - 1) <= CURVE_TOLERANCE for p in points[:-1])
+
+
+def falloff_descriptor(dist_min: float, dist_max: float, min_points: list, max_points: list) -> dict:
+    """How far a 3D alias carries, independent of the curve's name.
+
+    T6 (like T4) plays the min curve over [0, DistMin] and the max curve over
+    [DistMin, DistMax]: stock BO2 third-person gunfire is a near layer
+    (cosdelay / alloff, 900 / 900) under a far one (sindelay / default,
+    900 / 6000). ``standard`` is the ordinary case, full gain inside DistMin
+    and a falloff beyond it; ``falloff`` is then the area under that falloff
+    in world units, so two aliases with the same value carry equally far
+    whatever curve shapes their games use."""
+    standard = is_all_on(min_points) and is_falloff(max_points)
+    return {"standard": standard, "falloff": max(dist_max - dist_min, 0.0) * curve_area(max_points)}
+
+
+def waw_mix_records(alias_roots: list[Path], globals_data: dict) -> list[dict]:
+    """One record per stock WaW alias variant (an alias in several zones
+    counts once): what the stock-to-stock measurements read."""
+    records, seen = [], set()
     for root in alias_roots:
         for path in sorted((root / "soundaliases").rglob("*.w2bsnd.json")):
             document = json.loads(path.read_text(encoding="utf-8"))
@@ -975,20 +1069,92 @@ def waw_send_levels(alias_roots: list[Path], globals_data: dict) -> dict[str, li
                 flags = decode_flags(alias["flags"])
                 try:
                     bus = _indexed(globals_data, "buses", flags["busIndex"])
-                except SoundError:
+                    curves = [_curve_points(_indexed(globals_data, "curves", alias[k]))
+                              for k in ("volumeMinFalloffCurve", "volumeFalloffCurve")]
+                except (SoundError, KeyError):
                     continue
-                if alias.get("reverbSend", 0) > 0 and not flags["noWetLevel"]:
-                    group = _category({"bus": bus})[1]
-                    levels.setdefault(group, []).append(20 * math.log10(alias["reverbSend"]))
+                gain = alias.get("volMax", 0) * bus.get("volumeMod", 1.0)
+                records.append({
+                    "name": str(document.get("name", "")).lower(), "bus": bus["name"].lower(),
+                    "volumeMod": bus.get("volumeMod", 1.0), "spatialized": flags["spatialized"],
+                    "looping": flags["looping"], "noWetLevel": flags["noWetLevel"],
+                    "reverbSend": alias.get("reverbSend", 0),
+                    "VolMax": max(0.0, 100 + 20 * math.log10(gain)) if 0 < gain <= 1 else None,
+                    "DistMin": alias.get("distMin", 0), "PriorityMin": alias.get("minPriority", 0),
+                    "PriorityMax": alias.get("maxPriority", 0), "OcclusionLevel": alias.get("occlusionLevel", 0),
+                    **falloff_descriptor(alias.get("distMin", 0), alias.get("distMax", 0), *curves)})
+    return records
+
+
+def waw_send_levels(alias_roots: list[Path], globals_data: dict, records: list[dict] | None = None,
+                    bus_groups: dict | None = None) -> dict[str, list[float]]:
+    """Nonzero alias sends (dB) of WaW aliases per BO2 group the converter
+    assigns them; an alias in several zones counts once."""
+    levels: dict[str, list[float]] = {}
+    for record in waw_mix_records(alias_roots, globals_data) if records is None else records:
+        if record["reverbSend"] > 0 and not record["noWetLevel"]:
+            group = _category({"bus": {"name": record["bus"]}}, bus_groups)[1]
+            levels.setdefault(group, []).append(20 * math.log10(record["reverbSend"]))
     return levels
 
 
-def measure_reverb_send(bo2: dict[str, list[float]], waw: dict[str, list[float]]) -> dict:
+# The columns a class moves from WaW's convention to BO2's (audioremaster).
+MIX_REFERENCE_COLUMNS = ("VolMax", "DistMin", "Falloff", "PriorityMin", "PriorityMax", "OcclusionLevel")
+
+
+def waw_mix_reference(records: list[dict], bus_groups: dict | None = None) -> dict[str, dict[str, list[float]]]:
+    """"<VolumeGroup>|<PanType>" -> column -> stock WaW values: where WaW's
+    designers put each kind of sound, to read a map's own values against.
+    Distances count only the ordinary falloffs (falloff_descriptor)."""
+    reference: dict[str, dict[str, list[float]]] = {}
+    for record in records:
+        group = _category({"bus": {"name": record["bus"]}}, bus_groups)[1]
+        columns = reference.setdefault(f"{group}|{'3d' if record['spatialized'] else '2d'}", {})
+        for column in ("VolMax", "PriorityMin", "PriorityMax", "OcclusionLevel"):
+            if record[column] is not None:
+                columns.setdefault(column, []).append(float(record[column]))
+        if record["spatialized"] and record["standard"]:
+            columns.setdefault("DistMin", []).append(float(record["DistMin"]))
+            columns.setdefault("Falloff", []).append(float(record["falloff"]))
+    return reference
+
+
+def learn_bus_groups(stock_groups: dict[str, str], waw_buses: dict[str, str]) -> dict[str, dict]:
+    """WaW bus -> the BO2 volume group stock BO2 gives the same sounds.
+
+    Both games name what the engine plays by event and surface
+    (ENGINE_SOUND_FAMILIES: BO2 fly_step_run_npc_dirt is WaW step_run_dirt),
+    so each stock BO2 engine alias with a stock WaW twin is one vote: the
+    twin's WaW bus plays in that BO2 group. ``stock_groups``: BO2 alias ->
+    volume group; ``waw_buses``: WaW alias -> bus. Buses with fewer than
+    REVERB_MIN_SAMPLES twins are left to the declared table."""
+    votes: dict[str, dict[str, int]] = {}
+    for name, group in stock_groups.items():
+        for pattern, targets in ENGINE_SOUND_FAMILIES:
+            m = re.fullmatch(pattern, name)
+            if m:
+                bus = next((waw_buses[t] for t in (m.expand(t) for t in targets) if t in waw_buses), None)
+                if bus is not None:
+                    votes.setdefault(bus, {}).setdefault(group, 0)
+                    votes[bus][group] += 1
+                break
+    learned = {}
+    for bus, found in sorted(votes.items()):
+        total = sum(found.values())
+        if total >= REVERB_MIN_SAMPLES:
+            group = max(sorted(found), key=lambda g: found[g])
+            learned[bus] = {"group": group, "twins": found[group], "of": total}
+    return learned
+
+
+def measure_reverb_send(bo2: dict[str, list[float]], waw: dict[str, list[float]],
+                        groups: tuple | None = None) -> dict:
     """Offset (dB) from WaW's send convention to BO2's per role (difference of
     median sends) and overall (their median weighted by the smaller sample
-    count), for roles without enough samples."""
+    count), for roles without enough samples. ``groups``: the BO2 groups that
+    are role matches (every group, once the bus table assigns them)."""
     roles = {}
-    for group in REVERB_ROLES:
+    for group in REVERB_ROLES if groups is None else groups:
         a, b = waw.get(group, []), bo2.get(group, [])
         if min(len(a), len(b)) >= REVERB_MIN_SAMPLES:
             roles[group] = {"waw_db": _median(a), "bo2_db": _median(b), "offset_db": _median(b) - _median(a),
@@ -1029,8 +1195,14 @@ def send_offset(reverb_send: dict | None, group: str) -> float:
 
 
 def t6_alias_rows(document: dict, weapon_aliases: set[str] | None = None,
-                  reverb_send: dict | None = None) -> tuple[list[dict], list[dict]]:
-    """Rows of the official BO2 alias CSV for one bound alias list."""
+                  reverb_send: dict | None = None, classes: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """Rows of the official BO2 alias CSV for one bound alias list.
+
+    ``classes``: {"bus_groups": WaW bus -> BO2 group, "weapon_dependency_group":
+    {group: group a weapon's own sound takes instead}} (gsc_api
+    audio_remaster). Each row keeps WaW's own falloff under ``_waw`` for the
+    stock mix transfer (not a CSV column)."""
+    classes = classes or {}
     rows, errors = [], []
     for index, row in enumerate(document["aliases"]):
         source, binding, curves = row["source"], row.get("pcm_binding"), row.get("t6_curves", {})
@@ -1045,18 +1217,30 @@ def t6_alias_rows(document: dict, weapon_aliases: set[str] | None = None,
         if any(limit not in T6_LIMIT_TYPES for limit in limits):
             errors.append({"alias": document["name"], "variant": index, "reason": "unknown T4 voice limit type"})
             continue
-        bus, group, duck_group, music = _category(row)
-        if document["name"].removeprefix("waw/") in (weapon_aliases or set()) and bus == "bus_fx":
+        bus, group, duck_group, music = _category(row, classes.get("bus_groups"))
+        weapon_groups = classes.get("weapon_dependency_group")
+        if document["name"].removeprefix("waw/") in (weapon_aliases or set()) and (
+                bus == "bus_fx" if weapon_groups is None else group in weapon_groups):
             # Custom aliases often use full_vol, rather than a weapon bus.
             # Give weapon dependencies the same BO2 category gain, including
             # reload/notetrack audio, instead of mixing weapon and foley gains.
-            group = "grp_weapon"
+            # With the bus table only the catch-all bus needs it: WaW's
+            # reload, explosion and impact buses have BO2 groups of their own.
+            group = "grp_weapon" if weapon_groups is None else weapon_groups[group]
             duck_group = "snp_wpn_3p" if flags["spatialized"] else "snp_wpn_1p"
         # T4 applies this gain in its driver. Choosing a BO2 category alone
         # loses the mix between weapons, reloads, ambience and other effects.
         gain = row["bus"].get("volumeMod", 1.0)
         secondary = row["references"].get("secondaryAliasName", "")
+        try:
+            waw = falloff_descriptor(source["distMin"], source["distMax"],
+                                     _curve_points(row["curves"]["volumeMinFalloffCurve"]),
+                                     _curve_points(row["curves"]["volumeFalloffCurve"]))
+        except (SoundError, KeyError):
+            waw = {"standard": False, "falloff": 0.0}
+        waw["wet_ratio"] = source["distReverbMax"] / source["distMax"] if source["distMax"] > 0 else 1.0
         rows.append({
+            "_waw": waw,
             "Name": document["name"], "FileSource": binding["output"], "Secondary": secondary,
             "Storage": T6_STORAGE.get(flags["loadType"], "loaded"), "Bus": bus, "VolumeGroup": group,
             "DuckGroup": duck_group, "Duck": "",
@@ -1167,6 +1351,9 @@ ENGINE_SOUND_FAMILIES = (
     (r"fly_step_crouch_(walk|run)(_npc)?_(?P<s>[a-z]+)", (r"step_\1_\g<s>",)),
     (r"fly_step_prone_plr_(?P<s>[a-z]+)", (r"step_prone_plr_\g<s>", r"step_prone_\g<s>")),
     (r"fly_step_prone_npc_(?P<s>[a-z]+)", (r"step_prone_\g<s>",)),
+    # a landing that hurts: T4 cg sub_661D70 registers land_damage(_plr)
+    (r"fly_land_damage_plr", ("land_damage_plr", "land_damage")),
+    (r"fly_land_damage_npc", ("land_damage",)),
     (r"fly_land_plr_(?P<s>[a-z]+)(_big)?(_sec)?", (r"land_plr_\g<s>", r"land_\g<s>")),
     (r"fly_land_npc_(?P<s>[a-z]+)(_big)?", (r"land_\g<s>",)),
     (r"fly_bodyfall_(large|small)_(?P<s>[a-z]+)", (r"bodyfall_\g<s>_\1",)),
@@ -1180,28 +1367,74 @@ ENGINE_SOUND_FAMILIES = (
     (r"wpn_sticky_gren_bounce_(?P<s>[a-z]+)", (r"sticky_gren_bounce_\g<s>",)),
     (r"zmb_monkey_land_(?P<s>[a-z]+)", (r"monkey_land_\g<s>",)),
     (r"wpn_melee_hit", ("melee_hit",)),
+    # BO2's knife and bowie (the melee weapon a T6 player holds, FRAMEWORK_WEAPON_SOUNDS):
+    # T4 played these for the knife itself (melee_knife_hit_body on flesh,
+    # melee_knife_hit_other on the world, the held weapon's melee swing)
+    (r"wpn_melee_knife_hit_(body|other)", (r"melee_knife_hit_\1",)),
+    (r"wpn_melee_hit_other", ("melee_knife_hit_other",)),
+    (r"wpn_melee_whoosh_plr|zmb_melee_whoosh_plr", ("melee_swing_plr",)),
+    (r"wpn_melee_whoosh_npc", ("melee_swing",)),
+    (r"wpn_knife_melee_stab", ("knife_stab_plr",)),
+    (r"zmb_bowie_(swing)_plr", (r"bowie_\1",)),
+    (r"zmb_bowie_(swing|stab|pull)", (r"bowie_\1",)),
+    (r"zmb_bowie_flourish_(catch|start|toss|turn)", (r"bowie_\1",)),
     (r"wpn_knife_pull_plr", ("knife_pull_plr",)),
 )
 
 
+# Sound fields of the BO2 weapons a converted map keeps (gscport
+# BO2_FRAMEWORK_WEAPONS knife_zm and ALTMELEE_WEAPONS bowie_knife_zm, read
+# from their stock weapon files) that the template's bank does not name.
+FRAMEWORK_WEAPON_SOUNDS = ("wpn_melee_whoosh_plr", "wpn_melee_whoosh_npc", "wpn_melee_knife_hit_body",
+                           "wpn_melee_hit_other", "zmb_bowie_swing", "zmb_bowie_swing_plr")
+
+
 def template_alias_names(template_csv: Path | None) -> list[str]:
     """Alias names of the template's bank (what BO2's engine and template
-    assets can play by name)."""
+    assets can play by name), and the kept BO2 weapons' own."""
     if template_csv is None or not template_csv.is_file():
         return []
     with template_csv.open(encoding="utf-8", errors="replace", newline="") as f:
-        return sorted({r["Name"] for r in csv.DictReader(f) if r.get("Name")})
+        return sorted({r["Name"] for r in csv.DictReader(f) if r.get("Name")} | set(FRAMEWORK_WEAPON_SOUNDS))
 
 
-def engine_name_copies(rows: list[dict], names: list[str]) -> dict:
+def sound_table_twins(project_root: Path, bo2_root: Path, register: str = "add_sound") -> dict[str, str]:
+    """Converted alias -> the stock BO2 alias of the same event.
+
+    Both games play their event sounds by ref through level.zombie_sounds:
+    BO2's init_sounds names its alias for a ref (break_barrier_piece ->
+    zmb_break_boards) and the map's own table names WaW's (-> break_boards,
+    gscport.sound_table_hook). The same ref is the same event, so the map's
+    alias takes the stock alias's placement (a board break carries 5000
+    units in BO2). Music refs are mixed by role and left out; an alias bound
+    to refs with different stock aliases is left to its class."""
+    stock_file = bo2_root / "raw/maps/mp/zombies/_zm.gsc"
+    if not stock_file.is_file():
+        return {}
+    stock = dict(re.findall(register + r'\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)',
+                            stock_file.read_text(encoding="utf-8", errors="replace")))
+    found: dict[str, set[str]] = {}
+    for script in sorted((project_root / "maps").rglob("*.gsc")):
+        for ref, alias in re.findall(r'level\.zombie_sounds\["([^"]+)"\]\s*=\s*"(waw/[^"]+)"',
+                                     script.read_text(encoding="utf-8", errors="replace")):
+            twin = stock.get(ref)
+            if twin and not twin.lower().startswith("mus_"):
+                found.setdefault(alias.lower(), set()).add(twin.lower())
+    return {alias: next(iter(twins)) for alias, twins in found.items() if len(twins) == 1}
+
+
+def engine_name_copies(rows: list[dict], names: list[str], twins: dict[str, dict] | None = None) -> dict:
     """Rows under each BO2 engine name, copied from WaW's alias for the same
     event (ENGINE_SOUND_FAMILIES); the copy shares WaW's file, so no new bank
     entry. Returns {"copies": {bo2: waw}, "unmatched": [bo2 names with no
-    WaW sound]} and appends the rows."""
+    WaW sound]} and appends the rows. ``twins``: stock BO2 alias -> the mix
+    columns its own rows carry (audioremaster.stock_twins); a copy plays
+    where BO2's engine plays that very alias, so it takes them and keeps
+    WaW's file and level."""
     by_name: dict[str, list[dict]] = {}
     for row in rows:
         by_name.setdefault(row["Name"].lower().removeprefix("waw/"), []).append(row)
-    copies, unmatched, added = {}, [], []
+    copies, unmatched, added, placed = {}, [], [], 0
     for name in names:
         low = name.lower()
         source = None
@@ -1214,9 +1447,11 @@ def engine_name_copies(rows: list[dict], names: list[str]) -> dict:
             unmatched.append(name)
             continue
         copies[name] = source
-        added += [dict(row, Name=name) for row in by_name[source]]
+        twin = (twins or {}).get(low, {})
+        placed += bool(twin)
+        added += [dict(row, Name=name, **twin) for row in by_name[source]]
     rows += added
-    return {"copies": copies, "unmatched": unmatched}
+    return {"copies": copies, "unmatched": unmatched, "stock_mix": placed}
 
 
 # T6 keeps every loaded bank's entries (loaded and streamed tables alike) in
@@ -1290,10 +1525,28 @@ def fit_loaded_budget(rows: list[dict], pcm_root: Path, budget: dict,
         if row["Storage"] == "loaded" and row["FileSource"] not in sizes:
             sizes[row["FileSource"]] = (pcm_root / row["FileSource"]).stat().st_size
     keep, used = set(), 0
-    weapon_files = {r["FileSource"] for r in rows
-                    if r["Name"].removeprefix("waw/") in (weapon_aliases or set())}
-    played = {name.lower() for name in budget.pop("played", [])}
-    played_files = {r["FileSource"] for r in rows if r["Name"].lower().removeprefix("waw/") in played}
+    # An alias starts its Secondary with it, and that one its own: a shot is
+    # the whole chain (the Ray Gun's fire -> action -> two flux layers, and
+    # the same again on impact). Layers left streamed took four of T6's ten
+    # streamed voices per shot and cut the player's quotes and the announcer.
+    by_name: dict[str, list[dict]] = {}
+    for r in rows:
+        by_name.setdefault(r["Name"].lower().removeprefix("waw/"), []).append(r)
+
+    def chained(names) -> set[str]:
+        found, pending = set(), [n.lower().removeprefix("waw/") for n in names]
+        while pending:
+            name = pending.pop()
+            if name in found:
+                continue
+            found.add(name)
+            pending += [r["Secondary"].lower().removeprefix("waw/") for r in by_name.get(name, ()) if r.get("Secondary")]
+        return found
+
+    weapon_chain = chained(weapon_aliases or ())
+    weapon_files = {r["FileSource"] for name in weapon_chain for r in by_name.get(name, ())}
+    played = chained(budget.pop("played", []))
+    played_files = {r["FileSource"] for name in played for r in by_name.get(name, ())}
     for source, size in sorted(sizes.items(), key=lambda kv: (kv[0] not in weapon_files, kv[0] not in played_files,
                                                               kv[1], kv[0])):
         if len(keep) >= budget["entries"] or used + size > budget["bytes"]:
@@ -1360,7 +1613,8 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
                                    remaster.get("stingers"))
             if r is not None:
                 roles[document["name"].lower()] = r
-        new, errors = t6_alias_rows(document, weapon_aliases, report["reverb_send"])
+        new, errors = t6_alias_rows(document, weapon_aliases, report["reverb_send"],
+                                    remaster.get("classes") if remaster is not None else None)
         for index, row in enumerate(document["aliases"]):
             for field in ("limitType", "entityLimitType"):
                 if row["source"].get(field) == 4:
@@ -1375,10 +1629,14 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
         from . import audioremaster
         copies = audioremaster.announcer_copies(rows, roles, remaster.get("announcer_events", {}),
                                                 remaster.get("announcer_prefix", "waw_"))
-        report["remaster"] = audioremaster.remaster(rows, roles, remaster["profiles"])
+        report["remaster"] = audioremaster.remaster(rows, roles, remaster["profiles"], remaster.get("reference"),
+                                                    remaster.get("twins"))
         report["remaster"]["announcer_copies"] = copies
+        if remaster.get("classes"):
+            report["remaster"]["bus_groups"] = remaster["classes"]
     if engine_names:
-        report["engine_names"] = engine_name_copies(rows, engine_names)
+        report["engine_names"] = engine_name_copies(
+            rows, engine_names, remaster["profiles"].get("twins") if remaster is not None else None)
         if budget is not None:
             # the engine plays these for every step and shot: load them
             budget["played"] = sorted(set(budget.get("played", [])) | set(report["engine_names"]["copies"].values()))
@@ -1389,6 +1647,8 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
     report["actor_death_cleanup"] = apply_actor_death_cleanup(rows, actor_aliases)
     report["clamped"] = clamp_t6_ranges(rows)
     if budget is not None:
+        # every zombie plays its animation notes (swipe, crawl, fall): played, not zone filler
+        budget["played"] = sorted(set(budget.get("played", [])) | {name.lower() for name in actor_aliases})
         report["loaded_to_streamed"] = fit_loaded_budget(rows, project / "pcm", budget, weapon_aliases)
         report["loaded_budget"] = budget
     known = {r["Name"] for r in rows}
@@ -1399,7 +1659,7 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
     report["variants"] = len(rows)
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / f"{bank}.aliases.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=T6_ALIAS_COLUMNS)
+        writer = csv.DictWriter(f, fieldnames=T6_ALIAS_COLUMNS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
     (project / "sounds.bank.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

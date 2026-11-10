@@ -38,7 +38,7 @@ from pathlib import Path
 from .resources import resource_root
 from . import clientport, parallel, progress, viewmodels, zombiebehavior
 
-from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, probes, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
+from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, probes, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visibility, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
 from .fbx import collision_material_slots, collision_slot_models, water_only, write_collision_fbx, write_world_fbx
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
@@ -1191,26 +1191,54 @@ main()
 """
 
 
-def measure_reverb_send(bo2_root: Path | None, stock_waw) -> dict:
-    """WaW-to-BO2 reverb send offset from both games' stock zombies aliases:
-    the mod tools' raw/soundbank zmb_* banks and the stock WaW nazi_zombie*
-    zones (extracted once into the shared asset cache)."""
-    soundbank = bo2_root / "raw/soundbank" if bo2_root is not None else None
-    if soundbank is None or not soundbank.is_dir():
-        return {"status": "unmeasured_default", "db": sounds.REVERB_SEND_DB,
-                "reason": "no BO2 mod tools raw/soundbank"}
+def stock_waw_sound_records(stock_waw) -> dict:
+    """Every alias of the stock WaW nazi_zombie* zones (extracted once into
+    the shared asset cache), as sounds.waw_mix_records: {"records", "zones"},
+    or {"reason"} when the stock game is not available."""
     driver = stock_waw.root_for("snddriverglobals", "singleton") if stock_waw is not None else None
     zones = sorted(z for z in (stock_waw.index if stock_waw is not None else {})
                    if z.startswith("nazi_zombie") and not z.endswith(("_load", "_patch")))
     if driver is None or not zones:
-        return {"status": "unmeasured_default", "db": sounds.REVERB_SEND_DB,
-                "reason": "no stock WaW zombies zones or sound driver"}
+        return {"reason": "no stock WaW zombies zones or sound driver"}
     globals_data = json.loads((driver[1] / "soundglobals/singleton.w2bsndglobals.json").read_text(encoding="utf-8"))
-    waw = sounds.waw_send_levels([stock_waw.dump(zone, "sound") for zone in zones], globals_data)
-    result = sounds.measure_reverb_send(sounds.bo2_send_levels(soundbank), waw)
+    return {"records": sounds.waw_mix_records([stock_waw.dump(zone, "sound") for zone in zones], globals_data),
+            "zones": zones}
+
+
+def measure_reverb_send(bo2_root: Path | None, stock_waw, source: dict | None = None,
+                        bus_groups: dict | None = None) -> dict:
+    """WaW-to-BO2 reverb send offset from both games' stock zombies aliases:
+    the mod tools' raw/soundbank zmb_* banks and the stock WaW nazi_zombie*
+    zones (``source``: stock_waw_sound_records, read here when not given).
+    With the bus table every BO2 group both games send from is a role."""
+    soundbank = bo2_root / "raw/soundbank" if bo2_root is not None else None
+    if soundbank is None or not soundbank.is_dir():
+        return {"status": "unmeasured_default", "db": sounds.REVERB_SEND_DB,
+                "reason": "no BO2 mod tools raw/soundbank"}
+    source = stock_waw_sound_records(stock_waw) if source is None else source
+    if "records" not in source:
+        return {"status": "unmeasured_default", "db": sounds.REVERB_SEND_DB, "reason": source["reason"]}
+    waw = sounds.waw_send_levels([], {}, source["records"], bus_groups)
+    bo2 = sounds.bo2_send_levels(soundbank)
+    result = sounds.measure_reverb_send(bo2, waw, tuple(sorted(set(waw) & set(bo2))) if bus_groups else None)
     if result["status"] != "measured":
         return result
-    return {**result, "waw_zones": zones, "bo2_soundbank": str(soundbank)}
+    return {**result, "waw_zones": source["zones"], "bo2_soundbank": str(soundbank)}
+
+
+def measure_sound_classes(bo2_root: Path, source: dict, table: dict) -> dict:
+    """The WaW bus -> BO2 volume group table of this build: the declared one
+    (gsc_api audio_remaster bus_groups), with each bus the stock games vote
+    on (sounds.learn_bus_groups) taking the vote; differences are returned."""
+    from . import audioremaster
+    bus_groups = dict(table["bus_groups"])
+    learned = sounds.learn_bus_groups(audioremaster.stock_alias_groups(bo2_root),
+                                      {r["name"]: r["bus"] for r in source.get("records", [])})
+    differs = {bus: {"declared": bus_groups.get(bus), **vote} for bus, vote in learned.items()
+               if bus_groups.get(bus) != vote["group"]}
+    bus_groups.update({bus: vote["group"] for bus, vote in learned.items()})
+    return {"bus_groups": bus_groups, "weapon_dependency_group": table["weapon_dependency_group"],
+            "learned": learned, "differs": differs}
 
 
 def source_amb_script(roots: list[Path], map_name: str) -> Path | None:
@@ -1584,10 +1612,12 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
         report.content['shadow_occluder_copies'] = len(occluders)
     drawn = world.surfaces
     world.surfaces = drawn + occluders
+    mesh_cells: dict[int, int] = {}
     try:
-        mesh_of_surface = write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data), frozenset(shadow_only))
+        mesh_of_surface = write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data), frozenset(shadow_only), mesh_cells)
     finally:
         world.surfaces = drawn
+    visibility.write(report, world, mesh_cells, bsp / "visibility.json")
     report.content['shadow_only_surfaces'] = sum(s.material in shadow_only for s in world.surfaces)
     write_shadow_geometry(report, world, mesh_of_surface, bsp / "shadowgeom.json")
     slot_materials = write_collision_fbx(clip, bsp / "map_col.fbx")
@@ -1687,8 +1717,10 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # have been decoded; stage_images calls recover independently below.
 
     world = progress.timed('Read map world', read_gfx_world, gfx_bin)
-    probe_plan = probes.stage(report, world, probes.read(gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.reflectionprobes.json')),
-                 [r / "images" for r in roots], project_root)
+    source_probes = probes.read(gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.reflectionprobes.json'))
+    probe_plan = probes.stage(report, world, source_probes, [r / "images" for r in roots], project_root)
+    visibility.assign(report, world, visibility.read(gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.visibility.json')),
+                      source_probes, probe_plan)
     clip = progress.timed('Read map collision', read_collision, clip_bin)
     from . import constraints, dynents
     map_dynents = dynents.read(clip_bin.with_name(clip_bin.name.removesuffix('.clip.bin') + '.dynents.json'))
@@ -2111,6 +2143,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
     sound_names = {n["name"] for n in sound_graph["nodes"] if n["kind"] == "sound"}
     report.content['entity_sounds_bound'] = sounds.bind_entity_sounds(project_root / "BSP" / "entities.json", sound_names)
+    report.content['script_sound_comparisons_bound'] = sounds.bind_script_sound_comparisons(
+        project_root / "BSP" / "entities.json", project_root / "maps")
     unreferenced = sorted(zone_sound_names - sound_names)
     (project_root / "content_source").mkdir(parents=True, exist_ok=True)
     (project_root / "content_source/sounds.unreferenced.json").write_text(
@@ -2138,7 +2172,15 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         # the zombie voices BO2's events play (gsc_api zombie_vocals)
         vocals = {a for actor, cats in gscport.API["zombie_vocals"].items() if actor != "doc" for a in cats.values()}
         budget["played"] = sorted(script_sounds | entity_sounds | vocals)
-    reverb_send = progress.timed('Measure reverb send convention', measure_reverb_send, bo2_root, stock_waw)
+    audio_api = gscport.API["audio_remaster"]
+    waw_mix = progress.timed('Read stock WaW sound mix', stock_waw_sound_records, stock_waw)
+    sound_classes = measure_sound_classes(bo2_root, waw_mix, audio_api) if bo2_root is not None else None
+    for bus, vote in sorted((sound_classes or {}).get("differs", {}).items()):
+        report.warnings.append(f"SOUND_BUS_GROUP WaW bus {bus}: stock BO2 mixes its engine sounds in {vote['group']} "
+                               f"({vote['twins']} of {vote['of']} twins), not the declared {vote['declared']}; "
+                               f"the stock group is used")
+    reverb_send = progress.timed('Measure reverb send convention', measure_reverb_send, bo2_root, stock_waw, waw_mix,
+                                 sound_classes["bus_groups"] if sound_classes else None)
     if reverb_send["status"] != "measured":
         report.warnings.append(f"SOUND_REVERB_SEND unmeasured: {reverb_send['reason']}; "
                                f"using the last stock measurement {reverb_send['db']} dB")
@@ -2149,14 +2191,32 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         from . import audioremaster
         amb_text = wawtext.read(source_amb) if source_amb is not None else ""
         events_file = project_root / "content_source/announcer_events.json"
-        stinger_states = gscport.API["audio_remaster"]["music_stingers"]
-        remaster = {"profiles": audioremaster.stock_profiles(bo2_root, sorted(set(stinger_states.values()))),
+        stinger_states = audio_api["music_stingers"]
+        # the stock alias each zombie vocal event plays: the map's alias for
+        # the event takes that alias's placement, limits and priority
+        twin = audio_api["vocal_twins"]
+        vocal_twins = {f"waw/{alias}".lower(): twin["alias"].format(
+                           actor=actor, category=twin["category_names"].get(category, category))
+                       for actor, cats in gscport.API["zombie_vocals"].items() if actor != "doc"
+                       for category, alias in cats.items()}
+        # the stock alias BO2 plays for the same level.zombie_sounds ref
+        table_twins = sounds.sound_table_twins(project_root, bo2_root, gscport.API["map_content"]["sound_table"]["register"])
+        vocal_twins = {**table_twins, **vocal_twins}
+        engine_names = sounds.template_alias_names(template_bank_csv)
+        if "records" not in waw_mix:
+            report.warnings.append(f"AUDIO_MIX {waw_mix['reason']}: classes are read against this map's own "
+                                   f"values instead of stock WaW's")
+        remaster = {"profiles": audioremaster.stock_profiles(bo2_root, sorted(set(stinger_states.values())),
+                                                             [*engine_names, *vocal_twins.values()]),
+                    "classes": sound_classes, "twins": vocal_twins,
+                    "reference": audioremaster.reference_quantiles(sounds.waw_mix_reference(
+                        waw_mix["records"], sound_classes["bus_groups"])) if "records" in waw_mix else None,
                     "music": audioremaster.music_table_aliases(amb_text),
                     "stingers": audioremaster.music_stingers(amb_text, stinger_states),
                     "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)}
                                 | sounds.ambient_emitter_aliases(project_root / "BSP" / "entities.json"),
                     "announcer_events": json.loads(events_file.read_text()) if events_file.is_file() else {},
-                    "announcer_prefix": gscport.API["audio_remaster"]["announcer_alias_prefix"]}
+                    "announcer_prefix": audio_api["announcer_alias_prefix"]}
     bank_report = progress.timed('Build sound bank', sounds.write_t6_bank, project_root / "content_source", bank,
                                  project_root / "soundbank", budget, reverb_send, remaster,
                                  sounds.template_alias_names(template_bank_csv))
@@ -2172,6 +2232,19 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             report.warnings.append(f"AUDIO_REMASTER {r}: {info['aliases']} aliases take the stock BO2 {r} mix "
                                    f"({info['stock_mix']['Bus']}/{info['stock_mix']['VolumeGroup']}, "
                                    f"{info['stock_mix']['PanType']}), volume {info['volume_shift']:+g} dB")
+        for key, info in sorted(bank_report["remaster"]["groups"].items()):
+            if "routing" not in info:
+                continue
+            falloff = info.get("falloff")
+            carry = (f", {falloff['rows']} placed on BO2's {falloff['curve']} falloff (median reach "
+                     f"{falloff['median_dist_max'][0]:g} -> {falloff['median_dist_max'][1]:g} units)") if falloff else ""
+            report.warnings.append(f"AUDIO_MIX {key}: {info['aliases']} aliases mixed as stock BO2's class "
+                                   f"({info['routing']['Bus']}/{info['routing']['DuckGroup']}), volume "
+                                   f"{info['volume_shift']:+g} dB{carry}")
+        placed = bank_report["remaster"].get("twins", {})
+        if placed:
+            report.warnings.append(f"AUDIO_MIX {len(placed['placed'])} aliases take the placement of the stock BO2 "
+                                   f"alias they play for; not in the stock tables: {placed['not_in_stock'] or 'none'}")
     report.content["reverb_send"] = reverb_send
     write_amb_csc(report, project, project_root, source_amb, ents_file)
     if budget is not None:
@@ -2312,6 +2385,25 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         barrier_text = barrier_text.replace(r"\impacts/fx_large_woodhit", "\\")
         target.write_text(barrier_text, encoding="utf-8")
         report.warnings.append("stock T6 barrier repair FX omitted (bridge has no T6 FX loader)")
+        # The boards rebuild with the map's replace_chunk motion: its timings
+        # over each native board's repair animation (same names, in the mod
+        # link's first asset layer: modzone.MOD_OVERRIDE). Without the map's
+        # function the stock repair stays, reported.
+        from . import barriers
+        from .modzone import MOD_OVERRIDE
+        override = project_root / MOD_OVERRIDE
+        shutil.rmtree(override / "xanim", ignore_errors=True)
+        timing = (report.scripts or {}).get("window_repair_timing")
+        if timing is not None and bo2_root is not None:
+            written = barriers.stage_waw_repair_animations(barrier_text, bo2_root, timing, override)
+            report.content["window_repair_animations"] = {"timing": timing, "animations": written}
+            report.warnings.append(f"WINDOW_REBUILD {len(written)} board repair animations play the map's "
+                                   f"{timing['script']}::replace_chunk motion (lift {timing['lift']}s, turn "
+                                   f"{timing['turn']}s, hold {timing['hold']}s, push {timing['push']}s); the "
+                                   f"fast-reload perk scales it as BO2 does")
+        else:
+            report.warnings.append("FRAMEWORK_BO2 window rebuild: no replace_chunk in the map's scripts; "
+                                   "the boards keep BO2's repair animation")
         # zm_test's mod.ff already owns this asset. Including it again in the
         # map zone produces a runtime "Attempting to override asset" error.
         report.warnings.append("T6 barrier asset supplied by zm_test mod.ff")
@@ -2663,6 +2755,9 @@ def _stage_weapons(report: StageReport, roots: list[Path], project_root: Path, n
     for name, bones in sorted(weapon_report["models"].get("reparented_roots", {}).items()):
         report.warnings.append(f"SKELETON_REPARENTED xmodel {name}: root bones {bones} share one bind transform; "
                                f"secondary roots became identity children of the primary (globals unchanged)")
+    for name in weapon_report["models"].get("rebound_to_root", []):
+        report.warnings.append(f"WORLD_MODEL_REBOUND xmodel {name}: over the mod tools linker's animated vertex "
+                               f"limit; weights moved to the root bone, all bones kept (world models do not animate)")
     for name, why in sorted(weapon_report["models"]["unsupported"].items()):
         report.warnings.append(f"UNSUPPORTED_XMODEL {name} (weapon model): {why}")
     graph_file = project_root / 'content_source/weapons.dependencies.json'
@@ -3129,7 +3224,9 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
             old.unlink()
     client = clientport.port_map_client(sources, map_name, project_root,
                                         clientport.staged_client_modules(map_name, project_root.name),
-                                        set(api.builtins) | set(api.methods))
+                                        set(api.builtins) | set(api.methods),
+                                        {f'clientscripts\{map_name.lower()}_amb':
+                                         sounds.AMBIENT_CALLS | sounds.MUSIC_CALLS})
     port = gscport.port_map(sources, api, map_name, project_root, animtrees=animtrees, core_animtrees=core_trees,
                             bo2_stock_perks=bo2_stock_perks, actor_types=actor_types,
                             actor_template=actor_template, stock_map=waw_stock_map, client_ported=bool(client))
@@ -3183,6 +3280,16 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
                 report.warnings.append(f"BO2_FALLBACK melee {state}: a WaW attack clip is missing; "
                                        f"the native BO2 attacks stay")
     report.scripts["staged_xanims"] = xanims
+    # the map's window rebuild motion (replace_chunk), played by the native
+    # boards' repair animations (stage_bridge, barriers.stage_waw_repair_animations)
+    from . import barriers
+    for script in barriers.REPLACE_CHUNK_SCRIPTS:
+        key = gscport.norm(script) + '.gsc'
+        text = sources.text.get(key, sources.stock.get(key))
+        timing = barriers.replace_chunk_timing(text) if text else None
+        if timing:
+            report.scripts['window_repair_timing'] = {'script': script, **timing}
+            break
     report.scripts["staged_animtrees"] = sorted(gscport.animation_tree_name(t) for t in core_trees)
     report.errors += [f"scripts: {e}" for e in port.errors]
     # empty converted-asset table for the link check; stage_fx writes the real

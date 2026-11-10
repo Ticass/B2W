@@ -109,18 +109,29 @@ namespace
         return count;
     }
 
-    void BuildCellAabbTree(MemoryManager& memory, GfxWorld& gfxWorld, GfxCell& cell)
+    AabbItem SurfaceItem(const GfxWorld& gfxWorld, const uint16_t surface)
     {
-        std::vector<AabbItem> items;
-        for (auto i = 0u; i < gfxWorld.dpvs.staticSurfaceCount; i++)
-            items.push_back({gfxWorld.dpvs.surfaces[i].bounds[0], gfxWorld.dpvs.surfaces[i].bounds[1], false, static_cast<uint16_t>(i)});
-        for (auto i = 0u; i < gfxWorld.dpvs.smodelCount; i++)
-            items.push_back({gfxWorld.dpvs.smodelInsts[i].mins, gfxWorld.dpvs.smodelInsts[i].maxs, true, static_cast<uint16_t>(i)});
+        return {gfxWorld.dpvs.surfaces[surface].bounds[0], gfxWorld.dpvs.surfaces[surface].bounds[1], false, surface};
+    }
+
+    AabbItem ModelItem(const GfxWorld& gfxWorld, const uint16_t model)
+    {
+        return {gfxWorld.dpvs.smodelInsts[model].mins, gfxWorld.dpvs.smodelInsts[model].maxs, true, model};
+    }
+
+    // Builds the cell's tree; its surfaces fill sortedSurfIndex from surfBase.
+    // Returns how many surfaces it placed.
+    size_t BuildCellAabbTree(MemoryManager& memory, GfxWorld& gfxWorld, GfxCell& cell, std::vector<AabbItem> items, const size_t surfBase)
+    {
         if (items.empty())
         {
-            cell.aabbTreeCount = 0;
-            cell.aabbTree = nullptr;
-            return;
+            // an empty leaf: the renderer walks a cell's tree from its root
+            cell.aabbTreeCount = 1;
+            cell.aabbTree = memory.Alloc<GfxAabbTree>(1);
+            cell.aabbTree[0].mins = cell.mins;
+            cell.aabbTree[0].maxs = cell.maxs;
+            cell.aabbTree[0].startSurfIndex = static_cast<uint16_t>(surfBase);
+            return 0;
         }
         const auto root = BuildAabbNode(std::move(items), 0);
 
@@ -128,7 +139,7 @@ namespace
         std::vector<uint16_t> sorted;
         CollectSurfaces(*root, sorted);
         for (size_t i = 0; i < sorted.size(); i++)
-            gfxWorld.dpvs.sortedSurfIndex[i] = sorted[i];
+            gfxWorld.dpvs.sortedSurfIndex[surfBase + i] = sorted[i];
 
         // flatten breadth first so siblings are contiguous
         struct Pending
@@ -138,8 +149,8 @@ namespace
             size_t surfStart;
         };
         std::vector<const AabbBuildNode*> flat{root.get()};
-        std::vector<size_t> surfStarts{0};
-        std::vector<Pending> queue{{root.get(), 0, 0}};
+        std::vector<size_t> surfStarts{surfBase};
+        std::vector<Pending> queue{{root.get(), 0, surfBase}};
         std::vector<std::pair<size_t, size_t>> childRange(1, {0, 0}); // first child slot, count
         for (size_t q = 0; q < queue.size(); q++)
         {
@@ -179,6 +190,7 @@ namespace
             leaves += out.childCount == 0;
         }
         con::info("Cell AABB tree: {} nodes, {} leaves", flat.size(), leaves);
+        return sorted.size();
     }
 } // namespace
 
@@ -1031,10 +1043,166 @@ namespace BSP
         return true;
     }
 
-    void GfxWorldLinker::LoadGfxCells(GfxWorld& gfxWorld) const
+    bool GfxWorldLinker::LoadSourceCells(const BSPData& bsp, GfxWorld& gfxWorld) const
     {
-        // Cells are basically data used to determine what can be seen and what cant be seen
-        // Right now custom maps have no optimisation so there is only 1 cell
+        // BSP/visibility.json (waw2bo2): the map's own cells, portals and
+        // point-to-cell tree. A surface sits in one cell, a static model in any
+        // number; each cell owns a contiguous slice of sortedSurfIndex.
+        const auto file = m_search_path.Open(GetFileNameForBSPAsset("visibility.json"));
+        if (!file.IsOpen())
+            return false;
+        json js;
+        try
+        {
+            js = json::parse(*file.m_stream);
+        }
+        catch (const json::exception& e)
+        {
+            con::error("JSON error when parsing visibility.json: {}", e.what());
+            return false;
+        }
+        const auto& cells = js.at("cells");
+        const auto cellCount = static_cast<int>(cells.size());
+
+        gfxWorld.dpvsPlanes.cellCount = cellCount;
+        gfxWorld.cellBitsCount = ((cellCount + 127) >> 3) & 0x1FFFFFF0;
+        gfxWorld.cellCasterBits = m_memory.Alloc<unsigned int>(cellCount * ((cellCount + 31) / 32));
+        gfxWorld.dpvsPlanes.sceneEntCellBits = m_memory.Alloc<unsigned int>(cellCount * 512);
+        gfxWorld.cells = m_memory.Alloc<GfxCell>(cellCount);
+
+        const auto& planes = js.at("planes");
+        gfxWorld.planeCount = static_cast<int>(planes.size());
+        gfxWorld.dpvsPlanes.planes = m_memory.Alloc<cplane_s>(planes.size());
+        for (size_t i = 0; i < planes.size(); i++)
+        {
+            auto& plane = gfxWorld.dpvsPlanes.planes[i];
+            plane.normal.x = planes[i].at(0).get<float>();
+            plane.normal.y = planes[i].at(1).get<float>();
+            plane.normal.z = planes[i].at(2).get<float>();
+            plane.dist = planes[i].at(3).get<float>();
+            plane.type = static_cast<char>(planes[i].at(4).get<int>());
+            plane.signbits = static_cast<char>(planes[i].at(5).get<int>());
+        }
+        const auto& nodes = js.at("nodes");
+        gfxWorld.nodeCount = static_cast<int>(nodes.size());
+        gfxWorld.dpvsPlanes.nodes = m_memory.Alloc<uint16_t>(nodes.size());
+        for (size_t i = 0; i < nodes.size(); i++)
+            gfxWorld.dpvsPlanes.nodes[i] = nodes[i].get<uint16_t>();
+
+        std::map<int, std::vector<uint16_t>> surfacesOfMesh;
+        for (size_t i = 0; i < m_surface_order.size() && i < gfxWorld.dpvs.staticSurfaceCount; ++i)
+            surfacesOfMesh[bsp.gfxWorld.surfaces[m_surface_order[i]].meshIndex].push_back(static_cast<uint16_t>(i));
+
+        const auto probes = ReadProbePlan(m_search_path);
+        const auto probesUsable = probes.probes.size() == gfxWorld.draw.reflectionProbeCount;
+        std::vector<std::vector<AabbItem>> items(cells.size());
+        std::vector<char> placedSurface(gfxWorld.dpvs.staticSurfaceCount), placedModel(gfxWorld.dpvs.smodelCount);
+        for (auto c = 0; c < cellCount; c++)
+        {
+            const auto& source = cells[c];
+            auto& cell = gfxWorld.cells[c];
+            for (auto k = 0; k < 3; k++)
+            {
+                cell.mins.v[k] = source.at("mins").at(k).get<float>();
+                cell.maxs.v[k] = source.at("maxs").at(k).get<float>();
+            }
+
+            // dynamic models pick the nearest probe the cell lists; a cell that
+            // lists none offers every baked one
+            auto cellProbes = source.at("probes").get<std::vector<unsigned char>>();
+            if (cellProbes.empty())
+                cellProbes = probes.cellProbes;
+            if (cellProbes.empty() || !probesUsable)
+                cellProbes = {static_cast<unsigned char>(BSPEditableConstants::DEFAULT_SURFACE_REFLECTION_PROBE)};
+            cell.reflectionProbeCount = static_cast<char>(cellProbes.size());
+            cell.reflectionProbes = m_memory.Alloc<char>(cellProbes.size());
+            std::ranges::copy(cellProbes, cell.reflectionProbes);
+
+            const auto& portals = source.at("portals");
+            cell.portalCount = static_cast<int>(portals.size());
+            cell.portals = portals.empty() ? nullptr : m_memory.Alloc<GfxPortal>(portals.size());
+            for (size_t p = 0; p < portals.size(); p++)
+            {
+                auto& portal = cell.portals[p];
+                const auto& entry = portals[p];
+                for (auto k = 0; k < 4; k++)
+                    portal.plane.coeffs.v[k] = entry.at("plane").at(k).get<float>();
+                for (auto k = 0; k < 3; k++)
+                {
+                    portal.plane.side[k] = static_cast<char>(entry.at("side").at(k).get<int>());
+                    portal.hullAxis[0].v[k] = entry.at("hullAxis").at(0).at(k).get<float>();
+                    portal.hullAxis[1].v[k] = entry.at("hullAxis").at(1).at(k).get<float>();
+                }
+                portal.cell = &gfxWorld.cells[entry.at("cell").get<int>()];
+                const auto& vertices = entry.at("vertices");
+                portal.vertexCount = static_cast<char>(vertices.size());
+                portal.vertices = m_memory.Alloc<vec3_t>(vertices.size());
+                for (size_t v = 0; v < vertices.size(); v++)
+                {
+                    for (auto k = 0; k < 3; k++)
+                        portal.vertices[v].v[k] = vertices[v].at(k).get<float>();
+                    if (v == 0)
+                    {
+                        portal.bounds[0] = portal.vertices[0];
+                        portal.bounds[1] = portal.vertices[0];
+                    }
+                    UpdateAABBWithPoint(portal.vertices[v], portal.bounds[0], portal.bounds[1]);
+                }
+            }
+
+            for (const auto& mesh : source.at("meshes"))
+            {
+                const auto found = surfacesOfMesh.find(mesh.get<int>());
+                if (found == surfacesOfMesh.end())
+                    continue;
+                for (const auto surface : found->second)
+                {
+                    items[c].push_back(SurfaceItem(gfxWorld, surface));
+                    placedSurface[surface] = 1;
+                }
+            }
+            for (const auto& model : source.at("smodels"))
+            {
+                const auto index = model.get<unsigned>();
+                if (index >= gfxWorld.dpvs.smodelCount)
+                    continue;
+                items[c].push_back(ModelItem(gfxWorld, static_cast<uint16_t>(index)));
+                placedModel[index] = 1;
+            }
+        }
+
+        // sortedSurfIndex has one slot per static surface: nothing may be left out
+        auto unplaced = 0;
+        for (auto i = 0u; i < gfxWorld.dpvs.staticSurfaceCount; i++)
+            if (!placedSurface[i])
+            {
+                items[0].push_back(SurfaceItem(gfxWorld, static_cast<uint16_t>(i)));
+                unplaced++;
+            }
+        for (auto i = 0u; i < gfxWorld.dpvs.smodelCount; i++)
+            if (!placedModel[i])
+            {
+                items[0].push_back(ModelItem(gfxWorld, static_cast<uint16_t>(i)));
+                unplaced++;
+            }
+        if (unplaced)
+            con::warn("{} surfaces and static models belong to no cell; they join cell 0", unplaced);
+
+        size_t surfBase = 0;
+        for (auto c = 0; c < cellCount; c++)
+            surfBase += BuildCellAabbTree(m_memory, gfxWorld, gfxWorld.cells[c], std::move(items[c]), surfBase);
+        if (surfBase != gfxWorld.dpvs.staticSurfaceCount)
+            con::error("cells hold {} surfaces, the world {}", surfBase, gfxWorld.dpvs.staticSurfaceCount);
+        con::info("World visibility: {} cells, {} nodes, {} planes", cellCount, nodes.size(), planes.size());
+        return true;
+    }
+
+    void GfxWorldLinker::LoadGfxCells(const BSPData& bsp, GfxWorld& gfxWorld) const
+    {
+        // Cells are basically data used to determine what can be seen and what cant be seen.
+        // Maps without source cells stay one cell, which only frustum culling can reduce.
+        if (LoadSourceCells(bsp, gfxWorld))
+            return;
         int cellCount = 1;
 
         gfxWorld.dpvsPlanes.cellCount = cellCount;
@@ -1071,7 +1239,12 @@ namespace BSP
         // and static model queues the whole map each frame, which overflows
         // the renderer's per-frame lists on large maps (parts of the world
         // vanish, then the game crashes). Build a hierarchy like compiled maps.
-        BuildCellAabbTree(m_memory, gfxWorld, gfxWorld.cells[0]);
+        std::vector<AabbItem> items;
+        for (auto i = 0u; i < gfxWorld.dpvs.staticSurfaceCount; i++)
+            items.push_back(SurfaceItem(gfxWorld, static_cast<uint16_t>(i)));
+        for (auto i = 0u; i < gfxWorld.dpvs.smodelCount; i++)
+            items.push_back(ModelItem(gfxWorld, static_cast<uint16_t>(i)));
+        BuildCellAabbTree(m_memory, gfxWorld, gfxWorld.cells[0], std::move(items), 0);
 
         // nodes have the struct mnode_t, and there must be at least 1 node (similar to BSP nodes)
         // Nodes mnode_t.cellIndex indexes gfxWorld->cells
@@ -1081,7 +1254,7 @@ namespace BSP
         gfxWorld.dpvsPlanes.nodes = m_memory.Alloc<uint16_t>(gfxWorld.nodeCount);
         gfxWorld.dpvsPlanes.nodes[0] = 1; // nodes reference cells by index + 1
 
-        // planes are overwritten by the clipmap loading code ingame
+        // one leaf, so no plane is ever read
         gfxWorld.planeCount = 0;
         gfxWorld.dpvsPlanes.planes = nullptr;
     }
@@ -1495,7 +1668,7 @@ namespace BSP
             return nullptr;
 
         // gfx cells depend on surface/smodel count
-        LoadGfxCells(*gfxWorld);
+        LoadGfxCells(bsp, *gfxWorld);
 
         LoadGfxLights(*gfxWorld);
         LoadShadowGeometry(bsp, *gfxWorld);

@@ -6,15 +6,27 @@ its ambient package. Each such role takes the mix BO2's own zombie maps give
 the same kind of sound, measured from the stock alias tables
 (raw/soundbank/zmb_*.aliases.csv): bus, volume group, duck group, ducking,
 panning, music flag and sends. Loudness moves so WaW's typical level for the
-role lands on BO2's, keeping every sound's offset from it. WaW's distances and
-curves stay: they place each emitter in the map.
+role lands on BO2's, keeping every sound's offset from it.
+
+Every other sound is mixed by class, "<VolumeGroup>|<PanType>": WaW's bus
+names the BO2 volume group (gsc_api audio_remaster bus_groups, checked against
+the engine sounds both games name alike), and the class takes from the stock
+tables its bus and duck group, its falloff curve, and a transfer for how far
+it carries, its priority and its occlusion. A transfer reads a value's rank
+among stock WaW's values of the class and gives the stock BO2 value of the
+same rank (quantile mapping): the map keeps its own order (what carries
+farthest still does) on BO2's scale, with no constant of ours in between.
 """
 from __future__ import annotations
 
+import bisect
 import csv
+import functools
 import re
 from collections import Counter
 from pathlib import Path
+
+from . import sounds
 
 # Stock BO2 alias families that hold each role (BO2's own naming).
 STOCK_FAMILY = {"music": "mus_", "announcer": "vox_zmba_", "ambience": "amb_"}
@@ -35,17 +47,27 @@ def _median(values: list[float]) -> float:
     return values[middle] if len(values) % 2 else (values[middle - 1] + values[middle]) / 2
 
 
-def stock_profiles(bo2_root: Path, stingers=()) -> dict[str, dict]:
-    """Role -> {mix: most common stock MIX_COLUMNS values, volume: median VolMax
-    of the rows with that mix, rows: how many stock rows it was measured on}."""
-    rows: dict[str, list[dict]] = {role: [] for role in STOCK_FAMILY}
+@functools.lru_cache(maxsize=2)
+def _stock_rows(bo2_root: Path) -> tuple:
+    """Every row of BO2's stock zombie alias tables (read once per build)."""
+    rows = []
     for path in sorted((bo2_root / "raw/soundbank").glob("zmb_*.aliases.csv")):
         with path.open(encoding="utf-8", errors="replace", newline="") as f:
-            for row in csv.DictReader(f):
-                name = (row.get("Name") or "").lower()
-                for role, prefix in STOCK_FAMILY.items():
-                    if name.startswith(prefix):
-                        rows[role].append(row)
+            rows += list(csv.DictReader(f))
+    return tuple(rows)
+
+
+def stock_profiles(bo2_root: Path, stingers=(), twins=()) -> dict[str, dict]:
+    """Role -> {mix: most common stock MIX_COLUMNS values, volume: median VolMax
+    of the rows with that mix, rows: how many stock rows it was measured on},
+    plus "groups" (stock_group_levels), "classes" (stock_classes) and "twins"
+    (stock_twins of the stock alias names in ``twins``)."""
+    rows: dict[str, list[dict]] = {role: [] for role in STOCK_FAMILY}
+    for row in _stock_rows(bo2_root):
+        name = (row.get("Name") or "").lower()
+        for role, prefix in STOCK_FAMILY.items():
+            if name.startswith(prefix):
+                rows[role].append(row)
     profiles = {}
     for role, found in rows.items():
         if not found:
@@ -69,7 +91,128 @@ def stock_profiles(bo2_root: Path, stingers=()) -> dict[str, dict]:
     if rows.get("ambience"):
         profiles["ambience"]["emitters"] = stock_emitters(rows["ambience"])
     profiles["groups"] = stock_group_levels(bo2_root)
+    profiles["classes"] = stock_classes(bo2_root)
+    profiles["twins"] = stock_twins(bo2_root, twins)
     return profiles
+
+
+# What a class moves from WaW's scale to BO2's by rank (transfer).
+TRANSFER_COLUMNS = ("DistMin", "Falloff", "PriorityMin", "PriorityMax", "OcclusionLevel")
+# Fewest reference values (stock WaW, else the map's own) for a transfer.
+REFERENCE_MIN_SAMPLES = 20
+
+
+def read_curves(path: Path) -> dict[str, list]:
+    """BO2's driver curves (raw/soundbank/globals/curves.csv): name -> points."""
+    if not path.is_file():
+        return {}
+    with path.open(encoding="utf-8", errors="replace", newline="") as f:
+        return {row["name"]: [[float(row[f"x{i}"]), float(row[f"y{i}"])] for i in range(8)]
+                for row in csv.DictReader(f)}
+
+
+def percentiles(values: list[float]) -> list[float]:
+    """The 0th to 100th percentile of ``values`` (nearest rank)."""
+    values = sorted(values)
+    return [values[round(i * (len(values) - 1) / 100)] for i in range(101)]
+
+
+def transfer(value: float, source: list[float], target: list[float]) -> float:
+    """The ``target`` value at the rank ``value`` holds in ``source`` (both
+    percentile tables). A value many source rows share sits at the middle of
+    their ranks, so WaW's one authored default lands on BO2's typical value;
+    a value outside the source's range takes the target's end."""
+    low, high = bisect.bisect_left(source, value), bisect.bisect_right(source, value) - 1
+    if high >= low:
+        rank = (low + high) / 2
+    elif low == 0:
+        rank = 0.0
+    elif low >= len(source):
+        rank = len(source) - 1.0
+    else:
+        rank = low - 1 + (value - source[low - 1]) / (source[low] - source[low - 1])
+    index = min(int(rank), len(target) - 2)
+    return target[index] + (target[index + 1] - target[index]) * (rank - index)
+
+
+def stock_classes(bo2_root: Path) -> dict[str, dict]:
+    """"<VolumeGroup>|<PanType>" -> how stock BO2 mixes that class: its most
+    common bus and duck group, the falloff curve of its ordinary 3D rows
+    (sounds.falloff_descriptor: full inside DistMin, falling beyond) with
+    that curve's area, and the percentiles of TRANSFER_COLUMNS."""
+    curves = read_curves(bo2_root / "raw/soundbank/globals/curves.csv")
+    found: dict[str, list[dict]] = {}
+    for row in _stock_rows(bo2_root):
+        found.setdefault(f"{row.get('VolumeGroup', '')}|{row.get('PanType', '')}", []).append(row)
+    classes = {}
+    for key, rows in sorted(found.items()):
+        if len(rows) < MIN_GROUP_ROWS:
+            continue
+        values: dict[str, list[float]] = {column: [] for column in TRANSFER_COLUMNS}
+        dry, wet = Counter(), Counter()
+        for row in rows:
+            for column in ("PriorityMin", "PriorityMax", "OcclusionLevel"):
+                value = _number(row.get(column))
+                if value is not None:
+                    values[column].append(value)
+            low, high = curves.get(row.get("DryMinCurve")), curves.get(row.get("DryMaxCurve"))
+            near, far = _number(row.get("DistMin")), _number(row.get("DistMaxDry"))
+            if row.get("PanType") != "3d" or not low or not high or near is None or far is None:
+                continue
+            shape = sounds.falloff_descriptor(near, far, low, high)
+            if shape["standard"]:
+                values["DistMin"].append(near)
+                values["Falloff"].append(shape["falloff"])
+                dry[row["DryMaxCurve"]] += 1
+                if sounds.is_falloff(curves.get(row.get("WetMaxCurve")) or [[0, 0]]):
+                    wet[row["WetMaxCurve"]] += 1
+        routing = Counter((row.get("Bus", ""), row.get("DuckGroup", "")) for row in rows).most_common(1)[0][0]
+        entry = {"rows": len(rows), "routing": {"Bus": routing[0], "DuckGroup": routing[1]},
+                 "quantiles": {c: percentiles(v) for c, v in values.items() if len(v) >= MIN_GROUP_ROWS}}
+        if dry:
+            curve = dry.most_common(1)[0][0]
+            entry["falloff"] = {"DryMaxCurve": curve, "area": sounds.curve_area(curves[curve]),
+                                "WetMaxCurve": wet.most_common(1)[0][0] if wet else curve,
+                                "falloff_curves": sorted(n for n, p in curves.items() if sounds.is_falloff(p))}
+        classes[key] = entry
+    return classes
+
+
+# What a stock alias's own rows say about where and how it plays: everything
+# but the audio (file, storage, pitch, looping) and its level, which stay
+# WaW's, and the alias-triggered duck.
+TWIN_COLUMNS = ("Bus", "VolumeGroup", "DuckGroup", "ReverbSend", "CenterSend", "DistMin", "DistMaxDry", "DistMaxWet",
+                "DryMinCurve", "DryMaxCurve", "WetMinCurve", "WetMaxCurve", "LimitCount", "EntityLimitCount",
+                "LimitType", "EntityLimitType", "PriorityMin", "PriorityMax", "PriorityThresholdMin",
+                "PriorityThresholdMax", "PanType", "Pan", "OcclusionLevel", "DistanceLpf", "StopOnEntDeath")
+
+
+def stock_twins(bo2_root: Path, names) -> dict[str, dict]:
+    """Stock alias -> its most common TWIN_COLUMNS row over BO2's zombie maps,
+    for the stock aliases a converted sound plays in place of (the engine's
+    footsteps and impacts, the zombie vocal events)."""
+    wanted = {name.lower() for name in names or ()}
+    found: dict[str, Counter] = {}
+    for row in _stock_rows(bo2_root) if wanted else ():
+        name = (row.get("Name") or "").lower()
+        if name in wanted:
+            found.setdefault(name, Counter())[tuple(row.get(c, "") for c in TWIN_COLUMNS)] += 1
+    return {name: dict(zip(TWIN_COLUMNS, mixes.most_common(1)[0][0])) for name, mixes in found.items()}
+
+
+def stock_alias_groups(bo2_root: Path) -> dict[str, str]:
+    """Stock alias -> its most common volume group (sounds.learn_bus_groups)."""
+    found: dict[str, Counter] = {}
+    for row in _stock_rows(bo2_root):
+        found.setdefault((row.get("Name") or "").lower(), Counter())[row.get("VolumeGroup", "")] += 1
+    return {name: groups.most_common(1)[0][0] for name, groups in found.items()}
+
+
+def reference_quantiles(reference: dict[str, dict[str, list[float]]]) -> dict[str, dict[str, dict]]:
+    """Percentile tables of sounds.waw_mix_reference, for remaster."""
+    return {key: {column: {"q": percentiles(values), "samples": len(values)}
+                  for column, values in columns.items() if len(values) >= REFERENCE_MIN_SAMPLES}
+            for key, columns in reference.items()}
 
 
 # A stinger plays to every speaker, as BO2's own (Pan music_all).
@@ -85,7 +228,7 @@ def _stinger_profile(bo2_root: Path, name: str) -> dict | None:
     for path in sorted((bo2_root / "raw/soundbank").glob("zmb_*.aliases.csv")):
         with path.open(encoding="utf-8", errors="replace", newline="") as f:
             found[path.name] = [r for r in csv.DictReader(f) if (r.get("Name") or "").lower() == name]
-    rows = [r for group in found.values() for r in group]
+    rows = [r for group in found.values() for r in group]  # per map: the level is the loudest map's
     if not rows:
         return None
     mix = Counter(tuple(r.get(c, "") for c in STINGER_COLUMNS) for r in rows).most_common(1)[0][0]
@@ -148,12 +291,10 @@ def stock_group_levels(bo2_root: Path) -> dict[str, dict]:
     against 69, so BO2's own sounds in the same map (zombie vocals, footsteps)
     played some 18 dB under WaW's."""
     values: dict[str, list[float]] = {}
-    for path in sorted((bo2_root / "raw/soundbank").glob("zmb_*.aliases.csv")):
-        with path.open(encoding="utf-8", errors="replace", newline="") as f:
-            for row in csv.DictReader(f):
-                volume = _number(row.get("VolMax"))
-                if volume is not None:
-                    values.setdefault(f"{row.get('VolumeGroup', '')}|{row.get('PanType', '')}", []).append(volume)
+    for row in _stock_rows(bo2_root):
+        volume = _number(row.get("VolMax"))
+        if volume is not None:
+            values.setdefault(f"{row.get('VolumeGroup', '')}|{row.get('PanType', '')}", []).append(volume)
     return {key: {"volume": _median(found), "rows": len(found)} for key, found in values.items()
             if len(found) >= MIN_GROUP_ROWS and _median(found) > 0}
 
@@ -208,8 +349,89 @@ def _shift(rows: list[dict], shift: float) -> None:
                 row[column] = f"{max(0.0, min(100.0, value + shift)):g}"
 
 
-def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict]) -> dict:
-    """Apply each role's stock mix to its rows in place; returns the report."""
+def _source_quantiles(key: str, column: str, members: list[dict], reference: dict | None):
+    """(percentiles, where from) WaW's values of a class are read against:
+    stock WaW's, else this map's own rows when there are enough."""
+    stock = (reference or {}).get(key, {}).get(column)
+    if stock is not None:
+        return stock["q"], "stock_waw"
+    if column == "Falloff":
+        values = [row["_waw"]["falloff"] for row in members if _places(row)]
+    elif column == "DistMin":
+        values = [v for row in members if _places(row) for v in [_number(row.get(column))] if v is not None]
+    else:
+        values = [v for row in members for v in [_number(row.get(column))] if v is not None]
+    return (percentiles(values), "map") if len(values) >= REFERENCE_MIN_SAMPLES else (None, None)
+
+
+def _places(row: dict) -> bool:
+    """A 3D row with WaW's ordinary falloff: the kind a class places."""
+    return row.get("PanType") == "3d" and bool(row.get("_waw", {}).get("standard"))
+
+
+def _mix_class(key: str, members: list[dict], stock: dict, reference: dict | None, reach: str = "waw") -> dict:
+    """Route one class as stock BO2 does and move its priority and occlusion
+    to BO2's scale (transfer); returns what changed.
+
+    ``reach``: "waw" leaves a row's distances and falloff as WaW authored
+    them (on the stock curve nearest its own, sounds.bind_curves): how far a
+    sound is heard is the map's design, and a sound BO2 plays itself takes
+    BO2's placement by name instead (twins). "stock" moves reach by rank onto
+    BO2's values and falloff. The stock tables hold hundreds of short
+    per-surface rows per class, so by rank a scripted event sound (board
+    break, mystery box, teleporter) lost two thirds of its reach and nothing
+    was heard a room away (user, 2026-11-09); only ambient emitters, which
+    droned over the map at WaW's reach, keep it."""
+    out = {"routing": stock["routing"], "transferred": {}}
+    for row in members:
+        row.update(stock["routing"])
+    targets, falloff = stock["quantiles"], stock.get("falloff")
+    ordered = [row for row in members
+               if (_number(row.get("PriorityMin")) or 0.0) <= (_number(row.get("PriorityMax")) or 0.0)]
+    for column in ("PriorityMin", "PriorityMax", "OcclusionLevel"):
+        source, origin = _source_quantiles(key, column, members, reference)
+        if source is None or column not in targets:
+            continue
+        before = _median([v for row in members for v in [_number(row.get(column))] if v is not None] or [0])
+        for row in members:
+            value = _number(row.get(column))
+            if value is not None:
+                moved = transfer(value, source, targets[column])
+                row[column] = f"{moved:.3g}" if column == "OcclusionLevel" else str(round(moved))
+        after = _median([v for row in members for v in [_number(row.get(column))] if v is not None] or [0])
+        out["transferred"][column] = {"reference": origin, "median": [before, after]}
+    for row in ordered:
+        # the two ends move on their own scales: keep WaW's min <= max
+        if (_number(row.get("PriorityMin")) or 0.0) > (_number(row.get("PriorityMax")) or 0.0):
+            row["PriorityMin"] = row["PriorityMax"]
+    near, near_origin = _source_quantiles(key, "DistMin", members, reference)
+    far, far_origin = _source_quantiles(key, "Falloff", members, reference)
+    placed = [row for row in members if _places(row)]
+    if (reach == "stock" and falloff and placed and near is not None and far is not None
+            and {"DistMin", "Falloff"} <= targets.keys()):
+        before = _median([_number(row["DistMaxDry"]) or 0.0 for row in placed])
+        for row in placed:
+            start = transfer(_number(row["DistMin"]) or 0.0, near, targets["DistMin"])
+            end = start + transfer(row["_waw"]["falloff"], far, targets["Falloff"]) / falloff["area"]
+            row.update(DistMin=str(round(start)), DistMaxDry=str(round(end)),
+                       DistMaxWet=str(round(end * row["_waw"].get("wet_ratio", 1.0))),
+                       DryMaxCurve=falloff["DryMaxCurve"])
+            if row.get("WetMaxCurve") in falloff["falloff_curves"]:
+                row["WetMaxCurve"] = falloff["WetMaxCurve"]
+        out["falloff"] = {"rows": len(placed), "kept_authored_shape": sum(
+                              1 for row in members if row.get("PanType") == "3d") - len(placed),
+                          "curve": falloff["DryMaxCurve"], "reach": reach, "reference": [near_origin, far_origin],
+                          "median_dist_max": [before, _median([_number(row["DistMaxDry"]) or 0.0 for row in placed])]}
+    return out
+
+
+def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict], reference: dict | None = None,
+             twins: dict[str, str] | None = None) -> dict:
+    """Apply each role's stock mix to its rows in place; returns the report.
+
+    ``reference``: reference_quantiles of stock WaW (what a map's values are
+    read against; the map's own rows where it is missing). ``twins``: row
+    name -> the stock BO2 alias it plays in place of (profiles["twins"])."""
     report = {"roles": {}, "unmeasured": [], "groups": {}}
     by_role: dict[str, list[dict]] = {}
     by_group: dict[str, list[dict]] = {}
@@ -225,10 +447,17 @@ def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict])
         if stock is None or not waw_volumes:
             report["unmeasured"].append(key)
             continue
-        shift = stock["volume"] - _median(waw_volumes)
+        # WaW's typical level of the class: stock WaW's where measured, so a
+        # map holding only its loud members (reloads without footsteps) is
+        # not pulled down to the class's median
+        level = (reference or {}).get(key, {}).get("VolMax")
+        shift = stock["volume"] - (level["q"][50] if level else _median(waw_volumes))
         _shift(members, shift)
         report["groups"][key] = {"aliases": len({row["Name"] for row in members}), "rows": len(members),
-                                 "volume_shift": round(shift, 2), "stock_rows": stock["rows"]}
+                                 "volume_shift": round(shift, 2), "stock_rows": stock["rows"],
+                                 "level_reference": "stock_waw" if level else "map"}
+        if key in profiles.get("classes", {}):
+            report["groups"][key].update(_mix_class(key, members, profiles["classes"][key], reference))
     for r, members in sorted(by_role.items()):
         profile = profiles.get(r)
         if profile is None:
@@ -242,9 +471,20 @@ def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict])
         placed = 0
         for row in members:
             row.update(mix)
-            # BO2 is king for the mix: a 3D ambient sound carries as far as
-            # BO2's own emitters of that kind, not as far as WaW authored it
-            emitter = profile.get("emitters", {}).get(row.get("Looping", "")) if r == "ambience" else None
+        # BO2 is king for the mix: a 3D ambient sound carries as far as BO2's
+        # own emitters, not as far as WaW authored it. By rank where the
+        # class is measured: the fire that carried farthest in WaW still
+        # does, on BO2's scale. One reach for every emitter (BO2's median,
+        # 400 units for loops) left the map empty between its emitters
+        # (user, 2026-11-09).
+        ambient = profiles.get("classes", {}).get("grp_ambience|3d") if r == "ambience" else None
+        spread = None
+        if ambient is not None and ambient.get("falloff"):
+            spatial = [row for row in members if row.get("PanType") == "3d"]
+            spread = _mix_class("grp_ambience|3d", spatial, {**ambient, "routing": {}}, reference,
+                                reach="stock").get("falloff")
+        for row in members if r == "ambience" and spread is None else ():
+            emitter = profile.get("emitters", {}).get(row.get("Looping", ""))
             if emitter is not None and row.get("PanType") == "3d":
                 row.update(emitter["columns"])
                 placed += 1
@@ -254,4 +494,18 @@ def remaster(rows: list[dict], roles: dict[str, str], profiles: dict[str, dict])
                               "stock_rows": profile["rows"]}
         if placed:
             report["roles"][r]["stock_emitter_rows"] = placed
+        if spread:
+            report["roles"][r]["falloff"] = spread
+    if twins:
+        stock, placed, missing = profiles.get("twins", {}), {}, set()
+        for row in rows:
+            twin = twins.get(row["Name"].lower())
+            if twin is None:
+                continue
+            if twin in stock:
+                row.update(stock[twin])
+                placed[row["Name"]] = twin
+            else:
+                missing.add(twin)
+        report["twins"] = {"placed": placed, "not_in_stock": sorted(missing)}
     return report

@@ -14,6 +14,9 @@ TAG_ARGUMENTS = {
     'playfxontag': {2}, 'waw_gettagorigin': {0}, 'waw_gettagangles': {0},
     'waw_attach': {1}, 'waw_detach': {1}, 'waw_linkto': {1},
     'waw_playfxontag': {2},
+    # client: playviewmodelfx( localclientnum, fx, tag ) (the Wunderwaffe's
+    # rail and tube effects on its viewmodel's tag_flash / tag_brass)
+    'playviewmodelfx': {2},
 }
 
 

@@ -138,6 +138,15 @@ class EngineNameTests(unittest.TestCase):
         copy = next(r for r in rows if r["Name"] == "fly_step_run_npc_dirt")
         self.assertEqual(copy["FileSource"], "a.wav")    # WaW's file, no new bank entry
 
+    def test_a_hurting_landing_plays_waws_fall_damage_grunt(self):
+        rows = [{"Name": "waw/land_damage_plr", "FileSource": "fall_damage_00.wav"},
+                {"Name": "waw/land_damage", "FileSource": "fall_damage_mn.wav"},
+                {"Name": "waw/land_plr_wood", "FileSource": "w.wav"}]
+        report = sounds.engine_name_copies(rows, ["fly_land_damage_plr", "fly_land_damage_npc", "fly_land_plr_wood"])
+        self.assertEqual(report["copies"], {"fly_land_damage_plr": "land_damage_plr",
+                                            "fly_land_damage_npc": "land_damage",
+                                            "fly_land_plr_wood": "land_plr_wood"})
+
     def test_the_template_bank_is_neither_linked_nor_shipped(self):
         from waw2bo2 import modzone, package
         with tempfile.TemporaryDirectory() as temp:
@@ -161,3 +170,28 @@ class EngineNameTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScriptSoundComparisonTests(unittest.TestCase):
+    def test_literal_compared_with_bound_script_sound_takes_its_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ents = root / "entities.json"
+            ents.write_text(json.dumps({"entities": [
+                {"targetname": "audio_bump_trigger", "script_sound": "waw/perks_rattle"},
+                {"targetname": "vending_jugg", "script_sound": "mx_jugger_jingle"},
+                {"targetname": "audio_bump_trigger", "script_sound": "waw/mixed"},
+                {"targetname": "other", "script_sound": "mixed"}]}))
+            script = root / "maps/mp/waw/map.gsc"
+            script.parent.mkdir(parents=True)
+            script.write_text('if ( IsDefined(t.script_sound) && t.script_sound == "perks_rattle" )\n'
+                              'if ( "perks_rattle" != self.script_sound )\n'
+                              'if ( self.script_sound == "mx_jugger_jingle" )\n'
+                              'if ( self.script_sound == "mixed" )\n')
+            count = sounds.bind_script_sound_comparisons(ents, root / "maps")
+            self.assertEqual(count, 2)
+            self.assertEqual(script.read_text(),
+                             'if ( IsDefined(t.script_sound) && t.script_sound == "waw/perks_rattle" )\n'
+                             'if ( "waw/perks_rattle" != self.script_sound )\n'
+                             'if ( self.script_sound == "mx_jugger_jingle" )\n'
+                             'if ( self.script_sound == "mixed" )\n')

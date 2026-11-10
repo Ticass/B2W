@@ -23,6 +23,13 @@ class ModelIsolationTests(unittest.TestCase):
         self.assertEqual(result.count('"tag_origin"'), 6)
         self.assertEqual(result.count('"waw_world_model/shared"'), 2)
 
+    def test_viewmodel_effect_tags_stay_bones(self):
+        # the Wunderwaffe rail: PlayViewmodelFx( localclientnum, fx, "tag_flash" )
+        source = 'f(){ PlayViewmodelFx( localclientnum, fx, "tag_flash" ); m = "tag_flash"; }'
+        result = modelisolation.rewrite_script(source, {'tag_flash': 'waw_world_model/tag_flash'})
+        self.assertIn('PlayViewmodelFx( localclientnum, fx, "tag_flash" )', result)
+        self.assertIn('m = "waw_world_model/tag_flash"', result)
+
     def test_bone_names_held_in_a_tag_variable_stay_bones(self):
         # compat waw_playfxontag: tag = "tag_origin" for the power-up glow
         # carrier; renamed, the glow played on a missing tag
