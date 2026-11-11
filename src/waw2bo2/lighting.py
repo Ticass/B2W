@@ -204,6 +204,14 @@ def _in_light_volume(light: dict, point) -> bool:
     return along > 0.0 and cos_outer * cos_outer * distance2 <= along * along
 
 
+def _below_grid(grid: LightGrid, columns: dict, origin) -> bool:
+    """sub_71C3D0 clears the caller's flag when the point lies below the
+    lowest grid point of its column (row and row + 1 are both looked up)."""
+    cell = [math.floor((origin[i] + GRID_OFFSET) / GRID_CELL[i]) for i in range(3)]
+    row, col = cell[grid.row_axis], cell[grid.col_axis]
+    return any(cell[2] < columns[c] for c in ((row, col), (row + 1, col)) if c in columns)
+
+
 def static_model_samples(grid: LightGrid, models: list[dict], tracer, lights: list[dict]) -> tuple[list[tuple], bytes, dict]:
     """Bake each static model's grid lighting for T6, as WaW computes it.
 
@@ -224,6 +232,10 @@ def static_model_samples(grid: LightGrid, models: list[dict], tracer, lights: li
     Returns per-model (colorsIndex, visibility, primary light), the appended
     palette bytes and a report."""
     points = dict(grid.points())
+    columns: dict[tuple[int, int], int] = {}
+    for key in points:
+        column = (key[grid.row_axis], key[grid.col_axis])
+        columns[column] = min(columns.get(column, key[2]), key[2])
     entries = list(struct.iter_unpack("<HBB", grid.entries))
     base = len(grid.colors) // 168
     palette = bytearray()
@@ -233,8 +245,6 @@ def static_model_samples(grid: LightGrid, models: list[dict], tracer, lights: li
         corners = _corners(grid, points, entries, origin)
         if all(entry is None for *_, entry in corners):
             outside += 1
-            samples.append((0, 0, model.get("primaryLightIndex", 0)))
-            continue
         dominant, kept = _dominant_light(corners, tracer, origin)
         if dominant == 255:
             light = grid.sun_index
@@ -256,10 +266,11 @@ def static_model_samples(grid: LightGrid, models: list[dict], tracer, lights: li
             for i in range(168):
                 blend[i] += source[i] * weight
         if total == 0.0:
-            # sub_71C360: no corner reached; WaW keeps the last palette entry,
-            # visibility 255 and the sun.
+            # sub_71C360: no corner reached (or none exists). The palette index
+            # is the lookup's above-ground flag (sub_71C3D0 clears it below a
+            # grid column): entry 1, or 0 underground; visibility 255, the sun.
             unreached += 1
-            samples.append((base - 1, 255, grid.sun_index))
+            samples.append((0 if _below_grid(grid, columns, origin) else 1, 255, grid.sun_index))
             continue
         if light == 0:
             visible = 0.0

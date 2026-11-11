@@ -2323,8 +2323,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         model_lighting = report.content["lighting"].get("static_model_lighting") or {}
         if model_lighting.get("no_corner_reached"):
             report.warnings.append(f"STATIC_MODEL_GRID_FALLBACK {model_lighting['no_corner_reached']} static models "
-                                   "reach no light grid corner: sun at visibility 255 with the last palette entry "
-                                   "(WaW sub_71C360; its palette argument is not traced yet)")
+                                   "reach no light grid corner: sun at visibility 255, palette entry 1 (0 below the grid), "
+                                   "as WaW sub_71C360")
         if model_lighting.get("outside_grid"):
             report.warnings.append(f"{model_lighting['outside_grid']} static models lie outside the WaW light "
                                    "grid: lit by palette entry 0")

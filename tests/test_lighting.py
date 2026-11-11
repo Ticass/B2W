@@ -79,8 +79,10 @@ class LightingTests(unittest.TestCase):
             placed = json.loads(models.read_text())["models"]
             # WaW sub_71D440: the corner with another light (3) neither lights
             # nor shadows "a" (light 2): fully visible; light 0 is never visible
-            self.assertEqual([(m["colorsIndex"], m["visibility"]) for m in placed[:3]], [(2, 255), (3, 0), (0, 0)])
-            self.assertEqual([m["primaryLightIndex"] for m in placed[:3]], [2, 0, 2])
+            self.assertEqual([(m["colorsIndex"], m["visibility"]) for m in placed[:3]], [(2, 255), (3, 0), (1, 255)])
+            self.assertEqual([m["primaryLightIndex"] for m in placed[:3]], [2, 0, 1])
+            # no grid point around "far": WaW sub_71C360 falls back to the sun,
+            # visibility 255, palette entry 1 (above-ground flag)
             self.assertNotIn("colorsIndex", placed[3])
             self.assertEqual(report["static_model_lighting"]["outside_grid"], 1)
             target = dst.read_bytes()
