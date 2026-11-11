@@ -2455,6 +2455,12 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         if bo2_stock_perks:
             zone.write('// Opt-in stock BO2 perk dependencies\n')
             zone.write(''.join(line + '\n' for line in stockperks.asset_lines(project_root)))
+    from . import modelcolours
+    opaque = modelcolours.stage(project_root, report.materials)
+    report.content['additive_model_vertex_alpha'] = opaque
+    if opaque:
+        report.warnings.append(f'ADDITIVE_MODEL_VERTEX_ALPHA {sum(opaque.values())} vertices in {len(opaque)} models: '
+                               f'mc_unlit_add surfaces draw their vertex colour at alpha 1')
     material_names = materialisolation.stage(report, project_root, techset_dump) if techset_dump else {}
     report.content['material_identities'] = material_names
     rope_runtime = constraints.stage_entities(project_root)
