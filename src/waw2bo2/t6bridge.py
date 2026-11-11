@@ -1053,12 +1053,16 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
     for placement in placements:
         bounds = model_bounds.get(placement["name"])
         if bounds is not None:
-            # the placed bounds' centre, as GfxWorldLinker sets the T6 lighting
-            # origin; stage_grid samples the WaW grid there (lighting.static_model_samples)
+            # WaW samples a static model's grid lighting at its placed world
+            # bounds: the centre in x and y, three quarters up in z
+            # (sub_72D520); stage_grid bakes it there (lighting.static_model_samples)
             axis, scale = placement["axis"], placement["scale"]
-            centre = [(lo + hi) / 2 for lo, hi in zip(*bounds)]
-            placement["lightingOrigin"] = [placement["origin"][k] + scale * sum(centre[r] * axis[r * 3 + k]
-                                                                               for r in range(3)) for k in range(3)]
+            corners = [[placement["origin"][k] + scale * sum((bounds[(c >> r) & 1][r]) * axis[r * 3 + k]
+                                                             for r in range(3)) for k in range(3)]
+                       for c in range(8)]
+            lo = [min(p[k] for p in corners) for k in range(3)]
+            hi = [max(p[k] for p in corners) for k in range(3)]
+            placement["lightingOrigin"] = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, hi[2] * 0.75 + lo[2] * 0.25]
     bsp = project_root / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
     (bsp / "models.json").write_text(json.dumps({"models": placements}, indent=1) + "\n", encoding="utf-8")
@@ -2312,9 +2316,15 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     grid_file = Path(lighting_base + ".lightgrid.bin")
     if grid_file.exists():
         models_file = project_root / "BSP/models.json"
-        report.content["lighting"] = lighting.stage_grid(grid_file, project_root / "BSP/lightgrid.bin",
-                                                         models_file if models_file.exists() else None)
+        report.content["lighting"] = progress.timed(
+            'Bake static model lighting (WaW grid traces)', lighting.stage_grid, grid_file,
+            project_root / "BSP/lightgrid.bin", models_file if models_file.exists() else None,
+            clip, Path(lighting_base + ".primarylights.json"))
         model_lighting = report.content["lighting"].get("static_model_lighting") or {}
+        if model_lighting.get("no_corner_reached"):
+            report.warnings.append(f"STATIC_MODEL_GRID_FALLBACK {model_lighting['no_corner_reached']} static models "
+                                   "reach no light grid corner: sun at visibility 255 with the last palette entry "
+                                   "(WaW sub_71C360; its palette argument is not traced yet)")
         if model_lighting.get("outside_grid"):
             report.warnings.append(f"{model_lighting['outside_grid']} static models lie outside the WaW light "
                                    "grid: lit by palette entry 0")
