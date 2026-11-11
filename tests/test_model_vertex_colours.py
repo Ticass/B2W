@@ -18,11 +18,12 @@ class ModelVertexColourTests(unittest.TestCase):
         self.assertIsNotNone(binding)
         self.assertIn("COLOR_0", binding.group(1))
 
-    def test_waw_dump_reads_vertex_colour_as_d3dcolor(self):
+    def test_waw_model_vertex_colour_keeps_its_byte_order(self):
+        # Unlike WaW world vertices (D3DCOLOR, world._color), model vertex
+        # colours are R G B A as dumped: swapped, the Der Riese jar liquid
+        # turned yellow instead of its green (playtest 2026-11-11).
         patch = (ROOT / "vendor/OpenAssetTools.patch").read_text(encoding="utf-8")
-        hunk = patch[patch.index("XModelToCommonConverter.cpp.template"):]
-        self.assertIn("+#ifdef FEATURE_T4", hunk)
-        self.assertIn("+                std::swap(vertex.color[0], vertex.color[2]);", hunk)
+        self.assertNotIn("XModelToCommonConverter.cpp.template", patch)
 
 
 if __name__ == "__main__":
