@@ -249,6 +249,8 @@ def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None
     t4 = _load_json(src)
     t4_ts = t4.get("techniqueSet", "")
     entry["t4_techset"] = t4_ts
+    if "sortKey" in t4:
+        entry["t4_sort_key"] = t4["sortKey"]
     # The best-named technique set can still be unusable when its donor has
     # extra slots the source cannot fill; fall back to the next best.
     remaining = list(candidates)
@@ -2461,6 +2463,12 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if opaque:
         report.warnings.append(f'ADDITIVE_MODEL_VERTEX_ALPHA {sum(opaque.values())} vertices in {len(opaque)} models: '
                                f'mc_unlit_add surfaces draw their vertex colour at alpha 1')
+    from . import modelsortorder
+    reordered = modelsortorder.stage(project_root, report.materials)
+    report.content['model_surface_sort_keys'] = reordered
+    if reordered:
+        report.warnings.append('MODEL_SURFACE_SORT_ORDER ' + ', '.join(f'{n} {a}->{b}' for n, (a, b) in sorted(reordered.items()))
+                               + ': same WaW sort key, T6 key raised to keep the model surface order')
     material_names = materialisolation.stage(report, project_root, techset_dump) if techset_dump else {}
     report.content['material_identities'] = material_names
     rope_runtime = constraints.stage_entities(project_root)
