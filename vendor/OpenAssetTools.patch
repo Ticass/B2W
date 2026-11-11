@@ -1585,3 +1585,27 @@ index 9398f998..fb91a168 100644
          jRoot["$schema"] = "http://openassettools.dev/schema/xmodel.v1.json";
          jRoot["_type"] = "xmodel";
          jRoot["_version"] = 2;
+diff --git a/src/ObjWriting/XModel/XModelToCommonConverter.cpp.template b/src/ObjWriting/XModel/XModelToCommonConverter.cpp.template
+index 4768e3ca..f5eed4cc 100644
+--- a/src/ObjWriting/XModel/XModelToCommonConverter.cpp.template
++++ b/src/ObjWriting/XModel/XModelToCommonConverter.cpp.template
+@@ -37,6 +37,7 @@
+ #include <cassert>
+ #include <format>
+ #include <string_view>
++#include <utility>
+ 
+ using namespace GAME;
+ 
+@@ -387,6 +388,11 @@ namespace
+                 vertex.uv[1] = v.texCoord.y;
+ #else
+                 Common::Vec4UnpackGfxColor(v.color, vertex.color);
++#ifdef FEATURE_T4
++                // WaW binds the vertex colour as D3DCOLOR (bytes B G R A), as
++                // its world vertices; the common colour is RGBA.
++                std::swap(vertex.color[0], vertex.color[2]);
++#endif
+                 Common::Vec2UnpackTexCoords(v.texCoord, vertex.uv);
+ #endif
+ 
