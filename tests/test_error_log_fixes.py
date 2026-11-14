@@ -74,6 +74,21 @@ class LoadTimeGuardTests(unittest.TestCase):
         self.assertIsNone(self.fold('isdefined(level.x) && flag("power_on")', {'x'}))
 
 
+class CallReceiverTests(unittest.TestCase):
+    def test_a_call_followed_by_a_call_is_a_method_on_its_result(self):
+        # Nightclub _zombiemode_gamemode: iPrintLnBold( ... ) with no ';' then RadiusDamage( ... );
+        tokens = gsc.tokenize('f()\n{\n\tiPrintLnBold( a )\n\tRadiusDamage( o, 15, 1, 1 );\n'
+                              '\tif ( x ) foo();\n\twhile ( y ) bar();\n\tthing( a ) thread other();\n}\n')
+        self.assertEqual(gscport.split_call_receivers(tokens), 2)
+        result = gsc.emit(tokens)
+        self.assertIn('waw_receiver = iPrintLnBold( a );', result)
+        self.assertIn('waw_receiver RadiusDamage( o, 15, 1, 1 );', result)
+        self.assertIn('waw_receiver = thing( a ); waw_receiver thread other();', result)
+        self.assertIn('if ( x ) foo();', result)
+        self.assertIn('while ( y ) bar();', result)
+        gsc.parse(result, 'test')
+
+
 class GeneratedBlendTests(unittest.TestCase):
     def test_generated_blend_reference_never_takes_a_bo2_raw_namesake(self):
         # Leviathan "*4_5n": a ,reference the map zone does not define; BO2 raw

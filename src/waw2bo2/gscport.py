@@ -432,7 +432,47 @@ def fix_syntax(tokens: list[gsc.Token]) -> int:
             t.text = ""
             tokens[j].text = ""
             fixes += 1
-    return fixes
+    return fixes + split_call_receivers(tokens)
+
+
+def split_call_receivers(tokens: list[gsc.Token]) -> int:
+    """``f( a ) g( b );``: WaW parses a call statement followed by a call as
+    a method call on the first call's result (a missing ';' in Nightclub's
+    _zombiemode_gamemode: ``iPrintLnBold( x )`` then ``RadiusDamage( ... );``).
+    T6 takes no call result as a method caller, so the result goes through a
+    local: ``waw_receiver = f( a ); waw_receiver g( b );``."""
+    count = 0
+    i = 1
+    while i < len(tokens) - 2:
+        t = tokens[i]
+        nxt, after = tokens[i + 1], tokens[i + 2]
+        if not (t.text == ")" and t.kind == gsc.PUNCT and nxt.kind == gsc.IDENT
+                and ((nxt.low not in gsc.CALL_LIKE_KEYWORDS and after.text == "(")
+                     or nxt.low in ("thread", "childthread"))):
+            i += 1
+            continue
+        depth, j = 0, i
+        while j > 0:
+            depth += {")": 1, "(": -1}.get(tokens[j].text, 0)
+            if depth == 0:
+                break
+            j -= 1
+        callee = tokens[j - 1] if j > 0 else None
+        start = tokens[j - 2] if j > 1 else None
+        if callee is None or callee.kind != gsc.IDENT or callee.low in gsc.CALL_LIKE_KEYWORDS \
+                or start is None or start.text not in (";", "{", "}"):
+            i += 1
+            continue
+        tokens[j - 1:j - 1] = [gsc.Token(gsc.IDENT, "waw_receiver", callee.pre, callee.line),
+                               gsc.Token(gsc.PUNCT, "=", " ", callee.line)]
+        callee.pre = " "
+        i += 2
+        tokens[i + 1:i + 1] = [gsc.Token(gsc.PUNCT, ";", "", t.line),
+                               gsc.Token(gsc.IDENT, "waw_receiver", nxt.pre, nxt.line)]
+        nxt.pre = " "
+        count += 1
+        i += 3
+    return count
 
 
 # level fields both frameworks own under the same name with different values.
@@ -2636,9 +2676,12 @@ class Translator:
                 # translated: the source round_wait() became the extracted name
                 pattern = pattern.replace("ROUND_WAIT", r"\w*round_wait")
                 before, after = SOURCE_ROUND_GLUE_CALLS[label]
-                text, count = re.subn(pattern, lambda m: (f"{OWNED_ZM}::{before}();\n\t\t" if before else "")
-                                      + m[0] + (f"\n\t\t{OWNED_ZM}::{after}();" if after else ""),
-                                      text, count=1, flags=re.IGNORECASE)
+                def anchored(m, before=before, after=after, label=label):
+                    mirror = (f"\n\t\tlevel.round_number = level.{m[1]};"
+                              if label == "advance" and m[1].lower() != "round_number" else "")
+                    return ((f"{OWNED_ZM}::{before}();\n\t\t" if before else "") + m[0] + mirror
+                            + (f"\n\t\t{OWNED_ZM}::{after}();" if after else ""))
+                text, count = re.subn(pattern, anchored, text, count=1, flags=re.IGNORECASE)
                 if count != 1:
                     raise ValueError(f"{where}: {function} translated without anchor {label}")
             # A local spawn function (older loops) is round_spawning, which is
@@ -4866,7 +4909,10 @@ SOURCE_ROUND_ANCHORS = (
     # older frameworks (Verruckt) thread a local: round_spawn_func = ::round_spawning
     ("spawn", r"level\s+thread\s+\[\[\s*(?:level\.)?round_spawn_func\s*\]\]\s*\(\s*\)\s*;"),
     ("wait", r"\bROUND_WAIT\s*\(\s*\)\s*;"),
-    ("advance", r"level\.round_number\s*\+\+\s*;"),
+    # the framework's own round counter: round_number in stock WaW, round_num
+    # in Reaper's (Nightclub); BO2's glue reads round_number, so a framework
+    # counter is mirrored into it at the advance
+    ("advance", r"level\.(\w*round\w*)\s*\+\+\s*;"),
 )
 # anchor -> (owned glue before it, owned glue after it)
 SOURCE_ROUND_GLUE_CALLS = {
