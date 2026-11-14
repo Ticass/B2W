@@ -50,7 +50,8 @@ class Token:
 
 def tokenize(source: str) -> list[Token]:
     tokens: list[Token] = []
-    pos = 0
+    # A UTF-8 byte order mark (Notepad's default) is not script text; WaW compiles such files.
+    pos = 1 if source.startswith("﻿") else 0
     line = 1
     pre = ""
     n = len(source)
@@ -235,7 +236,7 @@ def load_scripts(root: Path, exts=(".gsc",)) -> dict[str, Script]:
         for f in sorted(root.rglob(f"*{ext}")):
             rel = f.relative_to(root).with_suffix("").as_posix().replace("/", "\\").lower()
             try:
-                out[rel] = parse(f.read_text(encoding="utf-8", errors="replace"), rel)
+                out[rel] = parse(f.read_text(encoding="utf-8-sig", errors="replace"), rel)
             except GscSyntaxError as exc:
                 out[rel] = Script(rel, [])
                 out[rel].error = str(exc)  # type: ignore[attr-defined]

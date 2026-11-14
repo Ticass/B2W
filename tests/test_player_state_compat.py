@@ -56,10 +56,22 @@ class ReviveStateTests(unittest.TestCase):
         self.assertEqual(gscport.bridge_score_writes(tokens), 2)
         result = gsc.emit(tokens)
         self.assertIn('self.score += points; self.pers["score"] = self.score;', result)
-        self.assertIn('players[i].score = 0; players[i].pers["score"] = players[i].score;', result)
+        self.assertIn('if (x) { players[i].score = 0; players[i].pers["score"] = players[i].score; }', result)
         self.assertIn('if (self.score >= cost) y();', result)
         self.assertIn('self.score_total += 1;', result)
         gsc.parse(result, 'test')
+
+    def test_score_write_in_a_braceless_if_keeps_its_else(self):
+        # Reaper's _zombiemode_score: T6 "unexpected token 'else'" after the copy
+        tokens = gsc.tokenize('f() { if (a) self.score += 5; else self.score -= 5; '
+                              'while (b) self.score++; }')
+        self.assertEqual(gscport.bridge_score_writes(tokens), 3)
+        result = gsc.emit(tokens)
+        self.assertIn('if (a) { self.score += 5; self.pers["score"] = self.score; } else '
+                      '{ self.score -= 5; self.pers["score"] = self.score; }', result)
+        self.assertIn('while (b) { self.score++; self.pers["score"] = self.score; }', result)
+        script = gsc.parse(result, 'test')
+        self.assertIn('f', script.functions)
 
     def test_unrelated_fields_and_strings_are_unchanged(self):
         source = 'f() { self.other = "being_revived"; if (!self.other) ok(); }'
