@@ -17,7 +17,7 @@ import webbrowser
 
 from .gui_artwork import ARTWORK_KEYS, ArtworkTab
 from .launcher import (BuildPaths, ProcessRunner, Settings, build_command, cli_command,
-                       discover, map_fastfiles, perform_build, perform_extract_all, preflight, project_name, user_directory)
+                       discover, map_fastfiles, map_zone, perform_build, perform_extract_all, preflight, project_name, user_directory)
 from .resources import resource_root
 from .diagnostics import create_bundle
 
@@ -436,6 +436,7 @@ class Launcher(ArtworkTab, ttk.Frame):
             initialdir=initial if initial.exists() else None, filetypes=[('WaW fastfiles', '*.ff')])
         if not path:
             return
+        path = str(map_zone(path))
         if Path(path).stem.lower() in {'mod', 'mod_load'} or Path(path).stem.lower().endswith('_patch'):
             maps = map_fastfiles(Path(path).parent)
             if len(maps) == 1:
@@ -496,6 +497,10 @@ class Launcher(ArtworkTab, ttk.Frame):
                              self.setup_tab if any(c.name not in ('Source map', 'BO2 map name', 'Map artwork') for c in failures) else
                              self.art_tab if any(c.name == 'Map artwork' for c in failures) else self.builder_tab)
             return
+        if settings.fastfile and str(map_zone(settings.fastfile)) != str(Path(settings.fastfile)):
+            # a saved loading-screen zone pick: build the map zone beside it
+            settings.fastfile = str(map_zone(settings.fastfile))
+            self.vars['fastfile'].set(settings.fastfile)
         self._save()
         self.warnings = self.errors = 0
         self.count_text.set('0 warnings    0 errors')
