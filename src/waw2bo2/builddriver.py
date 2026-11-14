@@ -339,6 +339,8 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
                 result = modelhitboxes.audit(model_source, audit)
             (stage / 'bone_hitbox_audit.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
             if result['errors'] or not result['models']:
-                raise RuntimeError('Authored bone hitboxes changed during linking; see bone_hitbox_audit.json')
+                detail = '; '.join(result['errors'][:5]) or 'no built model with authored hitboxes was found to audit'
+                raise RuntimeError(f'Authored bone hitboxes changed during linking ({len(result["errors"])} errors, '
+                                   f'{result["models"]} models): {detail}; see bone_hitbox_audit.json')
             print(f'{result["bones"]} authored bone hitboxes checked across {result["models"]} models, 0 violations', flush=True)
     return 0

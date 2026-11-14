@@ -193,7 +193,7 @@ class Sources:
                             # Universal newlines, as read_text gives zone rawfiles:
                             # CRLF kept here is written back as CR CR LF on Windows,
                             # doubling every line the T6 compiler reports.
-                            text = z.read(name).decode("utf-8", errors="replace")
+                            text = z.read(name).decode("utf-8-sig", errors="replace")
                             self.text[key] = text.replace("\r\n", "\n").replace("\r", "\n")
                             self.origin[key] = f"{iwd.name}:{name}"
         for root in roots:
@@ -202,7 +202,7 @@ class Sources:
             for f in sorted(list(root.rglob("*.gsc")) + list(root.rglob("*.csc"))):
                 key = norm(f.relative_to(root).as_posix()) + f.suffix.lower()
                 if key not in self.text:
-                    self.text[key] = f.read_text(encoding="utf-8", errors="replace")
+                    self.text[key] = f.read_text(encoding="utf-8-sig", errors="replace")
                     self.origin[key] = str(f)
         self.stock: dict[str, str] = {}
         if stock_root is not None and stock_root.exists():
@@ -219,7 +219,7 @@ class Sources:
                 for root in self.variant_roots:
                     raw = root / (norm(path).replace('\\', '/') + ext)
                     if raw.is_file():
-                        src = raw.read_text(encoding='utf-8', errors='replace')
+                        src = raw.read_text(encoding="utf-8-sig", errors='replace')
                         self.stock[key] = src
                         break
             self._parsed[key] = gsc.parse(src, norm(path)) if src is not None else None
@@ -640,7 +640,8 @@ def bridge_score_writes(tokens: list[gsc.Token]) -> int:
     """T6 keeps a player's score in pers["score"] too: the scoreboard reads it
     and a (re)connect restores score from it (BO2's _zm_score writes both).
     After each WaW statement assigning <player>.score, the persistent copy
-    follows (an idempotent copy, so a braceless if needs no block)."""
+    follows. A braceless if/else/loop body becomes a block, so the copy stays
+    in that body and a following else still binds to its if."""
     count = 0
     for i in range(2, len(tokens) - 2):
         if tokens[i].low != "score" or tokens[i - 1].text != "." or \
@@ -670,7 +671,10 @@ def bridge_score_writes(tokens: list[gsc.Token]) -> int:
             end += 1
         if end >= len(tokens):
             continue
-        tokens[end].text = f'; {receiver}.pers["score"] = {receiver}.score;'
+        braceless = tokens[j - 1].text == ")" or tokens[j - 1].low == "else"
+        if braceless:
+            tokens[j].pre += "{ "
+        tokens[end].text = f'; {receiver}.pers["score"] = {receiver}.score;' + (" }" if braceless else "")
         count += 1
     return count
 
@@ -1206,6 +1210,34 @@ def lower_undefined_size_loops(tokens: list[gsc.Token]) -> int:
         fragment = gsc.tokenize(guard + ' && (')[:-1]
         fragment[0].pre, tokens[first].pre = tokens[first].pre, ' '
         tokens[first:first] = fragment
+        changed += 1
+    return changed
+
+
+def wrap_integer_literals(tokens: list[gsc.Token]) -> int:
+    """Integer literals that do not fit 32 bits take the value WaW gives them.
+
+    WaW's script lexer reads an integer token with sscanf("%d") (t4sp
+    0x69c858 -> 0x7ab559, format 0x84af48), which keeps the low 32 bits;
+    T6's compiler reads it with std::stoi and fails the whole script
+    ("stoi argument out of range"). The wrapped value is written in a form
+    stoi accepts: INT_MIN as an expression, negatives in parentheses."""
+    changed = 0
+    for t in tokens:
+        if t.kind != gsc.NUMBER or not t.text.isdigit():
+            continue
+        value = int(t.text)
+        if value <= 0x7FFFFFFF:
+            continue
+        wrapped = value & 0xFFFFFFFF
+        if wrapped >= 0x80000000:
+            wrapped -= 1 << 32
+        if wrapped == -0x80000000:
+            t.text = "( -2147483647 - 1 )"
+        elif wrapped < 0:
+            t.text = f"( {wrapped} )"
+        else:
+            t.text = str(wrapped)
         changed += 1
     return changed
 
@@ -2520,6 +2552,7 @@ class Translator:
         self.report.rewrites["health assignments set a player's cap (WaW field setter)"] += lower_health_assignments(tokens)
         self.report.rewrites["zombie_weapons key lists without BO2-only entries"] += lower_zombie_weapon_keys(tokens)
         self.report.rewrites["HUD fields (safe-area anchors, hidden in menus)"] += lower_hud_fields(tokens)
+        self.report.rewrites["integer literals past 32 bits wrapped as WaW reads them"] += wrap_integer_literals(tokens)
 
     def translate_extracted(self, core: str, name: str) -> str:
         script = self.sources.get(core)

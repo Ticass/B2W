@@ -136,7 +136,18 @@ def discover(settings: Settings) -> Settings:
 def map_fastfiles(folder: Path) -> list[Path]:
     excluded = {'mod', 'mod_load', 'common', 'code_post_gfx'}
     return sorted((p for p in folder.glob('*.ff') if p.stem.lower() not in excluded
-                   and not p.stem.lower().endswith('_patch')), key=lambda p: p.name.lower())
+                   and not p.stem.lower().endswith('_patch') and map_zone(p) == p), key=lambda p: p.name.lower())
+
+
+def map_zone(source: str | Path) -> Path:
+    """The map zone for a chosen fastfile: `<map>_load.ff` is WaW's loading-screen
+    zone (no world), loaded beside `<map>.ff`; a pick of it means the map."""
+    path = Path(source)
+    if path.stem.lower().endswith('_load'):
+        sibling = path.with_name(path.stem[:-len('_load')] + path.suffix)
+        if sibling.is_file():
+            return sibling
+    return path
 
 
 def project_name(source: str) -> str:

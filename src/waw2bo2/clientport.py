@@ -192,6 +192,8 @@ def port_map_client(sources, map_name: str, out_root: Path, staged: dict[str, st
     for path in order:
         script = sources.get(path, '.csc')
         tokens = gsc.tokenize(gsc.emit(script.tokens))
+        from .gscport import wrap_integer_literals
+        wrap_integer_literals(tokens)
         refs = gsc.references(tokens)
         main = script.functions.get('main') if path == main_path else None
         statements = set()
