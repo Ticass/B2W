@@ -26,6 +26,7 @@ def create_bundle(settings: Settings, console: str, error: str = '') -> Path:
         files.update(build.rglob('*report.json'))
         files.update(build.rglob('weapons.dependencies.json'))
         files.update(build.rglob('weapons.stage.json'))
+        files.update(build.rglob('bone_hitbox_audit.json'))
     extract_log = cache / 'extract.log'
     if extract_log.is_file():
         files.add(extract_log)
