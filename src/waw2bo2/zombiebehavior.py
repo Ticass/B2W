@@ -302,6 +302,135 @@ def source_last_zombie(sources, definition: dict) -> dict | None:
     return None
 
 
+def _level_fields_assigned(sources, map_name: str) -> set[str]:
+    """Every level.<field> assigned by a script the map's level script reaches
+    through #include or path::function references."""
+    queue, seen, fields = [f'maps\\{map_name}'], set(), set()
+    while queue:
+        path = queue.pop().lower().replace('/', '\\')
+        if path in seen:
+            continue
+        seen.add(path)
+        script = sources.get(path)
+        if script is None:
+            continue
+        queue.extend(script.includes)
+        queue.extend(ref.qualifier for ref in gsc.references(script.tokens) if ref.qualifier)
+        tokens = script.tokens
+        for i in range(len(tokens) - 3):
+            if tokens[i].low == 'level' and tokens[i + 1].text == '.' and tokens[i + 2].kind == gsc.IDENT \
+                    and tokens[i + 3].text in ('=', '[') and (i == 0 or tokens[i - 1].text != '.'):
+                fields.add(tokens[i + 2].low)
+    return fields
+
+
+def fold_level_guard(words: list[str], map_name: str, assigned: set[str] | None) -> bool | None:
+    """Value of an if-guard built from facts fixed at map load, or None.
+
+    Terms: level.script ==/!= "<name>" (level.script is the map name),
+    isdefined(level.script) (always true), isdefined(level.<field>) (false
+    when no reachable script assigns the field; otherwise unknown), joined
+    by !, &&, || and parentheses with GSC precedence."""
+    pos = 0
+
+    def peek(n=0):
+        return words[pos + n] if pos + n < len(words) else None
+
+    def atom():
+        nonlocal pos
+        if peek() == '!':
+            pos += 1
+            value = atom()
+            return None if value is None else not value
+        if peek() == '(':
+            pos += 1
+            value = disjunction()
+            if peek() != ')':
+                raise ValueError
+            pos += 1
+            return value
+        if peek() == 'isdefined' and peek(1) == '(' and peek(2) == 'level' and peek(3) == '.' and peek(5) == ')':
+            field = peek(4)
+            pos += 6
+            if field == 'script':
+                return True
+            return False if assigned is not None and field not in assigned else None
+        if peek() == 'level' and peek(1) == '.' and peek(2) == 'script' and peek(3) in ('==', '!=') \
+                and (peek(4) or '').startswith('"'):
+            matched = map_name.lower() == peek(4).strip('"')
+            op = peek(3)
+            pos += 5
+            return matched if op == '==' else not matched
+        raise ValueError
+
+    def conjunction():
+        nonlocal pos
+        values = [atom()]
+        while peek() == '&&':
+            pos += 1
+            values.append(atom())
+        if False in values:
+            return False
+        return None if None in values else True
+
+    def disjunction():
+        nonlocal pos
+        values = [conjunction()]
+        while peek() == '||':
+            pos += 1
+            values.append(conjunction())
+        if True in values:
+            return True
+        return None if None in values else False
+
+    try:
+        value = disjunction()
+    except ValueError:
+        return None
+    return value if pos == len(words) else None
+
+
+def _folded_body(sources, script, fn, map_name: str | None) -> list:
+    """The function body with if-guards fixed at map load resolved to the
+    branch WaW runs ({ body }, braces included)."""
+    # level.script is the immutable input map name, and a level field no
+    # reachable script assigns is never defined. Resolve only those known
+    # conditions; dynamic conditions retain their braces and diagnostics.
+    from .gscport import top_level_statements
+    assigned = _level_fields_assigned(sources, map_name) if map_name else None
+    def fold(opening, closing):
+        result = []
+        for a, b in top_level_statements(script.tokens, opening, closing):
+            original = script.tokens[a:b]
+            if map_name is None or script.tokens[a].low != 'if':
+                result.extend(original)
+                continue
+            guard_end = gsc._match(script.tokens, a + 1, '(', ')')
+            words = [t.low for t in script.tokens[a + 2:guard_end]]
+            matched = fold_level_guard(words, map_name, assigned)
+            if matched is None:
+                result.extend(original)
+                continue
+            yes = guard_end + 1
+            if script.tokens[yes].text != '{':
+                result.extend(original)
+                continue
+            yes_end = gsc._match(script.tokens, yes, '{', '}')
+            no = no_end = None
+            if yes_end + 1 < b and script.tokens[yes_end + 1].low == 'else':
+                no = yes_end + 2
+                if script.tokens[no].text != '{':
+                    result.extend(original)
+                    continue
+                no_end = gsc._match(script.tokens, no, '{', '}')
+            if matched:
+                result.extend(fold(yes, yes_end))
+            elif no is not None:
+                result.extend(fold(no, no_end))
+        return result
+    return [script.tokens[fn.body_open], *fold(fn.body_open, fn.body_close), script.tokens[fn.body_close]]
+
+
 def movement_sets(sources, definition: dict, map_name: str | None = None) -> tuple[str | None, dict[str, list[str]]]:
     """Read flat, authored movement table assignments, retaining variant weights."""
     contract = definition['source_movement']
@@ -327,43 +456,7 @@ def movement_sets(sources, definition: dict, map_name: str | None = None) -> tup
         fn = candidates[0] if candidates else None
     if fn is None:
         return None, {}
-    # level.script is the immutable input map name. Resolve only that known
-    # condition; dynamic conditions retain their braces and diagnostics.
-    from .gscport import top_level_statements
-    def fold(opening, closing):
-        result = []
-        for a, b in top_level_statements(script.tokens, opening, closing):
-            original = script.tokens[a:b]
-            if map_name is None or script.tokens[a].low != 'if':
-                result.extend(original)
-                continue
-            guard_end = gsc._match(script.tokens, a + 1, '(', ')')
-            words = [t.low for t in script.tokens[a + 2:guard_end]]
-            if (len(words) != 5 or words[:3] != ['level', '.', 'script'] or
-                    words[3] not in ('==', '!=') or not words[4].startswith('"')):
-                result.extend(original)
-                continue
-            yes = guard_end + 1
-            if script.tokens[yes].text != '{':
-                result.extend(original)
-                continue
-            yes_end = gsc._match(script.tokens, yes, '{', '}')
-            no = no_end = None
-            if yes_end + 1 < b and script.tokens[yes_end + 1].low == 'else':
-                no = yes_end + 2
-                if script.tokens[no].text != '{':
-                    result.extend(original)
-                    continue
-                no_end = gsc._match(script.tokens, no, '{', '}')
-            matched = map_name.lower() == words[4].strip('"')
-            if words[3] == '!=':
-                matched = not matched
-            if matched:
-                result.extend(fold(yes, yes_end))
-            elif no is not None:
-                result.extend(fold(no, no_end))
-        return result
-    tokens = [script.tokens[fn.body_open], *fold(fn.body_open, fn.body_close), script.tokens[fn.body_close]]
+    tokens = _folded_body(sources, script, fn, map_name)
     found = {}
     depth = 0
     for i in range(1, len(tokens) - 1):
@@ -389,7 +482,7 @@ def movement_sets(sources, definition: dict, map_name: str | None = None) -> tup
     return fn.animtree, {speed: [entries[i] for i in sorted(entries)] for speed, entries in found.items()}
 
 
-def melee_sets(sources, definition: dict) -> dict[str, list[str]]:
+def melee_sets(sources, definition: dict, map_name: str | None = None) -> dict[str, list[str]]:
     """The source's attack tables per native melee state, in authored order.
 
     WaW animscripts/melee::pick_zombie_melee_anim picks randomly from the
@@ -411,8 +504,8 @@ def melee_sets(sources, definition: dict) -> dict[str, list[str]]:
         return {}
     tables: dict[str, dict[int, str]] = {}
     depth = 0
-    tokens = script.tokens
-    for i in range(fn.body_open + 1, fn.body_close):
+    tokens = _folded_body(sources, script, fn, map_name)
+    for i in range(1, len(tokens) - 1):
         depth += tokens[i].text == '{'
         depth -= tokens[i].text == '}'
         words = [t.low for t in tokens[i:i + 13]]
@@ -511,7 +604,7 @@ def stage_actor_movement(sources, out_root: Path, bo2_root: Path, definition: di
     # "no pain" notes that keep a hit from interrupting the swing, and lack
     # the source's walk/run attacks entirely.
     melee, melee_native = {}, []
-    for state, names in melee_sets(sources, definition).items():
+    for state, names in melee_sets(sources, definition, map_name).items():
         absent = [name for name in names if not (out_root / 'xanim' / ('waw_anim_' + name)).is_file()]
         if absent:
             missing += absent
