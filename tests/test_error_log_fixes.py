@@ -1,9 +1,10 @@
 """Map build failures from the Discord error-logs forum (2026-11)."""
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from waw2bo2 import gsc, gscport
+from waw2bo2 import gsc, gscport, t6bridge, zombiebehavior
 from waw2bo2.launcher import map_fastfiles, map_zone
 
 
@@ -52,6 +53,58 @@ class LoadingZoneTests(unittest.TestCase):
             lone = Path(tmp) / 'nazi_zombie_load.ff'
             lone.write_bytes(b'')
             self.assertEqual(map_zone(lone), lone)
+
+
+class LoadTimeGuardTests(unittest.TestCase):
+    def fold(self, guard, assigned=frozenset()):
+        words = [t.low for t in gsc.tokenize(guard)[:-1]]
+        return zombiebehavior.fold_level_guard(words, 'nightclub', set(assigned))
+
+    def test_reaper_asylum_guard_folds_for_another_map(self):
+        # Nightclub _zombiemode::init_standard_zombie_anims (Reaper's Map Pack)
+        guard = 'isdefined(level.anim_use_asylum) || isdefined(level.script) && level.script == "nazi_zombie_asylum"'
+        self.assertIs(self.fold(guard), False)
+        self.assertIsNone(self.fold(guard, {'anim_use_asylum'}))
+        self.assertIs(self.fold('level.script == "nightclub"'), True)
+        self.assertIs(self.fold('!(level.script != "nightclub")'), True)
+        self.assertIs(self.fold('isdefined(level.x) && level.script == "a"', {'x'}), False)
+
+    def test_runtime_guards_stay_unknown(self):
+        self.assertIsNone(self.fold('level.round_number > 3'))
+        self.assertIsNone(self.fold('isdefined(level.x) && flag("power_on")', {'x'}))
+
+
+class CallReceiverTests(unittest.TestCase):
+    def test_a_call_followed_by_a_call_is_a_method_on_its_result(self):
+        # Nightclub _zombiemode_gamemode: iPrintLnBold( ... ) with no ';' then RadiusDamage( ... );
+        tokens = gsc.tokenize('f()\n{\n\tiPrintLnBold( a )\n\tRadiusDamage( o, 15, 1, 1 );\n'
+                              '\tif ( x ) foo();\n\twhile ( y ) bar();\n\tthing( a ) thread other();\n}\n')
+        self.assertEqual(gscport.split_call_receivers(tokens), 2)
+        result = gsc.emit(tokens)
+        self.assertIn('waw_receiver = iPrintLnBold( a );', result)
+        self.assertIn('waw_receiver RadiusDamage( o, 15, 1, 1 );', result)
+        self.assertIn('waw_receiver = thing( a ); waw_receiver thread other();', result)
+        self.assertIn('if ( x ) foo();', result)
+        self.assertIn('while ( y ) bar();', result)
+        gsc.parse(result, 'test')
+
+
+class GeneratedBlendTests(unittest.TestCase):
+    def test_generated_blend_reference_never_takes_a_bo2_raw_namesake(self):
+        # Leviathan "*4_5n": a ,reference the map zone does not define; BO2 raw
+        # materials/generated/_4_5n.json belongs to a BO2 map (techset not shipped)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, native, bo2 = root / 'source', root / 'native' / 'materials', root / 'bo2'
+            for path in (bo2 / 'raw/materials/generated/_4_5n.json', source / 'materials/generated/_4_7.json'):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps({'techniqueSet': 'lit_sm_r0c0s0_b1c1n1s1v1', 'textures': []}))
+            native.mkdir(parents=True)
+            report = t6bridge.StageReport('any_map')
+            _, fallbacks = t6bridge.recover_material_sources(report, {'*4_5n'}, [source], None, None, native, bo2)
+            self.assertEqual(fallbacks, {})
+            sub = t6bridge.dangling_substitute('*4_5n', [source])
+            self.assertEqual(sub[0], '*4_7')
 
 
 if __name__ == '__main__':

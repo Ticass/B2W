@@ -160,6 +160,13 @@ def recover_material_sources(report: StageReport, names: set[str], roots: list[P
                 node.update(status='resolved', provenance='WAW_SOURCE_ASSET',
                             source=str(recovered / techsets.oat_material_path(name)))
                 continue
+        if name.startswith('*') and name not in equivalents:
+            # "*a_b_c" names are generated per compiled map from its own
+            # blend components; BO2's raw generated/_a_b_c is another map's
+            # blend that only shares the numbering (Leviathan *4_5n took a
+            # BO2 techset no stock zone ships). dangling_substitute keeps
+            # the reference on the map's own blends.
+            continue
         relative = techsets.oat_material_path(equivalents.get(name, name))
         candidates = [stock_materials.parent]
         if bo2_root is not None:
@@ -3029,7 +3036,7 @@ def stage_core_animtrees(report: StageReport, sources, roots: list[Path], projec
         if movement_tree and movement:
             requirements.setdefault(movement_tree, set()).update(n for names in movement.values() for n in names)
             # the attack tables the native melee states take (stage_actor_movement)
-            melee = zombiebehavior.melee_sets(sources, gscport.API['zombie_runtime'])
+            melee = zombiebehavior.melee_sets(sources, gscport.API['zombie_runtime'], map_name)
             requirements[movement_tree].update(n for names in melee.values() for n in names)
     else:
         # Backwards-compatible callers without a map entry point still stage

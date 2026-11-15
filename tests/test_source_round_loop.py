@@ -80,6 +80,20 @@ class SourceRoundLoopTests(unittest.TestCase):
             "_waw2bo2_zm::waw2bo2_round_advanced();")]
         self.assertEqual(order, sorted(order))
 
+    def test_a_framework_round_counter_drives_and_mirrors_round_number(self):
+        # Reaper's Map Pack (Nightclub) counts rounds in level.round_num only
+        reaper = ZOMBIEMODE.replace("level.round_number", "level.round_num")
+        tr, name, core = self._translate(reaper)
+        self.assertEqual(name, "waw2bo2_source_round_loop")
+        self.assertEqual(tr.round_loop_missing_anchors(), [])
+        order = [core.index(s) for s in (
+            "level.round_num++;",
+            "level.round_number = level.round_num;",
+            "_waw2bo2_zm::waw2bo2_round_advanced();")]
+        self.assertEqual(order, sorted(order))
+        _, _, stock = self._translate(ZOMBIEMODE)
+        self.assertNotIn("level.round_number = level.round_number;", stock)
+
     def test_engine_glue_functions_stay_bo2(self):
         _, _, core = self._translate(ZOMBIEMODE)
         self.assertIn("maps\\mp\\zombies\\_zm::spectators_respawn", core)
