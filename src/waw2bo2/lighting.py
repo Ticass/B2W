@@ -120,63 +120,172 @@ GRID_CELL = (32.0, 32.0, 64.0)
 GRID_OFFSET = 131072.0
 
 
-def static_model_samples(grid: LightGrid, models: list[dict]) -> tuple[list[tuple], bytes, dict]:
-    """Bake each static model's grid lighting for T6.
+# WaW drops a light grid corner whose trilinear weight is below this
+# (sub_71C8E0, dword_8D03CC).
+CORNER_MIN_WEIGHT = 0.001
+# WaW light grid traces: point trace through world model 0, contents mask
+# (sub_71C770 -> sub_58EA70(..., 0, 0x2001)).
+GRID_TRACE_MASK = 0x2001
+# ComPrimaryLight.type
+LIGHT_NONE, LIGHT_SUN, LIGHT_SPOT, LIGHT_OMNI = 0, 1, 2, 3
+
+
+def _corners(grid: LightGrid, points: dict, entries: list, origin) -> list[tuple]:
+    """The eight grid corners around ``origin`` in WaW's order (sub_71C8E0):
+    bit 4 steps the row axis, bit 2 the column axis, bit 1 z. Each is
+    (corner bit index, weight, world position, entry or None)."""
+    cell = [(origin[i] + GRID_OFFSET) / GRID_CELL[i] for i in range(3)]
+    low = [math.floor(c) for c in cell]
+    frac = [c - l for c, l in zip(cell, low)]
+    axes = (grid.row_axis, grid.col_axis, 2)
+    corners = []
+    for corner in range(8):
+        step = [0, 0, 0]
+        for bit, axis in zip((4, 2, 1), axes):
+            if corner & bit:
+                step[axis] = 1
+        key = tuple(l + o for l, o in zip(low, step))
+        weight = math.prod(f if o else 1.0 - f for f, o in zip(frac, step))
+        position = [key[i] * GRID_CELL[i] - GRID_OFFSET for i in range(3)]
+        entry = points.get(key)
+        corners.append((corner, weight, position, None if entry is None else entries[entry]))
+    return corners
+
+
+def _corner_visible(tracer, origin, corner) -> bool:
+    """sub_71C770: trace from the lighting origin to 1% short of the corner."""
+    end = [c + 0.01 * (o - c) for o, c in zip(origin, corner)]
+    return tracer.visible(origin, end)
+
+
+def _dominant_light(corners: list[tuple], tracer, origin) -> tuple[int, list[tuple]]:
+    """sub_71C8E0: corners flagged in needsTrace whose trace is blocked drop
+    out once any corner is reachable; the dominant primary light prefers a
+    real light over 255 (none recorded) over 0, then the larger weight."""
+    kept, found, light, best = [], False, 0, 0.0
+    for corner, weight, position, entry in corners:
+        if entry is None or weight < CORNER_MIN_WEIGHT:
+            continue
+        _, primary, needs_trace = entry
+        blocked = bool(needs_trace & (1 << corner)) and not _corner_visible(tracer, origin, position)
+        if blocked and found:
+            continue
+        if not blocked and not found:
+            found, best, light = True, weight, primary
+            kept = [(corner, weight, position, entry)]
+            continue
+        kept.append((corner, weight, position, entry))
+        if light == 0 or (primary != 0 and (light == 255 or (primary != 255 and weight > best))):
+            best, light = weight, primary
+    return light, kept
+
+
+def _in_light_volume(light: dict, point) -> bool:
+    """sub_71D340 -> sub_5953C0: a corner without a light counts against a
+    model's visibility when it lies inside the light: the sun always, a spot
+    or omni within its radius and (spot) its cone. Forward is -dir."""
+    if light["type"] == LIGHT_NONE:
+        return False
+    if light["type"] == LIGHT_SUN:
+        return True
+    to_light = [o - p for o, p in zip(light["origin"], point)]
+    distance2 = sum(v * v for v in to_light)
+    if distance2 >= light["radius"] ** 2:
+        return False
+    if light["type"] == LIGHT_OMNI:
+        return True
+    cos_outer = light["cosHalfFovOuter"]
+    if not -cos_outer < light["rotationLimit"]:
+        return True
+    if light["rotationLimit"] != 1.0:
+        raise LightingError(f"primary light {light.get('index')}: rotationLimit {light['rotationLimit']} "
+                            "needs WaW's expanded cone (sub_595370), not ported")
+    along = sum(d * v for d, v in zip(light["dir"], to_light))
+    return along > 0.0 and cos_outer * cos_outer * distance2 <= along * along
+
+
+def _below_grid(grid: LightGrid, columns: dict, origin) -> bool:
+    """sub_71C3D0 clears the caller's flag when the point lies below the
+    lowest grid point of its column (row and row + 1 are both looked up)."""
+    cell = [math.floor((origin[i] + GRID_OFFSET) / GRID_CELL[i]) for i in range(3)]
+    row, col = cell[grid.row_axis], cell[grid.col_axis]
+    return any(cell[2] < columns[c] for c in ((row, col), (row + 1, col)) if c in columns)
+
+
+def static_model_samples(grid: LightGrid, models: list[dict], tracer, lights: list[dict]) -> tuple[list[tuple], bytes, dict]:
+    """Bake each static model's grid lighting for T6, as WaW computes it.
 
     T6 lights a static model only from its draw instance: colorsIndex picks
     the grid palette entry it samples (sub_75C4F0 -> sub_755CE0) and
     visibility is its primary light's visibility (sub_75BF90:
-    gridLightingCoordsAndVis.w = visibility / 255). WaW samples the grid at the
-    model's lighting origin at runtime. Each model gets a palette entry
-    blended trilinearly from the eight surrounding grid points (absent points
-    drop out), and its primary light's visibility is the weight of the points
-    selecting that light (derived: WaW's corner traces are not reproduced).
-    Returns per-model (colorsIndex, visibility), the appended source palette
-    bytes and a report."""
+    gridLightingCoordsAndVis.w = visibility / 255). WaW computes them at
+    runtime (sub_72D520 -> sub_71D440) at the model's lighting origin:
+    - the light: the grid's dominant corner light (sub_71C8E0); 255 means
+      the sun; on a grid with light regions any other light keeps the
+      model's compiled primaryLightIndex;
+    - every corner whose trace from the origin is clear (sub_71C770) blends
+      its palette by weight;
+    - visibility = weight of clear corners selecting the light / (that +
+      weight of clear corners selecting none (0, or 255 for a real light)
+      that lie inside the light's volume); 1 when no corner counts against,
+      0 for light 0.
+    Returns per-model (colorsIndex, visibility, primary light), the appended
+    palette bytes and a report."""
     points = dict(grid.points())
+    columns: dict[tuple[int, int], int] = {}
+    for key in points:
+        column = (key[grid.row_axis], key[grid.col_axis])
+        columns[column] = min(columns.get(column, key[2]), key[2])
     entries = list(struct.iter_unpack("<HBB", grid.entries))
     base = len(grid.colors) // 168
     palette = bytearray()
-    samples, nearest, outside = [], 0, 0
+    samples, unreached, outside = [], 0, 0
     for model in models:
-        cell = [(model["lightingOrigin"][i] + GRID_OFFSET) / GRID_CELL[i] for i in range(3)]
-        low = [math.floor(c) for c in cell]
-        frac = [c - l for c, l in zip(cell, low)]
-        weighted = []
-        for corner in range(8):
-            offset = [(corner >> axis) & 1 for axis in range(3)]
-            entry = points.get(tuple(l + o for l, o in zip(low, offset)))
-            if entry is None:
-                continue
-            weight = math.prod(f if o else 1.0 - f for f, o in zip(frac, offset))
-            if weight > 0:
-                weighted.append((weight, entries[entry]))
-        if not weighted:
-            # No grid point around the origin: the closest point within two cells
-            near = [(sum((l + d - c) ** 2 for l, d, c in zip(low, delta, cell)), points[key])
-                    for delta in ((x, y, z) for x in range(-2, 4) for y in range(-2, 4) for z in range(-2, 4))
-                    if (key := tuple(l + d for l, d in zip(low, delta))) in points]
-            if not near:
-                outside += 1
-                samples.append((0, 0))
-                continue
-            nearest += 1
-            weighted = [(1.0, entries[min(near)[1]])]
-        total = sum(w for w, _ in weighted)
+        origin = model["lightingOrigin"]
+        corners = _corners(grid, points, entries, origin)
+        if all(entry is None for *_, entry in corners):
+            outside += 1
+        dominant, kept = _dominant_light(corners, tracer, origin)
+        if dominant == 255:
+            light = grid.sun_index
+        elif grid.has_light_regions and dominant != grid.sun_index:
+            light = model.get("primaryLightIndex", 0)
+        else:
+            light = dominant
+        lit = against = total = 0.0
         blend = [0.0] * 168
-        for weight, (color, _, _) in weighted:
+        for corner, weight, position, (color, primary, _) in kept:
+            if not _corner_visible(tracer, origin, position):
+                continue
+            if primary == light:
+                lit += weight
+            elif (primary == 0 or (primary == 255 and light != 0)) and _in_light_volume(lights[light], position):
+                against += weight
+            total += weight
             source = grid.colors[color * 168:(color + 1) * 168]
             for i in range(168):
-                blend[i] += source[i] * weight / total
-        palette.extend(min(255, round(v)) for v in blend)
-        light = model.get("primaryLightIndex", 0)
-        visible = sum(w for w, (_, primary, _) in weighted if light and primary == light) / total
-        samples.append((base + len(palette) // 168 - 1, round(255 * visible)))
-    return samples, bytes(palette), {"static_models": len(models), "nearest_point": nearest,
+                blend[i] += source[i] * weight
+        if total == 0.0:
+            # sub_71C360: no corner reached (or none exists). The palette index
+            # is the lookup's above-ground flag (sub_71C3D0 clears it below a
+            # grid column): entry 1, or 0 underground; visibility 255, the sun.
+            unreached += 1
+            samples.append((0 if _below_grid(grid, columns, origin) else 1, 255, grid.sun_index))
+            continue
+        if light == 0:
+            visible = 0.0
+        elif against == 0.0:
+            visible = 1.0 if lit else 0.0
+        else:
+            visible = lit / (against + lit)
+        palette.extend(min(255, round(v / total)) for v in blend)
+        samples.append((base + len(palette) // 168 - 1, int(visible * 255.0 + 0.5), light))
+    return samples, bytes(palette), {"static_models": len(models), "no_corner_reached": unreached,
                                      "outside_grid": outside}
 
 
-def stage_grid(source: Path, destination: Path, static_models: Path | None = None) -> dict:
+def stage_grid(source: Path, destination: Path, static_models: Path | None = None,
+               collision=None, primary_lights: Path | None = None, tracer=None) -> dict:
     """Stage T6's packed grid, preserving positions and directional samples.
 
     Native T6 sub_755810 decodes bytes as 32*(c/255)^2. WaW's model
@@ -199,11 +308,19 @@ def stage_grid(source: Path, destination: Path, static_models: Path | None = Non
     if static_models is not None:
         placements = json.loads(static_models.read_text(encoding="utf-8"))
         models = [m for m in placements["models"] if "lightingOrigin" in m]
-        samples, extra, model_report = static_model_samples(grid, models)
+        if (collision is None and tracer is None) or primary_lights is None:
+            raise LightingError("static model lighting needs the WaW collision and primary lights (grid traces)")
+        if tracer is None:
+            from .cmtrace import WorldTracer
+            tracer = WorldTracer(collision, GRID_TRACE_MASK)
+        lights = json.loads(primary_lights.read_text(encoding="utf-8"))["lights"]
+        samples, extra, model_report = static_model_samples(grid, models, tracer, lights)
         if (len(colors) + len(extra)) // 168 > 0xFFFF:
             raise LightingError("static model lighting exceeds the T6 palette index range")
-        for model, (index, visibility) in zip(models, samples):
-            model["colorsIndex"], model["visibility"] = index, visibility
+        for model, (index, visibility, light) in zip(models, samples):
+            if light != model.get("primaryLightIndex"):
+                model["compiledPrimaryLightIndex"] = model.get("primaryLightIndex")
+            model["colorsIndex"], model["visibility"], model["primaryLightIndex"] = index, visibility, light
         static_models.write_text(json.dumps(placements, indent=1) + "\n", encoding="utf-8")
         colors += extra
     palette = bytes(round(c / math.sqrt(8)) for c in colors)

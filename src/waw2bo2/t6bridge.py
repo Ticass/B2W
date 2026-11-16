@@ -39,7 +39,7 @@ from .resources import resource_root
 from . import clientport, parallel, progress, viewmodels, zombiebehavior
 
 from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, probes, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visibility, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
-from .fbx import collision_material_slots, collision_slot_models, water_only, write_collision_fbx, write_world_fbx
+from .fbx import collision_material_slots, collision_slot_models, collision_triangle_models, water_only, write_collision_fbx, write_world_fbx
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
 REQUIRED_WORLD_IMAGES = {
@@ -249,6 +249,8 @@ def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None
     t4 = _load_json(src)
     t4_ts = t4.get("techniqueSet", "")
     entry["t4_techset"] = t4_ts
+    if "sortKey" in t4:
+        entry["t4_sort_key"] = t4["sortKey"]
     # The best-named technique set can still be unusable when its donor has
     # extra slots the source cannot fill; fall back to the next best.
     remaining = list(candidates)
@@ -1051,12 +1053,16 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
     for placement in placements:
         bounds = model_bounds.get(placement["name"])
         if bounds is not None:
-            # the placed bounds' centre, as GfxWorldLinker sets the T6 lighting
-            # origin; stage_grid samples the WaW grid there (lighting.static_model_samples)
+            # WaW samples a static model's grid lighting at its placed world
+            # bounds: the centre in x and y, three quarters up in z
+            # (sub_72D520); stage_grid bakes it there (lighting.static_model_samples)
             axis, scale = placement["axis"], placement["scale"]
-            centre = [(lo + hi) / 2 for lo, hi in zip(*bounds)]
-            placement["lightingOrigin"] = [placement["origin"][k] + scale * sum(centre[r] * axis[r * 3 + k]
-                                                                               for r in range(3)) for k in range(3)]
+            corners = [[placement["origin"][k] + scale * sum((bounds[(c >> r) & 1][r]) * axis[r * 3 + k]
+                                                             for r in range(3)) for k in range(3)]
+                       for c in range(8)]
+            lo = [min(p[k] for p in corners) for k in range(3)]
+            hi = [max(p[k] for p in corners) for k in range(3)]
+            placement["lightingOrigin"] = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, hi[2] * 0.75 + lo[2] * 0.25]
     bsp = project_root / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
     (bsp / "models.json").write_text(json.dumps({"models": placements}, indent=1) + "\n", encoding="utf-8")
@@ -1650,8 +1656,10 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
                                                 if entry.get("model", 0)})
     summary["collision_triangles_noncolliding_dropped"] = sum(
         1 for m in clip.triangle_materials if m == 0xFFFF or not clip.materials[m].content_flags)
+    water_owners = collision_triangle_models(clip)
     summary["collision_triangles_water_dropped"] = sum(
-        1 for m in clip.triangle_materials if m != 0xFFFF and water_only(clip.materials[m].content_flags))
+        1 for m, owner in zip(clip.triangle_materials, water_owners)
+        if not owner and m != 0xFFFF and water_only(clip.materials[m].content_flags))
     sheets = oneway.one_way_sheets(clip)
     summary["collision_triangles_one_sided_removed"] = len(sheets)
     if sheets:
@@ -2310,9 +2318,15 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     grid_file = Path(lighting_base + ".lightgrid.bin")
     if grid_file.exists():
         models_file = project_root / "BSP/models.json"
-        report.content["lighting"] = lighting.stage_grid(grid_file, project_root / "BSP/lightgrid.bin",
-                                                         models_file if models_file.exists() else None)
+        report.content["lighting"] = progress.timed(
+            'Bake static model lighting (WaW grid traces)', lighting.stage_grid, grid_file,
+            project_root / "BSP/lightgrid.bin", models_file if models_file.exists() else None,
+            clip, Path(lighting_base + ".primarylights.json"))
         model_lighting = report.content["lighting"].get("static_model_lighting") or {}
+        if model_lighting.get("no_corner_reached"):
+            report.warnings.append(f"STATIC_MODEL_GRID_FALLBACK {model_lighting['no_corner_reached']} static models "
+                                   "reach no light grid corner: sun at visibility 255, palette entry 1 (0 below the grid), "
+                                   "as WaW sub_71C360")
         if model_lighting.get("outside_grid"):
             report.warnings.append(f"{model_lighting['outside_grid']} static models lie outside the WaW light "
                                    "grid: lit by palette entry 0")
@@ -2455,6 +2469,18 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         if bo2_stock_perks:
             zone.write('// Opt-in stock BO2 perk dependencies\n')
             zone.write(''.join(line + '\n' for line in stockperks.asset_lines(project_root)))
+    from . import modelcolours
+    opaque = modelcolours.stage(project_root, report.materials)
+    report.content['additive_model_vertex_alpha'] = opaque
+    if opaque:
+        report.warnings.append(f'ADDITIVE_MODEL_VERTEX_ALPHA {sum(opaque.values())} vertices in {len(opaque)} models: '
+                               f'mc_unlit_add surfaces draw their vertex colour at alpha 1')
+    from . import modelsortorder
+    reordered = modelsortorder.stage(project_root, report.materials)
+    report.content['model_surface_sort_keys'] = reordered
+    if reordered:
+        report.warnings.append('MODEL_SURFACE_SORT_ORDER ' + ', '.join(f'{n} {a}->{b}' for n, (a, b) in sorted(reordered.items()))
+                               + ': same WaW sort key, T6 key raised to keep the model surface order')
     material_names = materialisolation.stage(report, project_root, techset_dump) if techset_dump else {}
     report.content['material_identities'] = material_names
     rope_runtime = constraints.stage_entities(project_root)

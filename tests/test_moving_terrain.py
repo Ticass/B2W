@@ -29,6 +29,13 @@ class MovingTerrainTests(unittest.TestCase):
             self.assertIn('Material::clip_0_bm1', path.read_text())
             self.assertIn('Material::clip_0"', path.read_text())
 
+    def test_moving_water_keeps_its_triangles_world_water_is_dropped(self):
+        clip = self.collision()
+        clip.materials = [SimpleNamespace(content_flags=0x20)]
+        # world water caps a WaW water brush (dropped); the mover's water is its only collision
+        self.assertEqual(fbx.collision_material_slots(clip), ([None, 0], [0]))
+        self.assertEqual(fbx.collision_slot_models(clip), [1])
+
     def test_nested_and_shared_roots_do_not_duplicate_or_infer_ownership(self):
         clip = self.collision()
         clip.aabb_trees.append((0, 1, 1))
