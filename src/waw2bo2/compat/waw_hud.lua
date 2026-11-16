@@ -215,6 +215,18 @@ function W.pulseColor(warning, t)
     local a, b = warning[2], warning[3]
     return a[1] + (b[1]-a[1])*f, a[2] + (b[2]-a[2])*f, a[3] + (b[3]-a[3])*f, a[4] + (b[4]-a[4])*f
 end
+-- T4 expands "{command}" in localized text to the key bound to it
+-- ("[{+reload}]" reads "[R]"); T6 LUI Engine.Localize leaves the braces.
+function W.bindKeys(controller, text)
+    return (tostring(text or ""):gsub("{([^{}]+)}", function(command)
+        local ok, key = pcall(function()
+            if Engine.GetKeyBindingLocalizedString then return Engine.GetKeyBindingLocalizedString(controller, command) end
+            return UIExpression.KeyBinding(controller, command)
+        end)
+        key = ok and key and W.plainText(key) or ""
+        return key ~= "" and key or command
+    end))
+end
 function W.drawLowAmmo(e)
     local state = W.lowAmmoState(e)
     local warn = e.lowAmmo
@@ -226,7 +238,7 @@ function W.drawLowAmmo(e)
     local warning = lowAmmo[state]
     if warn.state ~= state then
         warn.state = state
-        warn.text:setText(Engine.Localize(warning[1]))
+        warn.text:setText(W.bindKeys(e.controller, Engine.Localize(warning[1])))
     end
     local r, g, b, a = W.pulseColor(warning, warn.time or 0)
     warn.text:setColor(r, g, b)

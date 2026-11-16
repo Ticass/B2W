@@ -39,7 +39,7 @@ from .resources import resource_root
 from . import clientport, parallel, progress, viewmodels, zombiebehavior
 
 from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, probes, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visibility, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
-from .fbx import collision_material_slots, collision_slot_models, water_only, write_collision_fbx, write_world_fbx
+from .fbx import collision_material_slots, collision_slot_models, collision_triangle_models, water_only, write_collision_fbx, write_world_fbx
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
 REQUIRED_WORLD_IMAGES = {
@@ -1656,8 +1656,10 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
                                                 if entry.get("model", 0)})
     summary["collision_triangles_noncolliding_dropped"] = sum(
         1 for m in clip.triangle_materials if m == 0xFFFF or not clip.materials[m].content_flags)
+    water_owners = collision_triangle_models(clip)
     summary["collision_triangles_water_dropped"] = sum(
-        1 for m in clip.triangle_materials if m != 0xFFFF and water_only(clip.materials[m].content_flags))
+        1 for m, owner in zip(clip.triangle_materials, water_owners)
+        if not owner and m != 0xFFFF and water_only(clip.materials[m].content_flags))
     sheets = oneway.one_way_sheets(clip)
     summary["collision_triangles_one_sided_removed"] = len(sheets)
     if sheets:

@@ -200,7 +200,12 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
         for key in sorted(requested - sources.keys()):
             zones = stock.zones_defining('localize', key)
             if zones:
-                cached = getattr(stock, 'prepared', {}).get(zones[0])
+                # The shared stock cache is dumped without localize assets
+                # (WaW's PLATFORM_* engine strings live in code_post_gfx.ff):
+                # ask it for that type, which re-extracts only what is missing.
+                cached = None
+                if zones[0] in getattr(stock, 'prepared', {}):
+                    cached = stock.dump(zones[0], 'localize')
                 add_root(cached if cached is not None else dump_zone(
                     stock.zone_dir / (zones[0] + '.ff'), stock.unlinker, work, [stock.waw_root / 'main']))
     for root in raw_roots:
