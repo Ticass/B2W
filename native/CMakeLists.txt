@@ -59,7 +59,7 @@ add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/iwi.cpp src/te
 target_link_libraries(w2b_textures PUBLIC w2b_core)
 
 add_library(w2b_materials STATIC src/materials/techset_name.cpp src/materials/techset_match.cpp
-    src/materials/material.cpp src/materials/prepare.cpp)
+    src/materials/material.cpp src/materials/prepare.cpp src/materials/donor_index.cpp)
 target_link_libraries(w2b_materials PUBLIC w2b_core)
 
 add_library(w2b_world STATIC

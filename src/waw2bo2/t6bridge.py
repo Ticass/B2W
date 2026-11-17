@@ -438,7 +438,12 @@ def material_donors(stock_materials: Path, techset_root: Path | None) -> dict[st
                      for p in stock_materials.rglob("*.json") for st in (p.stat(),))
     cached = _DONOR_INDEX.get(stock_materials)
     if cached is None or cached[0] != listing:
-        cached = _DONOR_INDEX[stock_materials] = (listing, techsets.index_donors(stock_materials))
+        if native.tool() is None:
+            indexed = techsets.index_donors(stock_materials)
+        else:
+            indexed = {name: Path(path) for name, path in
+                       json.loads(native.run('index-donors', str(stock_materials))).items()}
+        cached = _DONOR_INDEX[stock_materials] = (listing, indexed)
     donors = cached[1]
     if techset_root is not None:
         # a donor is only usable if its technique set was dumped (not just referenced)

@@ -12,6 +12,7 @@
 #include "gsc/port/api.h"
 #include "gsc/port/portmap.h"
 #include "gsc/port/rewrites.h"
+#include "materials/donor_index.h"
 #include "materials/prepare.h"
 #include "world/collision_stage.h"
 #include "world/fbx_stage.h"
@@ -467,6 +468,7 @@ namespace
         {"shaders-stage", ShadersStage}, {"audio-stage", AudioStage},
         {"dds2iwi", [](const Arguments& a) { return a.size() == 2 ? DdsToIwi(a[0], a[1]) : Usage(); }},
         {"dds-batch", JsonRequest<w2b::textures::ConvertBatch>},
+        {"index-donors", JsonRequest<w2b::materials::IndexDonors>},
         {"prepare-materials", [](const Arguments& a)
         {
             if (a.size() != 1)
