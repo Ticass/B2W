@@ -62,6 +62,7 @@ namespace
                    "       waw2bo2n world-fbx <render-world> <output.fbx> [--surface-limit <count>]\n"
                    "       waw2bo2n collision-mesh <clip-world> <output-folder> [--records]\n"
                    "       waw2bo2n world-inspect <render-world> <clip-world>\n"
+                   "       waw2bo2n static-models <render-world> <model-folder> <report.json>\n"
                    "       waw2bo2n dds2iwi <source.dds|folder> <output.iwi|folder>\n"
                    "       waw2bo2n audio-stage --project <folder> --output <folder> [--decoder-text <s>] [--xwma <exe>] [--resampler <exe>]\n",
                    stderr);
@@ -458,6 +459,25 @@ namespace
         return 0;
     }
 
+    int StaticModels(const Arguments& args)
+    {
+        if (args.size() != 3)
+            return Usage();
+        const auto report = w2b::world::InspectStaticModels(w2b::files::FromUtf8(args[0]),
+                                                           w2b::files::FromUtf8(args[1]));
+        const auto formatted = w2b::py::JsonDumps(report, 2);
+        std::ofstream output(w2b::files::FromUtf8(args[2]));
+        output << formatted << '\n';
+        output.close();
+        if (!output)
+            throw std::runtime_error("cannot write " + args[2]);
+        const auto missing = report.at("missing_models").size();
+        if (missing)
+            throw std::runtime_error(std::to_string(missing) + " static models have no extracted GLTF; see " + args[2]);
+        std::puts(formatted.c_str());
+        return 0;
+    }
+
     struct Command
     {
         std::string_view name;
@@ -504,6 +524,7 @@ namespace
                         w2b::files::FromUtf8(a[1]), a.size() == 3));
         }},
         {"inspect", Inspect}, {"world-inspect", Inspect},
+        {"static-models", StaticModels},
         {"sounds-stage", [](const Arguments& a) { return a.size() == 1 ? SoundsStage(a[0]) : Usage(); }},
         {"gsc-tokens", [](const Arguments& a) { return a.size() == 2 ? GscTokens(a[0], a[1]) : Usage(); }},
         {"regex-test", [](const Arguments& a) { return a.size() == 2 ? RegexTest(a[0], a[1]) : Usage(); }},

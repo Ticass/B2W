@@ -7,4 +7,5 @@
 namespace w2b::world
 {
     py::Json InspectWorld(const std::filesystem::path& gfx, const std::filesystem::path& clip);
+    py::Json InspectStaticModels(const std::filesystem::path& gfx, const std::filesystem::path& models);
 }

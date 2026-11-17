@@ -179,6 +179,9 @@ def _materials(args: argparse.Namespace) -> int:
 
 
 def _models(args: argparse.Namespace) -> int:
+    if executable := native.tool():
+        return subprocess.run([str(executable), 'static-models', str(args.gfx), str(args.model_dir), str(args.output)],
+                              check=False).returncode
     world = read_gfx_world(args.gfx)
     available = {p.stem.lower().removesuffix("_lod0") for p in args.model_dir.rglob("*.gltf")}
     missing = sorted({m.name for m in world.static_models if m.name.lower() not in available})
