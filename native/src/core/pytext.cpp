@@ -208,7 +208,7 @@ namespace w2b::py
                 for (const auto& item : value)
                 {
                     if (!first)
-                        out += compact ? "," : ",\n";
+                        out += compact ? (indent == -2 ? ", " : ",") : ",\n";
                     first = false;
                     out += inner;
                     Dump(out, item, indent, level + 1);
@@ -231,11 +231,11 @@ namespace w2b::py
                 for (const auto& [key, item] : value.items())
                 {
                     if (!first)
-                        out += compact ? "," : ",\n";
+                        out += compact ? (indent == -2 ? ", " : ",") : ",\n";
                     first = false;
                     out += inner;
                     AppendString(out, key);
-                    out += compact ? ":" : ": ";
+                    out += compact ? (indent == -2 ? ": " : ":") : ": ";
                     Dump(out, item, indent, level + 1);
                 }
                 if (!compact)
@@ -248,6 +248,13 @@ namespace w2b::py
             }
         }
     } // namespace
+
+    std::string JsonDumpsDefault(const Json& value)
+    {
+        std::string out;
+        Dump(out, value, -2, 0);
+        return out;
+    }
 
     std::string JsonDumps(const Json& value, const int indent)
     {

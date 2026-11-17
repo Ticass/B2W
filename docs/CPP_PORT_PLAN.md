@@ -91,6 +91,24 @@ run in Python.
 Weapon dependency discovery, skeletal model staging, and gameplay registration
 still run in Python.
 
+## Desktop launcher
+
+`native/build/B2W.exe` is the native launcher: Win32, Direct3D 11 and Dear
+ImGui (`vendor/imgui`, v1.93.0, MIT), laid out like the T6 Mod Tools
+Launcher. It has the tkinter launcher's workflows: map choice, Setup paths
+and preflight, Extract All, Build Map with step tracking, Install, Launch,
+reports, diagnostics bundles and the console. `native/src/launcher` holds
+the services without UI. `native/tools/check_launcher.py` compares its
+settings, discovery, naming, build paths, build command and preflight with
+`launcher.py`. Five settings files matched, including invalid names,
+missing artwork and an empty build folder.
+Builds still run the conversion worker (`WAW2BO2_WORKER`, the portable
+`WawConverter.CLI.exe`, else `python -m waw2bo2.cli`) until the
+pipeline is native. The Artwork tab previews the Large, Blur and Blit layers
+and the map-selection composite. The globe, lobby and loading-screen
+previews (`menupreviews.py`) are still to port. The release packaging
+still ships the tkinter launcher.
+
 ## Disk usage
 
 Dependency extraction shares large files across generations after comparing

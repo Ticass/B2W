@@ -19,6 +19,8 @@ namespace w2b::py
 
     // json.dumps(value, indent=indent), or compact separators for a negative indent.
     std::string JsonDumps(const Json& value, int indent);
+    // json.dumps(value): no indent, ", " and ": " separators
+    std::string JsonDumpsDefault(const Json& value);
 
     // str.splitlines() for ASCII and Unicode line boundaries.
     std::vector<std::string_view> SplitLines(std::string_view text);

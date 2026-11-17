@@ -45,6 +45,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include "launcher/build.h"
 #include <string>
 #include <vector>
 
@@ -606,6 +607,39 @@ namespace
         {"inspect", Inspect}, {"world-inspect", Inspect},
         {"static-models", StaticModels},
         {"sounds-stage", [](const Arguments& a) { return a.size() == 1 ? SoundsStage(a[0]) : Usage(); }},
+        // launcher-check <settings.json>: the launcher rules for those settings, as JSON
+        {"launcher-check", [](const Arguments& a)
+        {
+            if (a.size() != 1)
+                return Usage();
+            namespace l = w2b::launcher;
+            const auto settings = l::Discover(l::Settings::Load(w2b::files::FromUtf8(a[0])));
+            nlohmann::ordered_json out;
+            out["settings"] = settings.ToJson();
+            out["project_name"] = l::ProjectName(settings.fastfile);
+            out["map_zone"] = w2b::files::Utf8(l::MapZone(w2b::files::FromUtf8(settings.fastfile)));
+            const auto caches = l::CachePaths::ForSettings(settings);
+            out["cache"] = {w2b::files::Utf8(caches.waw), w2b::files::Utf8(caches.bo2)};
+            try
+            {
+                const auto paths = l::BuildPaths::ForSettings(settings);
+                out["paths"] = {w2b::files::Utf8(paths.root), w2b::files::Utf8(paths.stage), w2b::files::Utf8(paths.stock),
+                                w2b::files::Utf8(paths.wawDumps), w2b::files::Utf8(paths.mod), w2b::files::Utf8(paths.output)};
+                out["complete"] = paths.Complete(settings.project, &settings.bo2_stock_perks);
+                out["build_command"] = l::BuildCommand(settings);
+            }
+            catch (const std::exception& error)
+            {
+                out["paths"] = error.what();
+            }
+            out["checks"] = nlohmann::ordered_json::array();
+            for (const auto& c : l::Preflight(settings))
+                out["checks"].push_back({c.name, c.ready, c.detail, c.required});
+            out["installed"] = l::Installed(settings);
+            out["stamp"] = l::InputStamp(settings);
+            std::fwrite(w2b::py::JsonDumps(out, 1).data(), 1, w2b::py::JsonDumps(out, 1).size(), stdout);
+            return 0;
+        }},
         {"gsc-tokens", [](const Arguments& a) { return a.size() == 2 ? GscTokens(a[0], a[1]) : Usage(); }},
         {"regex-test", [](const Arguments& a) { return a.size() == 2 ? RegexTest(a[0], a[1]) : Usage(); }},
         {"gsc-rewrite", [](const Arguments& a)

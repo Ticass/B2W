@@ -16,7 +16,7 @@ endif()
 set(ZLIB_DIR "${OAT_THIRDPARTY}/zlib")
 add_library(w2b_zlib STATIC
     ${ZLIB_DIR}/adler32.c ${ZLIB_DIR}/crc32.c ${ZLIB_DIR}/inflate.c ${ZLIB_DIR}/inftrees.c
-    ${ZLIB_DIR}/inffast.c ${ZLIB_DIR}/zutil.c)
+    ${ZLIB_DIR}/inffast.c ${ZLIB_DIR}/zutil.c ${ZLIB_DIR}/deflate.c ${ZLIB_DIR}/trees.c)
 set_target_properties(w2b_zlib PROPERTIES LINKER_LANGUAGE C)
 target_include_directories(w2b_zlib PUBLIC "${ZLIB_DIR}")
 if(MSVC)
@@ -35,7 +35,8 @@ add_library(w2b_core STATIC
     src/core/unicode.cpp
     src/core/string_repr.cpp
     src/core/pyre.cpp
-    src/core/zip.cpp)
+    src/core/zip.cpp
+    src/core/zipwrite.cpp)
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
 target_link_libraries(w2b_core PUBLIC w2b_zlib)
 
@@ -131,8 +132,24 @@ add_library(w2b_gscport STATIC
     src/gsc/port/clientport.cpp)
 target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
+# the converter version (the Python package's, until the package goes)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../src/waw2bo2/__init__.py" W2B_VERSION_LINE REGEX "^__version__")
+string(REGEX REPLACE ".*\"([^\"]+)\".*" "\\1" W2B_VERSION "${W2B_VERSION_LINE}")
+add_library(w2b_launcher STATIC src/launcher/settings.cpp src/launcher/images.cpp src/launcher/build.cpp src/launcher/diagnostics.cpp)
+target_link_libraries(w2b_launcher PUBLIC w2b_core)
+target_compile_definitions(w2b_launcher PRIVATE W2B_VERSION="${W2B_VERSION}")
+
+# the desktop launcher: Dear ImGui on Direct3D 11 (vendor/imgui, MIT)
+set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../vendor/imgui")
+add_library(w2b_imgui STATIC ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_win32.cpp ${IMGUI_DIR}/backends/imgui_impl_dx11.cpp)
+target_include_directories(w2b_imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+target_compile_definitions(w2b_imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
+add_executable(B2W WIN32 src/ui/main.cpp src/ui/app.cpp src/ui/views.cpp src/ui/theme.cpp src/ui/gpu.cpp src/ui/shell.cpp)
+target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler dwmapi)
+
 add_executable(waw2bo2n src/cli/main.cpp)
-target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
+target_link_libraries(waw2bo2n PRIVATE w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
     w2b_materials w2b_effects w2b_weapons w2b_assets)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
@@ -142,7 +159,7 @@ enable_testing()
 if(EXISTS "${OAT_THIRDPARTY}/catch2/CMakeLists.txt")
     add_subdirectory("${OAT_THIRDPARTY}/catch2" catch2 EXCLUDE_FROM_ALL)
     add_executable(w2b_tests tests/test_pytext.cpp tests/test_registers.cpp tests/test_translate.cpp
-        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp)
-    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world Catch2::Catch2WithMain)
+        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp)
+    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher Catch2::Catch2WithMain)
     add_test(NAME w2b_tests COMMAND w2b_tests)
 endif()
