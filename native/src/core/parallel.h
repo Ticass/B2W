@@ -16,9 +16,9 @@ namespace w2b::parallel
     }
 
     // Runs work(i) for i in [0, count) on all cores; rethrows the first error.
-    template<typename Work> void For(const size_t count, Work&& work)
+    template<typename Work> void For(const size_t count, Work&& work, unsigned maxWorkers = Workers())
     {
-        const auto workers = static_cast<unsigned>(std::min<size_t>(Workers(), count));
+        const auto workers = static_cast<unsigned>(std::min<size_t>(maxWorkers, count));
         if (workers <= 1)
         {
             for (size_t i = 0; i < count; i++)

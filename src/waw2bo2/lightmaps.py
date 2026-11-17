@@ -35,8 +35,9 @@ import os
 import math
 import struct
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from . import iwi
+from . import iwi, native
 
 # WaW sampler -> (scale, offset) applied to v inside the source half.
 WAW_PAGE_UV = {
@@ -171,6 +172,28 @@ def _stage_page(task):
     return {'index': index, 'width': width * 2, 'height': height, 'layout': 't6_left_waw_right', **names}
 
 
+def _stage_native(world, image_roots: list[Path], project_root: Path, waw_materials: set[str]) -> dict:
+    from .parallel import worker_count
+
+    counts: dict[int, int] = {}
+    materials: dict[int, set[str]] = {}
+    for surface in world.surfaces:
+        index = surface.lightmap_index
+        counts[index] = counts.get(index, 0) + 1
+        materials.setdefault(index, set()).add(surface.material)
+    with TemporaryDirectory(prefix='w2b-lightmaps-') as temporary:
+        request = Path(temporary) / 'request.json'
+        request.write_text(json.dumps({
+            'project': str(project_root),
+            'image_roots': [str(root) for root in image_roots],
+            'waw_materials': sorted(waw_materials),
+            'surface_pages': [(index, counts[index], sorted(materials[index])) for index in sorted(counts)],
+            'diagnostic': bool(os.environ.get('WAW2BO2_DIAG_PAGEID')),
+            'workers': worker_count(61, processes=True),
+        }), encoding='utf-8')
+        return json.loads(native.run('lightmaps', str(request)))
+
+
 def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set[str]) -> dict:
     """Write a shared dual-encoding image for every lightmap page.
 
@@ -181,6 +204,8 @@ def stage(world, image_roots: list[Path], project_root: Path, waw_materials: set
     Both page references resolve to the same image, including for inherited
     native decal reads; no duplicate texture allocation is needed.
     """
+    if native.tool() is not None:
+        return _stage_native(world, image_roots, project_root, waw_materials)
     report = {'pages': [], 'warnings': [], 'errors': []}
     pages = []
 

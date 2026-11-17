@@ -196,6 +196,8 @@ def _models(args: argparse.Namespace) -> int:
 
 
 def _dds2iwi(args: argparse.Namespace) -> int:
+    if executable := native.tool():
+        return subprocess.run([str(executable), 'dds2iwi', str(args.source), str(args.output)], check=False).returncode
     sources = sorted(args.source.glob("*.dds")) if args.source.is_dir() else [args.source]
     failures = 0
     for src in sources:

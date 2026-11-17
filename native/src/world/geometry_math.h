@@ -19,6 +19,21 @@ namespace w2b::world
 
     inline double Dot(const Vec3& a, const Vec3& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
+    inline double SumDot(const Vec3& a, const Vec3& b, bool compensated)
+    {
+        if (!compensated)
+            return Dot(a, b);
+        double sum = 0, correction = 0;
+        for (std::size_t i = 0; i < a.size(); ++i)
+        {
+            const auto value = a[i] * b[i];
+            const auto total = sum + value;
+            correction += std::abs(sum) >= std::abs(value) ? (sum - total) + value : (value - total) + sum;
+            sum = total;
+        }
+        return correction && std::isfinite(correction) ? sum + correction : sum;
+    }
+
     inline std::optional<Vec3> Solve3(const std::array<Vec3, 3>& rows, const Vec3& rhs)
     {
         const auto c12 = Cross(rows[1], rows[2]);

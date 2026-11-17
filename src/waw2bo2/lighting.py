@@ -6,9 +6,13 @@ translation/roundtrip validation before these data can be used at runtime.
 """
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import struct
 import math
 import json
+import sys
+
+from . import native
 
 
 class LightingError(ValueError):
@@ -285,7 +289,7 @@ def static_model_samples(grid: LightGrid, models: list[dict], tracer, lights: li
 
 
 def stage_grid(source: Path, destination: Path, static_models: Path | None = None,
-               collision=None, primary_lights: Path | None = None, tracer=None) -> dict:
+               collision=None, primary_lights: Path | None = None, tracer=None, *, clip_source: Path | None = None) -> dict:
     """Stage T6's packed grid, preserving positions and directional samples.
 
     Native T6 sub_755810 decodes bytes as 32*(c/255)^2. WaW's model
@@ -298,6 +302,17 @@ def stage_grid(source: Path, destination: Path, static_models: Path | None = Non
     ``static_models``: the BSP models.json; each placement with a
     lightingOrigin gets its colorsIndex and visibility (static_model_samples).
     """
+    use_packed_clip = tracer is None and clip_source is not None and primary_lights is not None
+    if native.tool() is not None and (static_models is None or use_packed_clip):
+        args = {'source': str(source), 'destination': str(destination), 'compensated': sys.version_info >= (3, 12)}
+        if static_models is not None:
+            args.update(models=str(static_models), clip=str(clip_source), primary_lights=str(primary_lights))
+        with TemporaryDirectory(prefix='w2b-grid-') as temporary:
+            request = Path(temporary) / 'request.json'
+            request.write_text(json.dumps(args), encoding='utf-8')
+            report = json.loads(native.run('light-grid', str(request)))
+        report['bounds'] = [tuple(bound) for bound in report['bounds']]
+        return report
     grid = read_grid(source)
     entries = bytearray()
     trace_points = 0
@@ -369,6 +384,14 @@ def stage_primary_lights(source: Path, destination: Path, shadows_disabled: list
     ``shadows_disabled`` collects the indices of lights staged unshadowed;
     ``keep_shadows`` keeps WaW's canUseShadowMap (the world carries the WaW
     per-light shadow geometry, BSP/shadowgeom.json)."""
+    if native.tool() is not None:
+        report = json.loads(native.run('primary-lights', str(source), str(destination),
+                                       'keep' if keep_shadows else 'disable'))
+        if 'error' in report:
+            raise LightingError(report['error'])
+        if shadows_disabled is not None:
+            shadows_disabled.extend(report['unshadowed'])
+        return set(report['definitions'])
     data = json.loads(source.read_text(encoding="utf-8"))
     definitions = set()
     shadows_disabled = [] if shadows_disabled is None else shadows_disabled

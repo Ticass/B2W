@@ -642,11 +642,10 @@ def stage_images(report: StageReport, image_roots: list[Path], project_root: Pat
             continue
         recovered = wavelets.recovered.get(stem) if wavelets else None
         conversions.append((asset, src, dst, recovered))
-    from .parallel import ordered_map
     groups = {}
     for task in conversions:
         groups.setdefault(task[2].resolve(), []).append(task)
-    for results in ordered_map(iwi.convert_tasks, list(groups.values()), label='Image pixels'):
+    for results in iwi.convert_groups(list(groups.values())):
         for asset, entry, error in results:
             if error is not None:
                 report.errors.append(error)
@@ -1774,16 +1773,18 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # have been decoded; stage_images calls recover independently below.
 
     world = progress.timed('Read map world', read_gfx_world, gfx_bin)
-    source_probes = probes.read(gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.reflectionprobes.json'))
-    probe_plan = probes.stage(report, world, source_probes, [r / "images" for r in roots], project_root)
-    visibility_source = gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.visibility.json')
+    world_stem = gfx_bin.name.removesuffix('.gfx.bin')
+    probe_source = gfx_bin.with_name(world_stem + '.reflectionprobes.json')
+    visibility_source = gfx_bin.with_name(world_stem + '.visibility.json')
+    image_roots = [r / "images" for r in roots]
     native_visibility = None
     if native.tool() is not None:
-        cell_probes = ([sorted({probe_plan.t6_index(p) for p in cell} - {0}) for cell in source_probes.cells]
-                       if source_probes is not None and probe_plan is not None else [])
+        probe_plan, cell_probes = probes.stage_native(report, world, probe_source, image_roots, project_root)
         native_visibility = RenderVisibility(visibility_source, cell_probes, len(report.warnings))
         report.content["visibility"] = None
     else:
+        source_probes = probes.read(probe_source)
+        probe_plan = probes.stage(report, world, source_probes, image_roots, project_root)
         visibility.assign(report, world, visibility.read(visibility_source), source_probes, probe_plan)
     clip = progress.timed('Read map collision', read_collision, clip_bin)
     from . import constraints, dynents
@@ -2371,7 +2372,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         report.content["lighting"] = progress.timed(
             'Bake static model lighting (WaW grid traces)', lighting.stage_grid, grid_file,
             project_root / "BSP/lightgrid.bin", models_file if models_file.exists() else None,
-            clip, Path(lighting_base + ".primarylights.json"))
+            clip, Path(lighting_base + ".primarylights.json"), clip_source=clip_bin)
         model_lighting = report.content["lighting"].get("static_model_lighting") or {}
         if model_lighting.get("no_corner_reached"):
             report.warnings.append(f"STATIC_MODEL_GRID_FALLBACK {model_lighting['no_corner_reached']} static models "

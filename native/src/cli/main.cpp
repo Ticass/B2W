@@ -3,6 +3,7 @@
 #include "audio/stage.h"
 #include "shaders/stage.h"
 #include "sound/stage.h"
+#include "textures/stage.h"
 #include "core/parallel.h"
 #include "core/pytext.h"
 #include "gsc/parse.h"
@@ -12,7 +13,10 @@
 #include "gsc/port/rewrites.h"
 #include "world/collision_stage.h"
 #include "world/fbx_stage.h"
+#include "world/grid_stage.h"
 #include "world/inspect.h"
+#include "world/primary_lights.h"
+#include "world/probe_stage.h"
 #include "world/vertices.h"
 
 #include <functional>
@@ -25,8 +29,10 @@
 #include <fcntl.h>
 #include <io.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <charconv>
+#include <cwctype>
 #include <exception>
 #include <fstream>
 #include <iostream>
@@ -53,6 +59,7 @@ namespace
                    "       waw2bo2n world-fbx <render-world> <output.fbx> [--surface-limit <count>]\n"
                    "       waw2bo2n collision-mesh <clip-world> <output-folder> [--records]\n"
                    "       waw2bo2n world-inspect <render-world> <clip-world>\n"
+                   "       waw2bo2n dds2iwi <source.dds|folder> <output.iwi|folder>\n"
                    "       waw2bo2n audio-stage --project <folder> --output <folder> [--decoder-text <s>] [--xwma <exe>] [--resampler <exe>]\n",
                    stderr);
         return 2;
@@ -100,6 +107,51 @@ namespace
         std::printf("wrote %s (%zu surfaces, %zu vertices)\n", args[1].c_str(),
                     report.at("surfaces").get<std::size_t>(), report.at("vertices").get<std::size_t>());
         return 0;
+    }
+
+    int DdsToIwi(const std::string& sourcePath, const std::string& outputPath)
+    {
+        namespace files = w2b::files;
+        const auto source = files::FromUtf8(sourcePath);
+        const auto output = files::FromUtf8(outputPath);
+        const bool folder = files::fs::is_directory(source);
+        std::vector<files::fs::path> sources;
+        if (folder)
+        {
+            const auto lowercase = [](std::wstring text)
+            {
+                for (auto& c : text)
+                    c = static_cast<wchar_t>(std::towlower(c));
+                return text;
+            };
+            for (const auto& entry : files::fs::directory_iterator(source))
+                if (lowercase(entry.path().extension().wstring()) == L".dds")
+                    sources.push_back(entry.path());
+            std::ranges::stable_sort(sources, {}, [&](const auto& path) { return lowercase(path.filename().wstring()); });
+        }
+        else
+            sources.push_back(source);
+        int result = 0;
+        for (const auto& path : sources)
+        {
+            auto destination = folder ? output / path.filename() : output;
+            if (folder)
+                destination.replace_extension(".iwi");
+            const auto name = files::Utf8(path.filename());
+            try
+            {
+                const auto header = w2b::textures::ConvertFile(path, destination);
+                std::printf("%s -> %s fmt=0x%x flags=0x%x %ux%u\n", name.c_str(),
+                            files::Utf8(destination.filename()).c_str(), static_cast<unsigned>(header.format),
+                            header.flags, header.width, header.height);
+            }
+            catch (const w2b::textures::TextureError& error)
+            {
+                std::fprintf(stderr, "%s: %s\n", name.c_str(), error.what());
+                result = 1;
+            }
+        }
+        return result;
     }
 
     int ShadersStage(const std::vector<std::string>& args)
@@ -380,57 +432,91 @@ namespace
         std::printf("audio: %zu decoded, %zu errors\n", report["audio"].size(), report["errors"].size());
         return 0;
     }
+    using Arguments = std::vector<std::string>;
+
+    int PrintReport(const w2b::py::Json& report)
+    {
+        std::puts(report.dump(-1, ' ', true).c_str());
+        return 0;
+    }
+
+    template <auto Stage>
+    int JsonRequest(const Arguments& args)
+    {
+        return args.size() == 1 ? PrintReport(Stage(w2b::files::FromUtf8(args[0]))) : Usage();
+    }
+
+    int Inspect(const Arguments& args)
+    {
+        if (args.size() != 2)
+            return Usage();
+        const auto info = w2b::world::InspectWorld(w2b::files::FromUtf8(args[0]), w2b::files::FromUtf8(args[1]));
+        std::puts(w2b::py::JsonDumps(info, 2).c_str());
+        return 0;
+    }
+
+    struct Command
+    {
+        std::string_view name;
+        int (*run)(const Arguments&);
+    };
+
+    constexpr Command commands[]{
+        {"shaders-stage", ShadersStage}, {"audio-stage", AudioStage},
+        {"dds2iwi", [](const Arguments& a) { return a.size() == 2 ? DdsToIwi(a[0], a[1]) : Usage(); }},
+        {"dds-batch", JsonRequest<w2b::textures::ConvertBatch>},
+        {"lightmaps", JsonRequest<w2b::textures::StageLightmaps>},
+        {"light-grid", JsonRequest<w2b::world::StageGrid>},
+        {"primary-lights", [](const Arguments& a)
+        {
+            if (a.size() != 3 || (a[2] != "keep" && a[2] != "disable"))
+                return Usage();
+            return PrintReport(w2b::world::StagePrimaryLights(w2b::files::FromUtf8(a[0]),
+                        w2b::files::FromUtf8(a[1]), a[2] == "keep"));
+        }},
+        {"reflection-probes", JsonRequest<w2b::world::StageProbes>},
+        {"port-map", [](const Arguments& a) { return a.size() == 1 ? PortMapCommand(a[0]) : Usage(); }},
+        {"world-vertices", [](const Arguments& a) { return a.size() == 4 ? WorldVertices(a) : Usage(); }},
+        {"world-fbx", WorldFbx},
+        {"collision-mesh", [](const Arguments& a)
+        {
+            if (a.size() != 2 && (a.size() != 3 || a[2] != "--records"))
+                return Usage();
+            return PrintReport(w2b::world::StageCollisionMesh(w2b::files::FromUtf8(a[0]),
+                        w2b::files::FromUtf8(a[1]), a.size() == 3));
+        }},
+        {"inspect", Inspect}, {"world-inspect", Inspect},
+        {"sounds-stage", [](const Arguments& a) { return a.size() == 1 ? SoundsStage(a[0]) : Usage(); }},
+        {"gsc-tokens", [](const Arguments& a) { return a.size() == 2 ? GscTokens(a[0], a[1]) : Usage(); }},
+        {"regex-test", [](const Arguments& a) { return a.size() == 2 ? RegexTest(a[0], a[1]) : Usage(); }},
+        {"gsc-rewrite", [](const Arguments& a)
+        {
+            if (a.size() != 4)
+                return Usage();
+            w2b::gsc::port::SetCompatDir(w2b::files::FromUtf8(a[3]));
+            return GscRewrite(a[0], a[1], a[2]);
+        }},
+    };
 } // namespace
 
 int wmain(const int argc, wchar_t** argv)
 {
     if (argc < 2)
         return Usage();
-    std::vector<std::string> args;
-    for (int i = 2; i < argc; i++)
+    const auto command = Utf8(argv[1]);
+    const auto found = std::ranges::find(commands, command, &Command::name);
+    if (found == std::end(commands))
+        return Usage();
+    Arguments args;
+    for (int i = 2; i < argc; ++i)
         args.push_back(Utf8(argv[i]));
-    const std::string command = Utf8(argv[1]);
     try
     {
-        if (command == "shaders-stage")
-            return ShadersStage(args);
-        if (command == "audio-stage")
-            return AudioStage(args);
-        if (command == "port-map" && args.size() == 1)
-            return PortMapCommand(args[0]);
-        if (command == "world-vertices" && args.size() == 4)
-            return WorldVertices(args);
-        if (command == "world-fbx")
-            return WorldFbx(args);
-        if (command == "collision-mesh" && (args.size() == 2 || (args.size() == 3 && args[2] == "--records")))
-        {
-            const auto report = w2b::world::StageCollisionMesh(w2b::files::FromUtf8(args[0]),
-                                                              w2b::files::FromUtf8(args[1]), args.size() == 3);
-            std::puts(report.dump(-1, ' ', true).c_str());
-            return 0;
-        }
-        if ((command == "inspect" || command == "world-inspect") && args.size() == 2)
-        {
-            const auto info = w2b::world::InspectWorld(w2b::files::FromUtf8(args[0]), w2b::files::FromUtf8(args[1]));
-            std::puts(w2b::py::JsonDumps(info, 2).c_str());
-            return 0;
-        }
-        if (command == "sounds-stage" && args.size() == 1)
-            return SoundsStage(args[0]);
-        if (command == "gsc-tokens" && args.size() == 2)
-            return GscTokens(args[0], args[1]);
-        if (command == "regex-test" && args.size() == 2)
-            return RegexTest(args[0], args[1]);
-        if (command == "gsc-rewrite" && args.size() == 4)
-        {
-            w2b::gsc::port::SetCompatDir(w2b::files::FromUtf8(args[3]));
-            return GscRewrite(args[0], args[1], args[2]);
-        }
+        return found->run(args);
     }
     catch (const std::exception& error)
     {
         std::fprintf(stderr, "waw2bo2n %s: %s\n", command.c_str(), error.what());
         return 1;
     }
-    return Usage();
 }

@@ -1,6 +1,7 @@
 #include "world/collision_plan.h"
 #include "world/collision_records.h"
 #include "world/terrain_ownership.h"
+#include "world/world_trace.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -183,4 +184,24 @@ TEST_CASE("Unlisted legacy brushes retain their planes and moving brush ownershi
 
     world.brushOwnershipComplete = true;
     CHECK(BuildWorldBrushes(world).records.size() == 1);
+}
+
+TEST_CASE("Light-grid traces respect the world brush reach and terrain material")
+{
+    CollisionWorld world;
+    world.vertices = {{0, 0, 0}, {4, 0, 0}, {0, 4, 0}};
+    world.indices = {0, 1, 2};
+    world.materials = {{"solid", 0, 1}};
+    world.triangleMaterials = {0};
+    ClipBrush brush{{-1, -1, 5}, {1, 1, 7}, 1, {}, {}};
+    brush.planes = {{{1, 0, 0}, 1, 0}, {{-1, 0, 0}, 1, 0},
+                    {{0, 1, 0}, 1, 0}, {{0, -1, 0}, 1, 0},
+                    {{0, 0, 1}, 7, 0}, {{0, 0, -1}, -5, 0}};
+    world.brushes.push_back(brush);
+    CHECK_FALSE(WorldTracer(world, 0x2001, true).Visible({0, 0, 4}, {0, 0, 8}));
+    world.brushReach = std::vector<std::uint32_t>{0};
+    const WorldTracer tracer(world, 0x2001, true);
+    CHECK(tracer.Visible({0, 0, 4}, {0, 0, 8}));
+    CHECK_FALSE(tracer.Visible({1, 1, -1}, {1, 1, 1}));
+    CHECK(tracer.Visible({3, 3, -1}, {3, 3, 1}));
 }

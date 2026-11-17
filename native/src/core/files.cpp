@@ -26,6 +26,9 @@ namespace w2b::files
             fs::create_directories(path.parent_path());
         std::ofstream stream(path, std::ios::binary | std::ios::trunc);
         stream.write(data.data(), static_cast<std::streamsize>(data.size()));
+        stream.close();
+        if (!stream)
+            throw std::runtime_error("cannot write " + Utf8(path));
     }
 
     void WriteText(const fs::path& path, const std::string_view text)

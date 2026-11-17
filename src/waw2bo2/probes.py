@@ -19,10 +19,13 @@ from __future__ import annotations
 
 import json
 import math
+import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from . import iwi, techsets
+from . import iwi, native, techsets
 
 T6_MAX_PROBES = 32
 NEUTRAL = 0
@@ -98,6 +101,33 @@ def plan(source: SourceProbes, usage: dict[int, int], baked: set[int], limit: in
 
 def image_name(t6_index: int) -> str:
     return f"reflection_probe{t6_index}"
+
+
+def stage_native(report, world, source: Path, image_roots: list[Path],
+                 project_root: Path) -> tuple[Plan | None, list[list[int]]]:
+    with TemporaryDirectory(prefix='w2b-probes-') as temporary:
+        request = Path(temporary) / 'request.json'
+        request.write_text(json.dumps({
+            'source': str(source), 'project': str(project_root),
+            'image_roots': [str(root) for root in image_roots],
+            'surface_counts': list(Counter(s.reflection_probe_index for s in world.surfaces).items()),
+            'static_model_count': len(world.static_models),
+            'compensated': sys.version_info >= (3, 12),
+        }), encoding='utf-8')
+        result = json.loads(native.run('reflection-probes', str(request)))
+    report.warnings.extend(result['warnings'])
+    report.errors.extend(result['errors'])
+    report.images.extend(result['images'])
+    if 'kept' not in result:
+        return None, []
+    content = result['content']
+    report.content['reflection_probes'] = content
+    plan = Plan(result['kept'], {int(k): v for k, v in content['remap'].items()})
+    for surface in world.surfaces:
+        surface.reflection_probe_index = plan.t6_index(surface.reflection_probe_index)
+    for model, index in zip(world.static_models, result['smodel_probes']):
+        model.reflection_probe_index = plan.t6_index(index)
+    return plan, result['cells']
 
 
 def stage(report, world, source: SourceProbes | None, image_roots: list[Path], project_root: Path) -> Plan | None:

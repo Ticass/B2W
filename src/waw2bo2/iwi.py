@@ -16,8 +16,12 @@ Only formats OAT maps for IWI27 are produced. Anything else raises
 from __future__ import annotations
 
 import struct
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from . import native
 
 # iwi27::IwiFormat
 FMT_RGBA = 0x1
@@ -387,6 +391,35 @@ def read_iwi_header(blob: bytes) -> dict:
 def convert_tasks(tasks):
     """Assets sharing an OAT filename must be written in source order."""
     return [convert_task(task) for task in tasks]
+
+
+def convert_groups(groups):
+    """Convert destination groups in parallel, retaining source order within a group."""
+    from .parallel import ordered_map, worker_count
+
+    if not groups:
+        return
+    if native.tool() is None:
+        yield from ordered_map(convert_tasks, groups, label='Image pixels')
+        return
+    with TemporaryDirectory(prefix='w2b-dds-') as temporary:
+        request = Path(temporary) / 'batch.json'
+        request.write_text(json.dumps({
+            'groups': [[(str(src), str(dst)) for _, src, dst, _ in group] for group in groups],
+            'workers': worker_count(len(groups)),
+        }), encoding='utf-8')
+        headers = json.loads(native.run('dds-batch', str(request)))
+    for group, results in zip(groups, headers, strict=True):
+        converted = []
+        for (asset, src, _dst, recovered), header in zip(group, results, strict=True):
+            if 'error' in header:
+                converted.append((asset, None, f"image {asset}: {header['error']}"))
+            else:
+                entry = {'name': asset, 'source': str(src), **header}
+                if recovered is not None:
+                    entry['wavelet'] = recovered
+                converted.append((asset, entry, None))
+        yield converted
 
 
 def convert_task(task):

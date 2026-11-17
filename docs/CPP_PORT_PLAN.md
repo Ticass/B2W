@@ -66,10 +66,15 @@ The remaining small modules move with the area that uses them.
 | Inspect world dumps (`cli inspect`) | yes | Five real maps and synthetic render dump versions 1–6 matched the Python report byte for byte. | — |
 | Group render surfaces and stage visibility and shadows | yes | Five maps matched FBX, visibility and shadow bytes and mesh IDs. Full Der Riese build passed. | 0.85 s / 3.23 s (render and manifests) |
 | Stage brush and static-model collision records | yes | 23 maps matched all three manifests and diagnostics. Der Riese's combined geometry stage matched the Python stage byte for byte. | 1.2 s / 5.3 s (combined geometry stage) |
+| Convert DDS to IWI in destination batches | yes | 3,025 byte-identical textures across Der Riese, Clinic of Evil, and Nuketown. The standalone folder command also matched errors and output order. | 0.21 s / 0.43 s (812 textures) |
+| Stage lightmap pages, primary lights, and reflection probes | yes | Seven maps matched files, probe assignments, and diagnostics. The full Der Riese build passed with the same 20 BSP files. | 0.08 s / 1.69 s (two lightmap pages, one worker) |
+| Bake static-model light grid | yes | Six maps matched the model placements and grid byte for byte. Anguish's over-budget test returned the same palette-limit failure. | 0.09 s / 1.51 s |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
-run directly. The Python builder still resolves materials, filters render
-surfaces, and stages reflection probes before calling the native world steps.
+run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.
+The Python builder still resolves source assets and filters render surfaces
+before calling the native world steps. Individual file conversions used by
+other stages and wavelet recovery remain Python entry points.
 
 Tools: `native/tools/shadow_*.py` run a real stage-bridge with the Python
 step and the native step on the same inputs and compare every output file.
