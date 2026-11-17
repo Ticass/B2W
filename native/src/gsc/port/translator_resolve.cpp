@@ -11,6 +11,14 @@
 
 namespace w2b::gsc::port
 {
+    const py::Json& ApiSection(const std::string& key)
+    {
+        static const py::Json none;
+        const auto& api = Api();
+        const auto it = api.find(key);
+        return it == api.end() ? none : *it;
+    }
+
     const py::Json* ApiGet(const py::Json& object, const std::string& key)
     {
         if (!object.is_object())
@@ -252,7 +260,7 @@ namespace w2b::gsc::port
         const auto& A = Api();
         if (const auto renamed = ApiString(A["function_renames"], name); renamed && !renamed->empty())
             return renamed;
-        if (const auto* source = ApiGet(A.value("source_script_functions", py::Json::object()), core); source && ApiListHas(*source, name))
+        if (const auto* source = ApiGet(ApiSection("source_script_functions"), core); source && ApiListHas(*source, name))
             if (auto extracted = Extract(core, name))
                 return extracted;
         if (ApiListHas(A["template_scripts"], core))
@@ -359,7 +367,7 @@ namespace w2b::gsc::port
     {
         const auto& A = Api();
         const auto mapped = ApiString(A["core_scripts"], core);
-        if (!mapped || mapped->empty() || !ApiGet(A.value("signature_source_scripts", py::Json::object()), core))
+        if (!mapped || mapped->empty() || !ApiGet(ApiSection("signature_source_scripts"), core))
             return false;
         const auto* table = ApiGet(Bo2Params(), Lower(*mapped));
         const auto* bo2 = table ? ApiGet(*table, name) : nullptr;

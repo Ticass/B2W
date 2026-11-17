@@ -63,10 +63,10 @@ namespace w2b::gsc::port
                     report.rewrites["T6 actor glue " + glue.get<std::string>() + " -> " + key] += 1;
                 }
             }
-        const auto* drivenTable = ApiGet(A.value("source_driven", py::Json::object()), Norm(path));
+        const auto* drivenTable = ApiGet(ApiSection("source_driven"), Norm(path));
         const auto* glue = drivenTable ? ApiGet(*drivenTable, "glue") : nullptr;
         const auto counterpart = ApiString(A["core_scripts"], Norm(path));
-        if (glue && !glue->empty() && counterpart && !counterpart->empty() && ApiListHas(A.value("preserved_scripts", py::Json::array()), Norm(path)))
+        if (glue && !glue->empty() && counterpart && !counterpart->empty() && ApiListHas(ApiSection("preserved_scripts"), Norm(path)))
         {
             std::set<size_t> headers;
             for (const auto& [_, fn] : script->functions)
@@ -317,7 +317,7 @@ namespace w2b::gsc::port
                         if (depth == 0)
                         {
                             const auto field = Lower(StripChars(At(tokens, end - 1).text, "\""));
-                            const auto* bridges = ApiGet(A.value("entity_lookup_bridges", py::Json::object()), field);
+                            const auto* bridges = ApiGet(ApiSection("entity_lookup_bridges"), field);
                             const auto bridge = bridges ? ApiString(*bridges, name) : std::nullopt;
                             if (bridge && !bridge->empty() && At(tokens, end - 1).kind == Kind::String && StartsWith(At(tokens, end - 1).text, "\"")
                                 && At(tokens, end - 2).text == ",")

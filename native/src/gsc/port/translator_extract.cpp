@@ -689,7 +689,7 @@ namespace w2b::gsc::port
             }
         }
         const auto mapped = ApiString(Api()["core_scripts"], core);
-        const bool driven = Api().value("source_driven", py::Json::object()).contains(core);
+        const bool driven = ApiSection("source_driven").contains(core);
         for (const auto& name : helpers)
             if (driven || !(mapped && !mapped->empty() && api.Defines(*mapped, name)))
                 ExtractEntry(core, name);

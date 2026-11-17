@@ -8,6 +8,7 @@
 #include "gsc/parse.h"
 #include "core/pyre.h"
 #include "gsc/port/api.h"
+#include "gsc/port/portmap.h"
 #include "gsc/port/rewrites.h"
 
 #include <functional>
@@ -251,6 +252,47 @@ namespace
         return 0;
     }
 
+    // port-map <args.json>: gscport.port_map. {"roots", "iwds", "stock", "variant_roots", "snapshot",
+    // "api_cache", "compat_dir", "map_name", "out_root", "animtrees", "core_animtrees", "bo2_stock_perks",
+    // "actor_types", "actor_template" (kind -> source | null), "stock_map", "client_ported", "bind" (bool),
+    // "report" (output JSON path)}
+    int PortMapCommand(const std::string& argsFile)
+    {
+        namespace port = w2b::gsc::port;
+        const auto args = nlohmann::ordered_json::parse(w2b::files::ReadText(w2b::files::FromUtf8(argsFile)));
+        const auto paths = [&](const char* key)
+        {
+            std::vector<std::filesystem::path> out;
+            if (args.contains(key) && !args[key].is_null())
+                for (const auto& p : args[key])
+                    out.push_back(w2b::files::FromUtf8(p.get<std::string>()));
+            return out;
+        };
+        port::SetCompatDir(w2b::files::FromUtf8(args["compat_dir"].get<std::string>()));
+        std::optional<std::filesystem::path> stock;
+        if (!args["stock"].is_null())
+            stock = w2b::files::FromUtf8(args["stock"].get<std::string>());
+        port::Sources sources(paths("roots"), paths("iwds"), stock, paths("variant_roots"));
+        const auto api = port::T6Api::Load(w2b::files::FromUtf8(args["snapshot"].get<std::string>()), w2b::files::FromUtf8(args["api_cache"].get<std::string>()));
+        const auto mapName = args["map_name"].get<std::string>();
+        if (args.value("bind", false))
+            sources.BindZombieFramework("maps/" + mapName);
+        port::PortMapOptions options;
+        options.animtrees = args["animtrees"].get<std::set<std::string>>();
+        for (const auto& [tree, names] : args["core_animtrees"].items())
+            options.coreAnimtrees[tree] = names.get<std::set<std::string>>();
+        options.bo2StockPerks = args["bo2_stock_perks"].get<bool>();
+        options.actorTypes = args["actor_types"].get<std::set<std::string>>();
+        if (!args["actor_template"].is_null())
+            options.actorTemplate = args["actor_template"].get<std::map<std::string, std::string>>();
+        options.stockMap = args["stock_map"].get<bool>();
+        options.clientPorted = args["client_ported"].get<bool>();
+        const auto report = port::PortMap(sources, api, mapName, w2b::files::FromUtf8(args["out_root"].get<std::string>()), options);
+        w2b::files::WriteBytes(w2b::files::FromUtf8(args["report"].get<std::string>()), report.ToJson().dump());
+        std::printf("port-map: %zu ported, %zu errors\n", report.ported.size(), report.errors.size());
+        return 0;
+    }
+
     // audio-stage --project <content_source> --output <pcm> [--decoder-text <str>] [--xwma <exe>] [--resampler <exe>]
     int AudioStage(const std::vector<std::string>& args)
     {
@@ -293,6 +335,8 @@ int wmain(const int argc, wchar_t** argv)
             return ShadersStage(args);
         if (command == "audio-stage")
             return AudioStage(args);
+        if (command == "port-map" && args.size() == 1)
+            return PortMapCommand(args[0]);
         if (command == "sounds-stage" && args.size() == 1)
             return SoundsStage(args[0]);
         if (command == "gsc-tokens" && args.size() == 2)

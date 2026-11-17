@@ -17,12 +17,15 @@ namespace w2b::gsc::port
     using py::Json;
 
     // tokens[i] with Python's negative indexing; IndexError past either end
+    // IndexError: list index out of range (W2B_STACK=1 prints the call stack)
+    [[noreturn]] void ThrowIndexError(long long index, size_t size);
+
     inline Token& At(Tokens& tokens, long long i)
     {
         if (i < 0)
             i += static_cast<long long>(tokens.size());
         if (i < 0 || i >= static_cast<long long>(tokens.size()))
-            throw std::out_of_range("list index out of range");
+            ThrowIndexError(i, tokens.size());
         return tokens[static_cast<size_t>(i)];
     }
     inline const Token& At(const Tokens& tokens, long long i)
@@ -30,7 +33,7 @@ namespace w2b::gsc::port
         if (i < 0)
             i += static_cast<long long>(tokens.size());
         if (i < 0 || i >= static_cast<long long>(tokens.size()))
-            throw std::out_of_range("list index out of range");
+            ThrowIndexError(i, tokens.size());
         return tokens[static_cast<size_t>(i)];
     }
 

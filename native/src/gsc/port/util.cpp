@@ -2,8 +2,44 @@
 
 #include "core/unicode.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+
 namespace w2b::gsc::port
 {
+    void ThrowIndexError(const long long index, const size_t size)
+    {
+        if (const char* stack = std::getenv("W2B_STACK"); stack && std::string(stack) == "1")
+        {
+            void* frames[48];
+            const auto count = CaptureStackBackTrace(1, 48, frames, nullptr);
+            const auto process = GetCurrentProcess();
+            SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
+            SymInitialize(process, nullptr, TRUE);
+            alignas(SYMBOL_INFO) char buffer[sizeof(SYMBOL_INFO) + 512];
+            auto* symbol = reinterpret_cast<SYMBOL_INFO*>(buffer);
+            for (USHORT f = 0; f < count; f++)
+            {
+                symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+                symbol->MaxNameLen = 511;
+                DWORD64 displacement = 0;
+                IMAGEHLP_LINE64 line{};
+                line.SizeOfStruct = sizeof line;
+                DWORD lineDisplacement = 0;
+                const auto address = reinterpret_cast<DWORD64>(frames[f]);
+                const bool named = SymFromAddr(process, address, &displacement, symbol);
+                const bool lined = SymGetLineFromAddr64(process, address, &lineDisplacement, &line);
+                std::fprintf(stderr, "  at %s %s:%lu\n", named ? symbol->Name : "?", lined ? line.FileName : "?", lined ? line.LineNumber : 0UL);
+            }
+        }
+        throw std::out_of_range("list index out of range (index " + std::to_string(index) + ", size " + std::to_string(size) + ")");
+    }
+
     std::string EmitRange(const Tokens& tokens, const long long a, const long long b)
     {
         const auto [lo, hi] = Slice(tokens.size(), a, b);

@@ -1,7 +1,10 @@
 #include "files.h"
 
+#include "encoding.h"
+
 #include <algorithm>
 #include <fstream>
+#include <stdexcept>
 
 namespace w2b::files
 {
@@ -38,6 +41,16 @@ namespace w2b::files
         WriteBytes(path, out);
     }
 
+    std::string ReadText(const fs::path& path)
+    {
+        std::string bytes;
+        if (!ReadBytes(path, bytes))
+            throw std::runtime_error("cannot read " + Utf8(path));
+        if (encoding::Utf8Replace(bytes) != bytes)
+            throw encoding::DecodeError(Utf8(path) + ": not UTF-8");
+        return encoding::UniversalNewlines(bytes);
+    }
+
     namespace
     {
         std::wstring Lower(std::wstring text)
@@ -58,6 +71,39 @@ namespace w2b::files
             return parts;
         }
     } // namespace
+
+    std::vector<fs::path> RGlob(const fs::path& folder, const std::string_view suffix)
+    {
+        std::vector<fs::path> found;
+        std::error_code error;
+        if (!fs::is_directory(folder, error))
+            return found;
+        const std::wstring wanted = Lower(fs::path(std::string(suffix)).wstring());
+        // folders in the order the walk yields them: a folder's subfolders are
+        // yielded when it is visited; the walk visits the last pushed first
+        std::vector<fs::path> order{folder}, stack{folder};
+        while (!stack.empty())
+        {
+            const auto current = stack.back();
+            stack.pop_back();
+            std::vector<fs::path> children;
+            for (fs::directory_iterator it(current, fs::directory_options::skip_permission_denied, error), end; !error && it != end; it.increment(error))
+                if (it->is_directory(error) && !it->is_symlink(error))
+                    children.push_back(it->path());
+            order.insert(order.end(), children.begin(), children.end());
+            stack.insert(stack.end(), children.begin(), children.end());
+        }
+        for (const auto& dir : order)
+            for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, error), end; !error && it != end; it.increment(error))
+            {
+                if (it->is_directory(error))
+                    continue;
+                const auto name = Lower(it->path().filename().wstring());
+                if (name.size() >= wanted.size() && name.compare(name.size() - wanted.size(), wanted.size(), wanted) == 0)
+                    found.push_back(it->path());
+            }
+        return found;
+    }
 
     std::vector<fs::path> GlobSuffix(const fs::path& folder, const std::string_view suffix)
     {

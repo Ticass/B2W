@@ -126,13 +126,16 @@ namespace w2b::gsc::port
         std::map<std::pair<std::string, std::string>, std::optional<ListenerCopy>> listenerCopies;
         std::set<std::pair<std::string, std::string>> listenerFunctions;
 
-    private:
         bool IsDone(const std::string& path) const;
+
+    private:
         std::optional<ListenerCopy> ClientFxListenerCopy(const std::string& key, const Script& script, const std::string& entry,
                                                          const std::map<std::string, std::string>& effects);
         static void DropArgument(Tokens& toks, long long nameIndex, size_t index);
     };
 
+    // API.get(key, {}) without a copy: the section, or a null value when absent
+    const py::Json& ApiSection(const std::string& key);
     // a python dict.get(...) on gsc_api.json: nullptr when absent or null
     const py::Json* ApiGet(const py::Json& object, const std::string& key);
     std::optional<std::string> ApiString(const py::Json& object, const std::string& key);

@@ -67,7 +67,12 @@ add_library(w2b_gscport STATIC
     src/gsc/port/translator_resolve.cpp
     src/gsc/port/translator_translate.cpp
     src/gsc/port/translator_extract.cpp
-    src/gsc/port/translator_hooks.cpp)
+    src/gsc/port/translator_hooks.cpp
+    src/gsc/port/zombiebehavior.cpp
+    src/gsc/port/support.cpp
+    src/gsc/port/generators.cpp
+    src/gsc/port/portmap.cpp
+    src/gsc/port/clientport.cpp)
 target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
 add_executable(waw2bo2n src/cli/main.cpp)

@@ -218,7 +218,7 @@ namespace w2b::gsc::port
                 }
                 if (!fn || !arity)
                     continue;
-                const bool preserved = ApiListHas(Api().value("preserved_scripts", py::Json::array()), Norm(core));
+                const bool preserved = ApiListHas(ApiSection("preserved_scripts"), Norm(core));
                 const auto name = preserved ? std::optional<std::string>(function) : ExtractEntry(core, function);
                 const auto target = preserved ? PortedPath(core) : std::string(CORE);
                 std::vector<std::string> params;
@@ -756,10 +756,10 @@ namespace w2b::gsc::port
             report.Unsupported("CSC client effects " + Join(missing, ", ") + " in listener " + entry + " (no client registration)", key);
             return std::nullopt;
         }
-        std::set<std::string> done;
+        std::set<std::string> finished;
         for (const auto& [n, _] : parts)
-            done.insert(n);
-        for (const auto& n : done)
+            finished.insert(n);
+        for (const auto& n : finished)
             listenerFunctions.insert({key, n});
         std::vector<std::string> texts;
         for (const auto& [_, text] : parts)
@@ -770,7 +770,7 @@ namespace w2b::gsc::port
         for (const auto& k : used)
             registrations += "\tif ( !isdefined( level.waw_effect[\"" + k + "\"] ) )\n\t\tlevel.waw_effect[\"" + k + "\"] = " + COMPAT + "::waw_loadfx( " + effects.at(k) + " );\n";
         for (const auto& n : names)
-            if (!done.count(n))
+            if (!finished.count(n))
             {
                 const Function& fn = *script.Find(n);
                 code += EmitRange(script.tokens, static_cast<long long>(fn.start), static_cast<long long>(fn.bodyClose) + 1);
@@ -822,7 +822,7 @@ namespace w2b::gsc::port
             }
             const auto mapped = ApiString(A["core_scripts"], target);
             const auto argc = Argc(zm->tokens, static_cast<long long>(ref.index));
-            if (ApiGet(A.value("signature_source_scripts", py::Json::object()), target) && mapped && !mapped->empty() && !api.Defines(*mapped, low)
+            if (ApiGet(ApiSection("signature_source_scripts"), target) && mapped && !mapped->empty() && !api.Defines(*mapped, low)
                 && !(argc && *argc))
             {
                 const auto extracted = Extract(target, low);

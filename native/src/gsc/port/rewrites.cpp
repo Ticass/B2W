@@ -802,23 +802,40 @@ namespace w2b::gsc::port
         {
             const auto start = static_cast<long long>(fn.bodyOpen), end = static_cast<long long>(fn.bodyClose);
             std::map<std::string, std::string> roots;
-            for (long long i = start; i < end - 9; i++)
+            // the indices come from the reparsed text: tokens emptied by earlier
+            // rewrites are gone there, so the slices can run past the list
+            // (Python's slices stop at its end)
+            const auto lows = [&](const long long a, const long long n)
             {
                 std::vector<std::string> words;
-                for (long long k = i; k < i + 10; k++)
-                    words.push_back(At(tokens, k).Low());
-                if (words[1] == "=" && words[2] == "getent" && words[3] == "(" && words[5] == "." && words[6] == "target" && words[7] == ","
-                    && Lower(At(tokens, i + 8).text) == "\"targetname\"" && words[9] == ")"
-                    && std::find(fn.params.begin(), fn.params.end(), words[4]) != fn.params.end())
+                const auto [lo, hi] = Slice(tokens.size(), a, a + n);
+                for (size_t k = lo; k < hi; k++)
+                    words.push_back(tokens[k].Low());
+                return words;
+            };
+            const auto is = [](const std::vector<std::string>& words, const size_t a, const std::vector<std::string>& expected)
+            {
+                if (words.size() < a + expected.size())
+                    return false;
+                return std::equal(expected.begin(), expected.end(), words.begin() + static_cast<long long>(a));
+            };
+            const auto word = [](const std::vector<std::string>& words, const size_t k) -> const std::string&
+            {
+                if (k >= words.size())
+                    throw std::out_of_range("list index out of range");
+                return words[k];
+            };
+            for (long long i = start; i < end - 9; i++)
+            {
+                const auto words = lows(i, 10);
+                if (is(words, 1, {"=", "getent", "("}) && is(words, 5, {".", "target", ","}) && Lower(At(tokens, i + 8).text) == "\"targetname\""
+                    && word(words, 9) == ")" && std::find(fn.params.begin(), fn.params.end(), words[4]) != fn.params.end())
                     roots[words[0]] = At(tokens, i + 4).text;
             }
             for (long long i = start; i < end - 8; i++)
             {
-                std::vector<std::string> words;
-                for (long long k = i; k < i + 9; k++)
-                    words.push_back(At(tokens, k).Low());
-                if (!(words[0] == "if" && words[1] == "(" && words[2] == "self" && words[3] == "istouching" && words[4] == "(") || words[6] != ")"
-                    || words[7] != ")" || words[8] != "{" || !roots.count(words[5]))
+                const auto words = lows(i, 9);
+                if (!is(words, 0, {"if", "(", "self", "istouching", "("}) || words.size() != 9 || !is(words, 6, {")", ")", "{"}) || !roots.count(words[5]))
                     continue;
                 int depth = 1;
                 long long j = i + 9;
@@ -828,8 +845,8 @@ namespace w2b::gsc::port
                     j++;
                 }
                 bool sets = false;
-                for (long long k = i + 9; k < j; k++)
-                    sets = sets || At(tokens, k).Low() == "setvelocity";
+                for (const auto& w : lows(i + 9, j - (i + 9)))
+                    sets = sets || w == "setvelocity";
                 if (!sets)
                     continue;
                 At(tokens, i + 2).text = "self isTouching(" + roots[words[5]] + ") || self";
