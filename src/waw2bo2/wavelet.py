@@ -8,11 +8,16 @@ DDS output uses the pipeline's OAT-compatible mip-major cubemap ordering.
 """
 from __future__ import annotations
 
+import json
 import struct
+import subprocess
+import threading
+import weakref
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from . import native
 from .iwi import IwiError, iwi6_to_dds
 
 _SIGNATURES = (
@@ -287,3 +292,89 @@ class IwdRecovery:
         self.recovered[stem] = {"archive": str(archive), "entry": entry, "iwi_format": blob[4],
                                 "decoder_tables": str(self.binary)}
         return dst
+
+    def close(self):
+        # Archive handles in the reference implementation are scoped to each read.
+        pass
+
+
+def _close_recovery_process(process: subprocess.Popen):
+    try:
+        process.stdin.close()
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+    process.stdout.close()
+    process.stderr.close()
+
+
+class NativeIwdRecovery:
+    """Keep the native archive index and decoder tables alive for one build."""
+
+    def __init__(self, executable: Path, directories: list[Path], binary: Path | None, root: Path, *,
+                 source_image_roots: list[Path], override_directories: list[Path]):
+        self.recovered: dict[str, dict] = {}
+        self._lock = threading.Lock()
+        self._process = subprocess.Popen(
+            [str(executable), 'iwd-recovery'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding='utf-8', errors='replace')
+        self._close = weakref.finalize(self, _close_recovery_process, self._process)
+        try:
+            self._request({
+                'directories': [str(path) for path in directories],
+                'binary': str(binary) if binary is not None else None,
+                'root': str(root),
+                'source_roots': [str(path) for path in source_image_roots],
+                'overrides': [str(path) for path in override_directories],
+            })
+        except BaseException:
+            self.close()
+            raise
+
+    def _request(self, request: dict) -> dict:
+        process = self._process
+        try:
+            process.stdin.write(json.dumps(request) + '\n')
+            process.stdin.flush()
+            reply = process.stdout.readline()
+        except BrokenPipeError:
+            reply = ''
+        if not reply:
+            process.wait()
+            detail = process.stderr.read().strip()
+            raise native.NativeError(detail or f'native IWD recovery ended with exit code {process.returncode}')
+        result = json.loads(reply)
+        if 'error' in result:
+            if result['kind'] == 'texture':
+                raise IwiError(result['error'])
+            raise OSError(result['error'])
+        return result
+
+    def _resolve(self, stem: str, **request) -> Path | None:
+        with self._lock:
+            result = self._request({'stem': stem, **request})
+            if 'recovered' in result:
+                self.recovered[stem] = result['recovered']
+            return Path(result['path']) if result['path'] is not None else None
+
+    def resolve(self, stem: str, source: Path | None) -> Path | None:
+        return self._resolve(stem, source=str(source) if source is not None else None)
+
+    def recover(self, stem: str) -> Path | None:
+        return self._resolve(stem)
+
+    def close(self):
+        self._close()
+
+
+def open_recovery(directories: list[Path], binary: Path | None, root: Path, *,
+                  source_image_roots: list[Path] = (), override_directories: list[Path] = ()
+                  ) -> IwdRecovery | NativeIwdRecovery:
+    options = dict(source_image_roots=source_image_roots, override_directories=override_directories)
+    if executable := native.tool():
+        return NativeIwdRecovery(executable, directories, binary, root, **options)
+    return IwdRecovery(directories, binary, root, **options)

@@ -41,7 +41,8 @@ class MaterialPoolTests(unittest.TestCase):
     def test_worker_processes_match_a_serial_run(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            serial = self.stage(root, 1)
+            with patch.dict(os.environ, {'WAW2BO2_NATIVE': '0'}):
+                serial = self.stage(root, 1)
             pooled = self.stage(root, 2)
         self.assertEqual(serial[0], pooled[0])
         self.assertEqual(serial[1].materials, pooled[1].materials)

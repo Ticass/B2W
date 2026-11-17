@@ -1,4 +1,5 @@
 #include "textures/iwi.h"
+#include "textures/wavelet.h"
 #include "world/probe_plan.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -68,6 +69,34 @@ TEST_CASE("Face-major DDS cubes keep each face inside its mip")
     const auto single = DdsToIwi(dds, true, true);
     CHECK(single.header.flags == (cubemap | noMipmaps));
     CHECK(single.bytes.substr(64) == base);
+}
+
+TEST_CASE("Alpha wavelet cubemaps retain all six faces at both mip levels")
+{
+    using namespace w2b::textures;
+    WaveletTables tables;
+    for (auto& book : tables)
+        book.fill({0, 1});
+    std::string iwi(28, '\0');
+    iwi.replace(0, 4, "IWi\x06");
+    iwi[4] = 10;
+    iwi[5] = cubemap;
+    iwi[6] = iwi[8] = 2;
+    iwi[10] = 1;
+    std::string fullMip, smallMip;
+    for (char sample = 40; sample < 46; ++sample)
+    {
+        smallMip += sample;
+        fullMip.append(4, sample);
+    }
+    iwi += smallMip;
+    iwi.append(4, '\0'); // Six faces of five bits each.
+    const auto dds = WaveletToDds(iwi, tables);
+    CHECK(dds.substr(128) == fullMip + smallMip);
+    CHECK(static_cast<unsigned char>(dds[80]) == 0x2);
+    CHECK(static_cast<unsigned char>(dds[113]) == 0xfe);
+    iwi.pop_back();
+    CHECK_THROWS_AS(WaveletToDds(iwi, tables), TextureError);
 }
 
 TEST_CASE("Over-budget reflection probes preserve the deterministic WaW-to-T6 remap")

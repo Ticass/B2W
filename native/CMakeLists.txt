@@ -54,8 +54,13 @@ add_library(w2b_sound STATIC
 target_link_libraries(w2b_sound PUBLIC w2b_core)
 
 add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/iwi.cpp src/textures/stage.cpp
-    src/textures/lightmap.cpp src/textures/lightmap_stage.cpp)
+    src/textures/lightmap.cpp src/textures/lightmap_stage.cpp src/textures/iwi6.cpp
+    src/textures/wavelet.cpp src/textures/wavelet_tables.cpp src/textures/iwd_recovery.cpp src/textures/iwd_service.cpp)
 target_link_libraries(w2b_textures PUBLIC w2b_core)
+
+add_library(w2b_materials STATIC src/materials/techset_name.cpp src/materials/techset_match.cpp
+    src/materials/material.cpp src/materials/prepare.cpp)
+target_link_libraries(w2b_materials PUBLIC w2b_core)
 
 add_library(w2b_world STATIC
     src/world/vertices.cpp
@@ -107,7 +112,7 @@ add_library(w2b_gscport STATIC
 target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
 add_executable(waw2bo2n src/cli/main.cpp)
-target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures)
+target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures w2b_materials)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

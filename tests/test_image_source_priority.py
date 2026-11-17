@@ -33,8 +33,10 @@ class ImageSourcePriorityTests(unittest.TestCase):
             z.writestr('images/skin.iwi', data)
 
     def recovery(self):
-        return wavelet.IwdRecovery([self.mod_iwds, self.stock_iwds], None, self.root / 'recovery',
+        recovery = wavelet.open_recovery([self.mod_iwds, self.stock_iwds], None, self.root / 'recovery',
             source_image_roots=[self.map_images], override_directories=[self.mod_iwds])
+        self.addCleanup(recovery.close)
+        return recovery
 
     def test_map_iwd_precedes_stock_dump_in_world_staging(self):
         report = t6bridge.StageReport('test')
@@ -91,7 +93,9 @@ class ImageSourcePriorityTests(unittest.TestCase):
                          iwi.dds_to_iwi(iwi.iwi6_to_dds(image(60))))
 
     def test_new_build_decodes_current_archive_instead_of_old_recovery_file(self):
-        self.recovery().resolve('skin', self.stock)
+        recovery = self.recovery()
+        recovery.resolve('skin', self.stock)
+        recovery.close()
         self.archive(self.mod_iwds, image(50))
         source = self.recovery().resolve('skin', self.stock)
         self.assertEqual(source.read_bytes(), iwi.iwi6_to_dds(image(50)))
@@ -118,7 +122,9 @@ class IwdPatchPriorityTests(unittest.TestCase):
                 z.writestr('images/spec.iwi', image(value))
 
     def recovery(self):
-        return wavelet.IwdRecovery([self.main], None, self.root / 'recovery', source_image_roots=[self.zone])
+        recovery = wavelet.open_recovery([self.main], None, self.root / 'recovery', source_image_roots=[self.zone])
+        self.addCleanup(recovery.close)
+        return recovery
 
     def test_zone_dump_of_a_shadowed_copy_takes_the_patch(self):
         dumped = self.zone / 'spec.dds'

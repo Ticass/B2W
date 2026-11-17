@@ -69,12 +69,16 @@ The remaining small modules move with the area that uses them.
 | Convert DDS to IWI in destination batches | yes | 3,025 byte-identical textures across Der Riese, Clinic of Evil, and Nuketown. The standalone folder command also matched errors and output order. | 0.21 s / 0.43 s (812 textures) |
 | Stage lightmap pages, primary lights, and reflection probes | yes | Seven maps matched files, probe assignments, and diagnostics. The full Der Riese build passed with the same 20 BSP files. | 0.08 s / 1.69 s (two lightmap pages, one worker) |
 | Bake static-model light grid | yes | Six maps matched the model placements and grid byte for byte. Anguish's over-budget test returned the same palette-limit failure. | 0.09 s / 1.51 s |
+| Recover textures from WaW IWDs | yes | 41 real textures matched DDS bytes and source reports across seven IWI formats. Der Riese linked and matched all 20 BSP files. | 0.25 s / 39.56 s (41 IWD requests) |
+| Select material donors and prepare material JSON | yes | 2,847 source materials from Der Riese, Cheese Cube, Nightclub, and Clinic of Evil matched Python with layered vertex data enabled and disabled. Der Riese's 1,143 staged materials, 319 technique sets, and 1,780 shader binaries also matched. | 0.19 s / 1.20 s (921 materials with layered vertex data) |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
 run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.
 The Python builder still resolves source assets and filters render surfaces
-before calling the native world steps. Individual file conversions used by
-other stages and wavelet recovery remain Python entry points.
+before calling the native world steps. It opens the native IWD recovery
+service once per build so the ZIP index and wavelet tables stay in memory.
+Material dependency discovery, stock donor indexing, and binding WaW shader
+programs to T6 passes still run in Python.
 
 Tools: `native/tools/shadow_*.py` run a real stage-bridge with the Python
 step and the native step on the same inputs and compare every output file.

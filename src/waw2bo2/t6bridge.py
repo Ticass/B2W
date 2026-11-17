@@ -222,6 +222,52 @@ def dangling_substitute(name: str, roots: list[Path]) -> tuple[str, str] | None:
     return None
 
 
+def _waw_material_source(context: dict, name: str) -> tuple[Path | None, tuple[str, str] | None] | None:
+    roots = context['roots']
+    source = _find(roots, techsets.oat_material_path(name))
+    if name in context['native'] or (source is None and name in context['native_fallbacks']):
+        return None
+    substitute = dangling_substitute(name, roots) if source is None else None
+    if substitute is not None:
+        source = _find(roots, techsets.oat_material_path(substitute[0]))
+    return source, substitute
+
+
+def _choose_waw_material(context: dict, t4: dict) -> dict:
+    """Reference donor selection and material preparation, before shader binding."""
+    t4_ts = t4.get("techniqueSet", "")
+    candidates = sorted(context['donors'])
+    remaining = list(candidates)
+    rejected: list[str] = []
+    source_ts = techsets.material_techset(t4)
+    approximations = techsets.last_resort(source_ts)
+    programs = bool(context['techset_root'] and
+                    _find(context['roots'], Path('waw_techniquesets') / f'{t4_ts}.json'))
+    approximated, first_error = None, None
+    while True:
+        try:
+            match = techsets.match(source_ts, remaining, source_programs=programs)
+        except techsets.TechsetError as exc:
+            first_error = first_error or exc
+            if approximations:
+                source_ts, remaining = approximations.pop(0), list(candidates)
+                approximated = source_ts
+                continue
+            return {"error": str(first_error) + (f"; rejected: {'; '.join(rejected)}" if rejected else "")}
+        notes = list(match.notes)
+        if approximated:
+            notes.append(f"APPROXIMATED: no T6 rule for '{t4_ts}', drawn as '{approximated}'")
+        try:
+            material = techsets.build_material(t4, _load_json(context['donors'][match.target]), notes)
+        except techsets.TechsetError as exc:
+            rejected.append(f"{match.target}: {exc}")
+            remaining.remove(match.target)
+            continue
+        return {"target": match.target, "cost": match.cost, "match_notes": match.notes,
+                "notes": notes + [f"{reason}, not used" for reason in rejected], "material": material,
+                "approximation": approximated}
+
+
 def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None:
     """Convert one WaW material, writing its files under ``out_root``.
     None: a BO2 native equivalent, which the caller stages."""
@@ -229,11 +275,12 @@ def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None
     stock_materials, techset_root = context['stock_materials'], context['techset_root']
     image_prefix, donors = context['image_prefix'], context['donors']
     falloff_placement, light_shadows = context['falloff_placement'], context['light_shadows']
-    candidates = sorted(donors)
     rel = techsets.oat_material_path(name)
-    src = _find(roots, rel)
-    if name in context['native'] or (src is None and name in context['native_fallbacks']):
+    material_source = (context['material_sources'][name] if 'material_sources' in context
+                       else _waw_material_source(context, name))
+    if material_source is None:
         return None
+    src, substitute = material_source
     out_rel = techsets.oat_material_path(rename.get(name, name))
     entry = {"name": rename.get(name, name), "file": out_rel.as_posix()}
     if name in rename:
@@ -241,59 +288,30 @@ def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None
     notes: list[str] = []
     local = StageReport("materials")
     if src is None:
-        sub = dangling_substitute(name, roots)
-        if sub is None:
-            local.errors.append(f"material {name}: no WaW source {rel.as_posix()} in any zone dump")
-            return _material_result(local, None, None, out_root)
-        entry["substituted_from"] = sub[0]
-        notes.append(sub[1])
-        local.warnings.append(sub[1])
-        src = _find(roots, techsets.oat_material_path(sub[0]))
+        local.errors.append(f"material {name}: no WaW source {rel.as_posix()} in any zone dump")
+        return _material_result(local, None, None, out_root)
+    if substitute is not None:
+        entry["substituted_from"] = substitute[0]
+        notes.append(substitute[1])
+        local.warnings.append(substitute[1])
     t4 = _load_json(src)
     t4_ts = t4.get("techniqueSet", "")
     entry["t4_techset"] = t4_ts
     if "sortKey" in t4:
         entry["t4_sort_key"] = t4["sortKey"]
-    # The best-named technique set can still be unusable when its donor has
-    # extra slots the source cannot fill; fall back to the next best.
-    remaining = list(candidates)
-    rejected: list[str] = []
-    source_ts = techsets.material_techset(t4)
-    approximations = techsets.last_resort(source_ts)
-    approximated, first_error = None, None
-    while True:
-        try:
-            m = techsets.match(source_ts, remaining, source_programs=bool(techset_root and
-                _find(roots, Path('waw_techniquesets') / f'{t4_ts}.json')))
-        except techsets.TechsetError as exc:
-            first_error = first_error or exc
-            if approximations:
-                # no rule for this WaW technique: keep the material's own
-                # textures on the nearest generic pass instead of failing
-                source_ts, remaining = approximations.pop(0), list(candidates)
-                approximated = source_ts
-                continue
-            local.errors.append(f"material {name} ({t4_ts}): {first_error}" + (f"; rejected: {'; '.join(rejected)}" if rejected else ""))
-            m = None
-            break
-        attempt = notes + m.notes + ([f"APPROXIMATED: no T6 rule for '{t4_ts}', drawn as '{approximated}'"]
-                                     if approximated else [])
-        try:
-            out = techsets.build_material(t4, _load_json(donors[m.target]), attempt)
-        except techsets.TechsetError as exc:
-            rejected.append(f"{m.target}: {exc}")
-            remaining.remove(m.target)
-            continue
-        notes = attempt + [f"{r}, not used" for r in rejected]
-        break
-    if m is None:
+    prepared = (_load_json(context['prepared_materials'][name]) if 'prepared_materials' in context
+                else _choose_waw_material(context, t4))
+    if 'error' in prepared:
+        local.errors.append(f"material {name} ({t4_ts}): {prepared['error']}")
         return _material_result(local, None, None, out_root)
+    target, out, approximated = prepared['target'], prepared['material'], prepared['approximation']
+    notes.extend(prepared['notes'])
     if approximated:
         local.warnings.append(f"APPROXIMATED_MATERIAL {name}: no T6 rule for WaW technique '{t4_ts}'; "
-                               f"drawn with its own textures as '{approximated}' ({m.target})")
+                               f"drawn with its own textures as '{approximated}' ({target})")
     runtime = shaderruntime.bind_material(t4, out, roots, out_root, techset_root, falloff_placement,
                                            light_shadows) if techset_root else {'active': [], 'unsupported': ['native technique dump absent']}
-    if any('source program supplies' in n for n in m.notes):
+    if any('source program supplies' in n for n in prepared['match_notes']):
         active = {a['slot'] for a in runtime.get('active', [])}
         if not {4, 5, 6, 7, 8, 13, 14}.issubset(active):
             local.errors.append(f'material {name}: layered stream donor requires original WaW lit programs; '
@@ -310,8 +328,8 @@ def _stage_waw_material(context: dict, name: str, out_root: Path) -> dict | None
         image_name = texture.get('image', '')
         if image_prefix and image_name and not image_name.startswith((',', '$', image_prefix)):
             texture['image'] = image_prefix + image_name
-    entry.update(t6_techset=out['techniqueSet'], donor=donors[m.target].relative_to(stock_materials).as_posix(),
-                 cost=m.cost, notes=notes)
+    entry.update(t6_techset=out['techniqueSet'], donor=donors[target].relative_to(stock_materials).as_posix(),
+                 cost=prepared['cost'], notes=notes)
     dst = out_root / out_rel
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
@@ -428,6 +446,29 @@ def material_donors(stock_materials: Path, techset_root: Path | None) -> dict[st
     return donors
 
 
+def _prepare_native_materials(context: dict, names: list[str], output: Path) -> None:
+    sources = {name: _waw_material_source(context, name) for name in names}
+    paths = []
+    prepared = {}
+    for name, material in sources.items():
+        if material is None or material[0] is None:
+            continue
+        prepared[name] = output / f'{len(paths)}.json'
+        paths.append(str(material[0]))
+    context.update(material_sources=sources, prepared_materials=prepared)
+    if not paths:
+        return
+    output.mkdir()
+    request = output / 'request.json'
+    request.write_text(json.dumps({
+        'donors': {name: str(path) for name, path in context['donors'].items()},
+        'materials': paths, 'roots': [str(root) for root in context['roots']],
+        'check_programs': context['techset_root'] is not None,
+        'layered': context['layered_vertex_data'], 'workers': parallel.worker_count(len(paths)),
+    }), encoding='utf-8')
+    native.run('prepare-materials', str(request))
+
+
 @progress.phase('Convert materials')
 def stage_materials(report: StageReport, names: set[str], roots: list[Path], stock_materials: Path,
                     project_root: Path, techset_root: Path | None = None,
@@ -459,6 +500,8 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
         ordered[i:i + MATERIAL_BATCH] for i in range(0, len(ordered), MATERIAL_BATCH)]
     with tempfile.TemporaryDirectory(prefix='waw2bo2_compiled_') as shared:
         context['shared_compiles'] = Path(shared) if len(batches) > 1 else None
+        if native.tool() is not None:
+            _prepare_native_materials(context, ordered, Path(shared) / 'prepared')
         used_techsets |= _apply_material_batches(report, context, batches, project_root, rename, remaster,
                                                  native_fallbacks, stock_materials, image_prefix)
     return used_techsets
@@ -564,7 +607,7 @@ def _in_iwds(stem: str, iwd_dirs: list[Path]) -> bool:
 @progress.phase('Convert images')
 def stage_images(report: StageReport, image_roots: list[Path], project_root: Path,
                  iwd_dirs: list[Path] | None = None, extra_images: list[str] = (),
-                 wavelets: wavelet.IwdRecovery | None = None) -> list[str]:
+                 wavelets: wavelet.IwdRecovery | wavelet.NativeIwdRecovery | None = None) -> list[str]:
     wanted: dict[str, str] = {name: name.replace("*", "_") for name in extra_images}
     for mat in report.materials:
         data = _load_json(project_root / mat["file"])
@@ -1764,7 +1807,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         stock_waw.load()
     image_iwds = [*(iwd_dirs or []), *([waw_root / "main"] if waw_root else [])]
     stock_iwd_directory = (waw_root / "main").resolve() if waw_root else None
-    wavelets = wavelet.IwdRecovery(image_iwds, wavelet_binary, project_root / "wavelet_src",
+    wavelets = wavelet.open_recovery(image_iwds, wavelet_binary, project_root / "wavelet_src",
         source_image_roots=[project_root / SKY_SRC_DIR, *[r / "images" for r in roots
             if waw_stock_scripts is None or r.resolve() != waw_stock_scripts.resolve()]],
         override_directories=[d for d in image_iwds if d.resolve() != stock_iwd_directory])
@@ -2567,6 +2610,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     print(f"framework coverage: {framework_coverage.totals(coverage)} (framework_coverage.md)", flush=True)
 
     (project_root / "bridge_stage.report.json").write_text(report.to_json(), encoding="utf-8")
+    wavelets.close()
     return report
 
 

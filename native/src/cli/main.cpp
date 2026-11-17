@@ -3,6 +3,7 @@
 #include "audio/stage.h"
 #include "shaders/stage.h"
 #include "sound/stage.h"
+#include "textures/iwd_service.h"
 #include "textures/stage.h"
 #include "core/parallel.h"
 #include "core/pytext.h"
@@ -11,6 +12,7 @@
 #include "gsc/port/api.h"
 #include "gsc/port/portmap.h"
 #include "gsc/port/rewrites.h"
+#include "materials/prepare.h"
 #include "world/collision_stage.h"
 #include "world/fbx_stage.h"
 #include "world/grid_stage.h"
@@ -465,6 +467,20 @@ namespace
         {"shaders-stage", ShadersStage}, {"audio-stage", AudioStage},
         {"dds2iwi", [](const Arguments& a) { return a.size() == 2 ? DdsToIwi(a[0], a[1]) : Usage(); }},
         {"dds-batch", JsonRequest<w2b::textures::ConvertBatch>},
+        {"prepare-materials", [](const Arguments& a)
+        {
+            if (a.size() != 1)
+                return Usage();
+            w2b::materials::PrepareMaterials(w2b::files::FromUtf8(a[0]));
+            return 0;
+        }},
+        {"iwd-recovery", [](const Arguments& a)
+        {
+            if (!a.empty())
+                return Usage();
+            w2b::textures::ServeIwdRecovery(std::cin, std::cout);
+            return 0;
+        }},
         {"lightmaps", JsonRequest<w2b::textures::StageLightmaps>},
         {"light-grid", JsonRequest<w2b::world::StageGrid>},
         {"primary-lights", [](const Arguments& a)
