@@ -14,7 +14,8 @@ import shutil
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from . import wawtext
+from tempfile import TemporaryDirectory
+from . import native, wawtext
 from .resources import resource_root
 
 
@@ -609,24 +610,7 @@ def plan(roots: list[Path], project: Path) -> tuple[dict[str, ConvertedWeapon], 
     return converted, report
 
 
-def stage(roots: list[Path], project: Path, names: set[str] | None = None, stock=None,
-          extra_requests: set[tuple[str, str]] = frozenset()) -> dict:
-    """Stage compiled weapon fields and *original* raw animation tracks.
-
-    The resulting zone fragment is for the installed BO2 linker. It does not
-    imply gameplay registration or complete model/sound/FX conversion. Every
-    outstanding dependency and incompatible field is included in the report.
-    Missing dependencies are never replaced with another game's asset.
-    """
-    graph = None
-    if stock is not None:
-        from .assetresolve import Resolver
-        # Only the map/companion weapons are initial roots. A stock dump made
-        # for one dependency must not add every unrelated stock gun to the mod.
-        names = names if names is not None else set(discover(roots))
-        resolver = Resolver(roots, stock)
-        graph = resolver.expand({("weapon", n) for n in names} | set(extra_requests))
-        roots = resolver.roots
+def _stage_weapon_files(roots: list[Path], project: Path, names: set[str] | None) -> tuple[dict, set[str]]:
     converted, report = plan(roots, project)
     if names is not None:
         missing = names - converted.keys()
@@ -699,7 +683,36 @@ def stage(roots: list[Path], project: Path, names: set[str] | None = None, stock
     # roots; those models belong to the map zone under their WaW names.
     world_models = {value for weapon in converted.values() for key, value in weapon.fields.items()
                     if WORLD_MODEL_SLOT.match(key)}
-    report["models"] = stage_models(roots, project, dependencies.get("xmodel", set()), world_models)
+    return report, world_models
+
+
+def _stage_native_weapon_files(roots: list[Path], project: Path, names: set[str] | None) -> tuple[dict, set[str]]:
+    with TemporaryDirectory(prefix='waw2bo2_weapons_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps({'roots': list(map(str, roots)), 'project': str(project),
+                                       'base': str(resource_root()), 'names': sorted(names) if names is not None else None}),
+                           encoding='utf-8')
+        result = json.loads(native.run('stage-weapon-files', str(request)))
+    if 'error' in result:
+        raise WeaponError(result['error'])
+    return result['report'], set(result['worldModels'])
+
+
+def stage(roots: list[Path], project: Path, names: set[str] | None = None, stock=None,
+          extra_requests: set[tuple[str, str]] = frozenset()) -> dict:
+    """Stage compiled weapon fields, original animation tracks and models."""
+    graph = None
+    if stock is not None:
+        from .assetresolve import Resolver
+        # Only map and companion weapons are initial roots. A stock dump made
+        # for one dependency can also contain unrelated guns.
+        names = names if names is not None else set(discover(roots))
+        resolver = Resolver(roots, stock)
+        graph = resolver.expand({("weapon", n) for n in names} | set(extra_requests))
+        roots = resolver.roots
+    stage_files = _stage_native_weapon_files if native.tool() is not None else _stage_weapon_files
+    report, world_models = stage_files(roots, project, names)
+    report["models"] = stage_models(roots, project, set(report["dependencies"].get("xmodel", [])), world_models)
     if graph is not None:
         report["dependency_graph"] = "weapons.dependencies.json"
         report["resolved_roots"] = graph["roots"]
@@ -721,7 +734,7 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
     the weapons whose visuals are complete. ``wavelets`` (wavelet.IwdRecovery)
     decodes WaW wavelet IWIs the zone dumps could not export as DDS.
     """
-    from . import fxmaterials, iwi, shaderruntime, t6bridge, techsets
+    from . import fxmaterials, shaderruntime, t6bridge, techsets
 
     stage_report = json.loads((project / "weapons.stage.json").read_text(encoding="utf-8"))
     names = set(stage_report["models"]["materials"])

@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 
@@ -67,25 +68,40 @@ namespace w2b::process
     Result Run(const std::vector<std::string>& args, const std::string_view input, const double timeoutSeconds)
     {
         SECURITY_ATTRIBUTES inherit{sizeof(inherit), nullptr, TRUE};
-        HANDLE inRead, inWrite, outRead, outWrite, errRead, errWrite;
-        if (!CreatePipe(&inRead, &inWrite, &inherit, 0) || !CreatePipe(&outRead, &outWrite, &inherit, 0) || !CreatePipe(&errRead, &errWrite, &inherit, 0))
-            throw std::runtime_error("CreatePipe failed");
-        SetHandleInformation(inWrite, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(errRead, HANDLE_FLAG_INHERIT, 0);
+        HANDLE inRead{}, inWrite{}, outRead{}, outWrite{}, errRead{}, errWrite{};
 
-        STARTUPINFOW startup{};
-        startup.cb = sizeof(startup);
-        startup.dwFlags = STARTF_USESTDHANDLES;
-        startup.hStdInput = inRead;
-        startup.hStdOutput = outWrite;
-        startup.hStdError = errWrite;
         PROCESS_INFORMATION info{};
         auto command = Wide(CommandLine(args));
-        const BOOL created = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &info);
-        CloseHandle(inRead);
-        CloseHandle(outWrite);
-        CloseHandle(errWrite);
+        BOOL created;
+        {
+            // Restrict the lifetime of inheritable pipes to one launch at a
+            // time. A sibling inheriting a writer would delay the reader's EOF.
+            static std::mutex launch;
+            std::lock_guard lock(launch);
+            if (!CreatePipe(&inRead, &inWrite, &inherit, 0) ||
+                !CreatePipe(&outRead, &outWrite, &inherit, 0) ||
+                !CreatePipe(&errRead, &errWrite, &inherit, 0) ||
+                !SetHandleInformation(inWrite, HANDLE_FLAG_INHERIT, 0) ||
+                !SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0) ||
+                !SetHandleInformation(errRead, HANDLE_FLAG_INHERIT, 0))
+            {
+                for (const auto pipe : {inRead, inWrite, outRead, outWrite, errRead, errWrite})
+                    if (pipe)
+                        CloseHandle(pipe);
+                throw std::runtime_error("could not create child process pipes");
+            }
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdInput = inRead;
+            startup.hStdOutput = outWrite;
+            startup.hStdError = errWrite;
+            created = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                                     nullptr, nullptr, &startup, &info);
+            CloseHandle(inRead);
+            CloseHandle(outWrite);
+            CloseHandle(errWrite);
+        }
         Result result;
         if (!created)
         {

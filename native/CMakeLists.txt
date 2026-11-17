@@ -26,6 +26,7 @@ endif()
 add_library(w2b_core STATIC
     src/core/pytext.cpp
     src/core/files.cpp
+    src/core/share_files.cpp
     src/core/hash.cpp
     src/core/cache.cpp
     src/core/process.cpp
@@ -46,6 +47,7 @@ target_link_libraries(w2b_shaders PUBLIC w2b_core)
 
 add_library(w2b_audio STATIC
     src/audio/convert.cpp
+    src/audio/flac_batch.cpp
     src/audio/stage.cpp)
 target_link_libraries(w2b_audio PUBLIC w2b_core)
 
@@ -64,6 +66,10 @@ target_link_libraries(w2b_materials PUBLIC w2b_core)
 
 add_library(w2b_effects STATIC src/effects/element.cpp src/effects/effect.cpp src/effects/overlay.cpp src/effects/stage.cpp)
 target_link_libraries(w2b_effects PUBLIC w2b_core)
+
+add_library(w2b_weapons STATIC src/weapons/infostring.cpp src/weapons/convert.cpp src/weapons/defaults.cpp
+    src/weapons/sources.cpp src/weapons/plan.cpp src/weapons/flame_table.cpp src/weapons/stage.cpp)
+target_link_libraries(w2b_weapons PUBLIC w2b_core)
 
 add_library(w2b_world STATIC
     src/world/vertices.cpp
@@ -116,7 +122,7 @@ target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
 add_executable(waw2bo2n src/cli/main.cpp)
 target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
-    w2b_materials w2b_effects)
+    w2b_materials w2b_effects w2b_weapons)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

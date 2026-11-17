@@ -1,6 +1,8 @@
 // waw2bo2n: the converter's native steps, one subcommand each.
 #include "core/files.h"
+#include "core/share_files.h"
 #include "audio/stage.h"
+#include "audio/flac_batch.h"
 #include "shaders/stage.h"
 #include "sound/stage.h"
 #include "textures/iwd_service.h"
@@ -15,6 +17,7 @@
 #include "gsc/port/rewrites.h"
 #include "materials/donor_index.h"
 #include "materials/prepare.h"
+#include "weapons/stage.h"
 #include "world/collision_stage.h"
 #include "world/fbx_stage.h"
 #include "world/grid_stage.h"
@@ -516,6 +519,9 @@ namespace
         {"dds-batch", JsonRequest<w2b::textures::ConvertBatch>},
         {"index-donors", JsonRequest<w2b::materials::IndexDonors>},
         {"convert-effects", JsonRequest<w2b::effects::StageEffects>},
+        {"stage-weapon-files", JsonRequest<w2b::weapons::StageWeapons>},
+        {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
+        {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
         {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},
         {"prepare-materials", [](const Arguments& a)
         {

@@ -12,6 +12,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import struct
 import zipfile
 from pathlib import Path
@@ -1696,6 +1697,9 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
         budget["played"] = sorted(set(budget.get("played", [])) | {name.lower() for name in actor_aliases})
         report["loaded_to_streamed"] = fit_loaded_budget(rows, project / "pcm", budget, weapon_aliases)
         report["loaded_budget"] = budget
+    if os.environ.get("WAW2BO2_STREAM_FLAC") == "1":
+        from .streamflac import compress_rows
+        report["streamed_flac"] = compress_rows(rows, project / "pcm")
     known = {r["Name"] for r in rows}
     for row in rows:
         if row["Secondary"] and row["Secondary"] not in known:

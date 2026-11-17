@@ -5,6 +5,7 @@ from pathlib import Path
 from contextlib import ExitStack
 import hashlib
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -84,7 +85,8 @@ def converter_digest() -> str:
 def stage_fingerprint(args: list[str]) -> str:
     # the stage-bridge command line names every input: map dumps (their
     # folders are keyed by the fastfile stamps), game roots and flags
-    return hashlib.sha256(json.dumps([converter_digest(), args]).encode()).hexdigest()
+    streamed_flac = os.environ.get("WAW2BO2_STREAM_FLAC") == "1"
+    return hashlib.sha256(json.dumps([converter_digest(), args, streamed_flac]).encode()).hexdigest()
 
 
 def editable_files(project_root: Path) -> dict[str, list[int]]:

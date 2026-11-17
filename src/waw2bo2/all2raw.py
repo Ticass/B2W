@@ -11,7 +11,6 @@ import os
 import re
 from pathlib import Path
 import shutil
-import subprocess
 import time
 import uuid
 
@@ -492,6 +491,8 @@ def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str |
     files = sorted(p.relative_to(temporary).as_posix() for p in temporary.rglob('*') if p.is_file())
     if not files:
         raise RuntimeError(f'Extractor returned success without writing files for {ff}; see {log}')
+    from .cache_share import share_dependencies
+    share_dependencies(root, temporary, inputs, files)
     data = {'inputs': inputs, 'files': files, 'index': index, 'loaded_index': loaded_index}
     write_json(temporary / 'extraction.json', data)
     publish(temporary, folder)

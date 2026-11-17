@@ -6,11 +6,30 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from waw2bo2 import all2raw, t6api, wawassets, modzone
+from waw2bo2 import all2raw, cache_share, native, t6api, wawassets, modzone
 from waw2bo2.launcher import Settings
 
 
 class All2RawTests(unittest.TestCase):
+    def test_dependency_cache_shares_only_identical_payloads(self):
+        if native.tool() is None:
+            self.skipTest("native converter required")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "dependencies" / "zone"
+            old, staging = root / "old", root / "new"
+            old.mkdir(parents=True)
+            staging.mkdir()
+            for parent, changed in ((old, b"a"), (staging, b"b")):
+                (parent / "same.gltf").write_bytes(b"x" * 300_000)
+                (parent / "changed.gltf").write_bytes(changed * 300_000)
+            (old / "extraction.json").write_text(json.dumps({"inputs": {
+                "file": "same.ff", "assets": "xmodel"}}), encoding="utf-8")
+            inputs = {"file": "same.ff", "assets": "xmodel,image"}
+            cache_share.share_dependencies(root, staging, inputs, ["same.gltf", "changed.gltf"])
+            self.assertTrue((old / "same.gltf").samefile(staging / "same.gltf"))
+            self.assertFalse((old / "changed.gltf").samefile(staging / "changed.gltf"))
+            self.assertEqual((staging / "changed.gltf").read_bytes(), b"b" * 300_000)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -165,7 +184,7 @@ class All2RawTests(unittest.TestCase):
         self.assertNotIn('common_zm.ff', [Path(c[-1]).name for c in self.commands])
 
     def test_missing_extracted_file_is_repaired_without_reextracting_other_zones(self):
-        raw = self.prepare()
+        self.prepare()
         receipt = json.loads((self.cache / 'all2raw.json').read_text())
         entry = receipt['zones']['zone/all/zm_alpha.ff']
         (Path(entry['folder']) / 'materials/shared.json').unlink()

@@ -1,18 +1,17 @@
 # Plan: the converter in C++
 
-Decision (user, 2026-11-16): every part of the converter runs as C++; only the
-desktop UI (`gui.py`, `gui_artwork.py`) stays Python. Priority: build speed,
-with no regression in any built map.
+Move the converter and CLI to C++ and preserve existing map behavior while
+improving build speed. A native desktop UI is optional and can replace the
+Python frontend once it covers the same workflows.
 
 ## How it is ported without regressions
 
 1. **Strangler, one module at a time.** Each Python module gets a C++
    replacement in `native/` with the same inputs and outputs. The Python build
    calls the native code for that step; nothing else changes in that commit.
-2. **Equal outputs before the switch.** A module switches only after its C++
-   output equals the Python output byte for byte on real maps (Der Riese, Shi
-   No Numa, Cheese Cube, Clinic of Evil at least), plus the module's own C++
-   tests. Python behaviour that depended on the hash seed is made
+2. **Equal outputs before the switch.** Compare the module against the Python
+   reference on Cheese Cube Unlimited. Use existing staged inputs and focused
+   regressions for component checks. Python behaviour that depended on the hash seed is made
    deterministic in Python first, then matched.
 3. **Python is the oracle until removal.** `WAW2BO2_NATIVE=0` keeps the Python
    path, and `native/tools/shadow_*.py` runs both and diffs them. The Python
@@ -75,6 +74,7 @@ The remaining small modules move with the area that uses them.
 | Index stock T6 material donors | yes | All 323 technique-to-material mappings matched in the stock asset cache used by Der Riese. | 0.05 s / 0.27 s |
 | Select material donors and prepare material JSON | yes | 2,847 source materials from Der Riese, Cheese Cube, Nightclub, and Clinic of Evil matched Python with layered vertex data enabled and disabled. Der Riese's 1,143 staged materials, 319 technique sets, and 1,780 shader binaries also matched. | 0.19 s / 1.20 s (921 materials with layered vertex data) |
 | Convert compiled WaW effects and stage model overlays | yes | 800 converted FX assets and their reports matched. Der Riese's 231 staged FX files matched. Tests cover overlay files, rejected spotlights, and transitive failures. | 0.81 s / 1.28 s (800 source effects) |
+| Stage compiled weapon fields, flame tables, animations, and accuracy graphs | yes | Cheese Cube Unlimited matched 667 staged files, including two flame tables, and the report for 100 weapons. Copied animation and accuracy graph timestamps also matched. | 0.75 s / 0.83 s (Cheese Cube Unlimited with stock dependencies) |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
 run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.
@@ -85,9 +85,28 @@ Material dependency discovery, donor index cache invalidation, and binding
 WaW shader programs to T6 passes still run in Python.
 The effect source resolver and its stock-zone extraction callbacks also still
 run in Python.
+Weapon dependency discovery, skeletal model staging, and gameplay registration
+still run in Python.
+
+## Disk usage
+
+Dependency extraction shares large files across generations after comparing
+their bytes. A Cheese Cube Unlimited dependency sample reused 173 files and
+101 MiB without changing any asset bytes.
+
+Set `$env:WAW2BO2_STREAM_FLAC = '1'` in PowerShell before starting a build
+to encode streamed bank entries as lossless FLAC when the result is smaller.
+The option uses the native converter and discovers FFmpeg the same way as
+audio resampling. Loaded sounds and the staged PCM used by
+audits keep their WAV input.
+Cheese Cube Unlimited's linked streamed bank dropped from 714 MiB to 415 MiB.
+All 1,794 streams and the loaded bank matched the original decoded PCM. In-game
+playback validation remains pending.
 
 Tools: `native/tools/shadow_*.py` run a real stage-bridge with the Python
 step and the native step on the same inputs and compare every output file.
+Cheese Cube Unlimited is the current full-build fixture. Reuse its existing
+staging for isolated linker and size checks.
 Found while porting (fixed): ACM fails concurrent stream opens now and then;
 `json::empty()` is false for every string; Windows keeps a folder's first
 spelling, so folders are created in the Python order.
