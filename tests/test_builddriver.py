@@ -58,6 +58,7 @@ class BuildDriverTests(BuildWorkspace, unittest.TestCase):
                 mod = paths.mod / 'out/mod.ff'
                 mod.parent.mkdir(parents=True)
                 mod.touch()
+                Path(command[command.index('--scripts-ready') + 1]).write_text('ready')
             if 'bridge-link' in command:
                 ff = paths.stage / 'zone_out/zm_bankjob/zm_bankjob.ff'
                 ff.parent.mkdir(parents=True)
@@ -106,6 +107,8 @@ class BuildDriverTests(BuildWorkspace, unittest.TestCase):
                 if step in command:  # build-mod writes mod.ff, bridge-link the map zone
                     ff.parent.mkdir(parents=True, exist_ok=True)
                     ff.touch()
+                    if step == 'build-mod':
+                        Path(command[command.index('--scripts-ready') + 1]).write_text('ready')
             if Path(command[0]).name == 'Unlinker.exe':
                 output = Path(command[command.index('--output-folder') + 1]) / 'xmodel/body.json'
                 output.parent.mkdir(parents=True)
@@ -196,6 +199,8 @@ class ResumeTests(BuildWorkspace, unittest.TestCase):
                 if step in command:  # build-mod writes mod.ff, bridge-link the map zone
                     ff.parent.mkdir(parents=True, exist_ok=True)
                     ff.touch()
+                    if step == 'build-mod':
+                        Path(command[command.index('--scripts-ready') + 1]).write_text('ready')
         with patch.object(builddriver, 'run', side_effect=fake_run):
             if fail:
                 with self.assertRaisesRegex(RuntimeError, fail):

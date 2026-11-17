@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import math
+import os
 import io
 import re
 import subprocess
@@ -614,6 +615,23 @@ def start_location_option_strings(project_root: Path, project: str, strings: dic
     return values
 
 
+def text_bytes(text: str) -> bytes:
+    """The bytes Path.write_text(text, encoding='utf-8') writes on this OS."""
+    return text.replace('\n', os.linesep).encode('utf-8')
+
+
+def write_if_changed(path: Path, data: bytes) -> None:
+    """Write only when the content differs. build-mod restages the lobby tables
+    and menu strings while the map zone links from the same folder; rewriting
+    an unchanged file there could hand that linker a half-written file."""
+    try:
+        if path.read_bytes() == data:
+            return
+    except OSError:
+        pass
+    path.write_bytes(data)
+
+
 def stage_menu_assets(project_root: Path, project: str) -> list[str]:
     """Localize the map's frontend strings and include authored materials in both zones."""
     data = menu_metadata(project_root)
@@ -629,9 +647,9 @@ def stage_menu_assets(project_root: Path, project: str) -> list[str]:
               f'{name}_CAPS': strings['title'].upper(), f'{name}_LOC': strings['location']}
     values.update((key, strings['mode'].upper()) for key in gametype_name_keys(project_root, project))
     values.update(start_location_option_strings(project_root, project, strings))
-    path.write_text('VERSION "1"\nCONFIG ""\nFILENOTES "Converted map menu"\n\n' +
-                    ''.join(f'REFERENCE {key}\nLANG_ENGLISH {quote(value)}\n\n'
-                            for key, value in values.items()) + 'ENDMARKER\n', encoding='utf-8')
+    write_if_changed(path, text_bytes('VERSION "1"\nCONFIG ""\nFILENOTES "Converted map menu"\n\n' +
+                     ''.join(f'REFERENCE {key}\nLANG_ENGLISH {quote(value)}\n\n'
+                             for key, value in values.items()) + 'ENDMARKER\n'))
     assets = [f'localize,{asset}']
     if data.get('loading_song'):
         bank = data['loading_song']['bank']
@@ -667,7 +685,7 @@ def stage_menu_assets(project_root: Path, project: str) -> list[str]:
             if not (project_root / 'images' / (texture['image'] + '.iwi')).is_file():
                 raise FileNotFoundError(f'authored menu image missing: {texture["image"]}')
             streaming['streamingMode'][texture['image']] = 2
-    streaming_file.write_text(json.dumps(streaming, indent=2) + '\n', encoding='utf-8')
+    write_if_changed(streaming_file, text_bytes(json.dumps(streaming, indent=2) + '\n'))
     pack = data.get('image_pack', project + '_menu')
     return [f'>level.ipak_read,{pack}', f'>ipak,{pack}', *assets] + [f'material,{name}' for name in names]
 
@@ -732,8 +750,9 @@ def stage_lobby_map_table(stock: Path, project_root: Path, project: str) -> Path
     existing[6] = 'WAW_MENU_' + project.upper() + '_DESC'
     result = project_root / "zm/mapstable.csv"
     result.parent.mkdir(parents=True, exist_ok=True)
-    with result.open("w", encoding="utf-8", newline="") as stream:
-        csv.writer(stream, lineterminator="\n").writerows(rows)
+    text = io.StringIO()
+    csv.writer(text, lineterminator="\n").writerows(rows)
+    write_if_changed(result, text.getvalue().encode("utf-8"))
     return result
 
 
@@ -788,8 +807,9 @@ def stage_lobby_gametype_table(stock: Path, project_root: Path, project: str) ->
                                                menu_metadata(project_root).get('blit', entry[6]), prefix + '_TITLE')
     result = project_root / "zm/gametypestable.csv"
     result.parent.mkdir(parents=True, exist_ok=True)
-    with result.open("w", encoding="utf-8", newline="") as stream:
-        csv.writer(stream, lineterminator="\n").writerows(rows)
+    text = io.StringIO()
+    csv.writer(text, lineterminator="\n").writerows(rows)
+    write_if_changed(result, text.getvalue().encode("utf-8"))
     return result
 
 

@@ -320,6 +320,7 @@ def _build_mod(args: argparse.Namespace) -> int:
             ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
                 project_root, [project_root/'content_source/pcm', project_root/'content_source', args.techset_dump],
                 stock_dump=args.techset_dump)
+        _finish_map_scripts(args, unavailable)
         flame_stage = project_root / 'content_source/weapons.stage.json'
         has_flames = flame_stage.is_file() and bool(json.loads(flame_stage.read_text()).get('flame_tables'))
         if active or has_flames:
@@ -328,6 +329,7 @@ def _build_mod(args: argparse.Namespace) -> int:
     else:
         ff, unavailable = modzone.link_mod(args.bo2.resolve(), args.work, args.unlinker.resolve(), extra_lines,
             project_root, [project_root/'content_source/pcm', project_root/'content_source'], stock_dump=args.techset_dump)
+        _finish_map_scripts(args, unavailable)
     print(f"mod.ff: {ff}")
     from . import ipakfix
     for pack in sorted(ff.parent.glob("*.ipak")):
@@ -340,6 +342,17 @@ def _build_mod(args: argparse.Namespace) -> int:
     for zone in (ff, lobby):
         modzone.verify_lobby_tables(zone, args.unlinker, args.work, args.project)
     print(f"mod_load.ff: {lobby}")
+    return 0
+
+
+def _finish_map_scripts(args: argparse.Namespace, unavailable: list[str]) -> None:
+    """Prune the map scripts' references to weapons mod.ff lacks and write the
+    loaded weapon list. Both depend only on the mod.ff link (its result and its
+    linker.log), so the map scripts are final here: --scripts-ready announces
+    it, and the driver compiles and links the map zone while build-mod relinks
+    the shaders and builds the lobby zone."""
+    from . import gscport, modzone
+    from .weapons import ENGINE_WEAPONS
     weapons = modzone.unavailable_weapons(unavailable)
     project_root = args.stage.resolve() / "zone_raw" / args.project
     for entry in unavailable:
@@ -362,7 +375,9 @@ def _build_mod(args: argparse.Namespace) -> int:
         print(f"BO2 weapons loaded with the map: {len(known)} (unknown script weapons are skipped at runtime)")
     else:
         print("warning: no weapons recorded in the mod.ff linker log; script weapon names are not checked")
-    return 0
+    if getattr(args, 'scripts_ready', None):
+        args.scripts_ready.parent.mkdir(parents=True, exist_ok=True)
+        args.scripts_ready.write_text('ready\n', encoding='utf-8')
 
 
 def _package(args: argparse.Namespace) -> int:
@@ -572,6 +587,8 @@ def parser() -> argparse.ArgumentParser:
     bm_p.add_argument("--unlinker", type=Path, required=True, help="OAT T6 Unlinker.exe (lists stock zone scripts)")
     bm_p.add_argument("--linker", type=Path, help="T6 linker supporting translated technique sets")
     bm_p.add_argument("--techset-dump", type=Path, help="stock T6 shader dependencies for translated passes")
+    bm_p.add_argument("--scripts-ready", type=Path,
+                      help="file written once the map scripts are final (the rest of build-mod does not touch them)")
     bm_p.set_defaults(func=_build_mod)
     pk_p = sub.add_parser("package", help="assemble the Plutonium mod folder")
     pk_p.add_argument("stage", type=Path)

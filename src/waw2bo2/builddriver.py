@@ -306,24 +306,39 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
             'files': editable_files(stage / 'zone_raw' / project)}), encoding='utf-8')
     ensure_laa(linker)
     print('== 3a. linking gameplay mod.ff with the BO2 mod tools linker', flush=True)
-    with timeline.span('3a build-mod'):
-        run(cli_command('build-mod', str(stage), project, '--bo2', str(bo2), '--work', str(mod),
-                        '--unlinker', str(t6), '--linker', str(linker), '--techset-dump', str(stock)))
-    # mod.ff is final once build-mod returns and its audit reads only it:
-    # audit it while the map scripts compile and the map zone links.
-    mod_audit = _Background(lambda: _audit_zone(mod / 'out/mod.ff', stage, project, bo2, stock, t6))
-    print('== 3b. compiling map scripts with the BO2 mod tools linker', flush=True)
-    with timeline.span('3b compile-scripts'):
-        run(cli_command('compile-scripts', str(stage), project, '--bo2', str(bo2), '--unlinker', str(t6)))
-    print(f'== 4. linking {project} with the T6 bridge', flush=True)
-    with timeline.span('4 bridge-link'):
-        run(cli_command('bridge-link', str(stage), project, '--linker', str(linker),
-                        '--techset-dump', str(stock), '--log', str(stage / (project + '_bridge.log'))))
-    print('== 6. auditing built material arguments', flush=True)
+    # build-mod finalizes the map scripts right after its first mod.ff link
+    # and says so through this file; its remaining work (shader relink, lobby
+    # zone) touches neither the scripts nor the files the map zone reads.
+    # The map scripts compile and the map zone links and is audited meanwhile;
+    # mod.ff is audited as soon as build-mod has written it.
+    ready = mod / 'scripts_ready'
+    ready.unlink(missing_ok=True)
+
+    def gameplay_zone():
+        with timeline.span('3a build-mod'):
+            run(cli_command('build-mod', str(stage), project, '--bo2', str(bo2), '--work', str(mod),
+                            '--unlinker', str(t6), '--linker', str(linker), '--techset-dump', str(stock),
+                            '--scripts-ready', str(ready)))
+        _audit_zone(mod / 'out/mod.ff', stage, project, bo2, stock, t6)
+
+    gameplay = _Background(gameplay_zone)
     try:
+        while not ready.is_file() and gameplay.running():
+            time.sleep(0.1)
+        if not ready.is_file():
+            gameplay.join()  # build-mod failed: its error
+            raise RuntimeError('build-mod ended without finishing the map scripts')
+        print('== 3b. compiling map scripts with the BO2 mod tools linker', flush=True)
+        with timeline.span('3b compile-scripts'):
+            run(cli_command('compile-scripts', str(stage), project, '--bo2', str(bo2), '--unlinker', str(t6)))
+        print(f'== 4. linking {project} with the T6 bridge', flush=True)
+        with timeline.span('4 bridge-link'):
+            run(cli_command('bridge-link', str(stage), project, '--linker', str(linker),
+                            '--techset-dump', str(stock), '--log', str(stage / (project + '_bridge.log'))))
+        print('== 6. auditing built material arguments', flush=True)
         _audit_zone(stage / 'zone_out' / project / (project + '.ff'), stage, project, bo2, stock, t6)
     finally:
-        mod_audit.join()
+        gameplay.join()
     return 0
 
 
@@ -344,6 +359,9 @@ class _Background:
 
         self._thread = threading.Thread(target=target, daemon=True)
         self._thread.start()
+
+    def running(self) -> bool:
+        return self._thread.is_alive()
 
     def join(self) -> None:
         self._thread.join()
