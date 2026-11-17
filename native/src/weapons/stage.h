@@ -11,6 +11,7 @@ namespace w2b::weapons
     std::string PosixPath(const path& value);
     std::string NameList(const Names& values);
     path FindSource(const std::vector<path>& roots, const path& relative);
+    path FindModelLod(const std::vector<path>& roots, const path& owner, const std::string& file);
     void CopySource(const path& source, const path& destination);
     Json ReadAssetJson(const path& source);
     void AddDependency(Json& dependencyLists, std::string_view kind, const std::string& value);

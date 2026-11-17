@@ -20,7 +20,7 @@ namespace w2b::py
     // json.dumps(value, indent=indent), or compact separators for a negative indent.
     std::string JsonDumps(const Json& value, int indent);
 
-    // str.splitlines() for ASCII-range line boundaries.
+    // str.splitlines() for ASCII and Unicode line boundaries.
     std::vector<std::string_view> SplitLines(std::string_view text);
 
     // str.strip() / str.rstrip(chars) for ASCII whitespace.

@@ -1,5 +1,6 @@
 #include "weapons/stage.h"
 
+#include "core/asset_paths.h"
 #include "core/files.h"
 
 #include <algorithm>
@@ -12,16 +13,7 @@ namespace w2b::weapons
         constexpr std::string_view VariantPrefix = "viewmodel_shadowless/";
         constexpr std::string_view MaterialPrefix = "waw_material/";
 
-        path MaterialPath(std::string name)
-        {
-            const path materials("materials");
-            if (!name.starts_with('*'))
-                return materials / files::FromUtf8(name + ".json");
-            std::ranges::replace(name, '*', '_');
-            if (const auto suffix = name.find('('); suffix != name.npos)
-                name.resize(suffix);
-            return materials / "generated" / files::FromUtf8(name + ".json");
-        }
+        using assets::MaterialPath;
 
         void WriteJson(const path& target, const Json& data)
         {

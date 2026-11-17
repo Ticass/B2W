@@ -38,6 +38,14 @@ namespace w2b::weapons
         return {};
     }
 
+    path FindModelLod(const std::vector<path>& roots, const path& owner, const std::string& file)
+    {
+        OutputName("model_file", file);
+        const auto relative = files::FromUtf8(file);
+        const auto local = owner / relative;
+        return files::fs::is_regular_file(local) ? local : FindSource(roots, relative);
+    }
+
     void CopySource(const path& source, const path& destination)
     {
         files::fs::create_directories(destination.parent_path());

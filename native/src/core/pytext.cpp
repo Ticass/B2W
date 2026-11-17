@@ -264,16 +264,24 @@ namespace w2b::py
         while (i < text.size())
         {
             const char c = text[i];
-            if (c == '\n' || c == '\r' || c == '\v' || c == '\f' || c == '\x1c' || c == '\x1d' || c == '\x1e')
+            const auto tail = text.substr(i);
+            if ((c == '\xc2' && tail.starts_with("\xc2\x85")) ||
+                (c == '\xe2' && (tail.starts_with("\xe2\x80\xa8") || tail.starts_with("\xe2\x80\xa9"))))
+            {
+                lines.push_back(text.substr(start, i - start));
+                i += c == '\xc2' ? 2 : 3;
+                start = i;
+            }
+            else if (c == '\n' || c == '\r' || c == '\v' || c == '\f' || c == '\x1c' || c == '\x1d' || c == '\x1e')
             {
                 lines.push_back(text.substr(start, i - start));
                 if (c == '\r' && i + 1 < text.size() && text[i + 1] == '\n')
                     i++;
                 i++;
                 start = i;
-                continue;
             }
-            i++;
+            else
+                i++;
         }
         if (start < text.size())
             lines.push_back(text.substr(start));

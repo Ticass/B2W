@@ -41,32 +41,42 @@ namespace w2b::weapons
             return kind == "fx" || kind == "sound" ? "waw/" + name : safe;
         }
 
-        std::vector<std::string> Words(std::string_view text)
-        {
-            const auto chars = unicode::Decode(text);
-            std::vector<std::string> words;
-            for (std::size_t i = 0; i < chars.size();)
-            {
-                if (unicode::IsSpace(chars[i]))
-                {
-                    ++i;
-                    continue;
-                }
-                const auto start = i++;
-                while (i < chars.size() && !unicode::IsSpace(chars[i]))
-                    ++i;
-                words.push_back(unicode::Encode(std::u32string_view(chars).substr(start, i - start)));
-            }
-            return words;
-        }
+    }
 
+    std::string_view DependencyKind(std::string_view type)
+    {
+        const auto kind = dependencyTypes.find(type);
+        return kind == dependencyTypes.end() ? std::string_view{} : kind->second;
+    }
+
+    std::vector<std::string> NotetrackWords(std::string_view text)
+    {
+        const auto chars = unicode::Decode(text);
+        std::vector<std::string> words;
+        for (std::size_t i = 0; i < chars.size();)
+        {
+            if (unicode::IsSpace(chars[i]))
+            {
+                ++i;
+                continue;
+            }
+            const auto start = i++;
+            while (i < chars.size() && !unicode::IsSpace(chars[i]))
+                ++i;
+            words.push_back(unicode::Encode(std::u32string_view(chars).substr(start, i - start)));
+        }
+        return words;
+    }
+
+    namespace
+    {
         std::string NotetrackSounds(Weapon& weapon, std::string_view name, std::string_view value)
         {
             std::string rewritten;
             bool first = true;
             for (const auto line : py::SplitLines(value))
             {
-                const auto words = Words(line);
+                const auto words = NotetrackWords(line);
                 if (words.size() != 2)
                     throw WeaponError(std::string(name) + ": malformed notetrackSoundMap " + py::StringRepr(line));
                 if (!first)
@@ -102,7 +112,7 @@ namespace w2b::weapons
         {
             if (value.empty())
                 return;
-            const auto asset = dependencyTypes.find(type);
+            const auto asset = DependencyKind(type);
             if (type == "WFT_BOUNCE_SOUND")
             {
                 OutputName("sound", value);
@@ -111,10 +121,10 @@ namespace w2b::weapons
                     {"reason", "T4 surface bounce aliases -> namespaced T6 sound prefix"}};
                 value = "waw/" + value;
             }
-            if (key == "flameTableFirstPerson" || key == "flameTableThirdPerson")
+            if (std::ranges::find(FlameTableKeys, key) != FlameTableKeys.end())
                 value = Reference(weapon, "flametable", value);
-            else if (asset != dependencyTypes.end())
-                value = Reference(weapon, asset->second, value);
+            else if (!asset.empty())
+                value = Reference(weapon, asset, value);
             if (type == "WFT_NOTETRACKSOUNDMAP")
                 value = NotetrackSounds(weapon, name, value);
             if (!value.empty() && key == "altWeapon")

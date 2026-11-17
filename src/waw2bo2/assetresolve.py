@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryFile
 from .resources import resource_root
 
-from . import fx, techsets, weapons
+from . import fx, native, techsets, weapons
 
 
 def asset_path(kind: str, name: str) -> Path:
@@ -171,6 +173,55 @@ class Resolver:
         return children
 
     def expand(self, requests: set[tuple[str, str]]) -> dict:
+        executable = native.tool()
+        if executable is None:
+            return self._expand_python(requests)
+        request = {'base': str(resource_root()), 'sourceRoots': list(map(str, self.source_roots)),
+                   'stockRoots': [(zone, str(root)) for zone, root in self.stock_roots.items()],
+                   'nodes': list(self.nodes.values()), 'edges': sorted(self.edges),
+                   'requests': sorted(requests), 'hasStock': self.stock is not None}
+        result = self._expand_native(executable, request)
+        report = result['report']
+        self.nodes = {(node['kind'], node['name']): node for node in report['nodes']}
+        self.edges = set(map(tuple, report['edges']))
+        self.stock_roots = {zone: Path(path) for zone, path in result['stockRoots']}
+        missing = {(node['kind'], node['name']) for node in report['missing']}
+        report['missing'] = [node for key, node in self.nodes.items() if key in missing]
+        return report
+
+    def _expand_native(self, executable: Path, request: dict) -> dict:
+        # The native graph owns traversal. The existing stock service can still
+        # prepare a fresh cache generation on demand for an individual asset.
+        with TemporaryFile() as errors, subprocess.Popen(
+                [str(executable), 'resolve-assets'], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=errors, text=True, encoding='utf-8') as process:
+            try:
+                reply = request
+                while True:
+                    process.stdin.write(json.dumps(reply) + '\n')
+                    process.stdin.flush()
+                    output = process.stdout.readline()
+                    if not output:
+                        code = process.wait()
+                        errors.seek(0)
+                        diagnostic = errors.read().decode('utf-8', errors='replace').strip()
+                        raise native.NativeError(f'{executable.name} resolve-assets failed ({code}): {diagnostic}')
+                    message = json.loads(output)
+                    if 'result' in message:
+                        return message['result']
+                    if 'weaponError' in message:
+                        raise weapons.WeaponError(message['weaponError'])
+                    if 'lookup' in message:
+                        found = self.stock.root_for(*message['lookup'])
+                        reply = [found[0], str(found[1])] if found is not None else None
+                    elif 'soundAliases' in message:
+                        reply = sorted({name for kinds in self.stock.index.values() for name in kinds.get('sound', [])})
+                    else:
+                        raise native.NativeError(f'invalid asset resolver message: {message!r}')
+            finally:
+                process.stdin.close()
+
+    def _expand_python(self, requests: set[tuple[str, str]]) -> dict:
         pending = set(requests)
         while pending:
             kind, name = min(pending)

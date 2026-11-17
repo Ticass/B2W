@@ -1,6 +1,7 @@
 // waw2bo2n: the converter's native steps, one subcommand each.
 #include "core/files.h"
 #include "core/share_files.h"
+#include "assets/resolver.h"
 #include "audio/stage.h"
 #include "audio/flac_batch.h"
 #include "shaders/stage.h"
@@ -455,6 +456,47 @@ namespace
         return args.size() == 1 ? PrintReport(Stage(w2b::files::FromUtf8(args[0]))) : Usage();
     }
 
+    w2b::py::Json ReadResolverMessage()
+    {
+        std::string line;
+        if (!std::getline(std::cin, line))
+            throw std::runtime_error("asset resolver input closed");
+        return w2b::py::Json::parse(line);
+    }
+
+    int ResolveAssets(const Arguments& args)
+    {
+        if (!args.empty())
+            return Usage();
+        const auto request = ReadResolverMessage();
+        const auto query = [](const w2b::py::Json& message) {
+            PrintReport(message);
+            std::fflush(stdout);
+            return ReadResolverMessage();
+        };
+        w2b::assets::StockLookup lookup;
+        w2b::assets::StockSounds sounds;
+        if (request.at("hasStock").get<bool>())
+        {
+            lookup = [&](const w2b::assets::Asset& asset) -> std::optional<w2b::assets::StockRoot> {
+                const auto reply = query({{"lookup", asset}});
+                if (reply.is_null())
+                    return std::nullopt;
+                return w2b::assets::StockRoot{reply.at(0).get<std::string>(),
+                                              w2b::files::FromUtf8(reply.at(1).get_ref<const std::string&>())};
+            };
+            sounds = [&]() { return query({{"soundAliases", true}}).get<std::set<std::string>>(); };
+        }
+        try
+        {
+            return PrintReport({{"result", w2b::assets::Expand(request, std::move(lookup), std::move(sounds))}});
+        }
+        catch (const w2b::weapons::WeaponError& error)
+        {
+            return PrintReport({{"weaponError", error.what()}});
+        }
+    }
+
     int Inspect(const Arguments& args)
     {
         if (args.size() != 2)
@@ -522,6 +564,7 @@ namespace
         {"stage-weapon-files", JsonRequest<w2b::weapons::StageWeapons>},
         {"stage-weapon-models", JsonRequest<w2b::weapons::StageModels>},
         {"stage-viewmodel-shadows", JsonRequest<w2b::weapons::StageShadowVariants>},
+        {"resolve-assets", ResolveAssets},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
         {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},

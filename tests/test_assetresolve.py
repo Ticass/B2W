@@ -111,6 +111,25 @@ class ResolverTests(unittest.TestCase):
             staged = weapons.stage_models(resolver.roots, root / 'out', {'gun'})
             self.assertIn('absent from the map', staged['unsupported']['gun'])
 
+    def test_later_expansion_recovers_geometry_from_new_stock_generation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, earlier, later = root / 'map', root / 'stock-a', root / 'stock-b'
+            mesh = 'model_export/gun.gltf'
+            self.write(source, 'xmodel/gun.json', json.dumps({'lods': [{'file': mesh}]}))
+            self.write(earlier, 'xanim/idle', 'original animation')
+            self.write(later, mesh, '{"materials":[]}')
+            provider = StockFixture({('xanim', 'idle'): ('common', earlier),
+                                     ('xmodel', 'gun'): ('common', later)})
+            resolver = assetresolve.Resolver([source], provider)
+            self.assertEqual(resolver.expand({('xanim', 'idle')})['roots'], [str(source), str(earlier)])
+            result = resolver.expand({('xmodel', 'gun')})
+            self.assertEqual(result['roots'], [str(source), str(later)])
+            self.assertEqual(result['missing'], [])
+            self.assertEqual(resolver.nodes['xanim', 'idle']['source'], str(earlier / 'xanim/idle'))
+            self.assertEqual(resolver.nodes['xmodel', 'gun']['recovered_geometry'], [str(later / mesh)])
+            self.assertEqual(provider.calls, [('xanim', 'idle'), ('xmodel', 'gun')])
+
     def test_unsafe_names_fail_before_lookup(self):
         provider = StockFixture({})
         with self.assertRaises(weapons.WeaponError):

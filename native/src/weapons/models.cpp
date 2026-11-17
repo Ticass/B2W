@@ -85,10 +85,7 @@ namespace w2b::weapons
             for (const auto& lod : *list)
             {
                 const auto& file = Required(lod, "file").get_ref<const std::string&>();
-                OutputName("model_file", file);
-                auto source = owner / files::FromUtf8(file);
-                if (!std::filesystem::is_regular_file(source))
-                    source = FindSource(roots, files::FromUtf8(file));
+                const auto source = FindModelLod(roots, owner, file);
                 if (source.empty())
                     throw WeaponError("model geometry " + file + " is absent from the map and resolved WaW stock assets");
                 auto geometry = ReadAssetJson(source);

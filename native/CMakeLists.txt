@@ -25,6 +25,7 @@ endif()
 
 add_library(w2b_core STATIC
     src/core/pytext.cpp
+    src/core/asset_paths.cpp
     src/core/files.cpp
     src/core/share_files.cpp
     src/core/hash.cpp
@@ -78,6 +79,9 @@ add_library(w2b_weapons STATIC src/weapons/infostring.cpp src/weapons/convert.cp
     src/weapons/models.cpp src/weapons/skeleton.cpp src/weapons/rebind.cpp src/weapons/viewmodels.cpp)
 target_link_libraries(w2b_weapons PUBLIC w2b_core PRIVATE w2b_base64)
 
+add_library(w2b_assets STATIC src/assets/paths.cpp src/assets/dependencies.cpp src/assets/resolver.cpp)
+target_link_libraries(w2b_assets PUBLIC w2b_weapons w2b_effects)
+
 add_library(w2b_world STATIC
     src/world/vertices.cpp
     src/world/bsp_visibility.cpp
@@ -129,7 +133,7 @@ target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
 add_executable(waw2bo2n src/cli/main.cpp)
 target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
-    w2b_materials w2b_effects w2b_weapons)
+    w2b_materials w2b_effects w2b_weapons w2b_assets)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

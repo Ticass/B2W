@@ -48,14 +48,13 @@ namespace w2b::weapons
                 throw WeaponError("flame table " + name + ": unknown T6 fields " + NameList(unknown));
             ClampTravel(fields);
             fields["name"] = output;
-            for (const std::string_view key : {"fire", "smoke", "heat", "drips", "streamFuel", "streamFuel2",
-                    "streamFlame", "streamFlame2"})
+            for (const auto key : FlameMaterialKeys)
                 if (const auto& value = Field(fields, key); !value.empty())
                 {
                     AddDependency(dependencies, "material", value);
                     fields[key] = OutputName("material", value);
                 }
-            for (const std::string_view key : {"flameOffLoopSound", "flameIgniteSound", "flameOnLoopSound", "flameCooldownSound"})
+            for (const auto key : FlameSoundKeys)
                 if (const auto& value = Field(fields, key); !value.empty())
                 {
                     OutputName("sound", value);
