@@ -257,10 +257,11 @@ def activate_mod_shaders(ff: Path, project: Path, work: Path, linker: Path, unli
             target.write_text(json.dumps(material), encoding='utf-8')
             bound.add(relative.as_posix())
     with timeline.span('copy shader overlay'):
+        from . import fastcopy
         for root in (stock, project, project/'content_source'):
             for folder in ('techniquesets', 'shader_bin', 'english/localizedstrings'):
                 if (root/folder).is_dir():
-                    shutil.copytree(root/folder, overlay/folder, dirs_exist_ok=True)
+                    fastcopy.copytree(root/folder, overlay/folder)
     from . import impactmaterials
     source_impact_materials = impactmaterials.bind(project, dump, overlay, stock)
     bound.update(source_impact_materials)
