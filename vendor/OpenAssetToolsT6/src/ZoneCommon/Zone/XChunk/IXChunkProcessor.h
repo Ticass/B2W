@@ -14,4 +14,11 @@ public:
     IXChunkProcessor& operator=(IXChunkProcessor&& other) noexcept = default;
 
     virtual size_t Process(unsigned streamNumber, const uint8_t* input, size_t inputLength, uint8_t* output, size_t outputBufferSize) = 0;
+
+    // True when Process keeps no state between calls and may run on several
+    // chunks at once (compression). Stateful processors (Salsa20) run in order.
+    [[nodiscard]] virtual bool IsStateless() const
+    {
+        return false;
+    }
 };
