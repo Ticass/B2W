@@ -24,12 +24,16 @@ namespace w2b::ui
         }
     } // namespace
 
-    App::App(Gpu& gpu, const HWND window) : gpu(gpu), window(window), settings(l::Discover(l::Settings::Load()))
+    App::App(Gpu& gpu, const HWND window, std::optional<fs::path> path)
+        : gpu(gpu), window(window), settingsPath(std::move(path)), settings(l::Discover(l::Settings::Load(settingsPath)))
     {
+        // Refresh source files, Resume, BO2 stock perks and Remaster are not offered:
+        // a value an older launcher saved must not keep applying unseen.
+        settings.redump = settings.resume = settings.bo2_stock_perks = settings.remaster = false;
         Refresh();
         if (!settings.fastfile.empty())
             status = "Map selected. Click Build Map when setup is ready.";
-        Log("WaW \xE2\x86\x92 BO2 Mod Tools ready. Choose your source map, then click Build Map.", Tag::Info);
+        Log("B2W Mod Tools ready. Choose your source map, then click Build Map.", Tag::Info);
         LoadReport();
     }
 
@@ -41,8 +45,13 @@ namespace w2b::ui
             worker.join();
     }
 
-    void App::ShowTab(const std::string& name)
+    void App::ShowTab(const std::string& value)
     {
+        // artwork:N also picks preview N (Previews::Mode)
+        const auto colon = value.find(':');
+        const auto name = value.substr(0, colon);
+        if (colon != std::string::npos)
+            previews.mode = std::atoi(value.c_str() + colon + 1);
         tab = name == "artwork" ? Tab::Artwork : name == "setup" ? Tab::Setup : name == "reports" ? Tab::Reports : Tab::Builder;
         selectTab = true;
     }
@@ -76,7 +85,7 @@ namespace w2b::ui
     {
         try
         {
-            settings.Save();
+            settings.Save(settingsPath);
         }
         catch (const std::exception& error)
         {
@@ -561,7 +570,11 @@ namespace w2b::ui
         }
         *settings.Text(key) = *path;
         if (key == "menu_icon")
-            previewMode = 0;
+            previews.mode = Previews::Globe;
+        else if (key == "menu_preview")
+            previews.mode = Previews::Lobby;
+        else if (key == "menu_loading")
+            previews.mode = Previews::Loading;
         Save();
         Refresh();
     }

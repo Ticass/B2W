@@ -74,12 +74,12 @@ class Launcher(ArtworkTab, ttk.Frame):
         self._refresh()
         if self.vars['fastfile'].get():
             self.status.set('Map selected. Click Build Map when setup is ready.')
-        self._log('WaW → BO2 Mod Tools ready. Choose your source map, then click Build Map.', 'info')
+        self._log('B2W Mod Tools ready. Choose your source map, then click Build Map.', 'info')
         self.root.after(100, self._poll)
         self.root.protocol('WM_DELETE_WINDOW', self._close)
 
     def _theme(self):
-        self.root.title('WaW → BO2 Mod Tools')
+        self.root.title('B2W Mod Tools Launcher')
         self.root.geometry('1160x820')
         self.root.minsize(1000, 720)
         self.root.configure(bg=COLORS['bg'])
@@ -116,7 +116,7 @@ class Launcher(ArtworkTab, ttk.Frame):
         help_menu.add_command(label='Quick help', command=self._help)
         help_menu.add_command(label='Full usage guide', command=lambda: webbrowser.open('https://github.com/Ticass/B2W/blob/main/docs/USAGE.md'))
         help_menu.add_command(label='About', command=lambda: messagebox.showinfo('About',
-            'WaW → BO2 Mod Tools\nWorld at War custom-map converter\n\nDevelopment preview. Review the conversion report and playtest the result.\n\nOpenAssetTools: GPL-3.0; see included licenses.', parent=self.root))
+            'B2W Mod Tools\nWorld at War custom-map converter\n\nDevelopment preview. Review the conversion report and playtest the result.\n\nOpenAssetTools: GPL-3.0; see included licenses.', parent=self.root))
         menu.add_cascade(label='Help', menu=help_menu)
         self.root.configure(menu=menu)
         self.root.bind('<Control-o>', lambda _: self._choose_map())
@@ -169,7 +169,7 @@ class Launcher(ArtworkTab, ttk.Frame):
         body.rowconfigure(4, weight=2)
         header = ttk.Frame(body)
         header.grid(row=0, column=0, sticky='ew', pady=(0, 10))
-        ttk.Label(header, text='WaW → BO2 Map Converter', style='Title.TLabel').pack(side='left')
+        ttk.Label(header, text='B2W Map Converter', style='Title.TLabel').pack(side='left')
         ttk.Label(header, text='MOD TOOLS LAUNCHER', style='Muted.TLabel', font=('Segoe UI', 9)).pack(side='right')
         self.tabs = ttk.Notebook(body)
         self.tabs.grid(row=1, column=0, sticky='nsew')

@@ -9,7 +9,9 @@ namespace w2b::ui::theme
     {
         ImFont* bold = nullptr;
         ImFont* mono = nullptr;
-        float size = 15.0f;
+        ImFont* display = nullptr;
+        float size = 12.0f;
+        float scale = 1.0f;
 
         ImFont* Load(const char* file, const float px, const bool symbols)
         {
@@ -40,20 +42,36 @@ namespace w2b::ui::theme
         return mono ? mono : ImGui::GetFont();
     }
 
+    ImFont* Display()
+    {
+        return display ? display : Bold();
+    }
+
     float FontSize()
     {
         return size;
     }
 
+    float Scale()
+    {
+        return scale;
+    }
+
     void Apply(const float dpiScale)
     {
-        size = 15.0f * dpiScale;
+        // WinForms' default: Segoe UI 9 pt (12 px at 96 DPI)
+        scale = dpiScale;
+        size = 12.0f * dpiScale;
         auto& io = ImGui::GetIO();
         io.Fonts->Clear();
         if (!Load("segoeui.ttf", size, true))
             io.Fonts->AddFontDefault();
         bold = Load("segoeuib.ttf", size, true);
-        mono = Load("consola.ttf", 13.0f * dpiScale, false);
+        mono = Load("consola.ttf", 12.0f * dpiScale, false);
+        // menu previews: a condensed face close to BO2's menu font
+        for (const char* face : {"bahnschrift.ttf", "impact.ttf", "arialbd.ttf"})
+            if ((display = Load(face, 26.0f * dpiScale, false)) != nullptr)
+                break;
 
         ImGuiStyle style;
         ImGui::StyleColorsLight(&style);
@@ -61,10 +79,13 @@ namespace w2b::ui::theme
         style.WindowBorderSize = 0;
         style.ChildBorderSize = 1;
         style.FrameBorderSize = 1;
-        style.WindowPadding = ImVec2(8, 6);
-        style.FramePadding = ImVec2(6, 3);
+        // WinForms metrics: 20 px text boxes, 6 px gaps, 17 px scroll bars
+        style.WindowPadding = ImVec2(6, 6);
+        style.FramePadding = ImVec2(4, 4);
         style.ItemSpacing = ImVec2(6, 5);
-        style.ScrollbarSize = 16;
+        style.ItemInnerSpacing = ImVec2(4, 4);
+        style.ScrollbarSize = 17;
+        style.TabBarBorderSize = 1;
         auto* c = style.Colors;
         const ImVec4 face{0.941f, 0.941f, 0.941f, 1}, white{1, 1, 1, 1}, border{0.678f, 0.678f, 0.678f, 1};
         c[ImGuiCol_Text] = ImVec4(0, 0, 0, 1);

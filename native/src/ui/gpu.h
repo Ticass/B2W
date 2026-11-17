@@ -4,8 +4,11 @@
 #include "launcher/images.h"
 
 #include <d3d11.h>
+#include <imgui.h>
 #include <filesystem>
 #include <map>
+#include <memory>
+#include <vector>
 #include <string>
 
 namespace w2b::ui
@@ -35,6 +38,12 @@ namespace w2b::ui
         // the error is filled when it cannot be decoded
         Texture Image(const std::filesystem::path& path, std::string* error = nullptr);
         Texture Upload(const launcher::Image& image);
+        // a DDS (DXT1/DXT3/DXT5 or 32-bit BGRA) straight to the GPU, cached; empty if unreadable
+        Texture Dds(const std::filesystem::path& path);
+        // BO2's menu globe: an orthographic sphere of an equirectangular texture,
+        // drawn per pixel by a shader (ImGui draw callback) in a size x size square
+        void DrawGlobe(ImDrawList* list, const Texture& texture, float x, float y, float size, float centerLon, float tiltDegrees);
+        void NewFrame(); // frees the previous frame's callback data
         void ForgetImages();
 
     private:
@@ -50,5 +59,21 @@ namespace w2b::ui
             std::string error;
         };
         std::map<std::wstring, Cached> images;
+        std::map<std::wstring, Texture> dds;
+        struct GlobeCall
+        {
+            Gpu* gpu;
+            ID3D11ShaderResourceView* view;
+            float rect[4], params[4];
+        };
+        std::vector<std::unique_ptr<GlobeCall>> globeCalls;
+        ID3D11VertexShader* globeVs = nullptr;
+        ID3D11PixelShader* globePs = nullptr;
+        ID3D11Buffer* globeConstants = nullptr;
+        ID3D11SamplerState* wrapSampler = nullptr;
+        ID3D11BlendState* alphaBlend = nullptr;
+        bool globeReady = false, globeFailed = false;
+        bool CreateGlobe();
+        static void GlobeCallback(const ImDrawList* list, const struct ImDrawCmd* command);
     };
 } // namespace w2b::ui

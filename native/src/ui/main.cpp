@@ -33,8 +33,8 @@ namespace
         case WM_GETMINMAXINFO:
         {
             auto* info = reinterpret_cast<MINMAXINFO*>(l);
-            info->ptMinTrackSize.x = static_cast<LONG>(1000 * dpiScale);
-            info->ptMinTrackSize.y = static_cast<LONG>(720 * dpiScale);
+            info->ptMinTrackSize.x = static_cast<LONG>(900 * dpiScale);
+            info->ptMinTrackSize.y = static_cast<LONG>(640 * dpiScale);
             return 0;
         }
         case WM_CLOSE:
@@ -60,11 +60,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
     windowClass.lpszClassName = L"B2WLauncher";
     RegisterClassExW(&windowClass);
     dpiScale = GetDpiForSystem() / 96.0f;
-    const HWND window = CreateWindowExW(0, windowClass.lpszClassName, L"WaW → BO2 Mod Tools", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                                        static_cast<int>(1160 * dpiScale), static_cast<int>(820 * dpiScale), nullptr, nullptr, instance, nullptr);
+    const HWND window = CreateWindowExW(0, windowClass.lpszClassName, L"B2W Mod Tools Launcher", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                                        static_cast<int>(1000 * dpiScale), static_cast<int>(740 * dpiScale), nullptr, nullptr, instance, nullptr);
     if (!gpu.Create(window))
     {
-        MessageBoxW(nullptr, L"Direct3D 11 is not available on this system.", L"WaW → BO2 Mod Tools", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Direct3D 11 is not available on this system.", L"B2W Mod Tools Launcher", MB_ICONERROR);
         return 1;
     }
     dpiScale = GetDpiForWindow(window) / 96.0f;
@@ -78,7 +78,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
     w2b::ui::theme::Apply(dpiScale);
     ImGui_ImplWin32_Init(window);
     ImGui_ImplDX11_Init(gpu.device, gpu.context);
-    app = std::make_unique<w2b::ui::App>(gpu, window);
+    std::optional<std::filesystem::path> settingsPath;
+    for (int i = 1; i < __argc; i++)
+        if (const std::wstring arg = __wargv[i]; arg.starts_with(L"--settings="))
+            settingsPath = std::filesystem::path(arg.substr(11));
+    app = std::make_unique<w2b::ui::App>(gpu, window, settingsPath);
     for (int i = 1; i < __argc; i++)
         if (const std::wstring arg = __wargv[i]; arg.starts_with(L"--tab="))
             app->ShowTab(std::string(arg.begin() + 6, arg.end()));

@@ -104,10 +104,14 @@ settings, discovery, naming, build paths, build command and preflight with
 missing artwork and an empty build folder.
 Builds still run the conversion worker (`WAW2BO2_WORKER`, the portable
 `WawConverter.CLI.exe`, else `python -m waw2bo2.cli`) until the
-pipeline is native. The Artwork tab previews the Large, Blur and Blit layers
-and the map-selection composite. The globe, lobby and loading-screen
-previews (`menupreviews.py`) are still to port. The release packaging
-still ships the tkinter launcher.
+pipeline is native. The Artwork tab draws `menupreviews.py`'s globe, map selection, lobby and
+loading screens on the GPU: the globe is a pixel shader, stock DXT textures
+upload as BC1/BC3, and clicks place the map and the start location. The
+Refresh, Resume, BO2 stock perks and Remaster options are not offered, and
+saved values are cleared. The native executables are long-path aware.
+Map names near 25 characters push staging paths past `MAX_PATH`, which the closed
+BO2 mod tools linker cannot open. The release packaging still ships the
+tkinter launcher.
 
 ## Disk usage
 

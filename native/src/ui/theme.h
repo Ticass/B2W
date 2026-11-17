@@ -24,5 +24,12 @@ namespace w2b::ui::theme
     void Apply(float dpiScale);
     ImFont* Bold();
     ImFont* Mono();
+    ImFont* Display();
     float FontSize();
+    // the monitor scale (1 at 96 DPI) and a 96-DPI pixel size at that scale
+    float Scale();
+    inline float S(const float pixels)
+    {
+        return pixels * Scale();
+    }
 } // namespace w2b::ui::theme

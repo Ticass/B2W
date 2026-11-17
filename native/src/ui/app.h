@@ -3,6 +3,7 @@
 // Same workflows as the former tkinter launcher (gui.py, gui_artwork.py).
 
 #include "gpu.h"
+#include "previews.h"
 #include "launcher/build.h"
 
 #include <imgui.h>
@@ -19,6 +20,7 @@
 
 namespace w2b::ui
 {
+    namespace fs = std::filesystem;
     enum class Tag
     {
         Plain,
@@ -45,7 +47,8 @@ namespace w2b::ui
     class App
     {
     public:
-        explicit App(Gpu& gpu, HWND window);
+        // settingsPath: another settings.json than the user's (--settings=)
+        App(Gpu& gpu, HWND window, std::optional<fs::path> settingsPath = std::nullopt);
         ~App();
         void Frame();          // one ImGui frame of the whole window
         bool Busy() const
@@ -104,6 +107,7 @@ namespace w2b::ui
 
         Gpu& gpu;
         HWND window;
+        std::optional<fs::path> settingsPath;
         launcher::Settings settings;
         std::vector<launcher::Check> setupChecks;
         int failures = 0;
@@ -140,7 +144,8 @@ namespace w2b::ui
         std::string diagnosticsPath;
 
         // artwork preview
-        int previewMode = 0;
+        Previews previews;
+        std::string windowTitle;
         std::string artStatus;
     };
 } // namespace w2b::ui

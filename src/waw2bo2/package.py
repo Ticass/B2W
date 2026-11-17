@@ -54,7 +54,7 @@ def package(project: str, map_out: Path, mod_out: Path, dest: Path | None = None
     metadata_path = mod_out / 'menu_metadata.json'
     metadata = json.loads(metadata_path.read_text(encoding='utf-8')) if metadata_path.is_file() else {}
     (dest / "mod.json").write_text(json.dumps({
-        "name": metadata.get('title', f"{project} (WaW -> BO2)"),
+        "name": metadata.get('title', f"{project} (B2W)"),
         "description": metadata.get('description', f"{project}: World at War custom map converted by waw2bo2"),
         "version": __version__,
     }, indent=2) + "\n", encoding="utf-8")

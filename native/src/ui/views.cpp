@@ -17,21 +17,63 @@ namespace w2b::ui
 
     namespace
     {
-        constexpr float SIDE = 158.0f, RIGHT = 210.0f;
+        // the T6 Mod Tools Launcher's column widths (pixels at 100 % scale)
+#define SIDE (142.0f * theme::Scale())
+#define RIGHT (150.0f * theme::Scale())
 
-        // a WinForms-style group box: title over a bordered frame
+        struct OpenGroup
+        {
+            ImVec2 top;
+            const char* title;
+        };
+        std::vector<OpenGroup> openGroups;
+
+        // a WinForms GroupBox: the title sits on the frame's top line
         bool BeginGroup(const char* title, const ImVec2& size)
         {
-            ImGui::PushStyleColor(ImGuiCol_Text, theme::GROUP_TITLE);
-            ImGui::TextUnformatted(title);
-            ImGui::PopStyleColor();
-            return ImGui::BeginChild(title, size, ImGuiChildFlags_Borders | (size.y == 0 ? ImGuiChildFlags_AutoResizeY : 0));
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            openGroups.push_back({top, title});
+            ImGui::Dummy(ImVec2(0, ImGui::GetFontSize() * 0.55f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(theme::S(7), theme::S(5)));
+            ImVec2 extent = size;
+            if (extent.x <= 0) // keep the frame's right line inside the parent's clip
+                extent.x = ImGui::GetContentRegionAvail().x + extent.x - 1;
+            const bool open = ImGui::BeginChild(title, extent, ImGuiChildFlags_AlwaysUseWindowPadding | (size.y == 0 ? ImGuiChildFlags_AutoResizeY : 0));
+            ImGui::PopStyleVar();
+            return open;
         }
 
         void EndGroup()
         {
             ImGui::EndChild();
-            ImGui::Dummy(ImVec2(0, 2));
+            const auto group = openGroups.back();
+            openGroups.pop_back();
+            const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+            auto* draw = ImGui::GetWindowDrawList();
+            const float line = group.top.y + ImGui::GetFontSize() * 0.5f;
+            draw->AddRect(ImVec2(min.x, line), max, ImGui::GetColorU32(ImGuiCol_Border));
+            const ImVec2 text = ImGui::CalcTextSize(group.title);
+            const ImVec2 at(min.x + theme::S(7), group.top.y);
+            draw->AddRectFilled(ImVec2(at.x - theme::S(2), at.y), ImVec2(at.x + text.x + theme::S(2), at.y + text.y), ImGui::GetColorU32(ImGuiCol_WindowBg));
+            draw->AddText(at, ImGui::GetColorU32(theme::GROUP_TITLE), group.title);
+            ImGui::Dummy(ImVec2(0, theme::S(3)));
+        }
+
+        // standard WinForms push button: 23 px tall
+        bool ClassicButton(const char* label, ImVec2 size = ImVec2(0, 0))
+        {
+            if (size.y == 0)
+                size.y = theme::S(23);
+            return ImGui::Button(label, size);
+        }
+
+        // standard WinForms check box: a 13 px square
+        bool ClassicCheckbox(const char* label, bool* value)
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(theme::S(2), std::max(0.0f, (theme::S(13) - ImGui::GetFontSize()) * 0.5f)));
+            const bool changed = ImGui::Checkbox(label, value);
+            ImGui::PopStyleVar();
+            return changed;
         }
 
         void Muted(const std::string& text, const float wrap = 0.0f)
@@ -105,7 +147,7 @@ namespace w2b::ui
     bool App::Button(const char* label, const ImVec2& size, const bool enabled)
     {
         ImGui::BeginDisabled(!enabled || busy);
-        const bool pressed = ImGui::Button(label, size);
+        const bool pressed = ClassicButton(label, size);
         ImGui::EndDisabled();
         return pressed;
     }
@@ -128,6 +170,12 @@ namespace w2b::ui
     void App::Frame()
     {
         Drain();
+        // the T6 launcher's title: the tool, then the BO2 install it works on
+        if (const auto title = "B2W Mod Tools Launcher" + (settings.bo2.empty() ? std::string() : " - " + settings.bo2); title != windowTitle)
+        {
+            windowTitle = title;
+            SetWindowTextW(window, shell::Wide(title).c_str());
+        }
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos);
         ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -135,9 +183,9 @@ namespace w2b::ui
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_MenuBar
                          | ImGuiWindowFlags_NoBringToFrontOnFocus);
         DrawMenu();
-        const float footer = ImGui::GetFrameHeightWithSpacing() + 4;
+        const float footer = theme::S(23) + ImGui::GetStyle().ItemSpacing.y + theme::S(4);
         const float total = ImGui::GetContentRegionAvail().y;
-        const float bottom = std::max(170.0f, total * 0.36f);
+        const float bottom = std::max(theme::S(170), total * 0.34f);
         const float top = total - bottom - footer - ImGui::GetFrameHeightWithSpacing() * 1.4f;
 
         DrawSidebar(top);
@@ -240,7 +288,7 @@ namespace w2b::ui
                 shell::Open("https://github.com/Ticass/B2W/blob/main/docs/USAGE.md");
             if (ImGui::MenuItem("About"))
                 shell::Info(window, "About",
-                            std::string("WaW \xE2\x86\x92 BO2 Mod Tools ") + l::Version()
+                            std::string("B2W Mod Tools ") + l::Version()
                                 + "\nWorld at War custom-map converter\n\nDevelopment preview. Review the conversion report and playtest the result.\n\n"
                                   "OpenAssetTools: GPL-3.0; Dear ImGui: MIT; see included licenses.");
             ImGui::EndMenu();
@@ -256,18 +304,20 @@ namespace w2b::ui
         // the brand plate in place of the game box art
         const ImVec2 at = ImGui::GetCursorScreenPos();
         auto* draw = ImGui::GetWindowDrawList();
-        const float w = SIDE - 4, h = 118;
-        draw->AddRectFilled(at, ImVec2(at.x + w, at.y + h), IM_COL32(0x20, 0x28, 0x2f, 255));
+        // the B2W plate where the T6 launcher shows its box art (108 x 108)
+        const float w = SIDE - theme::S(4), plate = theme::S(108);
+        const ImVec2 box(at.x + (w - plate) * 0.5f, at.y);
+        draw->AddRectFilled(box, ImVec2(box.x + plate, box.y + plate), IM_COL32(0x20, 0x28, 0x2f, 255));
         const auto centered = [&](ImFont* font, const float size, const float y, const char* text, const ImU32 color)
         {
             const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0, text);
-            draw->AddText(font, size, ImVec2(at.x + (w - extent.x) * 0.5f, at.y + y), color, text);
+            draw->AddText(font, size, ImVec2(box.x + (plate - extent.x) * 0.5f, box.y + theme::S(y)), color, text);
         };
-        centered(theme::Bold(), theme::FontSize() * 0.95f, 16, "WORLD AT WAR", IM_COL32(0xd4, 0xdc, 0xe2, 255));
-        centered(theme::Bold(), theme::FontSize() * 2.1f, 38, "\xE2\x86\x92 BO2", IM_COL32_WHITE);
-        draw->AddLine(ImVec2(at.x + 20, at.y + 86), ImVec2(at.x + w - 20, at.y + 86), IM_COL32(0x55, 0x7b, 0x94, 255), 2);
-        centered(theme::Bold(), theme::FontSize() * 0.85f, 94, "MOD TOOLS", IM_COL32(0x9f, 0xbe, 0xd1, 255));
-        ImGui::Dummy(ImVec2(w, h + 6));
+        centered(theme::Bold(), theme::S(10), 12, "WAW \xE2\x86\x92 BO2", IM_COL32(0xd4, 0xdc, 0xe2, 255));
+        centered(theme::Bold(), theme::S(40), 26, "B2W", IM_COL32_WHITE);
+        draw->AddLine(ImVec2(box.x + theme::S(14), box.y + theme::S(78)), ImVec2(box.x + plate - theme::S(14), box.y + theme::S(78)), IM_COL32(0x55, 0x7b, 0x94, 255), theme::S(2));
+        centered(theme::Bold(), theme::S(10), 84, "MOD TOOLS", IM_COL32(0x9f, 0xbe, 0xd1, 255));
+        ImGui::Dummy(ImVec2(w, plate + theme::S(6)));
 
         if (BeginGroup("Game", ImVec2(w, 0)))
         {
@@ -346,19 +396,8 @@ namespace w2b::ui
         if (BeginGroup("Build Map", ImVec2(left, 0)))
         {
             Muted("Geometry \xC2\xB7 Scripts \xC2\xB7 Weapons \xC2\xB7 FX \xC2\xB7 Sounds");
-            const auto flag = [&](const char* label, bool& value)
-            {
-                ImGui::BeginDisabled(busy);
-                if (ImGui::Checkbox(label, &value))
-                    Save(), Refresh();
-                ImGui::EndDisabled();
-            };
-            flag("Refresh source files (slower rebuild)", settings.redump);
-            flag("Resume: keep my edits to the staged files (skip re-staging)", settings.resume);
-            flag("Use BO2 stock perks and machines (keeps the WaW Pack-a-Punch)", settings.bo2_stock_perks);
-            flag("Remaster with BO2 materials (props ported from BO2)", settings.remaster);
             ImGui::PushFont(theme::Bold(), 0.0f);
-            if (Button("Build Map", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f)))
+            if (Button("Build Map", ImVec2(-1, theme::S(30))))
                 Build();
             ImGui::PopFont();
             if (!busy)
@@ -383,13 +422,13 @@ namespace w2b::ui
             Autodetect();
         if (BeginGroup("Game Installations", ImVec2(-1, 0)))
         {
-            PathRow("World at War", "waw", 190);
-            PathRow("Black Ops II + Mod Tools", "bo2", 190);
-            PathRow("WaW Mod Tools (optional)", "waw_tools", 190);
+            PathRow("World at War", "waw", theme::S(150));
+            PathRow("Black Ops II + Mod Tools", "bo2", theme::S(150));
+            PathRow("WaW Mod Tools (optional)", "waw_tools", theme::S(150));
         }
         EndGroup();
         ImGui::BeginDisabled(busy);
-        if (ImGui::Checkbox("Recover missing FX from WaW Mod Tools sources", &settings.source_fx))
+        if (ClassicCheckbox("Recover missing FX from WaW Mod Tools sources", &settings.source_fx))
             Save(), Refresh();
         ImGui::EndDisabled();
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Advanced Paths").x - 4);
@@ -399,10 +438,10 @@ namespace w2b::ui
         {
             if (BeginGroup("Advanced Paths", ImVec2(-1, 0)))
             {
-                PathRow("WaW extractor folder", "t4", 190);
-                PathRow("BO2 bridge tools folder", "t6", 190);
-                PathRow("Audio decoder", "decoder", 190);
-                PathRow("Build files folder", "work", 190);
+                PathRow("WaW extractor folder", "t4", theme::S(150));
+                PathRow("BO2 bridge tools folder", "t6", theme::S(150));
+                PathRow("Audio decoder", "decoder", theme::S(150));
+                PathRow("Build files folder", "work", theme::S(150));
             }
             EndGroup();
         }
@@ -462,7 +501,7 @@ namespace w2b::ui
         ImGui::TextUnformatted("Processes");
         ImGui::PopStyleColor();
         ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::PROCESS_BG);
-        const float stopHeight = 70;
+        const float stopHeight = theme::S(56);
         if (ImGui::BeginChild("##processes", ImVec2(SIDE, height - stopHeight - ImGui::GetTextLineHeightWithSpacing() - 8), ImGuiChildFlags_Borders))
         {
             if (busy)
@@ -496,7 +535,7 @@ namespace w2b::ui
         ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::CONSOLE_BG);
         if (ImGui::BeginChild("##console", ImVec2(0, height), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar))
         {
-            ImGui::PushFont(theme::Mono(), theme::FontSize() * 13.0f / 15.0f);
+            ImGui::PushFont(theme::Mono(), theme::FontSize());
             ImGuiListClipper clipper;
             clipper.Begin(static_cast<int>(console.size()));
             while (clipper.Step())
@@ -531,14 +570,14 @@ namespace w2b::ui
         const float right = ImGui::CalcTextSize("Verbose ConsoleSave ConsoleClear Console").x + 90;
         ImGui::SameLine(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - right));
         ImGui::BeginDisabled(busy);
-        if (ImGui::Checkbox("Verbose Console", &settings.verbose))
+        if (ClassicCheckbox("Verbose Console", &settings.verbose))
             Save();
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button("Save Console"))
+        if (ClassicButton("Save Console"))
             SaveConsole();
         ImGui::SameLine();
-        if (ImGui::Button("Clear Console"))
+        if (ClassicButton("Clear Console"))
             console.clear();
     }
 
@@ -555,16 +594,16 @@ namespace w2b::ui
                 ImGui::PushID(key);
                 Input("##v", *settings.Text(key));
                 if (ImGui::IsItemActivated() && mode >= 0)
-                    previewMode = mode;
+                    previews.mode = mode;
                 ImGui::PopID();
                 Muted(hint);
             };
             if (BeginGroup("Text shown in game", ImVec2(-1, 0)))
             {
                 field("menu_title", "Map name", "Globe signpost, map selection, lobby and loading screen.", -1);
-                field("menu_description", "Description", "Under the map name on the map selection screen.", 3);
-                field("menu_mode", "Mode line", "Replaces \"TRANZIT\" under the map name in the lobby.", -1);
-                field("menu_location", "Location", "Under the map name on the loading screen.", -1);
+                field("menu_description", "Description", "Under the map name on the map selection screen.", Previews::MapSelection);
+                field("menu_mode", "Mode line", "Replaces \"TRANZIT\" under the map name in the lobby.", Previews::Lobby);
+                field("menu_location", "Location", "Under the map name on the loading screen.", Previews::Loading);
             }
             EndGroup();
             const auto upload = [&](const char* key, const char* label, const bool layer)
@@ -618,11 +657,15 @@ namespace w2b::ui
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("Longitude");
                 ImGui::SameLine();
-                Input("##lon", settings.menu_longitude, 80);
+                Input("##lon", settings.menu_longitude, theme::S(70));
+                if (ImGui::IsItemActivated())
+                    previews.mode = Previews::Globe;
                 ImGui::SameLine();
                 ImGui::TextUnformatted("Latitude");
                 ImGui::SameLine();
-                Input("##lat", settings.menu_latitude, 80);
+                Input("##lat", settings.menu_latitude, theme::S(70));
+                if (ImGui::IsItemActivated())
+                    previews.mode = Previews::Globe;
                 Muted("BO2's own convention: east is negative (Alcatraz is 122, Origins -11).");
             }
             EndGroup();
@@ -647,74 +690,7 @@ namespace w2b::ui
 
     void App::DrawPreview()
     {
-        static const char* modes[] = {"Map selection", "Large", "Blur", "Blit"};
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::GROUP_TITLE);
-        ImGui::TextUnformatted("In-game preview");
-        ImGui::PopStyleColor();
-        for (int i = 0; i < 4; i++)
-        {
-            if (i)
-                ImGui::SameLine();
-            if (ImGui::RadioButton(modes[i], previewMode == i))
-                previewMode = i;
-        }
-        std::string errorText;
-        std::vector<std::string> errorsList, missing;
-        Texture layers[3];
-        const char* keys[] = {"menu_blit", "menu_large", "menu_blur"};
-        const char* names[] = {"Blit", "Large", "Blur"};
-        for (int i = 0; i < 3; i++)
-        {
-            const auto& value = *settings.Text(keys[i]);
-            if (value.empty())
-            {
-                missing.push_back(names[i]);
-                continue;
-            }
-            layers[i] = gpu.Image(l::Path(value), &errorText);
-            if (!errorText.empty())
-                errorsList.push_back(std::string(names[i]) + ": " + errorText);
-        }
-        const ImVec2 area(ImGui::GetContentRegionAvail().x, std::max(180.0f, ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeightWithSpacing() * 4));
-        const ImVec2 origin = ImGui::GetCursorScreenPos();
-        ImGui::GetWindowDrawList()->AddRectFilled(origin, ImVec2(origin.x + area.x, origin.y + area.y), IM_COL32(0x0c, 0x0e, 0x12, 255));
-        const Texture* shown = previewMode == 1 ? &layers[1] : previewMode == 2 ? &layers[2] : previewMode == 3 ? &layers[0] : nullptr;
-        if (previewMode == 0 && layers[1] && layers[0])
-        {
-            // aligned layers: Blit under the Large cutout, on the Large canvas
-            const auto rect = Fit(layers[1], area);
-            auto* draw = ImGui::GetWindowDrawList();
-            draw->AddImage(reinterpret_cast<ImTextureID>(layers[0].view), rect.Min, rect.Max);
-            draw->AddImage(reinterpret_cast<ImTextureID>(layers[1].view), rect.Min, rect.Max);
-        }
-        else if (shown && *shown)
-            Fit(*shown, area);
-        else
-        {
-            const char* text = previewMode == 0 ? "Upload Blit and Large to preview the map selection." : "Upload this layer to preview it.";
-            const ImVec2 size = ImGui::CalcTextSize(text);
-            ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + (area.x - size.x) * 0.5f, origin.y + (area.y - size.y) * 0.5f), IM_COL32(0x9a, 0xa4, 0xad, 255), text);
-        }
-        ImGui::Dummy(area);
-        std::string note;
-        for (const auto& e : errorsList)
-            note += (note.empty() ? "" : "\n") + e;
-        if (note.empty())
-        {
-            std::string list;
-            for (const auto& m : missing)
-                list += (list.empty() ? "" : ", ") + m;
-            const bool aligned = layers[0] && layers[1] && layers[2]
-                                 && ((layers[0].width == layers[1].width && layers[1].width == layers[2].width && layers[0].height == layers[1].height
-                                      && layers[1].height == layers[2].height)
-                                     || (layers[0].width == 512 && layers[0].height == 256 && layers[1].width == 2048 && layers[1].height == 2048 && layers[2].width == 2048
-                                         && layers[2].height == 2048));
-            note = !missing.empty() ? "Map selection layers still needed: " + list
-                   : aligned        ? "Map selection layers use a supported layout."
-                                    : "Warning: Layer canvas sizes differ. They will be resized to the same canvas, but objects may not line up and the result may look "
-                                      "distorted. You can still preview and build.";
-        }
-        Muted(note);
-        Muted("The globe, lobby and loading-screen previews of the former launcher follow in a later update.");
+        if (previews.Draw(gpu, settings))
+            Save(), Refresh();
     }
 } // namespace w2b::ui

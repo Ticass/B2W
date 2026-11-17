@@ -607,6 +607,18 @@ namespace
         {"inspect", Inspect}, {"world-inspect", Inspect},
         {"static-models", StaticModels},
         {"sounds-stage", [](const Arguments& a) { return a.size() == 1 ? SoundsStage(a[0]) : Usage(); }},
+        // launcher-build <settings.json>: the launcher's Build Map flow, console on stdout
+        {"launcher-build", [](const Arguments& a)
+        {
+            if (a.size() != 1)
+                return Usage();
+            namespace l = w2b::launcher;
+            const auto settings = l::Discover(l::Settings::Load(w2b::files::FromUtf8(a[0])));
+            l::ProcessRunner runner([](const std::string& line) { std::printf("%s\n", line.c_str()); std::fflush(stdout); }, settings.verbose);
+            const int code = l::PerformBuild(settings, runner);
+            std::printf("launcher-build: exit %d\n", code);
+            return code;
+        }},
         // launcher-check <settings.json>: the launcher rules for those settings, as JSON
         {"launcher-check", [](const Arguments& a)
         {
