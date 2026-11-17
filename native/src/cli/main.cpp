@@ -3,6 +3,10 @@
 #include "audio/stage.h"
 #include "shaders/stage.h"
 #include "sound/stage.h"
+#include "core/parallel.h"
+#include "core/pytext.h"
+#include "gsc/parse.h"
+#include "gsc/tokens.h"
 
 #include <set>
 
@@ -47,6 +51,60 @@ namespace
             return Usage();
         const auto report = w2b::shaders::Stage(roots, w2b::files::FromUtf8(dest));
         std::printf("shaders: %lld translated, %lld unsupported\n", report["translated"].get<long long>(), report["unsupported"].get<long long>());
+        return 0;
+    }
+
+    // gsc-tokens <list.txt> <out.jsonl>: tokenize each UTF-8 file of the list
+    // (as gsc.tokenize sees its text) and write one JSON line per file
+    int GscTokens(const std::string& listFile, const std::string& outFile)
+    {
+        std::string list;
+        if (!w2b::files::ReadBytes(w2b::files::FromUtf8(listFile), list))
+            return Usage();
+        std::vector<std::string> paths;
+        for (const auto line : w2b::py::SplitLines(list))
+            if (!line.empty())
+                paths.emplace_back(line);
+        std::vector<std::string> lines(paths.size());
+        w2b::parallel::For(paths.size(),
+                           [&](const size_t i)
+                           {
+                               std::string text;
+                               w2b::files::ReadBytes(w2b::files::FromUtf8(paths[i]), text);
+                               nlohmann::ordered_json row;
+                               row["path"] = paths[i];
+                               try
+                               {
+                                   nlohmann::ordered_json tokens = nlohmann::ordered_json::array();
+                                   for (const auto& t : w2b::gsc::Tokenize(text))
+                                       tokens.push_back({w2b::gsc::KindName(t.kind), t.text, t.pre, t.line});
+                                   row["tokens"] = std::move(tokens);
+                                   const auto repaired = w2b::gsc::RepairBlockComments(text);
+                                   row["repair"] = {repaired.first, repaired.second};
+                                   const auto script = w2b::gsc::Parse(text, "x");
+                                   row["includes"] = script.includes;
+                                   row["animtree"] = script.animtree ? nlohmann::ordered_json(*script.animtree) : nlohmann::ordered_json();
+                                   nlohmann::ordered_json functions = nlohmann::ordered_json::array();
+                                   for (const auto& [low, f] : script.functions)
+                                       functions.push_back({low, f.name, f.params, f.start, f.bodyOpen, f.bodyClose,
+                                                            f.animtree ? nlohmann::ordered_json(*f.animtree) : nlohmann::ordered_json()});
+                                   row["functions"] = std::move(functions);
+                                   nlohmann::ordered_json refs = nlohmann::ordered_json::array();
+                                   for (const auto& r : w2b::gsc::References(script.tokens))
+                                       refs.push_back({r.index, r.name, r.qualifier ? nlohmann::ordered_json(*r.qualifier) : nlohmann::ordered_json(),
+                                                       r.qualIndex ? nlohmann::ordered_json(*r.qualIndex) : nlohmann::ordered_json(), r.method, r.pointer});
+                                   row["refs"] = std::move(refs);
+                               }
+                               catch (const w2b::gsc::GscSyntaxError& error)
+                               {
+                                   row["error"] = error.what();
+                               }
+                               lines[i] = row.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
+                           });
+        std::string out;
+        for (const auto& line : lines)
+            out += line + "\n";
+        w2b::files::WriteBytes(w2b::files::FromUtf8(outFile), out);
         return 0;
     }
 
@@ -114,6 +172,8 @@ int wmain(const int argc, wchar_t** argv)
             return AudioStage(args);
         if (command == "sounds-stage" && args.size() == 1)
             return SoundsStage(args[0]);
+        if (command == "gsc-tokens" && args.size() == 2)
+            return GscTokens(args[0], args[1]);
     }
     catch (const std::exception& error)
     {

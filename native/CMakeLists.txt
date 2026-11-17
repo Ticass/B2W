@@ -30,6 +30,7 @@ add_library(w2b_core STATIC
     src/core/cache.cpp
     src/core/process.cpp
     src/core/encoding.cpp
+    src/core/unicode.cpp
     src/core/zip.cpp)
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
 target_link_libraries(w2b_core PUBLIC w2b_zlib)
@@ -50,8 +51,13 @@ add_library(w2b_sound STATIC
     src/sound/stage.cpp)
 target_link_libraries(w2b_sound PUBLIC w2b_core)
 
+add_library(w2b_gsc STATIC
+    src/gsc/tokens.cpp
+    src/gsc/parse.cpp)
+target_link_libraries(w2b_gsc PUBLIC w2b_core)
+
 add_executable(waw2bo2n src/cli/main.cpp)
-target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound)
+target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()
