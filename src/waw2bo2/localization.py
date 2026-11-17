@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shutil
 import subprocess
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import gsc, wawtext, weapons
@@ -56,6 +59,9 @@ def dump_zone(ff: Path, unlinker: Path, work: Path, search: list[Path]) -> Path:
                 'tool_mtime': unlinker.stat().st_mtime_ns, 'version': 1}
     if marker.is_file() and json.loads(marker.read_text()) == identity:
         return out
+    if out.exists():
+        # the cache outlives builds: a re-dump must not keep an older dump's files
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     with (out / 'extract.log').open('w', encoding='utf-8') as log:
         run = subprocess.run([str(unlinker), '--no-color', '--include-assets', 'localize',
@@ -65,6 +71,15 @@ def dump_zone(ff: Path, unlinker: Path, work: Path, search: list[Path]) -> Path:
         raise RuntimeError(f"localization extraction failed: {ff}; see {out / 'extract.log'}")
     marker.write_text(json.dumps(identity))
     return out
+
+
+def dump_zones(jobs: list[tuple[Path, Path, Path, list[Path]]]) -> list[Path]:
+    """dump_zone for each (ff, unlinker, work, search), in parallel; the dumps
+    are independent (one folder each), results come back in job order."""
+    if len(jobs) <= 1:
+        return [dump_zone(*job) for job in jobs]
+    with ThreadPoolExecutor(min(len(jobs), os.cpu_count() or 4)) as pool:
+        return list(pool.map(lambda job: dump_zone(*job), jobs))
 
 
 def source_files(root: Path, language: str) -> list[Path]:
@@ -170,10 +185,12 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
     if unlinker is not None:
         zones = {ff for directory in iwd_dirs if directory.is_dir() for ff in directory.glob('*.ff')}
         # Patched definitions win; common localization is the map's baseline.
-        for ff in sorted(zones, key=lambda p: ('patch' not in p.stem.lower(),
-                                              'common' in p.stem.lower(), p.name)):
+        ordered = sorted(zones, key=lambda p: ('patch' not in p.stem.lower(), 'common' in p.stem.lower(), p.name))
+        dumps = iter(dump_zones([(ff, unlinker, work, [ff.parent, *iwd_dirs]) for ff in ordered
+                                 if str(ff.resolve()) not in prepared]))
+        for ff in ordered:
             cached = prepared.get(str(ff.resolve()))
-            add_root(cached if cached is not None else dump_zone(ff, unlinker, work, [ff.parent, *iwd_dirs]))
+            add_root(cached if cached is not None else next(dumps))
     for root in roots:
         add_root(root)
     for directory in iwd_dirs:
@@ -202,12 +219,10 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
             if zones:
                 # The shared stock cache is dumped without localize assets
                 # (WaW's PLATFORM_* engine strings live in code_post_gfx.ff):
-                # ask it for that type, which re-extracts only what is missing.
-                cached = None
-                if zones[0] in getattr(stock, 'prepared', {}):
-                    cached = stock.dump(zones[0], 'localize')
-                add_root(cached if cached is not None else dump_zone(
-                    stock.zone_dir / (zones[0] + '.ff'), stock.unlinker, work, [stock.waw_root / 'main']))
+                # a localize-only dump holds the same strings without
+                # re-extracting the zone's images, models and sounds.
+                add_root(dump_zone(stock.zone_dir / (zones[0] + '.ff'), stock.unlinker, work,
+                                   [stock.waw_root / 'main']))
     for root in raw_roots:
         add_root(root)
     known.update(sources)

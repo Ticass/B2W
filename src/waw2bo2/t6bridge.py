@@ -2451,8 +2451,12 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             menu_ready = True
         except wawmenu.MenuSourceError as error:
             report.warnings.append(f'FRAMEWORK_BO2 pause menu: {error}; BO2 pause menu kept')
+    # Localize-only zone dumps depend on the zone file and the unlinker alone
+    # (dump_zone checks both); they live in the shared WaW cache, which the
+    # build holds locked, instead of being redone by every full rebuild.
+    localization_dumps = stock_waw.work / 'localization_dumps' if stock_waw is not None else stage / 'localization_dumps'
     localization_report = progress.timed('Stage localization', localization.stage, project_root, roots, iwd_dirs or [], stock_waw,
-        t4_unlinker, stage / 'localization_dumps',
+        t4_unlinker, localization_dumps,
         [root / 'raw' for root in (waw_mod_tools, waw_root) if root is not None], bo2_root,
         t6_unlinker=t6_unlinker, t6_stock_dump=techset_dump)
     report.content['localization'] = localization_report
