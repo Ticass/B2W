@@ -565,9 +565,23 @@ class AudioSources:
             return opened[archive].read(member), f"{archive}!{member}"
         return None
 
+    def close(self) -> None:
+        """Release the open IWDs (Windows keeps an open file locked)."""
+        for archive in self.__dict__.pop("_open", {}).values():
+            archive.close()
+
 
 def stage(roots: list[Path], project: Path, iwd_dirs: list[Path], stock=None,
           names: set[str] | None = None) -> dict:
+    audio_sources = AudioSources(roots, iwd_dirs)
+    try:
+        return _stage(roots, project, stock, names, audio_sources)
+    finally:
+        audio_sources.close()
+
+
+def _stage(roots: list[Path], project: Path, stock, names: set[str] | None,
+           audio_sources: AudioSources) -> dict:
     aliases = {}
     for root in roots:
         for path in sorted((root / "soundaliases").rglob("*.w2bsnd.json")):
@@ -591,7 +605,6 @@ def stage(roots: list[Path], project: Path, iwd_dirs: list[Path], stock=None,
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(globals_data, indent=2) + "\n", encoding="utf-8")
         report["driver_globals_source"] = str(globals_file)
-    audio_sources = AudioSources(roots, iwd_dirs)
     files = {}
     written = {}
     for name, path in sorted(aliases.items()):

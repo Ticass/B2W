@@ -299,6 +299,7 @@ class SoundTests(unittest.TestCase):
             self.assertEqual(files.read("wpn/fire.wav", True)[0], original)
             self.assertEqual(files.read("ambient/custom.wav", False)[0], b"original streamed")
             self.assertIsNone(files.read("absent.wav", True))
+            files.close()  # the reader keeps each IWD open until closed
 
     def test_stage_preserves_original_bytes_and_explicit_partial_status(self):
         with tempfile.TemporaryDirectory() as temp:
