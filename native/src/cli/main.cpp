@@ -60,6 +60,7 @@ namespace
                    "       waw2bo2n world-vertices <world> <byte-offset> <count> <legacy|compensated>\n"
                    "       waw2bo2n world-fbx <request.json>\n"
                    "       waw2bo2n world-fbx <render-world> <output.fbx> [--surface-limit <count>]\n"
+                   "       waw2bo2n collision-fbx <clip-world> <output.fbx> [--triangle-limit <count>]\n"
                    "       waw2bo2n collision-mesh <clip-world> <output-folder> [--records]\n"
                    "       waw2bo2n world-inspect <render-world> <clip-world>\n"
                    "       waw2bo2n static-models <render-world> <model-folder> <report.json>\n"
@@ -478,6 +479,30 @@ namespace
         return 0;
     }
 
+    int CollisionFbx(const Arguments& args)
+    {
+        if (args.size() != 2 && (args.size() != 4 || args[2] != "--triangle-limit"))
+            return Usage();
+        std::optional<std::size_t> limit;
+        if (args.size() == 4)
+        {
+            std::string_view value = args[3];
+            if (value.starts_with('+'))
+                value.remove_prefix(1);
+            std::size_t count = 0;
+            const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), count);
+            if (end != value.data() + value.size() || error == std::errc::invalid_argument ||
+                (error == std::errc{} && count == 0))
+                throw std::runtime_error("--triangle-limit must be positive");
+            if (error == std::errc{})
+                limit = count;
+        }
+        const auto count = w2b::world::ExportCollisionFbx(w2b::files::FromUtf8(args[0]),
+                                                           w2b::files::FromUtf8(args[1]), limit);
+        std::printf("wrote %s (%zu collision triangles)\n", args[1].c_str(), count);
+        return 0;
+    }
+
     struct Command
     {
         std::string_view name;
@@ -516,6 +541,7 @@ namespace
         {"port-map", [](const Arguments& a) { return a.size() == 1 ? PortMapCommand(a[0]) : Usage(); }},
         {"world-vertices", [](const Arguments& a) { return a.size() == 4 ? WorldVertices(a) : Usage(); }},
         {"world-fbx", WorldFbx},
+        {"collision-fbx", CollisionFbx},
         {"collision-mesh", [](const Arguments& a)
         {
             if (a.size() != 2 && (a.size() != 3 || a[2] != "--records"))

@@ -15,6 +15,14 @@ namespace w2b::world
 {
     namespace
     {
+        void ExportMesh(const std::filesystem::path& path, const CollisionWorld& world, const CollisionPlan& plan)
+        {
+            std::ofstream fbx(path, std::ios::binary);
+            WriteCollisionFbx(fbx, world, plan);
+            if (!fbx.flush())
+                throw std::runtime_error("could not write collision FBX: " + files::Utf8(path));
+        }
+
         py::Json WriteCollisionEdges(const std::filesystem::path& path, const CollisionWorld& world,
                                      const CollisionPlan& plan)
         {
@@ -74,12 +82,7 @@ namespace w2b::world
     {
         const auto world = ReadCollisionWorld(source);
         const auto plan = PlanCollision(world);
-        {
-            std::ofstream fbx(output / "terrain.fbx", std::ios::binary);
-            WriteCollisionFbx(fbx, world, plan);
-            if (!fbx.flush())
-                throw std::runtime_error("could not flush collision FBX");
-        }
+        ExportMesh(output / "terrain.fbx", world, plan);
 
         auto slots = py::Json::array();
         for (const auto& slot : plan.slots)
@@ -93,5 +96,16 @@ namespace w2b::world
         if (includeRecords)
             report["records"] = WriteCollisionRecords(output, world);
         return report;
+    }
+
+    std::size_t ExportCollisionFbx(const std::filesystem::path& source, const std::filesystem::path& target,
+                                   std::optional<std::size_t> triangleLimit)
+    {
+        const auto world = ReadCollisionWorld(source);
+        const auto plan = PlanCollision(world, triangleLimit);
+        if (target.has_parent_path())
+            std::filesystem::create_directories(target.parent_path());
+        ExportMesh(target, world, plan);
+        return plan.triangleSlots.size();
     }
 }

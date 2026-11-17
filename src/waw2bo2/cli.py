@@ -45,14 +45,17 @@ def _fbx(args: argparse.Namespace) -> int:
 
 
 def _collision_fbx(args: argparse.Namespace) -> int:
+    limit = args.triangle_limit
+    if limit is not None and limit < 1:
+        raise ValueError("--triangle-limit must be positive")
+    if executable := native.tool():
+        options = ['--triangle-limit', str(limit)] if limit is not None else []
+        return subprocess.run([str(executable), 'collision-fbx', str(args.clip), str(args.output), *options],
+                              check=False).returncode
     collision = read_collision(args.clip)
-    if args.triangle_limit is not None:
-        if args.triangle_limit < 1:
-            raise ValueError("--triangle-limit must be positive")
-        collision.indices = collision.indices[: args.triangle_limit * 3]
-        collision.summary.triangle_count = len(collision.indices) // 3
-    write_collision_fbx(collision, args.output, packed_source=args.clip if args.triangle_limit is None else None)
-    print(f"wrote {args.output} ({collision.summary.triangle_count} collision triangles)")
+    write_collision_fbx(collision, args.output, triangle_limit=limit)
+    count = collision.summary.triangle_count
+    print(f"wrote {args.output} ({min(count, limit) if limit is not None else count} collision triangles)")
     return 0
 
 

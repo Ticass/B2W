@@ -23,5 +23,5 @@ namespace w2b::world
         std::size_t waterDropped = 0;
     };
 
-    CollisionPlan PlanCollision(const CollisionWorld& world);
+    CollisionPlan PlanCollision(const CollisionWorld& world, std::optional<std::size_t> triangleLimit = {});
 }

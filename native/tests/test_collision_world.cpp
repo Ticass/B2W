@@ -145,6 +145,11 @@ TEST_CASE("Collision planning keeps moving water and removes one-sided traversal
     CHECK(plan.oneWayTriangles == std::vector<std::size_t>{2});
     REQUIRE(plan.slots.size() == 1);
     CHECK(plan.slots.front().model == 1);
+    const auto preview = PlanCollision(clip, 2);
+    CHECK(preview.triangleSlots == std::vector<int>{-1, 0});
+    CHECK(preview.oneWayTriangles.empty());
+    REQUIRE(preview.slots.size() == 1);
+    CHECK(preview.slots.front().model == 1);
 
     clip.triangleMaterials[1] = 1;
     CHECK(PlanCollision(clip).oneWayTriangles.empty());

@@ -336,8 +336,8 @@ def water_only(contents: int) -> bool:
     return contents & 0xFFFFFFFF & ~hulls.NON_COLLIDING_CONTENTS == CONTENTS_WATER
 
 
-def collision_slot_models(collision: CollisionWorld) -> list[int]:
-    per_triangle, materials = collision_material_slots(collision)
+def collision_slot_models(collision: CollisionWorld, triangle_limit: int | None = None) -> list[int]:
+    per_triangle, materials = collision_material_slots(collision, triangle_limit)
     models = [0] * len(materials)
     for slot, model in zip(per_triangle, collision_triangle_models(collision)):
         if slot is not None:
@@ -345,7 +345,8 @@ def collision_slot_models(collision: CollisionWorld) -> list[int]:
     return models
 
 
-def collision_material_slots(collision: CollisionWorld) -> tuple[list[int | None], list[int]]:
+def collision_material_slots(collision: CollisionWorld, triangle_limit: int | None = None
+                             ) -> tuple[list[int | None], list[int]]:
     """Per-triangle FBX material slot and the WaW clip material of each slot.
 
     WaW keeps a clip material on every collision triangle (dump v4): on the
@@ -357,12 +358,16 @@ def collision_material_slots(collision: CollisionWorld) -> tuple[list[int | None
     open passages because T6 cannot reproduce their WaW collision behavior.
     Dumps without the table keep one solid slot (material -1)."""
     if not collision.triangle_materials:
-        return [0] * (len(collision.indices) // 3), [-1]
+        count = len(collision.indices) // 3
+        return [0] * (min(count, triangle_limit) if triangle_limit is not None else count), [-1]
     slots: dict[tuple[int, int], int] = {}
     models = collision_triangle_models(collision)
     per_triangle: list[int | None] = []
     removed = {s["triangle"] for s in oneway.one_way_sheets(collision)} if getattr(collision, "vertices", None) else set()
-    for triangle, material in enumerate(collision.triangle_materials):
+    materials = collision.triangle_materials
+    if triangle_limit is not None:
+        materials = materials[:triangle_limit]
+    for triangle, material in enumerate(materials):
         if triangle in removed or material == 0xFFFF or not collision.materials[material].content_flags                 or (not models[triangle] and water_only(collision.materials[material].content_flags)):
             per_triangle.append(None)
             continue
@@ -397,16 +402,17 @@ def write_native_collision_mesh(source: Path, path: Path, edge_path: Path | None
                          report['non_colliding_dropped'], report['water_dropped'], report['edges'], report.get('records'))
 
 
-def write_collision_fbx(collision: CollisionWorld, path: Path, *, packed_source: Path | None = None) -> list[int]:
+def write_collision_fbx(collision: CollisionWorld, path: Path, *, packed_source: Path | None = None,
+                        triangle_limit: int | None = None) -> list[int]:
     """Write original T4 collision triangles with their cmodel ownership.
 
     One FBX material per WaW clip material and owner (``clip_<index>_bm<N>``
     for moving terrain) keeps partitions separate and preserves flags. Returns
     the WaW clip material index of each FBX material slot."""
-    if packed_source is not None and native.tool() is not None:
+    if packed_source is not None and triangle_limit is None and native.tool() is not None:
         return [material for material, _model in write_native_collision_mesh(packed_source, path).slots]
     path.parent.mkdir(parents=True, exist_ok=True)
-    per_triangle, slot_materials = collision_material_slots(collision)
+    per_triangle, slot_materials = collision_material_slots(collision, triangle_limit)
     used: dict[int, int] = {}
     compact_indices: list[int] = []
     polygon_slots: list[int] = []
@@ -447,7 +453,7 @@ def write_collision_fbx(collision: CollisionWorld, path: Path, *, packed_source:
         out.write("  Layer: 0 {\n   Version: 100\n   LayerElement: {\n    Type: \"LayerElementMaterial\"\n    TypedIndex: 0\n   }\n   LayerElement: {\n    Type: \"LayerElementUV\"\n    TypedIndex: 0\n   }\n  }\n }\n")
         out.write(" Model: 10001, \"Model::waw_collision\", \"Mesh\" {\n  Version: 232\n  Properties70: {\n   P: \"Lcl Scaling\", \"Lcl Scaling\", \"\", \"A\",100,100,100\n  }\n  Shading: T\n  Culling: \"CullingOff\"\n }\n")
         names = [f"clip_{m}" + (f"_bm{model}" if model else "") if m >= 0 else "waw_collision"
-                 for m, model in zip(slot_materials, collision_slot_models(collision))]
+                 for m, model in zip(slot_materials, collision_slot_models(collision, triangle_limit))]
         for i, name in enumerate(names):
             out.write(f" Material: {20000 + i}, {_quoted('Material::' + name)}, \"\" {{\n  Version: 102\n  ShadingModel: \"phong\"\n  MultiLayer: 0\n }}\n")
         out.write("}\nConnections: {\n C: \"OO\",10000,10001\n C: \"OO\",10001,0\n")
