@@ -77,11 +77,15 @@ target_compile_definitions(w2b_base64 PRIVATE ARGTYPE=4)
 
 add_library(w2b_weapons STATIC src/weapons/infostring.cpp src/weapons/convert.cpp src/weapons/defaults.cpp
     src/weapons/sources.cpp src/weapons/plan.cpp src/weapons/flame_table.cpp src/weapons/stage.cpp
-    src/weapons/models.cpp src/weapons/skeleton.cpp src/weapons/rebind.cpp src/weapons/viewmodels.cpp)
+    src/weapons/models.cpp src/weapons/skeleton.cpp src/weapons/rebind.cpp src/weapons/viewmodels.cpp src/weapons/physics_preset.cpp)
 target_link_libraries(w2b_weapons PUBLIC w2b_core PRIVATE w2b_base64)
 
 add_library(w2b_assets STATIC src/assets/paths.cpp src/assets/dependencies.cpp src/assets/resolver.cpp)
 target_link_libraries(w2b_assets PUBLIC w2b_weapons w2b_effects)
+
+add_library(w2b_physics STATIC src/physics/dynents.cpp src/physics/constraints.cpp src/physics/ropes.cpp
+    src/physics/suspensions.cpp src/physics/stage.cpp)
+target_link_libraries(w2b_physics PUBLIC w2b_weapons)
 
 add_library(w2b_world STATIC
     src/world/vertices.cpp
@@ -150,7 +154,7 @@ target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler 
 
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
 target_link_libraries(waw2bo2n PRIVATE w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
-    w2b_materials w2b_effects w2b_weapons w2b_assets)
+    w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

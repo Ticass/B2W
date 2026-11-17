@@ -78,6 +78,7 @@ The remaining small modules move with the area that uses them.
 | Stage weapon models, skeletal LODs, and physics presets | yes | All 474 staged files and the report for 181 source models matched on Cheese Cube Unlimited. The oversized world-model rewrite also passed its synthetic test. | 0.73 s / 0.47 s (stage only) |
 | Stage first-person weapon shadow variants | yes | Cheese Cube Unlimited matched 87 model variants, 151 material variants, rewritten weapon infostrings, and both updated reports. | 1.12 s / 1.23 s (stage only) |
 | Resolve compiled WaW dependencies | yes | Cheese Cube Unlimited matched 3,400 nodes, 9,993 edges, and 19 missing-asset diagnostics. The stock extraction service still supplies cache generations. | 1.49 s / 3.00 s (cached stock dumps) |
+| Stage dynamic entities, physics constraints, and rope runtime | yes | Cheese Cube Unlimited's empty physics manifests and a fixture with a dynent, a rope, and an unsupported joint matched files and reports. | 0.09 s / 0.006 s (three stages through the Python driver) |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
 run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.

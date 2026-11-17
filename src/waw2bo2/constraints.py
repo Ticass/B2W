@@ -5,12 +5,16 @@ from pathlib import Path
 import shutil
 import re
 
+from . import dynents, native, physics_native
+
 
 # WaW ConstraintType (T4 CONSTRAINT_*), the names T6 also uses
 JOINT_TYPES = ('none', 'point', 'distance', 'hinge', 'joint', 'actuator', 'fake_shake', 'launch', 'rope')
 
 
 def stage(source: Path, project: Path, dynents: list[dict] = ()) -> dict:
+    if native.tool() is not None:
+        return physics_native.run('stage-constraints', source=str(source), project=str(project), dynentCount=len(dynents))
     target = project / 'BSP/constraints.json'
     if not source.is_file():
         target.unlink(missing_ok=True)
@@ -70,6 +74,8 @@ def stage_entities(project: Path) -> dict:
     Reconstruct those endpoints from the compiled attachment frames so T6's
     native parser can bind the same joints at map startup.
     """
+    if native.tool() is not None:
+        return physics_native.run('rope-entities', project=str(project))
     from . import techsets
     manifest = project / 'BSP/constraints.json'
     if not manifest.is_file():
@@ -174,6 +180,8 @@ def stage_script_suspensions(project: Path) -> dict:
     pendulum instead of letting client physics detach them from their ropes.
     Breakable, timed and multiply constrained bodies require a separate solver.
     """
+    if native.tool() is not None:
+        return physics_native.run('rope-suspensions', project=str(project))
     assets = project / 'maps/mp/waw/_waw2bo2_assets.gsc'
     if not assets.is_file():
         return {'suspensions': 0, 'unsupported': []}
@@ -221,3 +229,19 @@ def stage_script_suspensions(project: Path) -> dict:
         source = source.replace('init()\n{', 'init()\n{\n' + block, 1)
     assets.write_text(source, encoding='utf-8')
     return {'suspensions': count, 'unsupported': unsupported}
+
+
+def load_map_physics(dynent_source: Path, constraint_source: Path, project: Path) -> tuple[list[dict], dict]:
+    if native.tool() is not None:
+        result = physics_native.run('load-map', dynents=str(dynent_source), constraints=str(constraint_source), project=str(project))
+        return result['dynents'], result['constraints']
+    entries = dynents.read(dynent_source)
+    return entries, stage(constraint_source, project, entries)
+
+
+def stage_runtime(project: Path) -> dict:
+    if native.tool() is not None:
+        return physics_native.run('rope-runtime', project=str(project))
+    report = stage_entities(project)
+    report['script_suspensions'] = stage_script_suspensions(project)
+    return report

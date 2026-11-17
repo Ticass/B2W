@@ -10,6 +10,8 @@ import json
 import math
 from pathlib import Path
 
+from . import native, physics_native, weapons
+
 CLUTTER, DESTRUCT = 1, 2
 RUNTIME_SLOTS = 256
 # DynEntityDef flag bit 0: the body is created when the client spawns its
@@ -23,6 +25,8 @@ SPAWN_BODY = 0x1
 def read(source: Path) -> list[dict]:
     """The map's real dynents (list 0, source order). Anything the T6 bridge
     cannot carry yet is an error, never a silent drop."""
+    if native.tool() is not None:
+        return physics_native.run('read-dynents', source=str(source))
     if not source.is_file():
         return []
     data = json.loads(source.read_text())
@@ -58,6 +62,8 @@ def preset_name(entry: dict) -> str:
 
 def write(project: Path, entries: list[dict], presets: dict[str, str], fx_prefix: str) -> dict:
     """BSP/dynents.json with converted asset names; presets maps WaW -> T6."""
+    if native.tool() is not None:
+        return physics_native.run('write-dynents', project=str(project), entries=entries, presets=presets, effectPrefix=fx_prefix)
     target = project / 'BSP/dynents.json'
     if not entries:
         target.unlink(missing_ok=True)
@@ -77,3 +83,24 @@ def write(project: Path, entries: list[dict], presets: dict[str, str], fx_prefix
     return {'count': len(out), 'models': sorted({e['xModel'] for e in entries}),
             'clutter': sum(e['type'] == CLUTTER for e in entries),
             'destructible': sum(e['type'] == DESTRUCT for e in entries), 'resting': resting}
+
+
+def stage(project: Path, entries: list[dict], roots: list[Path], stock, fx_prefix: str) -> dict:
+    names = sorted({preset_name(entry) for entry in entries} - {''})
+    if native.tool() is not None:
+        stock_roots = {}
+        if stock is not None:
+            for name in names:
+                found = stock.root_for('physpreset', name)
+                if found is not None:
+                    stock_roots[name] = str(found[1])
+        return physics_native.run('stage-dynents', project=str(project), entries=entries, roots=list(map(str, roots)),
+                                  stockRoots=stock_roots, effectPrefix=fx_prefix)
+    presets, staged = {}, {}
+    for name in names:
+        found = stock.root_for('physpreset', name) if stock is not None else None
+        inputs = [*roots, found[1]] if found is not None else roots
+        presets[name] = weapons.stage_physpreset(inputs, project, name, staged)
+    report = write(project, entries, presets, fx_prefix)
+    report['physpresets'] = sorted(presets.values())
+    return report

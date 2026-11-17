@@ -1827,10 +1827,10 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         probe_plan = probes.stage(report, world, source_probes, image_roots, project_root)
         visibility.assign(report, world, visibility.read(visibility_source), source_probes, probe_plan)
     clip = progress.timed('Read map collision', read_collision, clip_bin)
-    from . import constraints, dynents
-    map_dynents = dynents.read(clip_bin.with_name(clip_bin.name.removesuffix('.clip.bin') + '.dynents.json'))
-    map_constraints = constraints.stage(clip_bin.with_name(
-        clip_bin.name.removesuffix('.clip.bin') + '.constraints.json'), project_root, map_dynents)
+    from . import constraints
+    clip_stem = clip_bin.name.removesuffix('.clip.bin')
+    map_dynents, map_constraints = constraints.load_map_physics(
+        clip_bin.with_name(clip_stem + '.dynents.json'), clip_bin.with_name(clip_stem + '.constraints.json'), project_root)
     report.content['physics_constraints'] = map_constraints
     sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw,
                                gfx_source=gfx_bin, clip_source=clip_bin, native_visibility=native_visibility)
@@ -2578,10 +2578,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                + ': same WaW sort key, T6 key raised to keep the model surface order')
     material_names = materialisolation.stage(report, project_root, techset_dump) if techset_dump else {}
     report.content['material_identities'] = material_names
-    rope_runtime = constraints.stage_entities(project_root)
+    rope_runtime = constraints.stage_runtime(project_root)
     report.warnings += [f'MAP_JOINT_UNSUPPORTED {joint}: T6 has no map entity for it; the body hangs by its ropes only'
                         for joint in rope_runtime.get('unsupported_joints', [])]
-    rope_runtime['script_suspensions'] = constraints.stage_script_suspensions(project_root)
     report.content['physics_constraint_runtime'] = rope_runtime
     hud_materials = {material_names.get(name, name) for name in hud_materials}
     staged = {m["name"] for m in report.materials}
@@ -2654,15 +2653,7 @@ def stage_dynents(report: StageReport, project_root: Path, map_dynents: list[dic
     """BSP/dynents.json: the map's physics clutter/destructibles with their
     own physics presets (stock WaW presets come from the stock zones)."""
     from . import dynents
-    presets, staged = {}, {}
-    for name in sorted({dynents.preset_name(e) for e in map_dynents} - {''}):
-        preset_roots = list(roots)
-        hit = stock_waw.root_for('physpreset', name) if stock_waw is not None else None
-        if hit is not None:
-            preset_roots.append(hit[1])
-        presets[name] = weapons.stage_physpreset(preset_roots, project_root, name, staged)
-    summary = dynents.write(project_root, map_dynents, presets, fx.OUTPUT_PREFIX)
-    summary['physpresets'] = sorted(presets.values())
+    summary = dynents.stage(project_root, map_dynents, roots, stock_waw, fx.OUTPUT_PREFIX)
     if summary.get('resting'):
         report.warnings.append(f"DYNENT_SPAWN_BODY_DROPPED {', '.join(summary['resting'])}: WaW creates their physics "
                                f"body at spawn; the converted models carry no T6 physics geometry, so they rest "
