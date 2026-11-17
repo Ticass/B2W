@@ -1,0 +1,8 @@
+Checks: >
+  -*,
+  clang-analyzer-core.*,
+  bugprone-dangling-handle,
+  bugprone-sizeof-expression,
+  bugprone-use-after-move
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(^|[/\\])native[/\\](src|tests)[/\\]'

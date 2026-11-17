@@ -1,5 +1,4 @@
 """Retain exact native sources alongside cached release binaries."""
-from pathlib import Path
 import subprocess
 
 from build_desktop import ROOT, source_archive

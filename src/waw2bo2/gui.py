@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -16,9 +15,8 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 import webbrowser
 
 from .gui_artwork import ARTWORK_KEYS, ArtworkTab
-from .launcher import (BuildPaths, ProcessRunner, Settings, build_command, cli_command,
-                       discover, map_fastfiles, map_zone, perform_build, perform_extract_all, preflight, project_name, user_directory)
-from .resources import resource_root
+from .launcher import (BuildPaths, ProcessRunner, Settings, cli_command,
+                       discover, map_fastfiles, map_zone, perform_build, perform_extract_all, preflight, project_name)
 from .diagnostics import create_bundle
 
 

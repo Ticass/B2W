@@ -9,8 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from waw2bo2.all2raw import WORLD_DUMPER_MARKER
-from waw2bo2.launcher import (BuildPaths, ProcessRunner, Settings, build_command, discover,
-                             input_stamp, map_fastfiles, perform_build, preflight, project_name, validate_project)
+from waw2bo2.launcher import (BuildPaths, ProcessRunner, Settings, build_command, input_stamp, map_fastfiles, perform_build, preflight, project_name, validate_project)
 
 
 

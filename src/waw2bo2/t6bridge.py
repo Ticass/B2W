@@ -799,13 +799,13 @@ def bridge_bone_bounds(model: dict) -> None:
     metadata when importing a native BO2 model with the Mod Tools schema.
     """
     for bone in model.get('boneInfo', []):
-        for field in ('mins', 'maxs', 'offset'):
-            value = bone.get(field)
+        for bound in ('mins', 'maxs', 'offset'):
+            value = bone.get(bound)
             if isinstance(value, dict):
                 try:
-                    bone[field] = [value[axis] for axis in ('x', 'y', 'z')]
+                    bone[bound] = [value[axis] for axis in ('x', 'y', 'z')]
                 except KeyError as exc:
-                    raise StageError(f"xmodel bone {bone.get('bone', '?')}: {field} lacks {exc.args[0]} coordinate") from exc
+                    raise StageError(f"xmodel bone {bone.get('bone', '?')}: {bound} lacks {exc.args[0]} coordinate") from exc
 
 
 def stage_source_skybox(report: StageReport, project: str, project_root: Path, roots: list[Path],
@@ -3325,7 +3325,7 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     client = clientport.port_map_client(sources, map_name, project_root,
                                         clientport.staged_client_modules(map_name, project_root.name),
                                         set(api.builtins) | set(api.methods),
-                                        {f'clientscripts\{map_name.lower()}_amb':
+                                        {rf'clientscripts\{map_name.lower()}_amb':
                                          sounds.AMBIENT_CALLS | sounds.MUSIC_CALLS})
     port = gscport.port_map(sources, api, map_name, project_root, animtrees=animtrees, core_animtrees=core_trees,
                             bo2_stock_perks=bo2_stock_perks, actor_types=actor_types,

@@ -1,0 +1,11 @@
+{
+  "name": "wawconverter-catalog",
+  "private": true,
+  "scripts": {
+    "lint": "eslint catalog --max-warnings=0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.15.0"
+  }
+}

@@ -35,7 +35,7 @@ def main() -> int:
         # the custom build step also declares <template minus .template>.log
         stamp = build_dir / Path(*Path(rel).parts[1:]).with_suffix(".log")
         stamp.parent.mkdir(parents=True, exist_ok=True)
-        stamp.write_text(f"templated by tools/retemplate_oat.py\n", encoding="utf-8")
+        stamp.write_text("templated by tools/retemplate_oat.py\n", encoding="utf-8")
     return 0
 
 

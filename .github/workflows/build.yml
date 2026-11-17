@@ -41,15 +41,27 @@ jobs:
             vendor/OpenAssetTools/build/bin/Release_x86
             vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h
             vendor/OpenAssetToolsT6/build/bin/Release_x86
+            vendor/OpenAssetToolsT6/thirdparty
             tools/bin/xaudio_wma_decoder.exe
             work/native_source
-          key: windows-2022-native-v1-${{ hashFiles('vendor/OpenAssetTools.patch', 'vendor/OpenAssetToolsT6/src/**', 'vendor/OpenAssetToolsT6/tools/**', 'vendor/OpenAssetToolsT6/**/*.lua', 'vendor/OpenAssetToolsT6/raw/**', 'tools/ci_build_native.ps1', 'tools/build_audio_decoder.ps1', 'tools/xaudio_wma_decoder.cpp', 'tools/cache_native_sources.py', 'tools/build_desktop.py') }}
+          key: windows-2022-native-v2-${{ hashFiles('vendor/OpenAssetTools.patch', 'vendor/OpenAssetToolsT6/src/**', 'vendor/OpenAssetToolsT6/tools/**', 'vendor/OpenAssetToolsT6/**/*.lua', 'vendor/OpenAssetToolsT6/raw/**', 'tools/ci_build_native.ps1', 'tools/build_audio_decoder.ps1', 'tools/xaudio_wma_decoder.cpp', 'tools/cache_native_sources.py', 'tools/build_desktop.py') }}
       - name: Build patched T4, vendored T6 and audio decoder
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: ./tools/ci_build_native.ps1
       - name: Archive the corresponding native source snapshots
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: python tools/cache_native_sources.py
+      - name: Lint converter source
+        run: |
+          python -m pip install -e '.[lint]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m ruff check .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $install = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vsdev = Join-Path $install 'Common7/Tools/VsDevCmd.bat'
+          cmd.exe /d /c "`"$vsdev`" -arch=x64 -host_arch=x64 >nul && cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && python tools/lint_native.py native/build"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run regression suite
         run: python -m unittest discover -s tests
       - name: Package Windows
@@ -71,6 +83,7 @@ jobs:
             vendor/OpenAssetTools/build/bin/Release_x86
             vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h
             vendor/OpenAssetToolsT6/build/bin/Release_x86
+            vendor/OpenAssetToolsT6/thirdparty
             tools/bin/xaudio_wma_decoder.exe
             work/native_source
           key: ${{ steps.native-cache.outputs.cache-primary-key }}

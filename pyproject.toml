@@ -9,10 +9,20 @@ description = "Fail-closed World at War custom-map to Black Ops II zone conversi
 requires-python = ">=3.11"
 dependencies = ["Pillow>=11.2", "imageio-ffmpeg>=0.6"]
 
+[project.optional-dependencies]
+lint = ["ruff==0.15.16", "clang-tidy==22.1.7; sys_platform == 'win32'"]
+
 [project.scripts]
 waw2bo2 = "waw2bo2.cli:main"
 all2raw = "waw2bo2.all2raw_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["vendor", "work"]
+
+[tool.ruff.lint]
+select = ["F", "E9", "W605", "E711", "E712", "E722", "B006"]
 

@@ -1,7 +1,5 @@
 import struct
-import tempfile
 import unittest
-from pathlib import Path
 
 from waw2bo2 import fbx, shaders, shaderruntime as runtime, world
 

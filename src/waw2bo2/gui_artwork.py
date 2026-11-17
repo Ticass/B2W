@@ -15,7 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 from . import menupreviews as mp
-from .menuart import SIZES, artwork_warning, fit_aspect, read_art
+from .menuart import SIZES, artwork_warning, read_art
 
 # Optional images besides the three map layers: (settings key, label, hint).
 EXTRA_IMAGES = [

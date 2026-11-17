@@ -44,6 +44,8 @@ namespace w2b::textures
             const auto fx = source.width / width;
             const auto fy = source.height / height;
             const auto count = static_cast<std::uint64_t>(fx) * fy;
+            if (count == 0)
+                throw TextureError("primary lightmap has no samples per page texel");
             std::vector<unsigned char> output(static_cast<std::size_t>(width) * height);
             for (unsigned y = 0; y < height; ++y)
                 for (unsigned x = 0; x < width; ++x)

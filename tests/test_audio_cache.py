@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from waw2bo2 import audio, audiocache
+from waw2bo2 import audio
 
 
 class AudioCacheTests(unittest.TestCase):

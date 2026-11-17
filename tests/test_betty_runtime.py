@@ -51,7 +51,7 @@ class BettyRuntimeTests(unittest.TestCase):
             text = tr.translate(r'maps\test')
             # WaW drives the zombie AI: the map's whole _zombiemode_spawner is
             # ported and its own zombie_damage handles the Betty
-            self.assertIn('#include maps\mp\waw\_zombiemode_spawner;', text)
+            self.assertIn(r'#include maps\mp\waw\_zombiemode_spawner;', text)
             self.assertIn('self zombie_damage("MOD_ZOMBIE_BETTY"', text)
             body = tr.translate(r'maps\_zombiemode_spawner')
             self.assertIn('mod=="MOD_ZOMBIE_BETTY"', body)

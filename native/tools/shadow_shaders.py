@@ -24,7 +24,7 @@ class Done(Exception):
 
 def shadow_stage(roots, destination):
     start = time.time()
-    report = python_stage(roots, destination)
+    python_stage(roots, destination)
     python_seconds = time.time() - start
     native_dest = Path(str(destination) + '_native')
     start = time.time()

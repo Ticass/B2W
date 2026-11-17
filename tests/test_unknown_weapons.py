@@ -21,7 +21,7 @@ class UnknownWeaponTests(unittest.TestCase):
 
     def test_compat_checks_unconverted_names_against_loaded_weapons(self):
         compat = (gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(encoding="utf-8")
-        self.assertIn("maps\mp\waw\_waw2bo2_bo2weapons::init();", compat)
+        self.assertIn(r"maps\mp\waw\_waw2bo2_bo2weapons::init();", compat)
         body = re.search(r"\nwaw_weapon\( name \)\n\{(.*?)\n\}", compat, re.S).group(1)
         self.assertIn("level.waw2bo2_bo2_weapons[tolower( name )]", body)
 

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from waw2bo2 import audio, iwi, lightmaps, parallel, t6bridge
+from waw2bo2 import audio, lightmaps, parallel, t6bridge
 
 
 def dds(width, height, pixels):

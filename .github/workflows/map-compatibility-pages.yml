@@ -5,11 +5,15 @@ on:
     branches: [main]
     paths:
       - 'catalog/**'
+      - 'eslint.config.mjs'
+      - 'package*.json'
       - 'tools/build_map_compatibility_site.py'
       - '.github/workflows/map-compatibility-pages.yml'
   pull_request:
     paths:
       - 'catalog/**'
+      - 'eslint.config.mjs'
+      - 'package*.json'
       - 'tools/build_map_compatibility_site.py'
       - '.github/workflows/map-compatibility-pages.yml'
   schedule:
@@ -37,6 +41,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Lint catalog JavaScript
+        run: |
+          npm ci
+          npm run lint
       - name: Generate map catalog from CodRepo and compatibility records
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

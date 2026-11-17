@@ -27,3 +27,4 @@ __pycache__/
 # Native converter build output
 /native/build/
 /native/build-dbg/
+/node_modules/

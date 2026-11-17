@@ -303,8 +303,7 @@ def _stage_bridge(args: argparse.Namespace) -> int:
 
 
 def _build_mod(args: argparse.Namespace) -> int:
-    from . import gscport, modzone, overheathud, wawhud
-    from .weapons import ENGINE_WEAPONS
+    from . import modzone, overheathud, wawhud
 
     extra = args.stage.resolve() / "zone_raw" / args.project / t6bridge.MOD_EXTRA_ZONE
     extra_lines = extra.read_text(encoding="utf-8").splitlines() if extra.exists() else []
