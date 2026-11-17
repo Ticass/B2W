@@ -7,6 +7,7 @@ No Microsoft DLL or encoded source data is bundled with the converter.
 from __future__ import annotations
 
 import ctypes
+import functools
 import hashlib
 import json
 import os
@@ -56,13 +57,19 @@ def system_codec() -> Path:
     return root / ("SysWOW64" if (root / "SysWOW64").is_dir() else "System32") / "XAudio2_0.dll"
 
 
+@functools.lru_cache(maxsize=4)
+def _sha256(path: str, size: int, mtime_ns: int) -> str:
+    # keyed by size and mtime: a replaced DLL is hashed again
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
 def decode(source: Path, parts: dict[bytes, bytes], helper: Path | None = None) -> tuple[bytes, dict]:
     expected, channels = validate(parts)
     program = find_helper(helper)
     dll = system_codec()
     if not dll.is_file():
         raise SoundError("original XAudio2 2.0 codec is missing from Windows")
-    digest = hashlib.sha256(dll.read_bytes()).hexdigest()
+    digest = _sha256(str(dll), dll.stat().st_size, dll.stat().st_mtime_ns)
     if digest != SUPPORTED_DLL_SHA256:
         raise SoundError("installed XAudio2 2.0 version is not audited; refusing unverified internal codec ABI")
     with tempfile.TemporaryDirectory(prefix="waw2bo2_xwma_") as directory:

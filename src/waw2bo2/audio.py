@@ -155,26 +155,45 @@ def resample(pcm: bytes, channels: int, rate: int, target: int, tool: Path) -> b
     return proc.stdout
 
 
+def _decode(source: Path, decoder: Path | None, xwma_decoder: Path | None) -> tuple[bytes | None, dict, list]:
+    """convert() plus the 48 kHz resample: a pure function of the source bytes,
+    this code and the native tools. Also returns the report keys the resample
+    added, which the stage report lists after the entry's name and load type."""
+    pcm, info = convert(source, decoder, xwma_decoder)
+    before = set(info)
+    if pcm is not None and info["sample_rate"] != LOADED_RATE:
+        resampler = find_decoder(None) or False
+        if not resampler:
+            raise SoundError(f"sound at {info['sample_rate']} Hz needs resampling to {LOADED_RATE}; "
+                             "no resampler (FFmpeg) found")
+        data = resample(chunks(pcm)[1][b"data"], info["channels"], info["sample_rate"], LOADED_RATE,
+                        resampler)
+        info.update(original_pcm_sha256=info["pcm_sha256"], original_frames=info["frames"],
+                    pcm_sha256=hashlib.sha256(data).hexdigest(), frames=len(data) // (info["channels"] * 2),
+                    bank_sample_rate=LOADED_RATE, alias_pitch_scale=1.0,
+                    sample_rate_translation=f"resampled {info['sample_rate']} -> {LOADED_RATE} Hz "
+                                            "(BO2 banks are 48 kHz only)")
+        pcm = canonical_pcm(data, info["channels"], LOADED_RATE)
+    return pcm, info, [k for k in info if k not in before]
+
+
 def _convert_audio(task):
     project, entry, decoder, xwma_decoder = task
     relative = entry["output"]
     try:
-        pcm, info = convert(project / relative, decoder, xwma_decoder)
+        from . import audiocache
+        source = project / relative
+        key = audiocache.key(source.read_bytes(), decoder, xwma_decoder)
+        cached = audiocache.load(key)
+        if cached is not None:
+            pcm, decoded, added = cached
+        else:
+            pcm, decoded, added = _decode(source, decoder, xwma_decoder)
+            audiocache.store(key, pcm, decoded, added)
+        info = {k: v for k, v in decoded.items() if k not in added}
         info["name"] = entry["name"]
         info["loadType"] = entry["loadType"]
-        if pcm is not None and info["sample_rate"] != LOADED_RATE:
-            resampler = find_decoder(None) or False
-            if not resampler:
-                raise SoundError(f"sound at {info['sample_rate']} Hz needs resampling to {LOADED_RATE}; "
-                                 "no resampler (FFmpeg) found")
-            data = resample(chunks(pcm)[1][b"data"], info["channels"], info["sample_rate"], LOADED_RATE,
-                            resampler)
-            info.update(original_pcm_sha256=info["pcm_sha256"], original_frames=info["frames"],
-                        pcm_sha256=hashlib.sha256(data).hexdigest(), frames=len(data) // (info["channels"] * 2),
-                        bank_sample_rate=LOADED_RATE, alias_pitch_scale=1.0,
-                        sample_rate_translation=f"resampled {info['sample_rate']} -> {LOADED_RATE} Hz "
-                                                "(BO2 banks are 48 kHz only)")
-            pcm = canonical_pcm(data, info["channels"], LOADED_RATE)
+        info.update((k, decoded[k]) for k in added)
         info["aliases"] = entry.get("aliases", [])
         return entry, pcm, info, None
     except (SoundError, subprocess.TimeoutExpired) as exc:
