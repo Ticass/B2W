@@ -4,7 +4,7 @@ Convert **World at War** custom Zombies maps into **Black Ops II** Zombies mods 
 
 **[Download for Windows](https://github.com/Ticass/B2W/releases/latest/download/WawConverter-Windows.zip)** · **[Download for Linux](https://github.com/Ticass/B2W/releases/latest/download/WawConverter-Linux-x86_64.tar.gz)** · [Map compatibility](https://ticass.github.io/B2W/)
 
-![B2W desktop builder with Cheese Cube Unlimited selected](docs/images/b2w-map-builder.jpg)
+![B2W desktop builder with Cheese Cube Unlimited selected](docs/images/b2w-map-builder.png)
 
 ## Build your first map
 
@@ -29,6 +29,6 @@ flowchart LR
 
 Set the map’s title, location, and artwork, then preview how they’ll look in BO2’s menus.
 
-![B2W artwork editor previewing the map selection globe](docs/images/b2w-artwork-preview.jpg)
+![B2W artwork editor previewing the map selection globe](docs/images/b2w-artwork-preview.png)
 
 [Desktop guide](docs/DESKTOP.md) · [Setup and troubleshooting](docs/USAGE.md) · [Release notes](CHANGELOG.md) · [Development](docs/DEVELOPMENT.md)

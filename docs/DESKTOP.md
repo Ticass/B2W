@@ -1,4 +1,4 @@
-# WaW → BO2 Mod Tools
+# B2W desktop guide
 
 ## Quick start
 
@@ -27,6 +27,8 @@ Choose the portable ZIP asset rather than GitHub's source-code archives.
 Game content and proprietary Mod Tools are still required. The Setup list
 identifies missing files before a build starts. WaW Mod Tools source FX
 recovery is optional and disabled by default in the desktop app.
+
+![B2W Setup tab showing game paths and prerequisite status](images/b2w-setup.png)
 
 The updated desktop build driver runs in bundled Python and needs no PowerShell.
 The original v0.2.0 release used PowerShell: Wine's built-in stub could return
