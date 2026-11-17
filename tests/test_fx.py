@@ -3,7 +3,9 @@ import copy
 import unittest
 import tempfile
 import json
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 from waw2bo2 import fx, fxmaterials, techsets, t6bridge
 
@@ -47,6 +49,34 @@ def t4_effect(elems, looping=None, name="env/test"):
 
 
 class ElementTranslation(unittest.TestCase):
+    def test_stage_keeps_valid_effects_and_reports_transitive_failures(self):
+        valid = t4_effect([t4_elem(9, visuals=[{"sound": "shell"}])], name='valid')
+        blocked = t4_effect([t4_elem(4, visuals=[{"material": "missing"}])], name='blocked')
+        child = t4_effect([t4_elem(11, visuals=[{"effect": "blocked"}])], name='child')
+        parent = t4_effect([t4_elem(11, visuals=[{"effect": "child"}])], name='parent')
+        spot = t4_effect([t4_elem(8)], name='spot')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sources = {}
+            for effect in (valid, blocked, child, parent, spot):
+                path = root / (effect['name'] + '.json')
+                path.write_text(json.dumps(effect), encoding='utf-8')
+                sources[effect['name']] = path
+            graph = fx.Closure(effects=sources)
+            with patch.dict(os.environ, {'WAW2BO2_NATIVE': '0'}):
+                oracle = fx.stage_converted(graph, {}, {'missing'}, root / 'python')
+            actual = fx.stage_converted(graph, {}, {'missing'}, root / 'normal')
+            self.assertEqual(oracle, actual)
+            self.assertEqual(actual['converted'], ['valid'])
+            self.assertEqual(actual['sounds'], ['shell'])
+            self.assertEqual(actual['failed'], 4)
+            self.assertIn("UNSUPPORTED_FX parent: not converted: references effects that are not converted: ['child']",
+                          actual['warnings'])
+            self.assertIn("UNSUPPORTED_FX spot: not converted: spot elem 0: spot light elements are not converted yet",
+                          actual['warnings'])
+            self.assertEqual(fx.fx_file(root / 'python', 'waw/valid').read_bytes(),
+                             fx.fx_file(root / 'normal', 'waw/valid').read_bytes())
+
     def overlay_effect(self):
         model = t4_elem(6, visuals=[{'model': 'machine_on'}])
         model['spawnOneShot'] = [1, 0]
@@ -95,7 +125,12 @@ class ElementTranslation(unittest.TestCase):
             assets.write_text('init()\n{\n    level.waw2bo2_fx["env/test"] = "waw/env/test";\n'
                               '    level.waw2bo2_weapons["gun"] = "waw_gun";\n}\n')
             report = t6bridge.StageReport(project='test', fx_table={'env/test': effect['name']})
+            with patch.dict(os.environ, {'WAW2BO2_NATIVE': '0'}):
+                [reference_name] = t6bridge.stage_model_overlay_fx(report, root)
+            reference = fx.fx_file(root, reference_name).read_bytes()
             names = t6bridge.stage_model_overlay_fx(report, root)
+            self.assertEqual(names, [reference_name])
+            self.assertEqual(fx.fx_file(root, names[0]).read_bytes(), reference)
             text = assets.read_text()
             self.assertEqual(t6bridge.stage_model_overlay_fx(report, root), names)
             self.assertEqual(assets.read_text(), text)

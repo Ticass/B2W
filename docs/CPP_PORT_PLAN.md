@@ -74,6 +74,7 @@ The remaining small modules move with the area that uses them.
 | Recover textures from WaW IWDs | yes | 41 real textures matched DDS bytes and source reports across seven IWI formats. Der Riese linked and matched all 20 BSP files. | 0.25 s / 39.56 s (41 IWD requests) |
 | Index stock T6 material donors | yes | All 323 technique-to-material mappings matched in the stock asset cache used by Der Riese. | 0.05 s / 0.27 s |
 | Select material donors and prepare material JSON | yes | 2,847 source materials from Der Riese, Cheese Cube, Nightclub, and Clinic of Evil matched Python with layered vertex data enabled and disabled. Der Riese's 1,143 staged materials, 319 technique sets, and 1,780 shader binaries also matched. | 0.19 s / 1.20 s (921 materials with layered vertex data) |
+| Convert compiled WaW effects and stage model overlays | yes | 800 converted FX assets and their reports matched. Der Riese's 231 staged FX files matched. Tests cover overlay files, rejected spotlights, and transitive failures. | 0.81 s / 1.28 s (800 source effects) |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
 run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.
@@ -82,6 +83,8 @@ before calling the native world steps. It opens the native IWD recovery
 service once per build so the ZIP index and wavelet tables stay in memory.
 Material dependency discovery, donor index cache invalidation, and binding
 WaW shader programs to T6 passes still run in Python.
+The effect source resolver and its stock-zone extraction callbacks also still
+run in Python.
 
 Tools: `native/tools/shadow_*.py` run a real stage-bridge with the Python
 step and the native step on the same inputs and compare every output file.

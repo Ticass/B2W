@@ -7,6 +7,7 @@
 #include "textures/stage.h"
 #include "core/parallel.h"
 #include "core/pytext.h"
+#include "effects/stage.h"
 #include "gsc/parse.h"
 #include "core/pyre.h"
 #include "gsc/port/api.h"
@@ -514,6 +515,8 @@ namespace
         {"dds2iwi", [](const Arguments& a) { return a.size() == 2 ? DdsToIwi(a[0], a[1]) : Usage(); }},
         {"dds-batch", JsonRequest<w2b::textures::ConvertBatch>},
         {"index-donors", JsonRequest<w2b::materials::IndexDonors>},
+        {"convert-effects", JsonRequest<w2b::effects::StageEffects>},
+        {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},
         {"prepare-materials", [](const Arguments& a)
         {
             if (a.size() != 1)

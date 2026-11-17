@@ -1150,15 +1150,7 @@ def stage_fx_models(report: StageReport, project_root: Path, names: set[str]) ->
 
 
 def stage_model_overlay_fx(report: StageReport, project_root: Path) -> list[str]:
-    entries = []
-    for source, name in sorted(report.fx_table.items()):
-        path = fx.fx_file(project_root, name)
-        if not path.exists(): continue
-        for model, variant in fx.model_overlay_variants(_load_json(path)):
-            dst = fx.fx_file(project_root, variant['name'])
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_text(json.dumps(variant, indent=1) + '\n', encoding='utf-8')
-            entries.append({'source': source, 'model': model, 'variant': variant['name']})
+    entries = fx.stage_model_overlays(project_root, report.fx_table)
     assets = project_root / 'maps/mp/waw/_waw2bo2_assets.gsc'
     if assets.exists():
         text = assets.read_text(encoding='utf-8')
@@ -2827,40 +2819,11 @@ def stage_effects(report: StageReport, names: list[str], roots: list[Path], stoc
                                         techset_dump, rename=world_materials)
     write_image_streaming(project_root, effect_images)
 
-    # effects; one that cannot be converted takes every effect using it along
-    converted: dict[str, dict] = {}
-    failed: dict[str, str] = {}
-    for name, src in sorted(cl.effects.items()):
-        t4 = _load_json(src)
-        d = fx.dependencies(t4)
-        res.sounds |= d.sounds
-        if d.materials & failed_materials:
-            failed[name] = f"materials {sorted(d.materials & failed_materials)} not converted"
-            continue
-        try:
-            t6, notes = fx.convert_effect(t4, material_names)
-        except fx.FxConvertError as exc:
-            failed[name] = str(exc)
-            continue
-        report.warnings += [f"fx {name}: {n}" for n in notes]
-        converted[name] = t6
-        res.models |= d.models
-    changed = True
-    while changed:
-        changed = False
-        for name in list(converted):
-            d = fx.dependencies(_load_json(cl.effects[name]))
-            bad = sorted(e for e in d.effects if e in failed or e in cl.absent)
-            if bad:
-                failed[name] = f"references effects that are not converted: {bad}"
-                del converted[name]
-                changed = True
-    for name, why in sorted(failed.items()):
-        report.warnings.append(f"UNSUPPORTED_FX {name}: not converted: {why}")
-    for name, t6 in sorted(converted.items()):
-        dst = fx.fx_file(project_root, t6["name"])
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(json.dumps(t6, indent=1) + "\n", encoding="utf-8")
+    staged = fx.stage_converted(cl, material_names, failed_materials, project_root)
+    converted = set(staged['converted'])
+    report.warnings.extend(staged['warnings'])
+    res.sounds.update(staged['sounds'])
+    res.models.update(staged['models'])
     for name in sorted(set(names)):
         if name in converted:
             res.table[name] = fx.output_name(name)
@@ -2869,7 +2832,7 @@ def stage_effects(report: StageReport, names: list[str], roots: list[Path], stoc
         report.warnings.append(f"WAW_STOCK_ASSET {kind} {name}: the map only references it; ported from the "
                                f"stock WaW zone {zone}.ff")
     report.warnings.append(f"fx: {len(converted)} WaW effects converted ({len(res.table)} loaded by scripts), "
-                           f"{len(failed)} failed, {len(cl.absent)} absent from WaW")
+                           f"{staged['failed']} failed, {len(cl.absent)} absent from WaW")
     return res
 
 

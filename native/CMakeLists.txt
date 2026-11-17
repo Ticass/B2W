@@ -62,6 +62,9 @@ add_library(w2b_materials STATIC src/materials/techset_name.cpp src/materials/te
     src/materials/material.cpp src/materials/prepare.cpp src/materials/donor_index.cpp)
 target_link_libraries(w2b_materials PUBLIC w2b_core)
 
+add_library(w2b_effects STATIC src/effects/element.cpp src/effects/effect.cpp src/effects/overlay.cpp src/effects/stage.cpp)
+target_link_libraries(w2b_effects PUBLIC w2b_core)
+
 add_library(w2b_world STATIC
     src/world/vertices.cpp
     src/world/bsp_visibility.cpp
@@ -112,7 +115,8 @@ add_library(w2b_gscport STATIC
 target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
 add_executable(waw2bo2n src/cli/main.cpp)
-target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures w2b_materials)
+target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
+    w2b_materials w2b_effects)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

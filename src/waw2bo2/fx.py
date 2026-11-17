@@ -29,6 +29,9 @@ import copy
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from . import native, parallel
 
 # ---- element flags -------------------------------------------------------
 
@@ -427,3 +430,74 @@ def closure(names: list[str], roots: list[Path], resolve=None) -> Closure:
         c.deps.sounds |= d.sounds
         stack += [(e, name) for e in sorted(d.effects)]
     return c
+
+
+def stage_converted(closure: Closure, material_names: dict[str, str], failed_materials: set[str],
+                    project_root: Path) -> dict:
+    if closure.effects and native.tool() is not None:
+        with TemporaryDirectory(prefix='waw2bo2_fx_') as scratch:
+            request = Path(scratch) / 'convert.json'
+            request.write_text(json.dumps({
+                'output': str(project_root),
+                'effects': [{'name': name, 'source': str(source)} for name, source in sorted(closure.effects.items())],
+                'absent': sorted(closure.absent),
+                'materialNames': material_names,
+                'failedMaterials': sorted(failed_materials),
+                'workers': parallel.worker_count(len(closure.effects)),
+            }), encoding='utf-8')
+            return json.loads(native.run('convert-effects', str(request)))
+
+    converted, failed, links = {}, {}, {}
+    sounds, models = set(), set()
+    warnings = []
+    for name, source in sorted(closure.effects.items()):
+        t4 = json.loads(source.read_text(encoding='utf-8'))
+        refs = dependencies(t4)
+        sounds.update(refs.sounds)
+        if missing := refs.materials & failed_materials:
+            failed[name] = f"materials {sorted(missing)} not converted"
+            continue
+        try:
+            t6, notes = convert_effect(t4, material_names)
+        except FxConvertError as exc:
+            failed[name] = str(exc)
+            continue
+        warnings.extend(f"fx {name}: {note}" for note in notes)
+        converted[name] = t6
+        links[name] = refs.effects
+        models.update(refs.models)
+    changed = True
+    while changed:
+        changed = False
+        for name in list(converted):
+            broken = sorted(ref for ref in links[name] if ref in failed or ref in closure.absent)
+            if broken:
+                failed[name] = f"references effects that are not converted: {broken}"
+                del converted[name]
+                changed = True
+    warnings.extend(f"UNSUPPORTED_FX {name}: not converted: {reason}" for name, reason in sorted(failed.items()))
+    for effect in converted.values():
+        output = fx_file(project_root, effect['name'])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(effect, indent=1) + '\n', encoding='utf-8')
+    return {'converted': list(converted), 'failed': len(failed), 'warnings': warnings,
+            'models': sorted(models), 'sounds': sorted(sounds)}
+
+
+def stage_model_overlays(project_root: Path, effects: dict[str, str]) -> list[dict]:
+    if effects and native.tool() is not None:
+        with TemporaryDirectory(prefix='waw2bo2_fx_') as scratch:
+            request = Path(scratch) / 'overlays.json'
+            request.write_text(json.dumps({'project': str(project_root), 'effects': effects}), encoding='utf-8')
+            return json.loads(native.run('effect-overlays', str(request)))
+    entries = []
+    for source, name in sorted(effects.items()):
+        path = fx_file(project_root, name)
+        if not path.exists():
+            continue
+        for model, variant in model_overlay_variants(json.loads(path.read_text(encoding='utf-8'))):
+            target = fx_file(project_root, variant['name'])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(variant, indent=1) + '\n', encoding='utf-8')
+            entries.append({'source': source, 'model': model, 'variant': variant['name']})
+    return entries
