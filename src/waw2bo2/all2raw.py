@@ -400,6 +400,24 @@ def staging_folder(root: Path) -> Path:
     return top / 'x' / uuid.uuid4().hex[:12]
 
 
+# Published extractions this process has seen complete, by receipt identity.
+# A build holds the cache lock, so nothing removes their files meanwhile;
+# without this, each lookup re-checked every file (185,000 checks, 20 s, on
+# Der Riese).
+_VERIFIED: set[tuple[str, int, int]] = set()
+
+
+def _complete(folder: Path, receipt: Path, files: list[str]) -> bool:
+    stat = receipt.stat()
+    identity = (str(receipt.resolve()), stat.st_size, stat.st_mtime_ns)
+    if identity in _VERIFIED:
+        return True
+    if all((folder / name).is_file() for name in files):
+        _VERIFIED.add(identity)
+        return True
+    return False
+
+
 def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str | None,
                  image_format: str, tool_digest: str | None = None, dependencies=None,
                  refresh: bool = False, list_assets: bool = True) -> tuple[Path, dict]:
@@ -419,8 +437,7 @@ def extract_zone(ff: Path, tool: Path, root: Path, search: str, *, assets: str |
     receipt = folder / 'extraction.json'
     try:
         cached = json.loads(receipt.read_text(encoding='utf-8'))
-        if not refresh and cached['inputs'] == inputs and all(
-                (folder / name).is_file() for name in cached['files']):
+        if not refresh and cached['inputs'] == inputs and _complete(folder, receipt, cached['files']):
             return folder, cached
     except (OSError, ValueError, KeyError):
         pass

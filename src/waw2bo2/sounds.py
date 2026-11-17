@@ -557,8 +557,12 @@ class AudioSources:
         entry = self.members.get(("sound/" + name).lower())
         if entry:
             archive, member = entry
-            with zipfile.ZipFile(archive) as z:
-                return z.read(member), f"{archive}!{member}"
+            # one open archive per IWD: reopening re-reads its whole central
+            # directory (3,000+ sounds read from the same few IWDs)
+            opened = self.__dict__.setdefault("_open", {})
+            if archive not in opened:
+                opened[archive] = zipfile.ZipFile(archive)
+            return opened[archive].read(member), f"{archive}!{member}"
         return None
 
 

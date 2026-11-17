@@ -71,9 +71,19 @@ class StockWawAssets:
         self.index = zones
 
     def zones_defining(self, kind: str, name: str) -> list[str]:
-        low = name.lower()
-        hits = [z for z, types in self.index.items() if any(n.lower() == low for n in types.get(kind, []))]
-        return sorted(hits, key=_zone_rank)
+        # (kind, lower-case name) -> zones, built once per index: the scan of
+        # every zone's names per lookup cost seconds across a build
+        lookup = self.__dict__.get('_lookup')
+        if lookup is None or lookup[0] is not self.index or lookup[1] != len(self.index):
+            table: dict[tuple[str, str], list[str]] = {}
+            for zone, types in self.index.items():
+                for k, names in types.items():
+                    for n in names:
+                        hits = table.setdefault((k, n.lower()), [])
+                        if not hits or hits[-1] != zone:
+                            hits.append(zone)
+            lookup = self.__dict__['_lookup'] = (self.index, len(self.index), table)
+        return sorted(lookup[2].get((kind, name.lower()), []), key=_zone_rank)
 
     def dump(self, zone: str, kind: str | None = None) -> Path:
         if zone in self.prepared:
