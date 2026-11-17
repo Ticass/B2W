@@ -216,10 +216,12 @@ def build(bo2_root: Path, cache: Path, unlinker: Path | None = None, stock_dump:
     stock = load_snapshot()
 
     def api(data, assets):
-        return T6Api({k: tuple(v) for k, v in data["builtins"].items()},
-                     data["scripts"],
-                     methods={k: tuple(v) for k, v in data["methods"].items()},
-                     stock_assets=assets)
+        built = T6Api({k: tuple(v) for k, v in data["builtins"].items()},
+                      data["scripts"],
+                      methods={k: tuple(v) for k, v in data["methods"].items()},
+                      stock_assets=assets)
+        built.cache_path = cache    # native steps load the same API from it
+        return built
 
     if cache.exists():
         data = json.loads(cache.read_text(encoding="utf-8"))

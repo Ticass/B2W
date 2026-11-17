@@ -278,6 +278,8 @@ namespace
         if (args.value("bind", false))
             sources.BindZombieFramework("maps/" + mapName);
         port::PortMapOptions options;
+        if (args.contains("fx_table"))
+            options.fxTable = args["fx_table"].get<std::map<std::string, std::string>>();
         options.animtrees = args["animtrees"].get<std::set<std::string>>();
         for (const auto& [tree, names] : args["core_animtrees"].items())
             options.coreAnimtrees[tree] = names.get<std::set<std::string>>();

@@ -170,6 +170,8 @@ class Sources:
 
     def __init__(self, roots: list[Path], iwds: list[Path], stock_root: Path | None,
                  variant_roots: list[Path] | None = None):
+        # the native port (waw2bo2n port-map) rebuilds the same view from these
+        self.init_args = (list(roots), list(iwds), stock_root, list(variant_roots) if variant_roots else None)
         self.text: dict[str, str] = {}
         # other stock releases of the framework (the WaW / Mod Tools raw
         # scripts maps are authored from), for telling map edits from stock
@@ -3697,6 +3699,48 @@ def port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
              core_animtrees: dict[str, set[str]] | None = None, bo2_stock_perks: bool = False,
              actor_types: set[str] = frozenset(), actor_template: str | None = None,
              stock_map: bool = False, client_ported: bool = False) -> PortReport:
+    """python_port_map, natively (native/src/gsc/port, byte-identical output)
+    when built. The native step rebuilds the source view from the arguments
+    ``sources`` was made with; the map's startup framework is bound there as
+    port_scripts binds it."""
+    from . import native
+    cache = getattr(api, 'cache_path', None)
+    init_args = getattr(sources, 'init_args', None)
+    if native.tool() is None or cache is None or init_args is None:
+        return python_port_map(sources, api, map_name, out_root, fx_table, animtrees, core_animtrees, bo2_stock_perks,
+                               actor_types, actor_template, stock_map, client_ported)
+    from .t6api import SNAPSHOT
+    roots, iwds, stock, variants = init_args
+    if actor_template is not None and not isinstance(actor_template, dict):
+        actor_template = {'human': actor_template}
+    out_root = Path(out_root)
+    out_root.mkdir(parents=True, exist_ok=True)
+    args_file, report_file = out_root / 'port_map.args.json', out_root / 'port_map.report.json'
+    args = {'roots': [str(r) for r in roots], 'iwds': [str(i) for i in iwds], 'stock': str(stock) if stock else None,
+            'variant_roots': [str(v) for v in variants] if variants else None, 'snapshot': str(SNAPSHOT),
+            'api_cache': str(cache), 'compat_dir': str(COMPAT_DIR), 'map_name': map_name, 'out_root': str(out_root),
+            'fx_table': fx_table or {}, 'animtrees': sorted(animtrees or ()),
+            'core_animtrees': {k: sorted(v) for k, v in (core_animtrees or {}).items()},
+            'bo2_stock_perks': bo2_stock_perks, 'actor_types': sorted(actor_types), 'actor_template': actor_template,
+            'stock_map': stock_map, 'client_ported': client_ported,
+            # binding twice changes nothing (port_scripts binds before this call)
+            'bind': True, 'report': str(report_file)}
+    args_file.write_text(json.dumps(args), encoding='utf-8')
+    try:
+        native.run('port-map', str(args_file))
+        data = json.loads(report_file.read_text(encoding='utf-8'))
+    finally:
+        args_file.unlink(missing_ok=True)
+        report_file.unlink(missing_ok=True)
+    data['rewrites'] = Counter(data['rewrites'])
+    return PortReport(**data)
+
+
+def python_port_map(sources: Sources, api: T6Api, map_name: str, out_root: Path,
+                    fx_table: dict[str, str] | None = None, animtrees: set[str] | None = None,
+                    core_animtrees: dict[str, set[str]] | None = None, bo2_stock_perks: bool = False,
+                    actor_types: set[str] = frozenset(), actor_template: str | None = None,
+                    stock_map: bool = False, client_ported: bool = False) -> PortReport:
     """Translate the map main and everything it reaches into out_root/maps/mp/waw.
     ``client_ported``: the map's own client scripts run on the client
     (clientport.port_map_client); their listeners get no server copies.
