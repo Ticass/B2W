@@ -51,3 +51,17 @@ No file over ~1,000 lines; areas talk through headers only.
 | 9 | in-process OAT zone reading and linking (no dumps, no JSON) | - |
 
 The remaining small modules move with the area that uses them.
+
+## Status
+
+| Step | Native | Verified on | Native / Python time (Der Riese) |
+|---|---|---|---|
+| Translate shaders (`shaders.stage`) | yes | DR stage-bridge shadow: 27,652 files identical; full DR build equal to pure Python | 17.6 s cold, 7.4 s cached / 17.4 s |
+| Decode audio (`audio.stage`, acm, xwma) | yes | DR: 3,478 files identical, cold and cached | 21 s cold, 4-6 s cached / 30 s |
+| Stage sound sources (`sounds.stage`) | yes | DR shadow: 3,837 IR files, 3,477 payloads, report identical | 2.7 s / 5.5 s |
+
+Tools: `native/tools/shadow_*.py` run a real stage-bridge with the Python
+step and the native step on the same inputs and compare every output file.
+Found while porting (fixed): ACM fails concurrent stream opens now and then;
+`json::empty()` is false for every string; Windows keeps a folder's first
+spelling, so folders are created in the Python order.
