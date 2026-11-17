@@ -60,7 +60,14 @@ target_link_libraries(w2b_gsc PUBLIC w2b_core)
 add_library(w2b_gscport STATIC
     src/gsc/port/util.cpp
     src/gsc/port/api.cpp
-    src/gsc/port/rewrites.cpp)
+    src/gsc/port/rewrites.cpp
+    src/gsc/port/t6api.cpp
+    src/gsc/port/sources.cpp
+    src/gsc/port/statements.cpp
+    src/gsc/port/translator_resolve.cpp
+    src/gsc/port/translator_translate.cpp
+    src/gsc/port/translator_extract.cpp
+    src/gsc/port/translator_hooks.cpp)
 target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
 add_executable(waw2bo2n src/cli/main.cpp)

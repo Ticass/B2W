@@ -67,6 +67,144 @@ namespace w2b::encoding
         return out;
     }
 
+    std::string Utf8Replace(const std::string_view bytes)
+    {
+        std::string out;
+        out.reserve(bytes.size());
+        const size_t n = bytes.size();
+        size_t i = 0;
+        const auto at = [&](const size_t k) { return static_cast<unsigned char>(bytes[k]); };
+        while (i < n)
+        {
+            const unsigned char c = at(i);
+            if (c < 0x80)
+            {
+                out += static_cast<char>(c);
+                i++;
+                continue;
+            }
+            // valid second-byte ranges per lead byte (Unicode table 3-7)
+            int need = 0;
+            unsigned char lo = 0x80, hi = 0xBF;
+            if (c >= 0xC2 && c <= 0xDF)
+                need = 1;
+            else if (c == 0xE0)
+            {
+                need = 2;
+                lo = 0xA0;
+            }
+            else if ((c >= 0xE1 && c <= 0xEC) || c == 0xEE || c == 0xEF)
+                need = 2;
+            else if (c == 0xED)
+            {
+                need = 2;
+                hi = 0x9F;
+            }
+            else if (c == 0xF0)
+            {
+                need = 3;
+                lo = 0x90;
+            }
+            else if (c >= 0xF1 && c <= 0xF3)
+                need = 3;
+            else if (c == 0xF4)
+            {
+                need = 3;
+                hi = 0x8F;
+            }
+            else
+            {
+                AppendUtf8(out, 0xFFFD);
+                i++;
+                continue;
+            }
+            size_t k = 1;
+            bool valid = true;
+            for (; k <= static_cast<size_t>(need); k++)
+            {
+                if (i + k >= n)
+                {
+                    valid = false;
+                    break;
+                }
+                const unsigned char b = at(i + k);
+                const unsigned char rangeLo = k == 1 ? lo : 0x80, rangeHi = k == 1 ? hi : 0xBF;
+                if (b < rangeLo || b > rangeHi)
+                {
+                    valid = false;
+                    break;
+                }
+            }
+            if (!valid)
+            {
+                // the maximal subpart (lead + its valid continuation bytes) -> one U+FFFD
+                AppendUtf8(out, 0xFFFD);
+                i += k;
+                continue;
+            }
+            out.append(bytes.substr(i, static_cast<size_t>(need) + 1));
+            i += static_cast<size_t>(need) + 1;
+        }
+        return out;
+    }
+
+    std::string Utf8SigReplace(const std::string_view bytes)
+    {
+        if (bytes.size() >= 3 && bytes.substr(0, 3) == "\xEF\xBB\xBF")
+            return Utf8Replace(bytes.substr(3));
+        return Utf8Replace(bytes);
+    }
+
+    std::string UniversalNewlines(const std::string_view text)
+    {
+        std::string out;
+        out.reserve(text.size());
+        for (size_t i = 0; i < text.size(); i++)
+        {
+            if (text[i] == '\r')
+            {
+                out += '\n';
+                if (i + 1 < text.size() && text[i + 1] == '\n')
+                    i++;
+            }
+            else
+                out += text[i];
+        }
+        return out;
+    }
+
+    std::string WawText(const std::string_view bytes)
+    {
+        // data.decode("utf-8") succeeds exactly when the replacing decoder changes nothing
+        std::string text;
+        if (Utf8Replace(bytes) == bytes)
+            text = std::string(bytes);
+        else
+        {
+            // cp1252 with errors="replace": undefined bytes become U+FFFD
+            for (const char ch : bytes)
+            {
+                const auto c = static_cast<unsigned char>(ch);
+                if (c >= 0x80 && c < 0xA0)
+                {
+                    try
+                    {
+                        text += Cp1252ToUtf8(std::string_view(&ch, 1));
+                    }
+                    catch (const DecodeError&)
+                    {
+                        AppendUtf8(text, 0xFFFD);
+                    }
+                }
+                else if (c >= 0xA0)
+                    AppendUtf8(text, c);
+                else
+                    text += ch;
+            }
+        }
+        return UniversalNewlines(text);
+    }
+
     std::string Cp437ToUtf8(const std::string_view bytes)
     {
         std::string out;
