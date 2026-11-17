@@ -16,7 +16,8 @@ add_library(w2b_core STATIC
     src/core/pytext.cpp
     src/core/files.cpp
     src/core/hash.cpp
-    src/core/cache.cpp)
+    src/core/cache.cpp
+    src/core/process.cpp)
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
 
 add_library(w2b_shaders STATIC
@@ -26,8 +27,13 @@ add_library(w2b_shaders STATIC
     src/shaders/stage.cpp)
 target_link_libraries(w2b_shaders PUBLIC w2b_core)
 
+add_library(w2b_audio STATIC
+    src/audio/convert.cpp
+    src/audio/stage.cpp)
+target_link_libraries(w2b_audio PUBLIC w2b_core)
+
 add_executable(waw2bo2n src/cli/main.cpp)
-target_link_libraries(waw2bo2n PRIVATE w2b_shaders)
+target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

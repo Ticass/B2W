@@ -202,6 +202,29 @@ def _convert_audio(task):
 
 def stage(project: Path, output: Path, decoder: Path | None = None,
           xwma_decoder: Path | None = None) -> dict:
+    """Decode the staged sounds; runs natively (native/src/audio, byte-identical
+    output) when built, with the same tools this module would use."""
+    from . import native, xwma
+    if native.tool() is None:
+        return python_stage(project, output, decoder, xwma_decoder)
+    decoder = find_decoder(decoder) if decoder else None
+    args = ['--project', str(project), '--output', str(output)]
+    if decoder:
+        args += ['--decoder-text', str(decoder)]
+    try:
+        args += ['--xwma', str(xwma.find_helper(xwma_decoder))]
+    except SoundError:
+        pass  # reported per xWMA sound, as the Python step does
+    resampler = find_decoder(None)
+    if resampler:
+        args += ['--resampler', str(resampler)]
+    native.run('audio-stage', *args)
+    return json.loads((output / "audio.stage.json").read_text(encoding='utf-8'))
+
+
+def python_stage(project: Path, output: Path, decoder: Path | None = None,
+                 xwma_decoder: Path | None = None) -> dict:
+    """The Python implementation of stage() (WAW2BO2_NATIVE=0)."""
     source_report = json.loads((project / "sounds.stage.json").read_text())
     decoder = find_decoder(decoder) if decoder else None
     report = {"status": "partial_pcm_stage", "decoder": str(decoder) if decoder else None,

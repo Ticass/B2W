@@ -1,5 +1,6 @@
 // waw2bo2n: the converter's native steps, one subcommand each.
 #include "core/files.h"
+#include "audio/stage.h"
 #include "shaders/stage.h"
 
 #include <windows.h>
@@ -22,7 +23,9 @@ namespace
 
     int Usage()
     {
-        std::fputs("usage: waw2bo2n shaders-stage --dest <folder> <root>...\n", stderr);
+        std::fputs("usage: waw2bo2n shaders-stage --dest <folder> <root>...\n"
+                   "       waw2bo2n audio-stage --project <folder> --output <folder> [--decoder-text <s>] [--xwma <exe>] [--resampler <exe>]\n",
+                   stderr);
         return 2;
     }
 
@@ -43,6 +46,33 @@ namespace
         std::printf("shaders: %lld translated, %lld unsupported\n", report["translated"].get<long long>(), report["unsupported"].get<long long>());
         return 0;
     }
+
+    // audio-stage --project <content_source> --output <pcm> [--decoder-text <str>] [--xwma <exe>] [--resampler <exe>]
+    int AudioStage(const std::vector<std::string>& args)
+    {
+        std::string project, output, decoder;
+        w2b::audio::Tools tools;
+        for (size_t i = 0; i + 1 < args.size(); i += 2)
+        {
+            if (args[i] == "--project")
+                project = args[i + 1];
+            else if (args[i] == "--output")
+                output = args[i + 1];
+            else if (args[i] == "--decoder-text")
+                decoder = args[i + 1];
+            else if (args[i] == "--xwma")
+                tools.xwmaHelper = w2b::files::FromUtf8(args[i + 1]);
+            else if (args[i] == "--resampler")
+                tools.resampler = w2b::files::FromUtf8(args[i + 1]);
+            else
+                return Usage();
+        }
+        if (project.empty() || output.empty())
+            return Usage();
+        const auto report = w2b::audio::Stage(w2b::files::FromUtf8(project), w2b::files::FromUtf8(output), decoder, tools);
+        std::printf("audio: %zu decoded, %zu errors\n", report["audio"].size(), report["errors"].size());
+        return 0;
+    }
 } // namespace
 
 int wmain(const int argc, wchar_t** argv)
@@ -57,6 +87,8 @@ int wmain(const int argc, wchar_t** argv)
     {
         if (command == "shaders-stage")
             return ShadersStage(args);
+        if (command == "audio-stage")
+            return AudioStage(args);
     }
     catch (const std::exception& error)
     {
