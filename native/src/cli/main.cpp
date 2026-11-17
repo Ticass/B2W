@@ -26,6 +26,7 @@
 #include <io.h>
 
 #include <cstdio>
+#include <charconv>
 #include <exception>
 #include <fstream>
 #include <iostream>
@@ -49,7 +50,8 @@ namespace
         std::fputs("usage: waw2bo2n shaders-stage --dest <folder> <root>...\n"
                    "       waw2bo2n world-vertices <world> <byte-offset> <count> <legacy|compensated>\n"
                    "       waw2bo2n world-fbx <request.json>\n"
-                   "       waw2bo2n collision-mesh <clip-world> <output-folder>\n"
+                   "       waw2bo2n world-fbx <render-world> <output.fbx> [--surface-limit <count>]\n"
+                   "       waw2bo2n collision-mesh <clip-world> <output-folder> [--records]\n"
                    "       waw2bo2n world-inspect <render-world> <clip-world>\n"
                    "       waw2bo2n audio-stage --project <folder> --output <folder> [--decoder-text <s>] [--xwma <exe>] [--resampler <exe>]\n",
                    stderr);
@@ -68,6 +70,35 @@ namespace
         w2b::world::DecodeVertices(input, std::cout, std::stoul(args[2]), args[3] == "compensated");
         if (!std::cout.flush())
             throw std::runtime_error("could not flush decoded world vertices");
+        return 0;
+    }
+
+    int WorldFbx(const std::vector<std::string>& args)
+    {
+        if (args.size() == 1)
+        {
+            const auto report = w2b::world::StageWorldFbx(w2b::files::FromUtf8(args[0]));
+            std::puts(report.dump().c_str());
+            return 0;
+        }
+        if (args.size() != 2 && (args.size() != 4 || args[2] != "--surface-limit"))
+            return Usage();
+        std::optional<std::size_t> limit;
+        if (args.size() == 4)
+        {
+            std::string_view text = args[3];
+            if (text.starts_with('+'))
+                text.remove_prefix(1);
+            std::size_t count = 0;
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), count);
+            if (error != std::errc{} || end != text.data() + text.size() || !count)
+                throw std::runtime_error("--surface-limit must be positive");
+            limit = count;
+        }
+        const auto report = w2b::world::ExportWorldFbx(w2b::files::FromUtf8(args[0]),
+                                                       w2b::files::FromUtf8(args[1]), limit);
+        std::printf("wrote %s (%zu surfaces, %zu vertices)\n", args[1].c_str(),
+                    report.at("surfaces").get<std::size_t>(), report.at("vertices").get<std::size_t>());
         return 0;
     }
 
@@ -369,18 +400,16 @@ int wmain(const int argc, wchar_t** argv)
             return PortMapCommand(args[0]);
         if (command == "world-vertices" && args.size() == 4)
             return WorldVertices(args);
-        if (command == "world-fbx" && args.size() == 1)
+        if (command == "world-fbx")
+            return WorldFbx(args);
+        if (command == "collision-mesh" && (args.size() == 2 || (args.size() == 3 && args[2] == "--records")))
         {
-            w2b::world::StageWorldFbx(w2b::files::FromUtf8(args[0]));
-            return 0;
-        }
-        if (command == "collision-mesh" && args.size() == 2)
-        {
-            const auto report = w2b::world::StageCollisionMesh(w2b::files::FromUtf8(args[0]), w2b::files::FromUtf8(args[1]));
+            const auto report = w2b::world::StageCollisionMesh(w2b::files::FromUtf8(args[0]),
+                                                              w2b::files::FromUtf8(args[1]), args.size() == 3);
             std::puts(report.dump(-1, ' ', true).c_str());
             return 0;
         }
-        if (command == "world-inspect" && args.size() == 2)
+        if ((command == "inspect" || command == "world-inspect") && args.size() == 2)
         {
             const auto info = w2b::world::InspectWorld(w2b::files::FromUtf8(args[0]), w2b::files::FromUtf8(args[1]));
             std::puts(w2b::py::JsonDumps(info, 2).c_str());

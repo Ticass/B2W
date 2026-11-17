@@ -6,5 +6,6 @@
 
 namespace w2b::world
 {
-    py::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output);
+    py::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output,
+                               bool includeRecords = false);
 }

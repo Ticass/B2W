@@ -64,6 +64,12 @@ The remaining small modules move with the area that uses them.
 | Write render-world FBX (`fbx.write_world_fbx`) | yes | Five maps matched FBX bytes and mesh mappings. Full Der Riese build passed with identical BSP files. | 0.78 s / 3.89 s |
 | Stage terrain collision (`fbx.write_collision_fbx`, `t6bridge.write_collision_edges`) | yes | 23 maps matched FBX bytes, walkable-edge records, material slots, and collision diagnostics. Reader tests cover versions 2–9. | 0.05 s / 1.13 s (clip read and collision mesh staging) |
 | Inspect world dumps (`cli inspect`) | yes | Five real maps and synthetic render dump versions 1–6 matched the Python report byte for byte. | — |
+| Group render surfaces and stage visibility and shadows | yes | Five maps matched FBX, visibility and shadow bytes and mesh IDs. Full Der Riese build passed. | 0.85 s / 3.23 s (render and manifests) |
+| Stage brush and static-model collision records | yes | 23 maps matched all three manifests and diagnostics. Der Riese's combined geometry stage matched the Python stage byte for byte. | 1.2 s / 5.3 s (combined geometry stage) |
+
+`waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
+run directly. The Python builder still resolves materials, filters render
+surfaces, and stages reflection probes before calling the native world steps.
 
 Tools: `native/tools/shadow_*.py` run a real stage-bridge with the Python
 step and the native step on the same inputs and compare every output file.

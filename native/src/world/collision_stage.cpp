@@ -1,6 +1,8 @@
 #include "world/collision_stage.h"
 
+#include "core/files.h"
 #include "world/collision_plan.h"
+#include "world/collision_records.h"
 #include "world/fbx_writer.h"
 
 #include <algorithm>
@@ -45,9 +47,30 @@ namespace w2b::world
             return {{"collision_edges_source", "waw"}, {"collision_edges_walkable", walkable},
                     {"collision_edges_total", static_cast<std::uint64_t>(count) * 3}};
         }
+
+        py::Json WriteCollisionRecords(const std::filesystem::path& output, const CollisionWorld& world)
+        {
+            auto brushes = BuildWorldBrushes(world);
+            files::WriteText(output / "brushes.json",
+                             py::JsonDumps({{"brushes", std::move(brushes.records)}}, -1) + "\n");
+            auto submodels = BuildSubmodels(world);
+            const auto submodelCount = submodels.size();
+            const auto empty = std::ranges::count_if(submodels, [](const py::Json& model)
+            {
+                return model.at("brushes").empty();
+            });
+            files::WriteText(output / "submodels.json",
+                             py::JsonDumps({{"submodels", std::move(submodels)}}, -1) + "\n");
+            auto models = BuildStaticModels(world);
+            files::WriteText(output / "staticmodels.json",
+                             py::JsonDumps({{"staticModels", std::move(models.records)}}, 1) + "\n");
+            return {{"brushes", std::move(brushes.summary)}, {"static_models", std::move(models.summary)},
+                    {"submodels", submodelCount}, {"empty_submodels", empty}};
+        }
     }
 
-    py::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output)
+    py::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output,
+                               bool includeRecords)
     {
         const auto world = ReadCollisionWorld(source);
         const auto plan = PlanCollision(world);
@@ -64,8 +87,11 @@ namespace w2b::world
         auto sheets = py::Json::array();
         for (const auto id : plan.oneWayTriangles)
             sheets.push_back(world.materials.at(world.triangleMaterials.at(id)).name);
-        return {{"slots", std::move(slots)}, {"sheets", std::move(sheets)},
-                {"non_colliding_dropped", plan.nonCollidingDropped}, {"water_dropped", plan.waterDropped},
-                {"edges", WriteCollisionEdges(output / "edges.bin", world, plan)}};
+        py::Json report{{"slots", std::move(slots)}, {"sheets", std::move(sheets)},
+                        {"non_colliding_dropped", plan.nonCollidingDropped}, {"water_dropped", plan.waterDropped},
+                        {"edges", WriteCollisionEdges(output / "edges.bin", world, plan)}};
+        if (includeRecords)
+            report["records"] = WriteCollisionRecords(output, world);
+        return report;
     }
 }

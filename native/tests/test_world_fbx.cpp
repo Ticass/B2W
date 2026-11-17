@@ -1,4 +1,6 @@
 #include "world/fbx_writer.h"
+#include "world/mesh_merge.h"
+#include "world/shadow_geometry.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -44,4 +46,35 @@ TEST_CASE("World FBX rejects an out-of-range triangle")
     constexpr std::array<std::uint16_t, 1> indices{0};
     const w2b::world::FbxMesh mesh{"mc/a", 0, 0, 0, 0, false, false, {{0, 0, 1, 0, 0}}};
     CHECK_THROWS_AS(w2b::world::BuildFbxGeometry({{}, indices, {}}, mesh), std::runtime_error);
+}
+
+TEST_CASE("World meshes keep textual bucket order, render caps and shadow identity")
+{
+    using namespace w2b::world;
+    RenderWorld world;
+    world.geometry.indices.resize(900 * 3, 0);
+    WorldSurface surface{};
+    surface.material = "mat";
+    surface.triangleCount = 900;
+    surface.cell = 2;
+    surface.lightmap = 2;
+    world.surfaces.push_back(surface);
+    surface.index = 1;
+    surface.lightmap = 10;
+    world.surfaces.push_back(surface);
+    surface.index = 2;
+    world.surfaces.push_back(surface);
+    surface.index = 3;
+    surface.cell = 1;
+    world.surfaces.push_back(surface);
+    world.shadowLights.resize(2);
+    world.shadowLights[1].surfaces = {1, 2};
+
+    REQUIRE(AddShadowCopies(world, {"mat"}) == 2);
+    const auto merged = MergeSurfaces(world);
+    CHECK(merged.surfaceToMesh == (std::vector<std::pair<int, int>>{{3, 0}, {1, 1}, {2, 2}, {0, 5}}));
+    CHECK(merged.cells == std::vector<int>{1, 2, 2, 2, 2, 2});
+    REQUIRE(merged.meshes.size() == 6);
+    CHECK(merged.meshes[3].hidden);
+    CHECK(merged.meshes[4].hidden);
 }

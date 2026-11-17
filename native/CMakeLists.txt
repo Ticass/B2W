@@ -31,6 +31,7 @@ add_library(w2b_core STATIC
     src/core/process.cpp
     src/core/encoding.cpp
     src/core/unicode.cpp
+    src/core/string_repr.cpp
     src/core/pyre.cpp
     src/core/zip.cpp)
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
@@ -54,12 +55,17 @@ target_link_libraries(w2b_sound PUBLIC w2b_core)
 
 add_library(w2b_world STATIC
     src/world/vertices.cpp
+    src/world/bsp_visibility.cpp
+    src/world/brush_records.cpp
     src/world/collision_plan.cpp
     src/world/collision_stage.cpp
     src/world/collision_world.cpp
     src/world/inspect.cpp
+    src/world/mesh_merge.cpp
     src/world/one_way_collision.cpp
     src/world/render_world.cpp
+    src/world/shadow_geometry.cpp
+    src/world/static_collision_records.cpp
     src/world/terrain_ownership.cpp
     src/world/fbx_mesh.cpp
     src/world/fbx_writer.cpp

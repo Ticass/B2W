@@ -10,7 +10,7 @@ from pathlib import Path
 from .resources import resource_root
 
 from . import iwi, native, t6bridge, wawsource, weapons
-from .fbx import write_collision_fbx, write_world_fbx
+from .fbx import export_world_fbx, write_collision_fbx
 from .materials import translate_materials
 from .world import inspect_collision, read_collision, read_gfx_world
 
@@ -39,13 +39,8 @@ def _inspect(args: argparse.Namespace) -> int:
 
 
 def _fbx(args: argparse.Namespace) -> int:
-    world = read_gfx_world(args.gfx)
-    if args.surface_limit is not None:
-        if args.surface_limit < 1:
-            raise ValueError("--surface-limit must be positive")
-        world.surfaces = world.surfaces[: args.surface_limit]
-    write_world_fbx(world, args.output, packed_source=args.gfx)
-    print(f"wrote {args.output} ({len(world.surfaces)} surfaces, {len(world.vertices)} vertices)")
+    surfaces, vertices = export_world_fbx(args.gfx, args.output, args.surface_limit)
+    print(f"wrote {args.output} ({surfaces} surfaces, {vertices} vertices)")
     return 0
 
 
@@ -119,7 +114,7 @@ def _convert(args: argparse.Namespace) -> int:
         raise ValueError("extraction did not produce both gfxworld and clipmap dumps")
     bsp = args.output / "zone_raw" / args.project / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
-    write_world_fbx(read_gfx_world(gfx), bsp / "map_gfx.fbx", packed_source=gfx)
+    export_world_fbx(gfx, bsp / "map_gfx.fbx")
     write_collision_fbx(read_collision(clip), bsp / "map_col.fbx", packed_source=clip)
     # Preserve the extracted dependency tree in the project search path. The
     # official linker can then resolve images/materials/models without looking

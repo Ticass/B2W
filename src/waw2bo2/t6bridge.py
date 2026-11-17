@@ -39,8 +39,9 @@ from .resources import resource_root
 from . import clientport, parallel, progress, viewmodels, zombiebehavior
 
 from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, probes, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visibility, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
-from .fbx import (CollisionMesh, collision_material_slots, collision_slot_models, collision_triangle_models,
-                  water_only, write_collision_fbx, write_native_collision_mesh, write_world_fbx)
+from .fbx import (CollisionMesh, RenderMesh, RenderVisibility, collision_material_slots,
+                  collision_slot_models, collision_triangle_models,
+                  water_only, write_collision_fbx, write_native_collision_mesh, write_native_world_fbx, write_world_fbx)
 from . import native
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
@@ -1482,7 +1483,7 @@ def stage_collision_mesh(clip, bsp: Path, packed_source: Path | None) -> Collisi
     fbx_path = bsp / "map_col.fbx"
     edge_path = bsp / "collisionedges.bin"
     if packed_source is not None and native.tool() is not None:
-        return write_native_collision_mesh(packed_source, fbx_path, edge_path)
+        return write_native_collision_mesh(packed_source, fbx_path, edge_path, include_records=True)
     materials = write_collision_fbx(clip, fbx_path)
     slots = list(zip(materials, collision_slot_models(clip)))
     owners = collision_triangle_models(clip)
@@ -1492,6 +1493,18 @@ def stage_collision_mesh(clip, bsp: Path, packed_source: Path | None) -> Collisi
     return CollisionMesh(slots, [s["material"] for s in oneway.one_way_sheets(clip)], non_colliding, water,
                          write_collision_edges(clip, edge_path))
 
+
+def write_collision_records(clip, bsp: Path) -> dict:
+    brushes, summary = hulls.collision_brushes(clip)
+    (bsp / "brushes.json").write_text(json.dumps({"brushes": brushes}, separators=(",", ":")) + "\n", encoding="utf-8")
+    submodels = hulls.submodel_records(clip)
+    (bsp / "submodels.json").write_text(json.dumps({"submodels": submodels}, separators=(",", ":")) + "\n",
+                                        encoding="utf-8")
+    static_models, static_summary = hulls.static_model_records(clip)
+    (bsp / "staticmodels.json").write_text(json.dumps({"staticModels": static_models}, indent=1) + "\n",
+                                           encoding="utf-8")
+    return {"brushes": summary, "static_models": static_summary, "submodels": len(submodels),
+            "empty_submodels": sum(not sub["brushes"] for sub in submodels)}
 
 def _layer_gap_stride(world, surface) -> int | None:
     """Bytes per vertex of ``surface``'s records in the WaW layer buffer."""
@@ -1523,6 +1536,23 @@ def shadow_occluder_copies(world, own_light_casters: set[str]) -> list:
     return copies
 
 
+def stage_render_mesh(world, target: Path, gfx_source: Path | None, blend_data: frozenset[str],
+                      shadow_only: frozenset[str], own_light_casters: frozenset[str],
+                      native_visibility: RenderVisibility | None) -> RenderMesh:
+    if gfx_source is not None and native.tool() is not None:
+        return write_native_world_fbx(world, target, gfx_source, blend_data, shadow_only, own_light_casters,
+                                      native_visibility)
+    drawn = world.surfaces
+    occluders = shadow_occluder_copies(world, own_light_casters)
+    world.surfaces = drawn + occluders
+    cells: dict[int, int] = {}
+    try:
+        mapped = write_world_fbx(world, target, blend_data, shadow_only, cells)
+    finally:
+        world.surfaces = drawn
+    return RenderMesh(mapped, cells, len(occluders))
+
+
 def write_shadow_geometry(report: StageReport, world, mesh_of_surface: dict[int, int], path: Path) -> None:
     """BSP/shadowgeom.json: per WaW primary light, the static geometry its
     shadow map draws (GfxShadowGeometry: world meshes by FBX mesh index, static
@@ -1549,7 +1579,8 @@ def write_shadow_geometry(report: StageReport, world, mesh_of_surface: dict[int,
 
 @progress.phase('Convert world geometry')
 def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_root: Path,
-                   stock_waw=None, *, gfx_source: Path | None = None, clip_source: Path | None = None) -> str | None:
+                   stock_waw=None, *, gfx_source: Path | None = None, clip_source: Path | None = None,
+                   native_visibility: RenderVisibility | None = None) -> str | None:
     """World FBX (sky surfaces removed), terrain collision FBX, brushes.json."""
     bsp = project_root / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
@@ -1637,20 +1668,24 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
             f"{sum(s.material in tool_surfaces for s in world.surfaces)} WaW editor-only surfaces "
             f"({', '.join(sorted(tool_surfaces))}) removed from the render world")
     world.surfaces = kept
-    occluders = shadow_occluder_copies(world, own_light_casters)
-    if occluders:
-        report.content['shadow_occluder_copies'] = len(occluders)
-    drawn = world.surfaces
-    world.surfaces = drawn + occluders
-    mesh_cells: dict[int, int] = {}
-    try:
-        mesh_of_surface = write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data), frozenset(shadow_only),
-                                          mesh_cells, packed_source=gfx_source)
-    finally:
-        world.surfaces = drawn
-    visibility.write(report, world, mesh_cells, bsp / "visibility.json")
+    meshes = stage_render_mesh(world, bsp / "map_gfx.fbx", gfx_source, frozenset(blend_data),
+                               frozenset(shadow_only), frozenset(own_light_casters), native_visibility)
+    if meshes.shadow_copies:
+        report.content['shadow_occluder_copies'] = meshes.shadow_copies
+    if native_visibility is None:
+        visibility.write(report, world, meshes.cells, bsp / "visibility.json")
+    else:
+        if meshes.visibility is None:
+            report.content.pop("visibility", None)
+        else:
+            report.content["visibility"] = meshes.visibility
+        if meshes.visibility_warning:
+            report.warnings.insert(native_visibility.warning_index, meshes.visibility_warning)
     report.content['shadow_only_surfaces'] = sum(s.material in shadow_only for s in world.surfaces)
-    write_shadow_geometry(report, world, mesh_of_surface, bsp / "shadowgeom.json")
+    if native_visibility is None:
+        write_shadow_geometry(report, world, meshes.surface_to_mesh, bsp / "shadowgeom.json")
+    elif meshes.shadow_geometry is not None:
+        report.content["shadow_geometry"] = meshes.shadow_geometry
     collision = stage_collision_mesh(clip, bsp, clip_source)
     # BSP/clipmaterials.json: FBX collision material -> WaW clip flags. The
     # bridge linker gives every terrain partition its own clip material.
@@ -1662,12 +1697,8 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
                        "surfaceFlags": hulls._signed(clip.materials[m].surface_flags)}
                       for m, model in collision.slots]
     (bsp / "clipmaterials.json").write_text(json.dumps({"materials": clip_materials}, indent=1) + "\n", encoding="utf-8")
-    brushes, summary = hulls.collision_brushes(clip)
-    (bsp / "brushes.json").write_text(json.dumps({"brushes": brushes}, separators=(",", ":")) + "\n",
-                                      encoding="utf-8")
-    subs = hulls.submodel_records(clip)
-    (bsp / "submodels.json").write_text(json.dumps({"submodels": subs}, separators=(",", ":")) + "\n",
-                                        encoding="utf-8")
+    records = collision.records if collision.records is not None else write_collision_records(clip, bsp)
+    summary = records["brushes"]
     summary["collision_triangle_materials"] = len(clip_materials)
     summary["moving_terrain_models"] = sorted({entry.get("model", 0) for entry in clip_materials
                                                 if entry.get("model", 0)})
@@ -1681,11 +1712,9 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
                                f"collision omitted to allow passage in both directions "
                                f"({', '.join(f'{k} {v}' for k, v in kinds.most_common())})")
     summary.update(collision.edges)
-    summary["submodels"] = len(subs)
-    summary["empty_submodels"] = sum(1 for s in subs if not s["brushes"])
-    static_models, static_summary = hulls.static_model_records(clip)
-    (bsp / "staticmodels.json").write_text(json.dumps({"staticModels": static_models}, indent=1) + "\n",
-                                           encoding="utf-8")
+    summary["submodels"] = records["submodels"]
+    summary["empty_submodels"] = records["empty_submodels"]
+    static_summary = records["static_models"]
     summary.update(static_summary)
     if static_summary["static_model_triangles_outside_waw_bounds"]:
         report.errors.append(f"{static_summary['static_model_triangles_outside_waw_bounds']} static model collision "
@@ -1747,8 +1776,15 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     world = progress.timed('Read map world', read_gfx_world, gfx_bin)
     source_probes = probes.read(gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.reflectionprobes.json'))
     probe_plan = probes.stage(report, world, source_probes, [r / "images" for r in roots], project_root)
-    visibility.assign(report, world, visibility.read(gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.visibility.json')),
-                      source_probes, probe_plan)
+    visibility_source = gfx_bin.with_name(gfx_bin.name.removesuffix('.gfx.bin') + '.visibility.json')
+    native_visibility = None
+    if native.tool() is not None:
+        cell_probes = ([sorted({probe_plan.t6_index(p) for p in cell} - {0}) for cell in source_probes.cells]
+                       if source_probes is not None and probe_plan is not None else [])
+        native_visibility = RenderVisibility(visibility_source, cell_probes, len(report.warnings))
+        report.content["visibility"] = None
+    else:
+        visibility.assign(report, world, visibility.read(visibility_source), source_probes, probe_plan)
     clip = progress.timed('Read map collision', read_collision, clip_bin)
     from . import constraints, dynents
     map_dynents = dynents.read(clip_bin.with_name(clip_bin.name.removesuffix('.clip.bin') + '.dynents.json'))
@@ -1756,7 +1792,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         clip_bin.name.removesuffix('.clip.bin') + '.constraints.json'), project_root, map_dynents)
     report.content['physics_constraints'] = map_constraints
     sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw,
-                               gfx_source=gfx_bin, clip_source=clip_bin)
+                               gfx_source=gfx_bin, clip_source=clip_bin, native_visibility=native_visibility)
     ents_file = source_entities(gfx_bin, stage, roots)
     # The map is king: every model its own zones ship converts, referenced or
     # not (Industrial Estate's zombie-hero viewhands are picked through arrays

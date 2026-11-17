@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from .world import CollisionWorld, GfxWorld, layer_format, layer_stride
+from .world import CollisionWorld, GfxWorld, layer_format, layer_stride, read_gfx_world
 from . import hulls, native, oneway
 
 
@@ -93,25 +93,70 @@ def _layer_uv_sets(world: GfxWorld, used: dict[int, int], owner: dict, world_ver
     return sets
 
 
-def _write_world_fbx_native(path: Path, source: Path, meshes: list[tuple[str, list, int]],
-                            blend_data_materials: frozenset[str], shadow_only_materials: frozenset[str]) -> None:
-    request = {'gfx': str(source), 'compensated': sys.version_info >= (3, 12), 'meshes': []}
-    for material, group, lightmap in meshes:
-        surface = group[0]
-        request['meshes'].append({
-            'material': material, 'brush': surface.brush_model, 'light': surface.primary_light_index,
-            'probe': surface.reflection_probe_index, 'lightmap': lightmap,
-            'hidden': material in shadow_only_materials or surface.shadow_copy,
-            'white': material in blend_data_materials,
-            'surfaces': [(s.first_vertex, s.base_index, s.triangle_count, s.layer_data_offset, s.world_vert_format)
-                         for s in group],
-        })
+def _run_native_world_fbx(path: Path, source: Path, **options) -> dict:
+    request = {'gfx': str(source), 'compensated': sys.version_info >= (3, 12), **options}
+    path.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix='world-fbx-', dir=path.parent) as temporary:
         folder = Path(temporary)
         request_path = folder / 'request.json'
         request_path.write_text(json.dumps(request), encoding='utf-8')
-        native.run('world-fbx', str(request_path))
+        report = json.loads(native.run('world-fbx', str(request_path)))
         (folder / 'world.fbx').replace(path)
+        if 'visibility_source' in options:
+            for name in ('visibility.json', 'shadowgeom.json'):
+                manifest = folder / name
+                if manifest.is_file():
+                    manifest.replace(path.with_name(name))
+                else:
+                    path.with_name(name).unlink(missing_ok=True)
+        return report
+
+
+@dataclass(slots=True)
+class RenderVisibility:
+    source: Path
+    cell_probes: list[list[int]]
+    warning_index: int
+
+
+@dataclass(slots=True)
+class RenderMesh:
+    surface_to_mesh: dict[int, int]
+    cells: dict[int, int]
+    shadow_copies: int
+    visibility: dict | None = None
+    visibility_warning: str = ''
+    shadow_geometry: dict | None = None
+
+
+def write_native_world_fbx(world: GfxWorld, path: Path, source: Path, blend_materials: frozenset[str],
+                           shadow_materials: frozenset[str], own_light_casters: frozenset[str] = frozenset(),
+                           visibility: RenderVisibility | None = None) -> RenderMesh:
+    # Surface selection and overrides supplied by the stages that still run in Python.
+    selected = [(s.index, s.primary_light_index, s.reflection_probe_index, s.world_vert_format, s.cell)
+                for s in world.surfaces]
+    options = {} if visibility is None else {'visibility_source': str(visibility.source),
+                                             'cell_probes': visibility.cell_probes}
+    report = _run_native_world_fbx(path, source, surfaces=selected,
+                                   blend_materials=sorted(blend_materials), shadow_materials=sorted(shadow_materials),
+                                   own_light_casters=sorted(own_light_casters), **options)
+    return RenderMesh(dict(report['surface_to_mesh']), dict(enumerate(report['mesh_cells'])),
+                      report['shadow_copies'], report.get('visibility'), report.get('visibility_warning', ''),
+                      report.get('shadow_geometry'))
+
+
+def export_world_fbx(source: Path, path: Path, surface_limit: int | None = None) -> tuple[int, int]:
+    if surface_limit is not None and surface_limit < 1:
+        raise ValueError("--surface-limit must be positive")
+    if native.tool() is not None:
+        options = {} if surface_limit is None else {'surface_limit': surface_limit}
+        result = _run_native_world_fbx(path, source, **options)
+        return result['surfaces'], result['vertices']
+    world = read_gfx_world(source)
+    if surface_limit is not None:
+        world.surfaces = world.surfaces[:surface_limit]
+    write_world_fbx(world, path)
+    return len(world.surfaces), len(world.vertices)
 
 
 def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset[str] = frozenset(),
@@ -122,16 +167,18 @@ def write_world_fbx(world: GfxWorld, path: Path, blend_data_materials: frozenset
 
     The T6 BSP loader expects Blender-style right-handed Y-up coordinates and
     applies its own transform.  WaW/BO2 coordinates are converted inversely.
-    Supply packed_source when the geometry buffers still match the world dump.
+    Supply packed_source for source surfaces with updated light, layer or cell assignments.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    if packed_source is not None and native.tool() is not None:
+        result = write_native_world_fbx(world, path, packed_source, blend_data_materials, shadow_only_materials)
+        if mesh_cells is not None:
+            mesh_cells.update(result.cells)
+        return result.surface_to_mesh
     meshes = merge_surfaces(world)
     if mesh_cells is not None:
         mesh_cells.update({i: getattr(group[0], 'cell', -1) for i, (_material, group, _lightmap) in enumerate(meshes)})
-    if packed_source is not None and native.tool() is not None:
-        _write_world_fbx_native(path, packed_source, meshes, blend_data_materials, shadow_only_materials)
-    else:
-        _write_world_fbx_python(world, path, meshes, blend_data_materials, shadow_only_materials)
+    _write_world_fbx_python(world, path, meshes, blend_data_materials, shadow_only_materials)
     # The FBX mesh index travels in the waw_mesh_<i> name.
     return {surface.index: i for i, (_material, group, _lightmap) in enumerate(meshes) for surface in group
             if not getattr(surface, 'shadow_copy', False)}
@@ -330,18 +377,24 @@ class CollisionMesh:
     non_colliding_dropped: int
     water_dropped: int
     edges: dict
+    records: dict | None = None
 
 
-def write_native_collision_mesh(source: Path, path: Path, edge_path: Path | None = None) -> CollisionMesh:
+def write_native_collision_mesh(source: Path, path: Path, edge_path: Path | None = None, *,
+                                include_records: bool = False) -> CollisionMesh:
     path.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix='collision-mesh-', dir=path.parent) as temporary:
         folder = Path(temporary)
-        report = json.loads(native.run('collision-mesh', str(source), str(folder)))
+        options = ('--records',) if include_records else ()
+        report = json.loads(native.run('collision-mesh', str(source), str(folder), *options))
         (folder / 'terrain.fbx').replace(path)
         if edge_path is not None and (folder / 'edges.bin').is_file():
             (folder / 'edges.bin').replace(edge_path)
+        if include_records:
+            for name in ('brushes.json', 'submodels.json', 'staticmodels.json'):
+                (folder / name).replace(path.with_name(name))
     return CollisionMesh([tuple(slot) for slot in report['slots']], report['sheets'],
-                         report['non_colliding_dropped'], report['water_dropped'], report['edges'])
+                         report['non_colliding_dropped'], report['water_dropped'], report['edges'], report.get('records'))
 
 
 def write_collision_fbx(collision: CollisionWorld, path: Path, *, packed_source: Path | None = None) -> list[int]:

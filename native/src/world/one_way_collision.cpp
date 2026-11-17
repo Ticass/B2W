@@ -1,4 +1,5 @@
 #include "world/one_way_collision.h"
+#include "world/geometry_math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,25 +12,8 @@ namespace w2b::world
         constexpr std::uint32_t playerMask = 0x281c011;
         constexpr std::uint32_t solid = 0x1;
         constexpr double steepNormalZ = 0.7;
-        using Vec = std::array<double, 3>;
+        using Vec = Vec3;
         using Triangle = std::array<Vec, 3>;
-
-        Vec Subtract(const Vec& a, const Vec& b)
-        {
-            return {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
-        }
-
-        Vec Cross(const Vec& a, const Vec& b)
-        {
-            return {a[1] * b[2] - a[2] * b[1],
-                    a[2] * b[0] - a[0] * b[2],
-                    a[0] * b[1] - a[1] * b[0]};
-        }
-
-        double Dot(const Vec& a, const Vec& b)
-        {
-            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-        }
 
         std::optional<Vec> Unit(Vec value)
         {
@@ -47,7 +31,7 @@ namespace w2b::world
             for (std::size_t corner = 0; corner < triangle.size(); ++corner)
             {
                 const auto& v = world.vertices.at(world.indices.at(index * 3 + corner));
-                triangle[corner] = {v[0], v[1], v[2]};
+                triangle[corner] = ToVec3(v);
             }
             return triangle;
         }

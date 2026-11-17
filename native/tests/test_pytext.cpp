@@ -7,6 +7,19 @@
 
 using namespace w2b;
 
+TEST_CASE("Python string repr preserves quote ordering and escapes non-printable code points")
+{
+    CHECK(py::StringRepr("test's") == "\"test's\"");
+    CHECK(py::StringRepr("\"test's\"") == "'\"test\\'s\"'");
+    CHECK(py::StringRepr("line\n\t\\\xC2\xA0é") == "'line\\n\\t\\\\\\xa0é'");
+}
+
+TEST_CASE("Compact JSON keeps Python float text and escaping")
+{
+    const py::Json value{{"a", {-0.0, 1.0, 1e-7}}, {"b", "é"}};
+    CHECK(py::JsonDumps(value, -1) == "{\"a\":[-0.0,1.0,1e-07],\"b\":\"\\u00e9\"}");
+}
+
 TEST_CASE("FloatRepr matches Python repr(float)")
 {
     const std::pair<const char*, const char*> cases[] = {

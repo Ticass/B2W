@@ -1,4 +1,5 @@
 #include "world/collision_plan.h"
+#include "world/collision_records.h"
 #include "world/terrain_ownership.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -150,4 +151,36 @@ TEST_CASE("Collision planning keeps moving water and removes one-sided traversal
     CHECK_THROWS_AS(TerrainOwners(clip), std::runtime_error);
     clip.terrainNodes[0].children = 1;
     CHECK_THROWS_AS(TerrainOwners(clip), std::runtime_error);
+}
+
+TEST_CASE("Unlisted legacy brushes retain their planes and moving brush ownership")
+{
+    CollisionWorld world;
+    ClipBrush brush{{-1, -1, -1}, {1, 1, 1}, 1, {}, {}};
+    brush.planes = {{{1, 0, 0}, 1, 0}, {{-1, 0, 0}, 1, 0},
+                    {{0, 1, 0}, 1, 0}, {{0, -1, 0}, 1, 0},
+                    {{0, 0, 1}, 1, 0}, {{0, 0, -1}, 1, 0}};
+    world.materials.push_back({"clip", 0x80000000u, 1});
+    world.brushes.push_back(brush);
+    world.brushes.push_back(brush);
+    auto recovered = brush;
+    recovered.mins[0] = 10;
+    recovered.maxs[0] = 12;
+    recovered.planes[0].distance = 12;
+    recovered.planes[1].distance = -10;
+    world.brushes.push_back(recovered);
+    world.models = {{{-32, -32, -32}, {32, 32, 32}, {0, 1}},
+                    {{-1, -1, -1}, {1, 1, 1}, {1}}};
+
+    const auto brushes = BuildWorldBrushes(world);
+    CHECK(brushes.summary.at("world_brushes_recovered_unlisted") == 1);
+    CHECK(brushes.summary.at("entity_brushes_excluded") == 1);
+    REQUIRE(brushes.records.size() == 2);
+    CHECK(brushes.records[0].at("verts").size() == 8);
+    CHECK(brushes.records[1].at("verts").size() == 8);
+    CHECK(brushes.records[0].at("axial")[0][1] == -2147483648ll);
+    CHECK(BuildSubmodels(world).at(0).at("brushes").size() == 1);
+
+    world.brushOwnershipComplete = true;
+    CHECK(BuildWorldBrushes(world).records.size() == 1);
 }

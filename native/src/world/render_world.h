@@ -25,14 +25,14 @@ namespace w2b::world
         std::uint32_t baseIndex;
         std::string material;
         std::uint8_t lightmap;
-        std::uint8_t reflectionProbe;
-        std::uint8_t primaryLight;
+        int reflectionProbe;
+        int primaryLight;
         std::uint8_t flags;
         std::array<float, 3> mins;
         std::array<float, 3> maxs;
         std::uint32_t brushModel = 0;
         std::int32_t layerOffset = 0;
-        std::uint8_t layerFormat = 0;
+        int layerFormat = 0;
         int cell = -1;
         int index;
         bool shadowCopy = false;

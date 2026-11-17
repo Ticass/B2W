@@ -157,6 +157,7 @@ namespace w2b::py
 
         void Dump(std::string& out, const Json& value, const int indent, const int level)
         {
+            const bool compact = indent < 0;
             switch (value.type())
             {
             case Json::value_t::null:
@@ -192,18 +193,20 @@ namespace w2b::py
                     out += "[]";
                     return;
                 }
-                const std::string inner(static_cast<size_t>(indent * (level + 1)), ' ');
-                out += "[\n";
+                const std::string inner(compact ? 0 : static_cast<size_t>(indent * (level + 1)), ' ');
+                out += compact ? "[" : "[\n";
                 bool first = true;
                 for (const auto& item : value)
                 {
                     if (!first)
-                        out += ",\n";
+                        out += compact ? "," : ",\n";
                     first = false;
                     out += inner;
                     Dump(out, item, indent, level + 1);
                 }
-                out += "\n" + std::string(static_cast<size_t>(indent * level), ' ') + "]";
+                if (!compact)
+                    out += "\n" + std::string(static_cast<size_t>(indent * level), ' ');
+                out += ']';
                 return;
             }
             case Json::value_t::object:
@@ -213,20 +216,22 @@ namespace w2b::py
                     out += "{}";
                     return;
                 }
-                const std::string inner(static_cast<size_t>(indent * (level + 1)), ' ');
-                out += "{\n";
+                const std::string inner(compact ? 0 : static_cast<size_t>(indent * (level + 1)), ' ');
+                out += compact ? "{" : "{\n";
                 bool first = true;
                 for (const auto& [key, item] : value.items())
                 {
                     if (!first)
-                        out += ",\n";
+                        out += compact ? "," : ",\n";
                     first = false;
                     out += inner;
                     AppendString(out, key);
-                    out += ": ";
+                    out += compact ? ":" : ": ";
                     Dump(out, item, indent, level + 1);
                 }
-                out += "\n" + std::string(static_cast<size_t>(indent * level), ' ') + "}";
+                if (!compact)
+                    out += "\n" + std::string(static_cast<size_t>(indent * level), ' ');
+                out += '}';
                 return;
             }
             default:

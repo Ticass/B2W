@@ -9,7 +9,6 @@ namespace w2b::world
 {
     CollisionPlan PlanCollision(const CollisionWorld& world)
     {
-        constexpr std::uint32_t nonCollidingContents = 0x08000000 | 0x10000000 | 0x20000000;
         constexpr std::uint32_t water = 0x20;
         const auto owners = TerrainOwners(world);
         CollisionPlan plan;

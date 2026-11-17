@@ -15,8 +15,9 @@ namespace w2b::py
 
     // repr(float): shortest round-trip digits, Python's fixed/exponent choice.
     std::string FloatRepr(double value);
+    std::string StringRepr(std::string_view value);
 
-    // json.dumps(value, indent=indent) (ensure_ascii, ", " / ": " separators).
+    // json.dumps(value, indent=indent), or compact separators for a negative indent.
     std::string JsonDumps(const Json& value, int indent);
 
     // str.splitlines() for ASCII-range line boundaries.
