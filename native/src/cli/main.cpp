@@ -10,6 +10,10 @@
 #include "gsc/port/api.h"
 #include "gsc/port/portmap.h"
 #include "gsc/port/rewrites.h"
+#include "world/collision_stage.h"
+#include "world/fbx_stage.h"
+#include "world/inspect.h"
+#include "world/vertices.h"
 
 #include <functional>
 #include <map>
@@ -18,9 +22,14 @@
 #include <set>
 
 #include <windows.h>
+#include <fcntl.h>
+#include <io.h>
 
 #include <cstdio>
 #include <exception>
+#include <fstream>
+#include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -38,9 +47,28 @@ namespace
     int Usage()
     {
         std::fputs("usage: waw2bo2n shaders-stage --dest <folder> <root>...\n"
+                   "       waw2bo2n world-vertices <world> <byte-offset> <count> <legacy|compensated>\n"
+                   "       waw2bo2n world-fbx <request.json>\n"
+                   "       waw2bo2n collision-mesh <clip-world> <output-folder>\n"
+                   "       waw2bo2n world-inspect <render-world> <clip-world>\n"
                    "       waw2bo2n audio-stage --project <folder> --output <folder> [--decoder-text <s>] [--xwma <exe>] [--resampler <exe>]\n",
                    stderr);
         return 2;
+    }
+
+    int WorldVertices(const std::vector<std::string>& args)
+    {
+        if (args[3] != "legacy" && args[3] != "compensated")
+            return Usage();
+        std::ifstream input(w2b::files::FromUtf8(args[0]), std::ios::binary);
+        if (!input.seekg(std::stoll(args[1])))
+            throw std::runtime_error("could not seek to world vertex records");
+        if (_setmode(_fileno(stdout), _O_BINARY) == -1)
+            throw std::runtime_error("could not set binary output mode");
+        w2b::world::DecodeVertices(input, std::cout, std::stoul(args[2]), args[3] == "compensated");
+        if (!std::cout.flush())
+            throw std::runtime_error("could not flush decoded world vertices");
+        return 0;
     }
 
     int ShadersStage(const std::vector<std::string>& args)
@@ -339,6 +367,25 @@ int wmain(const int argc, wchar_t** argv)
             return AudioStage(args);
         if (command == "port-map" && args.size() == 1)
             return PortMapCommand(args[0]);
+        if (command == "world-vertices" && args.size() == 4)
+            return WorldVertices(args);
+        if (command == "world-fbx" && args.size() == 1)
+        {
+            w2b::world::StageWorldFbx(w2b::files::FromUtf8(args[0]));
+            return 0;
+        }
+        if (command == "collision-mesh" && args.size() == 2)
+        {
+            const auto report = w2b::world::StageCollisionMesh(w2b::files::FromUtf8(args[0]), w2b::files::FromUtf8(args[1]));
+            std::puts(report.dump(-1, ' ', true).c_str());
+            return 0;
+        }
+        if (command == "world-inspect" && args.size() == 2)
+        {
+            const auto info = w2b::world::InspectWorld(w2b::files::FromUtf8(args[0]), w2b::files::FromUtf8(args[1]));
+            std::puts(w2b::py::JsonDumps(info, 2).c_str());
+            return 0;
+        }
         if (command == "sounds-stage" && args.size() == 1)
             return SoundsStage(args[0]);
         if (command == "gsc-tokens" && args.size() == 2)

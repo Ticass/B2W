@@ -52,6 +52,20 @@ add_library(w2b_sound STATIC
     src/sound/stage.cpp)
 target_link_libraries(w2b_sound PUBLIC w2b_core)
 
+add_library(w2b_world STATIC
+    src/world/vertices.cpp
+    src/world/collision_plan.cpp
+    src/world/collision_stage.cpp
+    src/world/collision_world.cpp
+    src/world/inspect.cpp
+    src/world/one_way_collision.cpp
+    src/world/render_world.cpp
+    src/world/terrain_ownership.cpp
+    src/world/fbx_mesh.cpp
+    src/world/fbx_writer.cpp
+    src/world/fbx_stage.cpp)
+target_link_libraries(w2b_world PUBLIC w2b_core)
+
 add_library(w2b_gsc STATIC
     src/gsc/tokens.cpp
     src/gsc/parse.cpp)
@@ -76,7 +90,7 @@ add_library(w2b_gscport STATIC
 target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
 add_executable(waw2bo2n src/cli/main.cpp)
-target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport)
+target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()
@@ -84,7 +98,8 @@ endif()
 enable_testing()
 if(EXISTS "${OAT_THIRDPARTY}/catch2/CMakeLists.txt")
     add_subdirectory("${OAT_THIRDPARTY}/catch2" catch2 EXCLUDE_FROM_ALL)
-    add_executable(w2b_tests tests/test_pytext.cpp tests/test_registers.cpp tests/test_translate.cpp)
-    target_link_libraries(w2b_tests PRIVATE w2b_shaders Catch2::Catch2WithMain)
+    add_executable(w2b_tests tests/test_pytext.cpp tests/test_registers.cpp tests/test_translate.cpp
+        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp)
+    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world Catch2::Catch2WithMain)
     add_test(NAME w2b_tests COMMAND w2b_tests)
 endif()

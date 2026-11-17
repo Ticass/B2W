@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import math
+import os
 import struct
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
+
+from . import native
 
 MAGIC = b"W2BSP001"
 
@@ -176,6 +181,55 @@ def _unit_vec_scale(packed: int) -> tuple[float, float, float]:
     return tuple(component / length for component in result)  # type: ignore[return-value]
 
 
+_PACKED_VERTEX_SIZE = struct.calcsize('<3fI4f2If')
+_DECODED_VERTEX = struct.Struct('<18d')
+
+
+def _read_vertices_native(exe: Path, path: Path, reader: Reader, count: int) -> list[Vertex]:
+    offset = reader.stream.tell()
+    end = offset + count * _PACKED_VERTEX_SIZE
+    file_size = os.fstat(reader.stream.fileno()).st_size
+    if end > file_size:
+        raise FormatError(f"truncated interchange file at offset {file_size}")
+    sum_mode = 'compensated' if sys.version_info >= (3, 12) else 'legacy'
+    command = [str(exe), 'world-vertices', str(path), str(offset), str(count), sum_mode]
+    vertices = []
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
+        assert proc.stdout is not None
+        try:
+            for start in range(0, count, 4096):
+                size = min(4096, count - start) * _DECODED_VERTEX.size
+                block = proc.stdout.read(size)
+                if len(block) != size:
+                    break
+                vertices.extend(Vertex(v[:3], v[3:7], v[7:9], v[9:11], v[11:14], v[14:17], v[17])
+                                for v in _DECODED_VERTEX.iter_unpack(block))
+            extra, error = proc.communicate()
+        except BaseException:
+            proc.kill()
+            raise
+    if proc.returncode or extra or len(vertices) != count:
+        detail = error.decode(errors='replace').strip()[-2000:]
+        raise native.NativeError(f'{exe.name} world-vertices failed ({proc.returncode}): '
+                                 f'{detail or "unexpected vertex output size"}')
+    reader.stream.seek(end)
+    return vertices
+
+
+def _read_vertices_python(reader: Reader, count: int) -> list[Vertex]:
+    vertices = []
+    for _ in range(count):
+        xyz = reader.unpack("3f")
+        color = _color(reader.unpack("I"))
+        uv = reader.unpack("2f")
+        lightmap_uv = reader.unpack("2f")
+        normal = _unit_vec_scale(reader.unpack("I"))
+        tangent = _unit_vec_scale(reader.unpack("I"))
+        binormal_sign = reader.unpack("f")
+        vertices.append(Vertex(xyz, color, uv, lightmap_uv, normal, tangent, binormal_sign))
+    return vertices
+
+
 def read_gfx_world(path: Path) -> GfxWorld:
     with path.open("rb") as stream:
         r = Reader(stream)
@@ -185,16 +239,9 @@ def read_gfx_world(path: Path) -> GfxWorld:
         if vertex_count > 20_000_000 or index_count > 60_000_000 or surface_count > 2_000_000:
             raise FormatError("world counts exceed defensive limits")
         name, base_name, skybox_model = r.string(), r.string(), r.string()
-        vertices: list[Vertex] = []
-        for _ in range(vertex_count):
-            xyz = r.unpack("3f")
-            color = _color(r.unpack("I"))
-            uv = r.unpack("2f")
-            lightmap_uv = r.unpack("2f")
-            normal = _unit_vec_scale(r.unpack("I"))
-            tangent = _unit_vec_scale(r.unpack("I"))
-            binormal_sign = r.unpack("f")
-            vertices.append(Vertex(xyz, color, uv, lightmap_uv, normal, tangent, binormal_sign))
+        exe = native.tool() if vertex_count else None
+        vertices = (_read_vertices_native(exe, path, r, vertex_count) if exe is not None
+                    else _read_vertices_python(r, vertex_count))
         indices = list(r.unpack(f"{index_count}H")) if index_count else []
         surfaces: list[Surface] = []
         for _ in range(surface_count):

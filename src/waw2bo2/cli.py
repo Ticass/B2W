@@ -9,13 +9,16 @@ import sys
 from pathlib import Path
 from .resources import resource_root
 
-from . import iwi, t6bridge, wawsource, weapons
+from . import iwi, native, t6bridge, wawsource, weapons
 from .fbx import write_collision_fbx, write_world_fbx
 from .materials import translate_materials
 from .world import inspect_collision, read_collision, read_gfx_world
 
 
 def _inspect(args: argparse.Namespace) -> int:
+    if native.tool() is not None:
+        print(native.run('world-inspect', str(args.gfx), str(args.clip)), end='')
+        return 0
     world = read_gfx_world(args.gfx)
     clip = inspect_collision(args.clip)
     report = {
@@ -41,7 +44,7 @@ def _fbx(args: argparse.Namespace) -> int:
         if args.surface_limit < 1:
             raise ValueError("--surface-limit must be positive")
         world.surfaces = world.surfaces[: args.surface_limit]
-    write_world_fbx(world, args.output)
+    write_world_fbx(world, args.output, packed_source=args.gfx)
     print(f"wrote {args.output} ({len(world.surfaces)} surfaces, {len(world.vertices)} vertices)")
     return 0
 
@@ -53,7 +56,7 @@ def _collision_fbx(args: argparse.Namespace) -> int:
             raise ValueError("--triangle-limit must be positive")
         collision.indices = collision.indices[: args.triangle_limit * 3]
         collision.summary.triangle_count = len(collision.indices) // 3
-    write_collision_fbx(collision, args.output)
+    write_collision_fbx(collision, args.output, packed_source=args.clip if args.triangle_limit is None else None)
     print(f"wrote {args.output} ({collision.summary.triangle_count} collision triangles)")
     return 0
 
@@ -116,8 +119,8 @@ def _convert(args: argparse.Namespace) -> int:
         raise ValueError("extraction did not produce both gfxworld and clipmap dumps")
     bsp = args.output / "zone_raw" / args.project / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
-    write_world_fbx(read_gfx_world(gfx), bsp / "map_gfx.fbx")
-    write_collision_fbx(read_collision(clip), bsp / "map_col.fbx")
+    write_world_fbx(read_gfx_world(gfx), bsp / "map_gfx.fbx", packed_source=gfx)
+    write_collision_fbx(read_collision(clip), bsp / "map_col.fbx", packed_source=clip)
     # Preserve the extracted dependency tree in the project search path. The
     # official linker can then resolve images/materials/models without looking
     # back into the WaW installation.

@@ -59,6 +59,11 @@ The remaining small modules move with the area that uses them.
 | Translate shaders (`shaders.stage`) | yes | DR stage-bridge shadow: 27,652 files identical; full DR build equal to pure Python | 17.6 s cold, 7.4 s cached / 17.4 s |
 | Decode audio (`audio.stage`, acm, xwma) | yes | DR: 3,478 files identical, cold and cached | 21 s cold, 4-6 s cached / 30 s |
 | Stage sound sources (`sounds.stage`) | yes | DR shadow: 3,837 IR files, 3,477 payloads, report identical | 2.7 s / 5.5 s |
+| Translate map scripts (`gscport.port_map`) | yes | 15 maps matched Python script outputs and reports, and the full Der Riese build passed | 1.7 s / 2.5 s |
+| Decode render-world vertices (`world.read_gfx_world`) | yes | Der Riese, Shi No Numa, Cheese Cube, Clinic of Evil, Nightclub: Python and native render worlds equal | 1.30 s / 3.15 s (complete world read) |
+| Write render-world FBX (`fbx.write_world_fbx`) | yes | Five maps matched FBX bytes and mesh mappings. Full Der Riese build passed with identical BSP files. | 0.78 s / 3.89 s |
+| Stage terrain collision (`fbx.write_collision_fbx`, `t6bridge.write_collision_edges`) | yes | 23 maps matched FBX bytes, walkable-edge records, material slots, and collision diagnostics. Reader tests cover versions 2–9. | 0.05 s / 1.13 s (clip read and collision mesh staging) |
+| Inspect world dumps (`cli inspect`) | yes | Five real maps and synthetic render dump versions 1–6 matched the Python report byte for byte. | — |
 
 Tools: `native/tools/shadow_*.py` run a real stage-bridge with the Python
 step and the native step on the same inputs and compare every output file.

@@ -39,7 +39,9 @@ from .resources import resource_root
 from . import clientport, parallel, progress, viewmodels, zombiebehavior
 
 from . import assetresolve, audio, entities, wawtext, fx, fxmap, fxmaterials, gscport, hulls, iwi, lighting, lightmaps, localization, materialisolation, oneway, paths, probes, projectilecollision, scorebehavior, shaderruntime, shaders, sounds, t6api, techsets, visibility, visions, wawassets, wawsource, wavelet, weapons, zones, waterbullets
-from .fbx import collision_material_slots, collision_slot_models, collision_triangle_models, water_only, write_collision_fbx, write_world_fbx
+from .fbx import (CollisionMesh, collision_material_slots, collision_slot_models, collision_triangle_models,
+                  water_only, write_collision_fbx, write_native_collision_mesh, write_world_fbx)
+from . import native
 from .world import layer_formats_from_strides, read_collision, read_gfx_world
 
 REQUIRED_WORLD_IMAGES = {
@@ -1476,6 +1478,21 @@ def write_collision_edges(clip, path: Path) -> dict:
             "collision_edges_total": 3 * count}
 
 
+def stage_collision_mesh(clip, bsp: Path, packed_source: Path | None) -> CollisionMesh:
+    fbx_path = bsp / "map_col.fbx"
+    edge_path = bsp / "collisionedges.bin"
+    if packed_source is not None and native.tool() is not None:
+        return write_native_collision_mesh(packed_source, fbx_path, edge_path)
+    materials = write_collision_fbx(clip, fbx_path)
+    slots = list(zip(materials, collision_slot_models(clip)))
+    owners = collision_triangle_models(clip)
+    non_colliding = sum(m == 0xFFFF or not clip.materials[m].content_flags for m in clip.triangle_materials)
+    water = sum(not owner and m != 0xFFFF and water_only(clip.materials[m].content_flags)
+                for m, owner in zip(clip.triangle_materials, owners))
+    return CollisionMesh(slots, [s["material"] for s in oneway.one_way_sheets(clip)], non_colliding, water,
+                         write_collision_edges(clip, edge_path))
+
+
 def _layer_gap_stride(world, surface) -> int | None:
     """Bytes per vertex of ``surface``'s records in the WaW layer buffer."""
     later = [s.layer_data_offset for s in world.surfaces
@@ -1532,7 +1549,7 @@ def write_shadow_geometry(report: StageReport, world, mesh_of_surface: dict[int,
 
 @progress.phase('Convert world geometry')
 def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_root: Path,
-                   stock_waw=None) -> str | None:
+                   stock_waw=None, *, gfx_source: Path | None = None, clip_source: Path | None = None) -> str | None:
     """World FBX (sky surfaces removed), terrain collision FBX, brushes.json."""
     bsp = project_root / "BSP"
     bsp.mkdir(parents=True, exist_ok=True)
@@ -1627,13 +1644,14 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
     world.surfaces = drawn + occluders
     mesh_cells: dict[int, int] = {}
     try:
-        mesh_of_surface = write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data), frozenset(shadow_only), mesh_cells)
+        mesh_of_surface = write_world_fbx(world, bsp / "map_gfx.fbx", frozenset(blend_data), frozenset(shadow_only),
+                                          mesh_cells, packed_source=gfx_source)
     finally:
         world.surfaces = drawn
     visibility.write(report, world, mesh_cells, bsp / "visibility.json")
     report.content['shadow_only_surfaces'] = sum(s.material in shadow_only for s in world.surfaces)
     write_shadow_geometry(report, world, mesh_of_surface, bsp / "shadowgeom.json")
-    slot_materials = write_collision_fbx(clip, bsp / "map_col.fbx")
+    collision = stage_collision_mesh(clip, bsp, clip_source)
     # BSP/clipmaterials.json: FBX collision material -> WaW clip flags. The
     # bridge linker gives every terrain partition its own clip material.
     clip_materials = [{"fbx": "waw_collision", "name": "waw_collision", "contentFlags": 1, "surfaceFlags": 0}
@@ -1642,9 +1660,8 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
                        "model": model,
                        "contentFlags": hulls._signed(clip.materials[m].content_flags),
                        "surfaceFlags": hulls._signed(clip.materials[m].surface_flags)}
-                      for m, model in zip(slot_materials, collision_slot_models(clip))]
+                      for m, model in collision.slots]
     (bsp / "clipmaterials.json").write_text(json.dumps({"materials": clip_materials}, indent=1) + "\n", encoding="utf-8")
-    edge_summary = write_collision_edges(clip, bsp / "collisionedges.bin")
     brushes, summary = hulls.collision_brushes(clip)
     (bsp / "brushes.json").write_text(json.dumps({"brushes": brushes}, separators=(",", ":")) + "\n",
                                       encoding="utf-8")
@@ -1654,20 +1671,16 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
     summary["collision_triangle_materials"] = len(clip_materials)
     summary["moving_terrain_models"] = sorted({entry.get("model", 0) for entry in clip_materials
                                                 if entry.get("model", 0)})
-    summary["collision_triangles_noncolliding_dropped"] = sum(
-        1 for m in clip.triangle_materials if m == 0xFFFF or not clip.materials[m].content_flags)
-    water_owners = collision_triangle_models(clip)
-    summary["collision_triangles_water_dropped"] = sum(
-        1 for m, owner in zip(clip.triangle_materials, water_owners)
-        if not owner and m != 0xFFFF and water_only(clip.materials[m].content_flags))
-    sheets = oneway.one_way_sheets(clip)
+    summary["collision_triangles_noncolliding_dropped"] = collision.non_colliding_dropped
+    summary["collision_triangles_water_dropped"] = collision.water_dropped
+    sheets = collision.sheets
     summary["collision_triangles_one_sided_removed"] = len(sheets)
     if sheets:
-        kinds = Counter(s["material"] for s in sheets)
+        kinds = Counter(sheets)
         report.warnings.append(f"ONE_WAY_COLLISION_REMOVED {len(sheets)} one-sided traversal triangles: "
                                f"collision omitted to allow passage in both directions "
                                f"({', '.join(f'{k} {v}' for k, v in kinds.most_common())})")
-    summary.update(edge_summary)
+    summary.update(collision.edges)
     summary["submodels"] = len(subs)
     summary["empty_submodels"] = sum(1 for s in subs if not s["brushes"])
     static_models, static_summary = hulls.static_model_records(clip)
@@ -1742,7 +1755,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     map_constraints = constraints.stage(clip_bin.with_name(
         clip_bin.name.removesuffix('.clip.bin') + '.constraints.json'), project_root, map_dynents)
     report.content['physics_constraints'] = map_constraints
-    sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw)
+    sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw,
+                               gfx_source=gfx_bin, clip_source=clip_bin)
     ents_file = source_entities(gfx_bin, stage, roots)
     # The map is king: every model its own zones ship converts, referenced or
     # not (Industrial Estate's zombie-hero viewhands are picked through arrays
