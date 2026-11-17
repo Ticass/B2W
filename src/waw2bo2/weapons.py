@@ -385,6 +385,21 @@ def model_lod_source(roots: list[Path], owner: Path, file: str) -> Path | None:
 
 def stage_models(roots: list[Path], project: Path, names: set[str],
                  world_models: frozenset[str] | set[str] = frozenset()) -> dict:
+    """Stage weapon geometry, preserving skeletons and LODs."""
+    if native.tool() is None:
+        return _stage_models_python(roots, project, names, world_models)
+    with TemporaryDirectory(prefix='waw2bo2_models_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps({'roots': list(map(str, roots)), 'project': str(project),
+                                       'names': sorted(names), 'worldModels': sorted(world_models)}), encoding='utf-8')
+        result = json.loads(native.run('stage-weapon-models', str(request)))
+    if 'error' in result:
+        raise WeaponError(result['error'])
+    return result
+
+
+def _stage_models_python(roots: list[Path], project: Path, names: set[str],
+                         world_models: frozenset[str] | set[str] = frozenset()) -> dict:
     """Preserve weapon skeletons and LODs; never use the static-prop skin stripper.
 
     Models/material names are isolated from stock BO2. Multi-root skeletons

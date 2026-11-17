@@ -46,6 +46,14 @@ namespace w2b::weapons
                 std::error_code(static_cast<int>(GetLastError()), std::system_category()));
     }
 
+    Json ReadAssetJson(const path& source)
+    {
+        std::string bytes;
+        if (!files::ReadBytes(source, bytes))
+            throw std::runtime_error("cannot read " + files::Utf8(source));
+        return Json::parse(bytes);
+    }
+
     void AddDependency(Json& dependencies, std::string_view kind, const std::string& name)
     {
         auto& names = dependencies[kind];

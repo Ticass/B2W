@@ -67,9 +67,16 @@ target_link_libraries(w2b_materials PUBLIC w2b_core)
 add_library(w2b_effects STATIC src/effects/element.cpp src/effects/effect.cpp src/effects/overlay.cpp src/effects/stage.cpp)
 target_link_libraries(w2b_effects PUBLIC w2b_core)
 
+set(TOMCRYPT_DIR "${OAT_THIRDPARTY}/libtomcrypt/src")
+add_library(w2b_base64 STATIC
+    "${TOMCRYPT_DIR}/misc/base64/base64_decode.c" "${TOMCRYPT_DIR}/misc/base64/base64_encode.c")
+target_include_directories(w2b_base64 SYSTEM PUBLIC "${TOMCRYPT_DIR}/headers")
+target_compile_definitions(w2b_base64 PRIVATE ARGTYPE=4)
+
 add_library(w2b_weapons STATIC src/weapons/infostring.cpp src/weapons/convert.cpp src/weapons/defaults.cpp
-    src/weapons/sources.cpp src/weapons/plan.cpp src/weapons/flame_table.cpp src/weapons/stage.cpp)
-target_link_libraries(w2b_weapons PUBLIC w2b_core)
+    src/weapons/sources.cpp src/weapons/plan.cpp src/weapons/flame_table.cpp src/weapons/stage.cpp
+    src/weapons/models.cpp src/weapons/skeleton.cpp src/weapons/rebind.cpp src/weapons/viewmodels.cpp)
+target_link_libraries(w2b_weapons PUBLIC w2b_core PRIVATE w2b_base64)
 
 add_library(w2b_world STATIC
     src/world/vertices.cpp

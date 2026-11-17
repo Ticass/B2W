@@ -520,6 +520,8 @@ namespace
         {"index-donors", JsonRequest<w2b::materials::IndexDonors>},
         {"convert-effects", JsonRequest<w2b::effects::StageEffects>},
         {"stage-weapon-files", JsonRequest<w2b::weapons::StageWeapons>},
+        {"stage-weapon-models", JsonRequest<w2b::weapons::StageModels>},
+        {"stage-viewmodel-shadows", JsonRequest<w2b::weapons::StageShadowVariants>},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
         {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},

@@ -181,6 +181,21 @@ class WeaponTests(unittest.TestCase):
             self.assertIn("gun", report["unsupported"])
             self.assertFalse((invalid / "xmodel/waw_xmodel/gun.json").exists())
 
+    def test_nested_model_lods_prefer_the_owning_zone(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            map_root, owner = base / "map", base / "stock"
+            relative = "model_export/shared.gltf"
+            for root, material in ((map_root, "map_material"), (owner, "stock_material")):
+                path = root / relative
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps({"materials": [{"name": material}]}), encoding="utf-8")
+            model = owner / "xmodel/custom/gun.json"
+            model.parent.mkdir(parents=True)
+            model.write_text(json.dumps({"lods": [{"file": relative}]}), encoding="utf-8")
+            report = weapons.stage_models([map_root, owner], base / "output", {"custom/gun"})
+            self.assertEqual(report["models"][0]["materials"], ["stock_material"])
+
     def test_world_model_over_the_animated_limit_rebinds_to_its_root(self):
         count = weapons.ANIMATED_LOD_VERTICES + 1
         blob = bytes((1, 2, 0, 0)) * count + struct.pack("<4f", 0.5, 0.5, 0, 0) * count

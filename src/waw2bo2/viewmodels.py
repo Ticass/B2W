@@ -3,10 +3,16 @@ import copy
 import json
 import re
 from pathlib import Path
-from . import weapons, techsets
+from . import native, weapons, techsets
 
 
 def stage_shadow_variants(content: Path) -> dict:
+    if native.tool() is not None:
+        return json.loads(native.run('stage-viewmodel-shadows', str(content)))
+    return _stage_shadow_variants_python(content)
+
+
+def _stage_shadow_variants_python(content: Path) -> dict:
     stage_path = content / 'weapons.stage.json'
     visual_path = content / 'weapons.visuals.json'
     stage = json.loads(stage_path.read_text())

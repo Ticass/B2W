@@ -87,6 +87,18 @@ namespace w2b::py
             out += '"';
             for (size_t i = 0; i < text.size();)
             {
+                // Geometry buffers are often megabytes of printable ASCII.
+                const auto start = i;
+                while (i < text.size())
+                {
+                    const auto byte = static_cast<unsigned char>(text[i]);
+                    if (byte < 0x20 || byte >= 0x7f || byte == '"' || byte == '\\')
+                        break;
+                    ++i;
+                }
+                out.append(text, start, i - start);
+                if (i == text.size())
+                    break;
                 const auto c = static_cast<unsigned char>(text[i]);
                 if (c < 0x80)
                 {
@@ -114,10 +126,7 @@ namespace w2b::py
                         out += "\\f";
                         break;
                     default:
-                        if (c < 0x20 || c == 0x7F) // json escapes everything outside ' '..'~'
-                            AppendHex4(out, c);
-                        else
-                            out += static_cast<char>(c);
+                        AppendHex4(out, c);
                     }
                     i++;
                     continue;
