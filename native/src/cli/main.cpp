@@ -6,6 +6,11 @@
 #include "core/parallel.h"
 #include "core/pytext.h"
 #include "gsc/parse.h"
+#include "gsc/port/api.h"
+#include "gsc/port/rewrites.h"
+
+#include <functional>
+#include <map>
 #include "gsc/tokens.h"
 
 #include <set>
@@ -108,6 +113,73 @@ namespace
         return 0;
     }
 
+    // gsc-rewrite <name> <list.txt> <out.jsonl>: apply one gscport rewrite to
+    // each file; one JSON line {"path", "count", "text"} or {"path", "error"}
+    int GscRewrite(const std::string& name, const std::string& listFile, const std::string& outFile)
+    {
+        namespace gp = w2b::gsc::port;
+        using Fn = std::function<int(gp::Tokens&)>;
+        const std::map<std::string, Fn> rewrites{
+            {"neutralize_animations", [](gp::Tokens& t) { gp::NeutralizeAnimations(t, "tree"); return 0; }},
+            {"bridge_contact_kill_attacks", [](gp::Tokens& t) { return gp::BridgeContactKillAttacks(t, w2b::gsc::Parse(w2b::gsc::Emit(t), "x")); }},
+            {"fix_syntax", gp::FixSyntax},
+            {"split_call_receivers", gp::SplitCallReceivers},
+            {"rename_level_fields", gp::RenameLevelFields},
+            {"bridge_poi_record_comparisons", gp::BridgePoiRecordComparisons},
+            {"bridge_revive_reads", gp::BridgeReviveReads},
+            {"bridge_drinking_flag", gp::BridgeDrinkingFlag},
+            {"bridge_score_writes", gp::BridgeScoreWrites},
+            {"bridge_player_stat_reads", gp::BridgePlayerStatReads},
+            {"bridge_dynamic_hud_materials", gp::BridgeDynamicHudMaterials},
+            {"mirror_team_zombie_vars", gp::MirrorTeamZombieVars},
+            {"bridge_font_scales", gp::BridgeFontScales},
+            {"keep_bo2_deathanims", gp::KeepBo2Deathanims},
+            {"bridge_intermission_camera", gp::BridgeIntermissionCamera},
+            {"bridge_launch_triggers", gp::BridgeLaunchTriggers},
+            {"lower_maxhealth_assignments", gp::LowerMaxhealthAssignments},
+            {"lower_health_assignments", gp::LowerHealthAssignments},
+            {"lower_hud_fields", gp::LowerHudFields},
+            {"lower_zombie_weapon_keys", gp::LowerZombieWeaponKeys},
+            {"lower_undefined_size_loops", gp::LowerUndefinedSizeLoops},
+            {"wrap_integer_literals", gp::WrapIntegerLiterals},
+            {"lower_stationary_fx_carriers", gp::LowerStationaryFxCarriers},
+        };
+        const auto fn = rewrites.find(name);
+        if (fn == rewrites.end())
+            return Usage();
+        std::string list;
+        w2b::files::ReadBytes(w2b::files::FromUtf8(listFile), list);
+        std::vector<std::string> paths;
+        for (const auto line : w2b::py::SplitLines(list))
+            if (!line.empty())
+                paths.emplace_back(line);
+        std::vector<std::string> lines(paths.size());
+        w2b::parallel::For(paths.size(),
+                           [&](const size_t i)
+                           {
+                               std::string text;
+                               w2b::files::ReadBytes(w2b::files::FromUtf8(paths[i]), text);
+                               nlohmann::ordered_json row;
+                               row["path"] = paths[i];
+                               try
+                               {
+                                   auto tokens = w2b::gsc::Tokenize(text);
+                                   row["count"] = fn->second(tokens);
+                                   row["text"] = w2b::gsc::Emit(tokens);
+                               }
+                               catch (const std::exception& error)
+                               {
+                                   row["error"] = error.what();
+                               }
+                               lines[i] = row.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
+                           });
+        std::string out;
+        for (const auto& line : lines)
+            out += line + "\n";
+        w2b::files::WriteBytes(w2b::files::FromUtf8(outFile), out);
+        return 0;
+    }
+
     // sounds-stage <args.json>: {"project", "roots", "iwd_dirs", "names" (list|null), "globals" (str|null)}
     int SoundsStage(const std::string& argsFile)
     {
@@ -174,6 +246,11 @@ int wmain(const int argc, wchar_t** argv)
             return SoundsStage(args[0]);
         if (command == "gsc-tokens" && args.size() == 2)
             return GscTokens(args[0], args[1]);
+        if (command == "gsc-rewrite" && args.size() == 4)
+        {
+            w2b::gsc::port::SetCompatDir(w2b::files::FromUtf8(args[3]));
+            return GscRewrite(args[0], args[1], args[2]);
+        }
     }
     catch (const std::exception& error)
     {

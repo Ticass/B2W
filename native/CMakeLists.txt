@@ -56,8 +56,14 @@ add_library(w2b_gsc STATIC
     src/gsc/parse.cpp)
 target_link_libraries(w2b_gsc PUBLIC w2b_core)
 
+add_library(w2b_gscport STATIC
+    src/gsc/port/util.cpp
+    src/gsc/port/api.cpp
+    src/gsc/port/rewrites.cpp)
+target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
+
 add_executable(waw2bo2n src/cli/main.cpp)
-target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc)
+target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()
