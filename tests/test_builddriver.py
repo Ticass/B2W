@@ -54,13 +54,14 @@ class BuildDriverTests(BuildWorkspace, unittest.TestCase):
         paths = BuildPaths.for_settings(self.settings)
         def fake_run(command, log=None):
             commands.append(command)
+            if 'build-mod' in command:  # build-mod writes mod.ff, bridge-link the map zone
+                mod = paths.mod / 'out/mod.ff'
+                mod.parent.mkdir(parents=True)
+                mod.touch()
             if 'bridge-link' in command:
                 ff = paths.stage / 'zone_out/zm_bankjob/zm_bankjob.ff'
                 ff.parent.mkdir(parents=True)
                 ff.touch()
-                mod = paths.mod / 'out/mod.ff'
-                mod.parent.mkdir(parents=True)
-                mod.touch()
         with patch.object(builddriver, 'run', side_effect=fake_run):
             self.assertEqual(builddriver.build(self.settings), 0)
         actions = [name for name in ('stage-bridge', 'build-mod', 'compile-scripts', 'bridge-link')
@@ -100,8 +101,9 @@ class BuildDriverTests(BuildWorkspace, unittest.TestCase):
         commands = []
         def fake_run(command, log=None):
             commands.append(command)
-            if 'bridge-link' in command:
-                for ff in (paths.stage / 'zone_out/zm_bankjob/zm_bankjob.ff', paths.mod / 'out/mod.ff'):
+            for step, ff in (('build-mod', paths.mod / 'out/mod.ff'),
+                             ('bridge-link', paths.stage / 'zone_out/zm_bankjob/zm_bankjob.ff')):
+                if step in command:  # build-mod writes mod.ff, bridge-link the map zone
                     ff.parent.mkdir(parents=True, exist_ok=True)
                     ff.touch()
             if Path(command[0]).name == 'Unlinker.exe':
@@ -113,9 +115,12 @@ class BuildDriverTests(BuildWorkspace, unittest.TestCase):
                 builddriver.build(self.settings)
         result = json.loads((paths.stage / 'bone_hitbox_audit.json').read_text())
         self.assertIn('radiusSquared changed', result['errors'][0])
-        unlinks = [c for c in commands if Path(c[0]).name == 'Unlinker.exe']
-        self.assertEqual(len(unlinks), 1)
-        self.assertIn('xmodel', unlinks[0][unlinks[0].index('--include-assets') + 1])
+        unlinks = {Path(c[c.index('--output-folder') + 1]).name: c for c in commands
+                   if Path(c[0]).name == 'Unlinker.exe'}
+        # the map zone's audit reads models; mod.ff's (audited while the map links) does not
+        self.assertIn('xmodel', unlinks['audit_zm_bankjob'][unlinks['audit_zm_bankjob'].index('--include-assets') + 1])
+        if 'audit_mod' in unlinks:
+            self.assertNotIn('xmodel', unlinks['audit_mod'][unlinks['audit_mod'].index('--include-assets') + 1])
 
     def test_failed_cache_preparation_stops_before_any_native_build(self):
         with patch.object(builddriver.all2raw, 'ready', side_effect=RuntimeError('Run Extract All')), \
@@ -186,8 +191,9 @@ class ResumeTests(BuildWorkspace, unittest.TestCase):
             if 'stage-bridge' in command:
                 script.parent.mkdir(parents=True, exist_ok=True)
                 script.write_text('// translated from WaW\n')
-            if 'bridge-link' in command:
-                for ff in (paths.stage / 'zone_out/zm_bankjob/zm_bankjob.ff', paths.mod / 'out/mod.ff'):
+            for step, ff in (('build-mod', paths.mod / 'out/mod.ff'),
+                             ('bridge-link', paths.stage / 'zone_out/zm_bankjob/zm_bankjob.ff')):
+                if step in command:  # build-mod writes mod.ff, bridge-link the map zone
                     ff.parent.mkdir(parents=True, exist_ok=True)
                     ff.touch()
         with patch.object(builddriver, 'run', side_effect=fake_run):

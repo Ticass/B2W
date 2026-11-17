@@ -309,6 +309,9 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
     with timeline.span('3a build-mod'):
         run(cli_command('build-mod', str(stage), project, '--bo2', str(bo2), '--work', str(mod),
                         '--unlinker', str(t6), '--linker', str(linker), '--techset-dump', str(stock)))
+    # mod.ff is final once build-mod returns and its audit reads only it:
+    # audit it while the map scripts compile and the map zone links.
+    mod_audit = _Background(lambda: _audit_zone(mod / 'out/mod.ff', stage, project, bo2, stock, t6))
     print('== 3b. compiling map scripts with the BO2 mod tools linker', flush=True)
     with timeline.span('3b compile-scripts'):
         run(cli_command('compile-scripts', str(stage), project, '--bo2', str(bo2), '--unlinker', str(t6)))
@@ -317,30 +320,62 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
         run(cli_command('bridge-link', str(stage), project, '--linker', str(linker),
                         '--techset-dump', str(stock), '--log', str(stage / (project + '_bridge.log'))))
     print('== 6. auditing built material arguments', flush=True)
-    for ff in (stage / 'zone_out' / project / (project + '.ff'), mod / 'out/mod.ff'):
-        if not ff.is_file():
-            raise FileNotFoundError(f'Linker did not create {ff}')
-        audit = stage / ('audit_' + ff.stem)
-        if not audit.resolve().is_relative_to(stage.resolve()):
-            raise ValueError(f'Audit cleanup target is outside staging: {audit}')
-        if audit.exists():
-            shutil.rmtree(audit)
-        model_source = stage / 'zone_raw' / project
-        audit_hitboxes = ff.stem == project and modelhitboxes.has_authored_hitboxes(model_source)
-        with timeline.span(f'6 audit unlink {ff.name}'):
-            run([str(t6), '--no-color', '--search-path', str(bo2 / 'zone/all'), '--include-assets',
-                 'material,techniqueset' + (',xmodel' if audit_hitboxes else ''),
-                 '--output-folder', str(audit), str(ff)], stage / (audit.name + '.log'))
-        from .launcher import python_command
-        with timeline.span(f'6 audit material args {ff.name}'):
-            run(python_command() + [str(resource_root() / 'tools/audit_material_args.py'), str(audit), str(stock)])
-        if audit_hitboxes:
-            with timeline.span('6 audit bone hitboxes'):
-                result = modelhitboxes.audit(model_source, audit)
-            (stage / 'bone_hitbox_audit.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
-            if result['errors'] or not result['models']:
-                detail = '; '.join(result['errors'][:5]) or 'no built model with authored hitboxes was found to audit'
-                raise RuntimeError(f'Authored bone hitboxes changed during linking ({len(result["errors"])} errors, '
-                                   f'{result["models"]} models): {detail}; see bone_hitbox_audit.json')
-            print(f'{result["bones"]} authored bone hitboxes checked across {result["models"]} models, 0 violations', flush=True)
+    try:
+        _audit_zone(stage / 'zone_out' / project / (project + '.ff'), stage, project, bo2, stock, t6)
+    finally:
+        mod_audit.join()
     return 0
+
+
+class _Background:
+    """Run a step on a thread; join() re-raises its error in the caller."""
+
+    def __init__(self, step):
+        import threading
+        self._error: BaseException | None = None
+        parent = timeline.current()
+
+        def target():
+            try:
+                with timeline.parent(parent):
+                    step()
+            except BaseException as exc:  # noqa: BLE001 - re-raised by join()
+                self._error = exc
+
+        self._thread = threading.Thread(target=target, daemon=True)
+        self._thread.start()
+
+    def join(self) -> None:
+        self._thread.join()
+        if self._error is not None:
+            raise self._error
+
+
+def _audit_zone(ff: Path, stage: Path, project: str, bo2: Path, stock: Path, t6: Path) -> None:
+    """Unlink a built zone and audit its material arguments (and, for the
+    map zone, the authored bone hitboxes)."""
+    if not ff.is_file():
+        raise FileNotFoundError(f'Linker did not create {ff}')
+    audit = stage / ('audit_' + ff.stem)
+    if not audit.resolve().is_relative_to(stage.resolve()):
+        raise ValueError(f'Audit cleanup target is outside staging: {audit}')
+    if audit.exists():
+        shutil.rmtree(audit)
+    model_source = stage / 'zone_raw' / project
+    audit_hitboxes = ff.stem == project and modelhitboxes.has_authored_hitboxes(model_source)
+    with timeline.span(f'6 audit unlink {ff.name}'):
+        run([str(t6), '--no-color', '--search-path', str(bo2 / 'zone/all'), '--include-assets',
+             'material,techniqueset' + (',xmodel' if audit_hitboxes else ''),
+             '--output-folder', str(audit), str(ff)], stage / (audit.name + '.log'))
+    from .launcher import python_command
+    with timeline.span(f'6 audit material args {ff.name}'):
+        run(python_command() + [str(resource_root() / 'tools/audit_material_args.py'), str(audit), str(stock)])
+    if audit_hitboxes:
+        with timeline.span('6 audit bone hitboxes'):
+            result = modelhitboxes.audit(model_source, audit)
+        (stage / 'bone_hitbox_audit.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+        if result['errors'] or not result['models']:
+            detail = '; '.join(result['errors'][:5]) or 'no built model with authored hitboxes was found to audit'
+            raise RuntimeError(f'Authored bone hitboxes changed during linking ({len(result["errors"])} errors, '
+                               f'{result["models"]} models): {detail}; see bone_hitbox_audit.json')
+        print(f'{result["bones"]} authored bone hitboxes checked across {result["models"]} models, 0 violations', flush=True)

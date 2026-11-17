@@ -52,6 +52,22 @@ def current() -> str | None:
     return os.environ.get(PARENT_ENV) or None
 
 
+@contextmanager
+def parent(record_id: str | None):
+    """Nest this thread's records under record_id (a span of another thread)."""
+    stack = getattr(_local, 'stack', None)
+    if stack is None:
+        stack = _local.stack = []
+    if record_id is None:
+        yield
+        return
+    stack.append(record_id)
+    try:
+        yield
+    finally:
+        stack.pop()
+
+
 def _parts(target: Path) -> Path:
     return target.with_name(target.name + '.parts')
 
