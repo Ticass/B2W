@@ -86,3 +86,17 @@ foreach ($tool in $tools) {
     Write-Output "built: $bin"
 }
 & "$PSScriptRoot/build_audio_decoder.ps1"
+
+# The converter's own C++ steps (native/, docs/CPP_PORT_PLAN.md): CMake + Ninja,
+# 64-bit, after the T6 checkout's thirdparty folder (json, catch2) is in place.
+$nativeExe = Join-Path $root 'native\build\waw2bo2n.exe'
+if ($Rebuild -or -not (Test-Path -LiteralPath $nativeExe)) {
+    $vs = & $vswhere -latest -products '*' -property installationPath
+    $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+    $native = Join-Path $root 'native'
+    cmd /c "`"$vcvars`" >nul 2>&1 && cmake -S `"$native`" -B `"$native\build`" -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build `"$native\build`""
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $nativeExe)) { throw 'native converter build failed' }
+    Write-Output "built: $nativeExe"
+} else {
+    Write-Output "up to date: $nativeExe"
+}

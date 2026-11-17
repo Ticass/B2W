@@ -138,7 +138,9 @@ def _translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
         raise ShaderError('requires ps_3_0 or vs_3_0 bytecode')
     stage = lines.pop(0)[:2]
     defs, integers, inputs, outputs, samplers, operations = {}, {}, {}, {}, {}, []
-    used, writes, centroid = set(), set(), set()
+    # writes keeps first-write order: undeclared ps outputs join the Output
+    # struct in that order (a set made it depend on the hash seed)
+    used, writes, centroid = set(), {}, set()
     for line in lines:
         op, _, tail = line.partition(' ')
         args = [s.strip() for s in tail.split(',')]
@@ -186,7 +188,7 @@ def _translate(assembly: str, bindings: dict | None = None) -> tuple[str, dict]:
             operations.append((op, args, line))
             used.update(re.findall(r'\b(?:r\d+|v\d+|c\d+|oC\d+|o\d+|oDepth)(?=[._,\s)]|$)', tail))
             if args and REG.fullmatch(args[0]):
-                writes.add(REG.fullmatch(args[0])[1])
+                writes.setdefault(REG.fullmatch(args[0])[1])
 
     for reg in writes:
         if reg.startswith('o') and reg not in outputs:
@@ -604,7 +606,17 @@ def stage(roots: list[Path], destination: Path) -> dict:
 
     Staging artifacts are intentionally outside shader_bin: without a verified
     T6 pass contract they cannot override a live shader with incompatible ABI.
+    Runs natively (native/src/shaders, byte-identical output) when built.
     """
+    from . import native
+    if native.tool() is not None:
+        native.run('shaders-stage', '--dest', str(destination), *map(str, roots))
+        return json.loads((destination / 'stage.json').read_text(encoding='utf-8'))
+    return python_stage(roots, destination)
+
+
+def python_stage(roots: list[Path], destination: Path) -> dict:
+    """The Python implementation of stage() (WAW2BO2_NATIVE=0)."""
     from .parallel import ordered_map
     sources = {}
     for root in roots:

@@ -23,3 +23,6 @@ __pycache__/
 /vendor/OpenAssetToolsT6/build/
 /vendor/OpenAssetToolsT6/thirdparty/
 /vendor/OpenAssetToolsT6/.git.broken-worktree
+
+# Native converter build output
+/native/build/
