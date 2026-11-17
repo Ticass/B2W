@@ -571,8 +571,41 @@ class AudioSources:
             archive.close()
 
 
+def _globals_file(roots: list[Path], stock) -> Path | None:
+    globals_file = next((p for r in roots for p in sorted((r / "soundglobals").glob("*.w2bsndglobals.json"))), None)
+    if globals_file is None and stock is not None:
+        result = stock.root_for("snddriverglobals", "singleton")
+        if result:
+            _, root = result
+            globals_file = root / "soundglobals/singleton.w2bsndglobals.json"
+    return globals_file
+
+
 def stage(roots: list[Path], project: Path, iwd_dirs: list[Path], stock=None,
           names: set[str] | None = None) -> dict:
+    """Stage alias IR and original audio; runs natively (native/src/sound,
+    byte-identical output) when built. The driver globals are found here: the
+    stock fallback may extract a WaW zone."""
+    from . import native
+    if native.tool() is None:
+        return python_stage(roots, project, iwd_dirs, stock, names)
+    globals_file = _globals_file(roots, stock)
+    args = {'project': str(project), 'roots': [str(r) for r in roots], 'iwd_dirs': [str(d) for d in iwd_dirs],
+            'names': sorted(names) if names is not None else None,
+            'globals': str(globals_file) if globals_file is not None else None}
+    project.mkdir(parents=True, exist_ok=True)
+    args_file = project / 'sounds.stage.args.json'
+    args_file.write_text(json.dumps(args), encoding='utf-8')
+    try:
+        native.run('sounds-stage', str(args_file))
+    finally:
+        args_file.unlink(missing_ok=True)
+    return json.loads((project / "sounds.stage.json").read_text(encoding='utf-8'))
+
+
+def python_stage(roots: list[Path], project: Path, iwd_dirs: list[Path], stock=None,
+                 names: set[str] | None = None) -> dict:
+    """The Python implementation of stage() (WAW2BO2_NATIVE=0)."""
     audio_sources = AudioSources(roots, iwd_dirs)
     try:
         return _stage(roots, project, stock, names, audio_sources)
@@ -588,12 +621,7 @@ def _stage(roots: list[Path], project: Path, stock, names: set[str] | None,
             name = path.relative_to(root / "soundaliases").as_posix().removesuffix(".w2bsnd.json")
             if names is None or name in names:
                 aliases.setdefault(name, path)
-    globals_file = next((p for r in roots for p in sorted((r / "soundglobals").glob("*.w2bsndglobals.json"))), None)
-    if globals_file is None and stock is not None:
-        result = stock.root_for("snddriverglobals", "singleton")
-        if result:
-            _, root = result
-            globals_file = root / "soundglobals/singleton.w2bsndglobals.json"
+    globals_file = _globals_file(roots, stock)
     report = {"status": "partial_audio_and_semantic_stage", "aliases": [], "audio": [], "errors": [],
               "remaining": ["T6 driver curve/channel translation", "ducking and source-only flag translation",
                             "original alias T6 bank compilation", "runtime playback validation"]}

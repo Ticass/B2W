@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(waw2bo2_native LANGUAGES CXX)
+project(waw2bo2_native LANGUAGES C CXX)
 
 # The converter's steps in C++ (docs/CPP_PORT_PLAN.md). Third-party headers
 # come from the OAT T6 checkout's thirdparty folder (tools/restore_native.ps1).
@@ -12,13 +12,27 @@ if(MSVC)
     add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 endif()
 
+# zlib's inflate (IWD archives are zip files)
+set(ZLIB_DIR "${OAT_THIRDPARTY}/zlib")
+add_library(w2b_zlib STATIC
+    ${ZLIB_DIR}/adler32.c ${ZLIB_DIR}/crc32.c ${ZLIB_DIR}/inflate.c ${ZLIB_DIR}/inftrees.c
+    ${ZLIB_DIR}/inffast.c ${ZLIB_DIR}/zutil.c)
+set_target_properties(w2b_zlib PROPERTIES LINKER_LANGUAGE C)
+target_include_directories(w2b_zlib PUBLIC "${ZLIB_DIR}")
+if(MSVC)
+    target_compile_options(w2b_zlib PRIVATE /W0)
+endif()
+
 add_library(w2b_core STATIC
     src/core/pytext.cpp
     src/core/files.cpp
     src/core/hash.cpp
     src/core/cache.cpp
-    src/core/process.cpp)
+    src/core/process.cpp
+    src/core/encoding.cpp
+    src/core/zip.cpp)
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
+target_link_libraries(w2b_core PUBLIC w2b_zlib)
 
 add_library(w2b_shaders STATIC
     src/shaders/d3d.cpp
@@ -32,8 +46,12 @@ add_library(w2b_audio STATIC
     src/audio/stage.cpp)
 target_link_libraries(w2b_audio PUBLIC w2b_core)
 
+add_library(w2b_sound STATIC
+    src/sound/stage.cpp)
+target_link_libraries(w2b_sound PUBLIC w2b_core)
+
 add_executable(waw2bo2n src/cli/main.cpp)
-target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio)
+target_link_libraries(waw2bo2n PRIVATE w2b_shaders w2b_audio w2b_sound)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

@@ -2,6 +2,9 @@
 #include "core/files.h"
 #include "audio/stage.h"
 #include "shaders/stage.h"
+#include "sound/stage.h"
+
+#include <set>
 
 #include <windows.h>
 
@@ -47,6 +50,26 @@ namespace
         return 0;
     }
 
+    // sounds-stage <args.json>: {"project", "roots", "iwd_dirs", "names" (list|null), "globals" (str|null)}
+    int SoundsStage(const std::string& argsFile)
+    {
+        std::string text;
+        if (!w2b::files::ReadBytes(w2b::files::FromUtf8(argsFile), text))
+            return Usage();
+        const auto args = nlohmann::ordered_json::parse(text);
+        w2b::sound::StageInput input;
+        input.project = w2b::files::FromUtf8(args["project"].get<std::string>());
+        input.roots = args["roots"].get<std::vector<std::string>>();
+        input.iwdDirs = args["iwd_dirs"].get<std::vector<std::string>>();
+        if (!args["names"].is_null())
+            input.names = args["names"].get<std::set<std::string>>();
+        if (!args["globals"].is_null())
+            input.globalsFile = args["globals"].get<std::string>();
+        const auto report = w2b::sound::Stage(input);
+        std::printf("sounds: %zu aliases, %zu audio files, %zu errors\n", report["aliases"].size(), report["audio"].size(), report["errors"].size());
+        return 0;
+    }
+
     // audio-stage --project <content_source> --output <pcm> [--decoder-text <str>] [--xwma <exe>] [--resampler <exe>]
     int AudioStage(const std::vector<std::string>& args)
     {
@@ -89,6 +112,8 @@ int wmain(const int argc, wchar_t** argv)
             return ShadersStage(args);
         if (command == "audio-stage")
             return AudioStage(args);
+        if (command == "sounds-stage" && args.size() == 1)
+            return SoundsStage(args[0]);
     }
     catch (const std::exception& error)
     {

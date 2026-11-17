@@ -78,7 +78,9 @@ namespace w2b::shaders
                 return value->get<long long>() != 0;
             if (value->is_number_float())
                 return value->get<double>() != 0.0;
-            if (value->is_string() || value->is_array() || value->is_object())
+            if (value->is_string()) // json::empty() is false for every string
+                return !value->get_ref<const std::string&>().empty();
+            if (value->is_array() || value->is_object())
                 return !value->empty();
             return true;
         }
