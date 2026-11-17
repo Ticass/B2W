@@ -20,7 +20,8 @@ _MODULES = ('audio.py', 'audiocache.py', 'xwma.py', 'acm.py')
 
 
 def enabled() -> bool:
-    return os.environ.get('WAW2BO2_AUDIO_CACHE', '1') != '0'
+    from . import buildcache
+    return buildcache.enabled() and os.environ.get('WAW2BO2_AUDIO_CACHE', '1') != '0'
 
 
 def root() -> Path:

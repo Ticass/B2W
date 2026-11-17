@@ -554,13 +554,46 @@ def translate_file(source: Path, output: Path, bindings: dict | None = None, *, 
     return report
 
 
+@lru_cache(maxsize=1)
+def _translation_environment() -> str:
+    """What an unbound translation depends on besides the source bytes: this
+    module's code and the system shader compiler/disassembler."""
+    from . import buildcache
+    system = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32' / 'd3dcompiler_47.dll'
+    return buildcache.code_digest('shaders.py') + buildcache.file_identity(system) + f'flags{COMPILE_FLAGS}'
+
+
+def _translate_unbound(source: Path, output: Path) -> dict:
+    """translate_file(source, output) for a shader without bindings, through
+    the shared build cache: a hit writes the same .hlsl/.cso/.json files."""
+    from . import buildcache
+    data = source.read_bytes()
+    name = buildcache.key(_translation_environment(), data)
+    cached = buildcache.load('shaders_unbound', name)
+    if cached is None:
+        assembly = disassemble(data)
+        hlsl, translated = translate(assembly, None)
+        compiled = compile_hlsl(hlsl, translated['target_profile'])
+        buildcache.store('shaders_unbound', name, (hlsl, compiled, translated))
+    else:
+        hlsl, compiled, translated = cached
+    report = dict(translated)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.with_suffix('.hlsl').write_text(hlsl, encoding='utf-8')
+    output.with_suffix('.cso').write_bytes(compiled)
+    report['output_sha256'] = hashlib.sha256(compiled).hexdigest()
+    report.update(source=str(source), source_sha256=hashlib.sha256(data).hexdigest(), compiled=True)
+    output.with_suffix('.json').write_text(json.dumps(report, indent=2) + '\n')
+    return report
+
+
 def _stage_shader(task):
     name, source, destination = task
     # T6 donor DXBC is not WaW input. Preserve it through the existing path.
     if source.read_bytes()[:4] == b'DXBC':
         return None
     try:
-        report = translate_file(source, destination / name)
+        report = _translate_unbound(source, destination / name)
         return dict(report, name=name, status='translated_unbound')
     except (ShaderError, OSError, AttributeError) as exc:
         return {'name': name, 'source': str(source), 'status': 'unsupported', 'error': str(exc)}
