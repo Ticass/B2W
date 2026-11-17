@@ -6,6 +6,7 @@
 #include "core/parallel.h"
 #include "core/pytext.h"
 #include "gsc/parse.h"
+#include "core/pyre.h"
 #include "gsc/port/api.h"
 #include "gsc/port/rewrites.h"
 
@@ -180,6 +181,56 @@ namespace
         return 0;
     }
 
+    // regex-test <cases.jsonl> <out.jsonl>: {"pattern","flags","text","repl"}
+    // -> finditer spans/groups, sub, split, match, fullmatch (or the error)
+    int RegexTest(const std::string& casesFile, const std::string& outFile)
+    {
+        std::string text;
+        w2b::files::ReadBytes(w2b::files::FromUtf8(casesFile), text);
+        std::vector<std::string> cases;
+        for (const auto line : w2b::py::SplitLines(text))
+            if (!line.empty())
+                cases.emplace_back(line);
+        std::vector<std::string> lines(cases.size());
+        w2b::parallel::For(cases.size(),
+                           [&](const size_t i)
+                           {
+                               const auto c = nlohmann::ordered_json::parse(cases[i]);
+                               nlohmann::ordered_json row;
+                               try
+                               {
+                                   const w2b::pyre::Regex re(c["pattern"].get<std::string>(), c["flags"].get<unsigned>());
+                                   const auto subject = c["text"].get<std::string>();
+                                   nlohmann::ordered_json found = nlohmann::ordered_json::array();
+                                   for (const auto& m : re.FindIter(subject))
+                                   {
+                                       nlohmann::ordered_json spans = nlohmann::ordered_json::array();
+                                       for (size_t g = 0; g <= m.Groups(); g++)
+                                           spans.push_back({m.Start(g), m.End(g)});
+                                       found.push_back(spans);
+                                   }
+                                   row["finditer"] = found;
+                                   row["sub"] = re.Sub(c["repl"].get<std::string>(), subject);
+                                   row["split"] = re.Split(subject);
+                                   const auto m = re.MatchAt(subject);
+                                   row["match"] = m ? nlohmann::ordered_json({m->Start(), m->End()}) : nlohmann::ordered_json();
+                                   const auto f = re.FullMatch(subject);
+                                   row["fullmatch"] = f ? nlohmann::ordered_json({f->Start(), f->End()}) : nlohmann::ordered_json();
+                               }
+                               catch (const std::exception& error)
+                               {
+                                   row = nlohmann::ordered_json::object();
+                                   row["error"] = error.what();
+                               }
+                               lines[i] = row.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
+                           });
+        std::string out;
+        for (const auto& line : lines)
+            out += line + "\n";
+        w2b::files::WriteBytes(w2b::files::FromUtf8(outFile), out);
+        return 0;
+    }
+
     // sounds-stage <args.json>: {"project", "roots", "iwd_dirs", "names" (list|null), "globals" (str|null)}
     int SoundsStage(const std::string& argsFile)
     {
@@ -246,6 +297,8 @@ int wmain(const int argc, wchar_t** argv)
             return SoundsStage(args[0]);
         if (command == "gsc-tokens" && args.size() == 2)
             return GscTokens(args[0], args[1]);
+        if (command == "regex-test" && args.size() == 2)
+            return RegexTest(args[0], args[1]);
         if (command == "gsc-rewrite" && args.size() == 4)
         {
             w2b::gsc::port::SetCompatDir(w2b::files::FromUtf8(args[3]));

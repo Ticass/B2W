@@ -31,6 +31,7 @@ add_library(w2b_core STATIC
     src/core/process.cpp
     src/core/encoding.cpp
     src/core/unicode.cpp
+    src/core/pyre.cpp
     src/core/zip.cpp)
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
 target_link_libraries(w2b_core PUBLIC w2b_zlib)
