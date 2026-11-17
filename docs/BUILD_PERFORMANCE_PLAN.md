@@ -340,3 +340,67 @@ Next in plan order: implement parallel chunk compression in the native writer, t
 step 4 overlap. Localization extraction is independent, serial work and an early
 candidate. Tools for repeating this: `work/perf` in the worktree (`bench.py`,
 `compare_stage.py`, `unlink_compare.py`, `zone_chunks.py`, `series_summary.py`).
+
+## Results: pass 2 (2026-11-16, branch `perf/build-speed`)
+
+Der Riese full rebuilds (resume off, extraction caches warm), isolated output
+folders, `PYTHONHASHSEED=0`, nothing installed. Baseline: `main` 6928b53.
+
+| Build | Wall |
+|---|---:|
+| Baseline (`main`) | 377.0 s |
+| All changes, new caches empty | 314.7 s |
+| All changes, warm | 269.4 s |
+| + build-mod overlap | 264.9 s |
+| + stage-bridge profiling fixes | **238.8 s** |
+
+The benchmark's fresh output folder links mod.ff twice (the first link fails on
+685 BO2 ipak images that a reused build folder already holds): about 24 s of the
+238.8 s that a normal rebuild in its own build folder does not spend.
+
+**Changes** (each verified as below):
+
+- Native zone writer (`OutputProcessorXChunks`): full XChunks are queued and the
+  leading stateless processors (deflate, still level 9) run on 256-chunk batches
+  across all cores; Salsa20 and the write stay in chunk order. Map zone write
+  14.2 s -> 1.8 s, map link 22.5 s -> 10 s, shader relink 20.6 s -> 7.2 s. The
+  first mod.ff link uses BO2's own mod tools linker (closed), unchanged.
+  Only `Linker.exe` was rebuilt: the stock caches are keyed to the Unlinker's
+  digest, so a rebuilt `Unlinker.exe` makes every cache stale.
+- Shared, content-addressed caches (`buildcache.py`, `audiocache.py`) for decoded
+  audio (30 s) and unbound shader translations (16 s wall, 171 s CPU). Keys hold
+  the input bytes, the converter modules and the native tool identities.
+  `WAW2BO2_BUILD_CACHE=0` turns them off.
+- Localization: the 109 localize-only stock zone dumps live in the shared WaW
+  cache and run in parallel (45 s -> 2-5 s); the engine-string fallback dumps
+  localize alone instead of re-extracting a zone.
+- Parallel shader overlay copy (8.1 s -> 2.5 s).
+- Overlap: build-mod finalizes the map scripts right after its first mod.ff link
+  (`--scripts-ready`); the scripts compile and the map zone links and is audited
+  while build-mod relinks shaders and builds mod_load.ff. Files build-mod's tail
+  restages in the map's folder are written only when changed.
+- Stage-bridge profile: IWDs stay open across sound reads (27.6 s of zip
+  directory parsing), cached extractions are verified once per process
+  (20.6 s of is_file), stock zone lookups use a table built once (8 s -> 0.06 s).
+
+**Equality** (`work/perf/verify_build.py`, against the baseline build): staged
+trees identical (54,227 files) except `localization.stage.json` and the bridge
+report, whose localization source paths now name the shared cache. Unlinked
+assets identical for the map zone (6,932 files; only the Unlinker's own heap
+pointers in two debug texts differ, as between two old-linker runs), mod.ff
+(6,260; `mod.zone` lists the same lines in another order) and mod_load.ff.
+Sound banks and the map/mod ipaks byte-identical; the impact-material ipak has
+the same 44 entries and data in a run-dependent order (also between new runs).
+The old linker is not deterministic itself: two runs on the same input differ in
+about 17,000 plaintext bytes (uninitialized/pointer-derived fields), so zone
+bytes cannot be compared directly.
+
+**Remaining, by size** (warm Der Riese): stage-bridge 127 s of Python (sound
+sources and dependencies, materials, weapons, script passes re-tokenizing the
+same scripts), BO2 mod tools link 24 s, shader relink + roundtrip 16 s, map
+audit unlink 21 s. First builds of a new map are dominated by stock zone
+re-extraction: `StockWawAssets.dump` re-extracts a whole zone for each new
+union of asset types (the shared cache holds 21 generations of
+nazi_zombie_asylum, 19 GB in all). Dumping each stock zone once with every
+asset type would end that, but can change which root a lookup finds an asset
+in, so it needs its own equality check before it ships.
