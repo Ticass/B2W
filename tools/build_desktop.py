@@ -61,6 +61,7 @@ def main():
     licenses = bundle / 'licenses'
     licenses.mkdir(exist_ok=True)
     shutil.copy2(ROOT / 'vendor/OpenAssetToolsT6/LICENSE', licenses / 'OpenAssetTools-GPL-3.0.txt')
+    shutil.copy2(ROOT / 'native/licenses/Pillow.txt', licenses / 'Pillow-MIT-CMU.txt')
     imageio_distribution = importlib.metadata.distribution('imageio-ffmpeg')
     imageio_license = next(p for p in imageio_distribution.files if str(p).endswith('.dist-info/LICENSE'))
     shutil.copy2(imageio_distribution.locate_file(imageio_license), licenses / 'imageio-ffmpeg-LICENSE.txt')
@@ -68,6 +69,8 @@ def main():
         '# Bundled third-party components\n\n'
         'OpenAssetTools: GPL-3.0. Corresponding T4/T6 source archives, including '
         'dependency checkouts, are in ../source/.\n\n'
+        'Pillow: MIT-CMU. The native menu filter and block encoder use Pillow-compatible algorithms. '
+        'See Pillow-MIT-CMU.txt.\n\n'
         'imageio-ffmpeg: BSD-2-Clause; see imageio-ffmpeg-LICENSE.txt. '
         'Sources: https://github.com/imageio/imageio-ffmpeg/tree/v0.6.0\n\n'
         'FFmpeg: 7.1 essentials build by gyan.dev, GPL-3.0. '

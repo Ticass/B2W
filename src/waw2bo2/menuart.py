@@ -165,9 +165,14 @@ def _native_stage(command: str, root: Path, **fields) -> dict:
 
 
 def stage_art(settings, root: Path) -> None:
-    if native.tool() is not None and not any(getattr(settings, 'menu_' + role) for role in SIZES):
-        decoder = audio.find_decoder() if settings.loading_song else None
-        _native_stage('stage-menu-settings', root, settings=asdict(settings), decoder=str(decoder) if decoder else '')
+    if native.tool() is not None:
+        webp = any(getattr(settings, 'menu_' + role, '').lower().endswith('.webp')
+                   for role in (*SIZES, 'icon', 'loading', 'preview'))
+        decoder = audio.find_decoder() if settings.loading_song or webp else None
+        result = _native_stage('stage-menu-settings', root, settings=asdict(settings),
+                               decoder=str(decoder) if decoder else '', compat=str(Path(__file__).parent / 'compat'))
+        if warning := result.get('warning'):
+            warnings.warn(warning, UserWarning, stacklevel=2)
         return
     validate_art(settings)
     from .mapmenu import validate_settings, stage_song
@@ -259,15 +264,11 @@ def stage_art(settings, root: Path) -> None:
             generated.append(f'materials/{name}.json')
         data.update(icon=f'menu_{settings.project}_icon', blit=f'menu_{settings.project}_blit')
         data['texture_report'] = report
-        if native.tool() is not None:
-            data.update(_native_stage('stage-menu-runtime', root, bo2=settings.bo2, project=settings.project,
-                                      compat=str(Path(__file__).parent / 'compat'), aligned=aligned))
-        else:
-            if aligned:
-                from .menulayers import stage_runtime
-                data.update(stage_runtime(Path(settings.bo2), root, settings.project))
-            from . import menupreview
-            data.update(menupreview.stage_runtime(Path(settings.bo2), root, settings.project))
+        if aligned:
+            from .menulayers import stage_runtime
+            data.update(stage_runtime(Path(settings.bo2), root, settings.project))
+        from . import menupreview
+        data.update(menupreview.stage_runtime(Path(settings.bo2), root, settings.project))
     data['desktop_files'] = generated
     song = stage_song(settings, root)
     if song:

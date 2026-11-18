@@ -6,12 +6,10 @@
 #include "core/hash.h"
 #include "core/process.h"
 #include "pipeline/csvtable.h"
-
-#include <windows.h>
+#include "pipeline/menu_media.h"
 
 #include <algorithm>
 #include <array>
-#include <cstdlib>
 #include <cstring>
 #include <optional>
 
@@ -67,49 +65,6 @@ namespace w2b::pipeline
             return audio::CanonicalPcm(samples, Read<std::uint16_t>(format, 2), Read<std::uint32_t>(format, 4));
         }
 
-        fs::path FindDecoder(const fs::path& explicitDecoder)
-        {
-            if (!explicitDecoder.empty())
-                return explicitDecoder;
-            if (const auto* env = _wgetenv(L"IMAGEIO_FFMPEG_EXE"); env && *env)
-                return env;
-            std::array<wchar_t, 32768> found{};
-            const auto length = SearchPathW(nullptr, L"ffmpeg.exe", nullptr, static_cast<DWORD>(found.size()), found.data(), nullptr);
-            if (length > 0 && length < found.size())
-                return found.data();
-            const auto resources = launcher::ResourceRoot();
-            for (const auto& root : {resources, resources / "_internal"})
-            {
-                const auto bundled = files::GlobSuffix(root / "imageio_ffmpeg/binaries", ".exe");
-                for (const auto& file : bundled)
-                    if (files::Utf8(file.filename()).starts_with("ffmpeg-"))
-                        return file;
-            }
-            throw std::invalid_argument("Loading-song conversion needs FFmpeg. Use the desktop package or install FFmpeg.");
-        }
-
-        struct TempWave
-        {
-            fs::path path;
-
-            TempWave()
-            {
-                // GetTempFileName creates the file before returning its unique name.
-                const auto folder = fs::temp_directory_path();
-                std::array<wchar_t, MAX_PATH> name{};
-                if (!GetTempFileNameW(folder.c_str(), L"w2b", 0, name.data()))
-                    throw std::runtime_error("cannot allocate a temporary loading song file");
-                path = name.data();
-            }
-            TempWave(const TempWave&) = delete;
-            TempWave& operator=(const TempWave&) = delete;
-            ~TempWave()
-            {
-                std::error_code error;
-                fs::remove(path, error);
-            }
-        };
-
         std::string ReadSong(const fs::path& input, const fs::path& decoder)
         {
             std::string bytes;
@@ -117,11 +72,14 @@ namespace w2b::pipeline
                 throw std::invalid_argument("Cannot read loading song: " + files::Utf8(input));
             if (auto pcm = ParseSong(bytes, false); pcm)
                 return std::move(*pcm);
-            const TempWave scratch;
-            const auto command = process::RunMerged({files::Utf8(FindDecoder(decoder)), "-v", "error", "-nostdin", "-y", "-i",
+            const auto program = FindMenuDecoder(decoder);
+            if (program.empty())
+                throw std::invalid_argument("Loading-song conversion needs FFmpeg. Use the desktop package or install FFmpeg.");
+            const TemporaryMenuFile scratch;
+            const auto command = process::RunMerged({files::Utf8(program), "-v", "error", "-nostdin", "-y", "-i",
                 files::Utf8(fs::absolute(input)), "-map", "0:a:0", "-vn", "-ac", "2", "-ar", "48000",
-                "-c:a", "pcm_s16le", "-f", "wav", files::Utf8(scratch.path)});
-            if (command.exitCode || !files::ReadBytes(scratch.path, bytes))
+                "-c:a", "pcm_s16le", "-f", "wav", files::Utf8(scratch.Path())});
+            if (command.exitCode || !files::ReadBytes(scratch.Path(), bytes))
             {
                 const auto decoded = encoding::Utf8Replace(command.out);
                 const auto message = py::Strip(decoded);

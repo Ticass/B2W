@@ -117,6 +117,16 @@ namespace w2b::textures
         return {header, std::move(out)};
     }
 
+    IwiImage BlockCompressedToIwi(unsigned width, unsigned height, Format format, std::string_view pixels)
+    {
+        if (pixels.size() != MipSize(format, width, height, 1, 0))
+            throw TextureError("compressed data size does not match the image dimensions");
+        IwiHeader header{format, noMipmaps, width, height, 1, {FileSize(pixels.size())}};
+        auto bytes = HeaderBytes(header);
+        bytes += pixels;
+        return {header, std::move(bytes)};
+    }
+
     IwiImage RgbaToIwi(unsigned width, unsigned height, std::string_view pixels)
     {
         if (pixels.size() != MipSize(Format::rgba, width, height, 1, 0))

@@ -21,4 +21,5 @@ namespace w2b::textures
 
     IwiImage DdsToIwi(std::string_view bytes, bool faceMajor = false, bool baseOnly = false);
     IwiImage RgbaToIwi(unsigned width, unsigned height, std::string_view pixels);
+    IwiImage BlockCompressedToIwi(unsigned width, unsigned height, Format format, std::string_view pixels);
 }

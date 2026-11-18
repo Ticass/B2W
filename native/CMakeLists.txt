@@ -62,7 +62,7 @@ add_library(w2b_sound STATIC
     src/sound/stage.cpp)
 target_link_libraries(w2b_sound PUBLIC w2b_core)
 
-add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/iwi.cpp src/textures/stage.cpp
+add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/iwi.cpp src/textures/stage.cpp src/textures/block_compress.cpp
     src/textures/lightmap.cpp src/textures/lightmap_stage.cpp src/textures/iwi6.cpp
     src/textures/wavelet.cpp src/textures/wavelet_tables.cpp src/textures/iwd_recovery.cpp src/textures/iwd_service.cpp)
 target_link_libraries(w2b_textures PUBLIC w2b_core)
@@ -191,6 +191,7 @@ add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp s
     src/pipeline/modsupport.cpp src/pipeline/hud.cpp src/pipeline/csvtable.cpp src/pipeline/modzone.cpp
     src/pipeline/lobby.cpp src/pipeline/shaderbind.cpp src/pipeline/buildmod.cpp
     src/pipeline/menu_song.cpp src/pipeline/menu_stage.cpp src/pipeline/menu_runtime.cpp
+    src/pipeline/menu_artwork.cpp src/pipeline/menu_pixels.cpp src/pipeline/menu_media.cpp
     src/pipeline/materials_stage.cpp)
 target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")

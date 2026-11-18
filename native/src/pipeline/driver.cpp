@@ -281,14 +281,9 @@ namespace w2b::pipeline
             const auto& stage = paths.stage;
             const auto& mod = paths.mod;
             const auto& project = settings.project;
-            const auto projectRoot = stage / "zone_raw" / l::Path(project);
-            if (HasMenuArtwork(settings))
-                RunCli({"stage-art", "--settings-json", py::JsonDumpsDefault(settings.ToJson()), "--root", S(projectRoot)});
-            else
-            {
-                SetStep("stage-art");
-                StageMenuSettings(settings, projectRoot);
-            }
+            SetStep("stage-art");
+            if (const auto warning = StageMenuSettings(settings, stage / "zone_raw" / l::Path(project)); !warning.empty())
+                Say("Warning: " + warning);
             fs::create_directories(stage);
             fs::create_directories(mod);
             fs::copy_file(stock / "t6api_cache.json", stage / "t6api_cache.json", fs::copy_options::overwrite_existing);

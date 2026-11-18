@@ -2,6 +2,7 @@
 
 #include "core/files.h"
 #include "gsc/port/util.h"
+#include "pipeline/menu_artwork.h"
 #include "pipeline/menu_runtime.h"
 #include "pipeline/menu_song.h"
 
@@ -51,20 +52,24 @@ namespace w2b::pipeline
                 previous["mode"] = settings.menu_mode;
             if (!settings.menu_location.empty())
                 previous["location"] = settings.menu_location;
-            previous["desktop_files"] = Json::array();
             return previous;
+        }
+
+        fs::path MenuCompatPath()
+        {
+            const auto resources = launcher::ResourceRoot();
+            for (const auto& path : {resources / "src/waw2bo2/compat", resources / "waw2bo2/compat",
+                                     resources / "_internal/waw2bo2/compat"})
+                if (fs::is_regular_file(path / "menu_preview.luac"))
+                    return path;
+            throw std::runtime_error("The menu Lua wrappers are missing.");
         }
     }
 
-    bool HasMenuArtwork(const launcher::Settings& settings)
+    std::string StageMenuSettings(const launcher::Settings& settings, const fs::path& root, const fs::path& decoder,
+                                  const fs::path& compat)
     {
-        return !settings.menu_blit.empty() || !settings.menu_large.empty() || !settings.menu_blur.empty();
-    }
-
-    void StageMenuSettings(const launcher::Settings& settings, const fs::path& root, const fs::path& decoder)
-    {
-        if (HasMenuArtwork(settings))
-            throw std::invalid_argument("Menu artwork requires the image staging step.");
+        auto artwork = LoadMenuArtwork(settings, decoder);
         const auto longitude = Coordinate(settings.menu_longitude, "Longitude", 180);
         const auto latitude = Coordinate(settings.menu_latitude, "Latitude", 90);
         ValidateMenuSong(settings);
@@ -75,19 +80,28 @@ namespace w2b::pipeline
             ClearArtwork(root, previous);
         const auto active = !settings.menu_title.empty() || !settings.menu_description.empty() ||
                             !settings.menu_mode.empty() || !settings.menu_location.empty() ||
-                            !settings.loading_song.empty() || longitude != 0 || latitude != 0;
+                            !settings.loading_song.empty() || longitude != 0 || latitude != 0 || artwork.has_value();
         if (!active)
         {
             StageMenuSong(settings, root, decoder);
             if (authored)
                 fs::remove(file);
-            return;
+            return {};
         }
         auto data = Metadata(settings, std::move(previous), longitude, latitude);
+        std::string warning;
+        if (artwork)
+        {
+            warning = std::move(artwork->warning);
+            StageMenuArtwork(settings, root, compat.empty() ? MenuCompatPath() : compat, decoder, std::move(*artwork), data);
+        }
+        else
+            data["desktop_files"] = Json::array();
         auto song = StageMenuSong(settings, root, decoder);
         if (!song.empty())
             data["loading_song"] = std::move(song);
         files::WriteText(file, py::JsonDumps(data, 2) + "\n");
+        return warning;
     }
 
     py::Json StageMenuSettingsRequest(const fs::path& path)
@@ -95,14 +109,15 @@ namespace w2b::pipeline
         const auto request = Json::parse(files::ReadText(path));
         try
         {
-            StageMenuSettings(launcher::Settings::FromJson(request.at("settings")),
-                              files::FromUtf8(request.at("root").get<std::string>()),
-                              files::FromUtf8(request.value("decoder", std::string{})));
+            const auto warning = StageMenuSettings(launcher::Settings::FromJson(request.at("settings")),
+                                                   files::FromUtf8(request.at("root").get<std::string>()),
+                                                   files::FromUtf8(request.value("decoder", std::string{})),
+                                                   files::FromUtf8(request.value("compat", std::string{})));
+            return {{"warning", warning}};
         }
         catch (const std::invalid_argument& error)
         {
             return {{"invalid", error.what()}};
         }
-        return Json::object();
     }
 }
