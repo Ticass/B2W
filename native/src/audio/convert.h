@@ -27,6 +27,16 @@ namespace w2b::audio
     // audio.chunks
     Chunks ParseChunks(const std::string& data);
 
+    struct ChunkViews
+    {
+        std::string_view form;
+        std::vector<std::pair<std::string_view, std::string_view>> parts;
+        const std::string_view* Find(std::string_view tag) const;
+    };
+
+    // The returned chunk views refer to the caller's RIFF byte buffer.
+    ChunkViews ViewChunks(std::string_view data);
+
     // audio.canonical_pcm
     std::string CanonicalPcm(std::string_view pcm, unsigned channels, unsigned rate);
 

@@ -20,12 +20,6 @@ namespace w2b::sound
         using py::Json;
         namespace fs = std::filesystem;
 
-        class SoundError : public std::runtime_error
-        {
-        public:
-            using std::runtime_error::runtime_error;
-        };
-
         std::string Lower(std::string text)
         {
             for (auto& c : text)
@@ -40,43 +34,6 @@ namespace w2b::sound
                 if (c == '/')
                     c = '\\';
             return text;
-        }
-
-        // repr(str) for the unsafe-name message
-        std::string Repr(const std::string& text)
-        {
-            const bool single = text.find('\'') == std::string::npos || text.find('"') != std::string::npos;
-            const char quote = single ? '\'' : '"';
-            std::string out(1, quote);
-            for (const char c : text)
-            {
-                if (c == '\\' || c == quote)
-                    out += '\\';
-                if (c == '\n')
-                    out += "\\n";
-                else if (c == '\r')
-                    out += "\\r";
-                else if (c == '\0')
-                    out += "\\x00";
-                else
-                    out += c;
-            }
-            return out + quote;
-        }
-
-        // weapons.output_name's safety check (its error is fatal, as in Python)
-        void CheckOutputName(const std::string& kind, std::string name)
-        {
-            if (name.empty())
-                return;
-            for (auto& c : name)
-                if (c == '\\')
-                    c = '/';
-            bool unsafe = name[0] == '/' || name.find_first_of(std::string(":,\r\n\0", 6)) != std::string::npos;
-            for (const auto part : py::Split(name, "/"))
-                unsafe = unsafe || part == "..";
-            if (unsafe)
-                throw std::runtime_error("unsafe " + kind + " name: " + Repr(name));
         }
 
         // json.loads(path.read_text()) with the cp1252 locale decode
@@ -201,35 +158,6 @@ namespace w2b::sound
             ir["status"] = "semantic_ir_not_T6_bank";
             ir["aliases"] = std::move(rows);
             return ir;
-        }
-
-        // sounds.audio_name (raises outside the stage's error handling: fatal)
-        std::string AudioName(const Json& file)
-        {
-            std::string name;
-            for (const char* key : {"dir", "name"})
-            {
-                const std::string part = file.contains(key) ? file[key].get<std::string>() : "";
-                if (part.empty())
-                    continue;
-                if (!name.empty())
-                    name += '/';
-                name += part;
-            }
-            std::string collapsed;
-            for (const char c : name)
-            {
-                const char d = c == '\\' ? '/' : c;
-                if (d == '/' && !collapsed.empty() && collapsed.back() == '/')
-                    continue;
-                collapsed += d;
-            }
-            while (!collapsed.empty() && collapsed.front() == '/')
-                collapsed.erase(collapsed.begin());
-            if (collapsed.empty())
-                throw std::runtime_error("sound file has no name");
-            CheckOutputName("audio", collapsed);
-            return collapsed.rfind("sound/", 0) == 0 ? collapsed.substr(6) : collapsed;
         }
 
         // Path(name).suffix / with_suffix on the last component

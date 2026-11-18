@@ -389,6 +389,12 @@ class SoundTests(unittest.TestCase):
             self.assertAlmostEqual(binding["pitchMin"], .9 * entry["alias_pitch_scale"])
             self.assertAlmostEqual(binding["pitchMax"], 1.1 * entry["alias_pitch_scale"])
             self.assertAlmostEqual(binding["PitchMaxCents"], 1200 * math.log2(1.1 * entry["alias_pitch_scale"]))
+            manifest = pcm_root / "audio.stage.json"
+            manifest.write_text(json.dumps({"audio": [entry, {**entry, "alias_pitch_scale": 1.0}]}))
+            report = sounds.bind_pcm(root, pcm_root)
+            self.assertEqual(report["bound_variants"], 0)
+            self.assertIn("ambiguous PCM binding", report["errors"][0]["reason"])
+            manifest.write_text(json.dumps({"audio": [entry]}))
             (pcm_root / "fire.wav").write_bytes(canonical_pcm(b"\x00\x00", 1, 44100))
             report = sounds.bind_pcm(root, pcm_root)
             self.assertEqual(report["bound_variants"], 0)

@@ -227,14 +227,22 @@ namespace w2b::audio
         return nullptr;
     }
 
-    Chunks ParseChunks(const std::string& data)
+    const std::string_view* ChunkViews::Find(std::string_view tag) const
+    {
+        for (const auto& [name, bytes] : parts)
+            if (name == tag)
+                return &bytes;
+        return nullptr;
+    }
+
+    ChunkViews ViewChunks(std::string_view data)
     {
         if (data.size() < 12 || data.compare(0, 4, "RIFF") != 0 || (data.compare(8, 4, "WAVE") != 0 && data.compare(8, 4, "XWMA") != 0))
             throw SoundError("unsupported audio container; expected original RIFF WAVE/XWMA");
         const uint64_t riffEnd = static_cast<uint64_t>(Read<uint32_t>(data, 4)) + 8;
         if (riffEnd < 12 || riffEnd > data.size())
             throw SoundError("RIFF byte count exceeds or invalidates the original container");
-        Chunks chunks{data.substr(8, 4), {}};
+        ChunkViews chunks{data.substr(8, 4), {}};
         uint64_t offset = 12;
         while (offset < riffEnd)
         {
@@ -250,6 +258,16 @@ namespace w2b::audio
         }
         if (!chunks.Find("fmt ") || !chunks.Find("data"))
             throw SoundError("missing RIFF format/audio data");
+        return chunks;
+    }
+
+    Chunks ParseChunks(const std::string& data)
+    {
+        const auto views = ViewChunks(data);
+        Chunks chunks{std::string(views.form), {}};
+        chunks.parts.reserve(views.parts.size());
+        for (const auto& [tag, bytes] : views.parts)
+            chunks.parts.emplace_back(tag, bytes);
         return chunks;
     }
 

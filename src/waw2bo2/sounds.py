@@ -16,8 +16,9 @@ import os
 import struct
 import zipfile
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from . import entities, gsc, wawtext
+from . import entities, gsc, native, wawtext
 from .weapons import output_name
 
 
@@ -689,12 +690,24 @@ def _stage(roots: list[Path], project: Path, stock, names: set[str] | None,
     return report
 
 
+def _native_binding(command: str, project: Path, **fields) -> dict:
+    with TemporaryDirectory(prefix='waw2bo2_sound_binding_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps({'project': str(project), **fields}), encoding='utf-8')
+        result = json.loads(native.run(command, str(request)))
+    if 'invalid' in result:
+        raise SoundError(result['invalid'])
+    return result
+
+
 def bind_pcm(project: Path, pcm_root: Path) -> dict:
     """Bind each original variant to current PCM without claiming T6 semantics.
 
     Only current manifests are consumed: leftover files from a previous map or
     failed decode are never eligible. Keep driver data/source fields unchanged.
     """
+    if native.tool() is not None:
+        return _native_binding('bind-sound-pcm', project, pcm=str(pcm_root))
     from .audio import chunks
 
     staged = json.loads((project / "sounds.stage.json").read_text())
@@ -916,6 +929,9 @@ def bind_curves(project: Path, t6_driver: Path | None, approximate: bool = False
     Runs after bind_pcm; only aliases in its current report are considered.
     An alias variant is curve-complete only when all four curves bind.
     """
+    if native.tool() is not None:
+        return _native_binding('bind-sound-curves', project, driver=str(t6_driver) if t6_driver is not None else '',
+                               approximate=approximate)
     bindings = json.loads((project / "sounds.bindings.json").read_text())
     report = {"status": "curves_bound_semantic_ir_not_T6_bank", "approximation": approximate,
               "approximation_metric": "RMS dB over normalized distance; -60 dB floor; preserve smooth silent tails",

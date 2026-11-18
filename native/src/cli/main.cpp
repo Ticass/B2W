@@ -6,6 +6,7 @@
 #include "audio/flac_batch.h"
 #include "shaders/stage.h"
 #include "sound/stage.h"
+#include "sound/bindings.h"
 #include "textures/iwd_service.h"
 #include "textures/stage.h"
 #include "core/parallel.h"
@@ -849,6 +850,8 @@ namespace
         {"shaders-stage", ShadersStage}, {"audio-stage", AudioStage},
         {"dds2iwi", [](const Arguments& a) { return a.size() == 2 ? DdsToIwi(a[0], a[1]) : Usage(); }},
         {"dds-batch", JsonRequest<w2b::textures::ConvertBatch>},
+        {"bind-sound-pcm", JsonRequest<w2b::sound::BindPcmRequest>},
+        {"bind-sound-curves", JsonRequest<w2b::sound::BindCurvesRequest>},
         {"index-donors", JsonRequest<w2b::materials::IndexDonors>},
         {"convert-effects", JsonRequest<w2b::effects::StageEffects>},
         {"stage-weapon-files", JsonRequest<w2b::weapons::StageWeapons>},
