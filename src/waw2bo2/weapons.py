@@ -751,6 +751,13 @@ def stage_visuals(roots: list[Path], project: Path, stock_materials: Path, techs
     """
     from . import fxmaterials, shaderruntime, t6bridge, techsets
 
+    if hasattr(wavelets, 'operation') and not t6bridge._python_only_shader_diagnostics():
+        # pipeline/weapon_visuals.cpp, served by the native IWD recovery
+        return wavelets.operation('stage-weapon-visuals', {
+            'roots': [str(r) for r in roots], 'project': str(project), 'stock_materials': str(stock_materials),
+            'techset_dump': str(techset_dump), 'bo2_raw': str(bo2_raw) if bo2_raw is not None else None,
+            'native_fallbacks': {k: str(v) for k, v in (native_fallbacks or {}).items()},
+            'layered_vertex_data': techsets.LAYERED_VERTEX_DATA})
     stage_report = json.loads((project / "weapons.stage.json").read_text(encoding="utf-8"))
     names = set(stage_report["models"]["materials"])
     names.update(stage_report["dependencies"].get("material", []))

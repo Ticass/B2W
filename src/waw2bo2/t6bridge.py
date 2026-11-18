@@ -852,6 +852,19 @@ def bridge_bone_bounds(model: dict) -> None:
 def stage_source_skybox(report: StageReport, project: str, project_root: Path, roots: list[Path],
                         source_name: str, native_root: Path, bo2_root: Path) -> str:
     """Preserve the source dome, layered materials and animated cloud UVs."""
+    if native.tool() is not None and not _python_only_shader_diagnostics():
+        # pipeline/skybox_stage.cpp
+        with tempfile.TemporaryDirectory(prefix="waw2bo2_sky_") as folder:
+            path = Path(folder) / "request.json"
+            path.write_text(json.dumps({"project": project, "project_root": str(project_root),
+                                        "roots": [str(r) for r in roots], "source_name": source_name,
+                                        "native_root": str(native_root), "bo2_root": str(bo2_root)}), encoding="utf-8")
+            sky = json.loads(native.run("stage-source-skybox", str(path)))
+        if "stage_error" in sky:
+            raise StageError(sky["stage_error"])
+        report.materials += sky["materials"]
+        report.content["sky"] = sky["sky"]
+        return next(m["t6_techset"] for m in report.materials if m["name"] in sky["sky"]["materials"])
     source_file = _find(roots, Path("xmodel") / f"{source_name}.json")
     if source_file is None:
         raise StageError(f"source sky model {source_name} missing")
@@ -2751,7 +2764,16 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         # Validate the completed graph, including owned perk/bootstrap modules.
         # port_scripts runs before these dependencies are generated.
         api = t6api.build(bo2_root, stage / 't6api_cache.json', t6_unlinker)
-        report.errors += [f'scripts: link: {e}' for e in gscport.link_check(project_root, api)]
+        if native.tool() is not None:
+            # gscport.link_check natively (gsc/port/portmap.cpp), the API from the cache build() wrote
+            with tempfile.TemporaryDirectory(prefix='waw2bo2_link_') as folder:
+                path = Path(folder) / 'request.json'
+                path.write_text(json.dumps({'project_root': str(project_root), 'api_cache': str(api.cache_path)}),
+                                encoding='utf-8')
+                problems = json.loads(native.run('link-check', str(path)))['problems']
+        else:
+            problems = gscport.link_check(project_root, api)
+        report.errors += [f'scripts: link: {e}' for e in problems]
     menu_ready = False
     if stock_waw is not None and report.scripts and waw_map_script is not None:
         # WaW's own pause menu (ui/hud.txt + ui/ingame.txt) replaces BO2's class menu.

@@ -603,4 +603,13 @@ namespace w2b::pipeline
         scripts["hud_materials"] = hud;
         return finish(models);
     }
+    Json LinkCheckStep(const fs::path& requestPath)
+    {
+        const auto request = mod::Json(requestPath);
+        port::SetCompatDir(extract::ResourceRoot() / "src/waw2bo2/compat");
+        const auto api = port::T6Api::Load(extract::ResourceRoot() / "src/waw2bo2/compat/t6_script_api.json",
+                                           files::FromUtf8(request["api_cache"].get<std::string>()));
+        return Json{{"problems", port::LinkCheck(files::FromUtf8(request["project_root"].get<std::string>()), api)}};
+    }
+
 } // namespace w2b::pipeline

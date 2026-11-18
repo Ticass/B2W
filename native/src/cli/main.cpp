@@ -75,6 +75,8 @@
 #include "pipeline/hud_stage.h"
 #include "pipeline/ingame_menus.h"
 #include "pipeline/weapon_runtime.h"
+#include "pipeline/weapon_visuals.h"
+#include "pipeline/skybox_stage.h"
 #include "sound/bank.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
@@ -896,6 +898,7 @@ namespace
         {"recover-projectile-collision", JsonRequest<w2b::models::RecoverProjectileCollision>},
         {"stage-materials", JsonRequest<w2b::pipeline::StageMaterials>},
         {"port-scripts", JsonRequest<w2b::pipeline::PortScripts>},
+        {"link-check", JsonRequest<w2b::pipeline::LinkCheckStep>},
         {"hook-map-scripts", JsonRequest<w2b::pipeline::HookMapScripts>},
         {"write-sound-bank", JsonRequest<w2b::sound::WriteT6Bank>},
         {"decode-dds-pillow", DecodeDdsPillowCommand},
@@ -907,6 +910,7 @@ namespace
         {"stage-waw-menus", JsonRequest<w2b::pipeline::StageWawMenus>},
         {"stage-weapon-runtime", JsonRequest<w2b::pipeline::StageWeaponRuntime>},
         {"finish-weapon-runtime", JsonRequest<w2b::pipeline::FinishWeaponRuntime>},
+        {"stage-source-skybox", JsonRequest<w2b::pipeline::StageSourceSkybox>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"fix-model-surfaces", JsonRequest<w2b::models::StageSurfaceFixesRequest>},
         {"isolate-model-names", JsonRequest<w2b::models::IsolateModelNamesRequest>},
@@ -934,7 +938,7 @@ namespace
         {
             if (!a.empty())
                 return Usage();
-            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}, {"stage-waw-menu-art", w2b::pipeline::StageWawMenuArt}});
+            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}, {"stage-waw-menu-art", w2b::pipeline::StageWawMenuArt}, {"stage-weapon-visuals", w2b::pipeline::StageWeaponVisuals}});
             return 0;
         }},
         {"lightmaps", JsonRequest<w2b::textures::StageLightmaps>},
