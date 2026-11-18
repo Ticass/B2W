@@ -73,6 +73,7 @@
 #include "pipeline/sound_refs.h"
 #include "pipeline/coverage_stage.h"
 #include "pipeline/hud_stage.h"
+#include "pipeline/ingame_menus.h"
 #include "sound/bank.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
@@ -902,6 +903,7 @@ namespace
         {"discover-sounds", JsonRequest<w2b::pipeline::DiscoverSounds>},
         {"framework-coverage", JsonRequest<w2b::pipeline::FrameworkCoverage>},
         {"stage-waw-hud", JsonRequest<w2b::pipeline::StageWawHud>},
+        {"stage-waw-menus", JsonRequest<w2b::pipeline::StageWawMenus>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"fix-model-surfaces", JsonRequest<w2b::models::StageSurfaceFixesRequest>},
         {"isolate-model-names", JsonRequest<w2b::models::IsolateModelNamesRequest>},

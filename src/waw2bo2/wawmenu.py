@@ -689,6 +689,18 @@ def find_raw(raw_roots: list[Path]) -> Path | None:
 
 def stage_source(project: Path, raw_roots: list[Path], mapname: str) -> dict:
     """Translate the in-game menus; record what they need before localization."""
+    from . import native
+    if native.tool() is not None:
+        # pipeline/ingame_menus.cpp
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_menus_') as folder:
+            path = Path(folder) / 'request.json'
+            path.write_text(json.dumps({'project_root': str(project), 'raw_roots': [str(r) for r in raw_roots],
+                                        'mapname': mapname}), encoding='utf-8')
+            staged = json.loads(native.run('stage-waw-menus', str(path)))
+        if 'menu_error' in staged:
+            raise MenuSourceError(staged['menu_error'])
+        return staged['result']
     raw = find_raw(raw_roots)
     if raw is None:
         raise MenuSourceError('WaW menu sources (raw/ui/ingame.txt, raw/ui/hud.txt) not found; '
