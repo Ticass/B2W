@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <map>
 #include <mutex>
+#include <unordered_map>
 #include <set>
 
 namespace w2b::shaders::runtime
@@ -82,9 +83,22 @@ namespace w2b::shaders::runtime
             return pyre::Escape(s);
         }
 
+        // re.search(pattern, text, flags) is not None, memoized: the same native
+        // donor programs are searched with the same patterns for every material
         bool Search(const std::string& pattern, const std::string& text, unsigned flags = 0)
         {
-            return pyre::Regex(pattern, flags).Search(text).has_value();
+            static std::mutex lock;
+            static std::unordered_map<std::string, bool> found;
+            const auto key = std::to_string(flags) + '\x1f' + pattern + '\x1f' + text;
+            {
+                const std::lock_guard guard(lock);
+                if (const auto it = found.find(key); it != found.end())
+                    return it->second;
+            }
+            const bool result = pyre::Regex(pattern, flags).Search(text).has_value();
+            const std::lock_guard guard(lock);
+            found.emplace(key, result);
+            return result;
         }
 
         std::string TechniqueSet(const Json* material)
@@ -96,7 +110,7 @@ namespace w2b::shaders::runtime
         Json Ir(const std::string& assembly)
         {
             static std::mutex lock;
-            static std::map<std::string, Json> cache;
+            static std::unordered_map<std::string, Json> cache;
             {
                 const std::lock_guard guard(lock);
                 if (const auto it = cache.find(assembly); it != cache.end())

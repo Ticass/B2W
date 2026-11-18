@@ -151,9 +151,9 @@ namespace w2b::pipeline
         const auto decoder = sounds.at("audio_decoder").is_string() ? sounds["audio_decoder"].get<std::string>() : std::string();
         Timed("Decode audio", [&] { return audio::Stage(content, content / "pcm", decoder, tools); });
         const auto audioReport = mod::Json(content / "pcm" / "audio.stage.json");
-        const auto bindingReport = sound::BindPcm(content, content / "pcm");
+        const auto bindingReport = Timed("Bind decoded audio", [&] { return sound::BindPcm(content, content / "pcm"); });
         out["animation_sound_identities"] = found["animation_sound_identities"];
-        const auto curveReport = BindBridgeCurves(content, sounds);
+        const auto curveReport = Timed("Bind sound curves", [&] { return BindBridgeCurves(content, sounds); });
         const auto bank = "waw_" + project + ".all";
         const auto mix = Timed("Build sound bank", [&] {
             return SoundMix(Json{{"project_root", Str(projectRoot)}, {"project", project}, {"bo2_root", request.at("bo2_root")}, {"stock_waw", stockJson},

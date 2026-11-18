@@ -3,6 +3,7 @@
 // equivalents (_stage_native_material), applied in name order.
 #include "materials_stage.h"
 
+#include "core/profile.h"
 #include "core/asset_paths.h"
 #include "core/hash.h"
 #include "core/parallel.h"
@@ -147,26 +148,11 @@ namespace w2b::pipeline
             std::vector<std::pair<std::string, std::string>> files; // (relative, bytes), Path order
         };
 
-        // the files a material wrote below its scratch folder, moved out of it
-        std::vector<std::pair<std::string, std::string>> Collect(const fs::path& scratch)
-        {
-            std::vector<fs::path> found;
-            std::error_code e;
-            if (IsDir(scratch))
-                for (auto it = fs::recursive_directory_iterator(scratch, e); it != fs::recursive_directory_iterator(); ++it)
-                    if (it->is_regular_file())
-                        found.push_back(it->path());
-            std::sort(found.begin(), found.end(), [](const fs::path& a, const fs::path& b) { return Lower(Str(a)) < Lower(Str(b)); });
-            std::vector<std::pair<std::string, std::string>> out;
-            for (const auto& p : found)
-                out.emplace_back(Generic(p.lexically_relative(scratch)), Bytes(p));
-            fs::remove_all(scratch, e);
-            return out;
-        }
-
-        Result StageWaw(const Context& c, materials::Donors& donors, const std::string& name, const fs::path& scratch)
+        // one WaW material: its files stay in memory until the caller writes them in name order
+        Result StageWaw(const Context& c, materials::Donors& donors, const std::string& name)
         {
             Result result;
+            shaders::MemoryOutput output;
             const auto rel = assets::MaterialPath(name);
             auto source = FindAny(c.roots, rel);
             std::optional<std::pair<std::string, std::string>> substitute;
@@ -200,7 +186,7 @@ namespace w2b::pipeline
                 for (const auto& root : c.roots)
                     programs |= fs::exists(root / "waw_techniquesets" / files::FromUtf8(t4ts + ".json"), e);
             // the prepared form round-trips through JSON in the Python step
-            const auto prepared = Json::parse(py::JsonDumps(materials::SelectMaterial(t4, programs, c.layered, donors), -1));
+            const auto prepared = [&] { const profile::Scope scope("materials: select donor"); return Json::parse(py::JsonDumps(materials::SelectMaterial(t4, programs, c.layered, donors), -1)); }();
             if (prepared.contains("error"))
             {
                 result.errors.push_back("material " + name + " (" + t4ts + "): " + prepared["error"].get<std::string>());
@@ -213,7 +199,7 @@ namespace w2b::pipeline
             if (Truthy(prepared, "approximation"))
                 result.warnings.push_back("APPROXIMATED_MATERIAL " + name + ": no T6 rule for WaW technique '" + t4ts + "'; drawn with its own textures as '" +
                                           prepared["approximation"].get<std::string>() + "' (" + target + ")");
-            Json runtime = c.techsetRoot ? shaders::BindMaterial(t4, out, c.roots, scratch, *c.techsetRoot, c.falloff, c.lightShadows)
+            Json runtime = c.techsetRoot ? shaders::BindMaterial(t4, out, c.roots, output, *c.techsetRoot, c.falloff, c.lightShadows)
                                          : Json{{"active", Json::array()}, {"unsupported", Json::array({"native technique dump absent"})}};
             bool sourceProgram = false;
             for (const auto& n : prepared["match_notes"])
@@ -264,12 +250,10 @@ namespace w2b::pipeline
             entry["donor"] = Generic(fs::path(files::FromUtf8(c.donorPaths[target].get<std::string>())).lexically_relative(c.stockMaterials));
             entry["cost"] = prepared["cost"];
             entry["notes"] = notes;
-            const auto dst = scratch / outRel;
-            fs::create_directories(dst.parent_path());
-            files::WriteText(dst, py::JsonDumps(out, 2) + "\n");
+            output.Write(outRel, py::JsonDumps(out, 2) + "\n", true);
             result.entry = entry;
             result.techset = out["techniqueSet"].get<std::string>();
-            result.files = Collect(scratch);
+            result.files = output.Files();
             return result;
         }
 
@@ -382,7 +366,6 @@ namespace w2b::pipeline
             names.push_back(n.get<std::string>());
         std::sort(names.begin(), names.end());
         materials::Donors donors(c.donorPaths);
-        const auto scratchRoot = files::FromUtf8(request["scratch"].get<std::string>());
         // WaW materials convert independently; native equivalents stay in order below
         std::vector<std::optional<Result>> results(names.size());
         std::vector<bool> nativeName(names.size());
@@ -394,7 +377,7 @@ namespace w2b::pipeline
         parallel::For(names.size(), [&](const size_t i)
                       {
                           if (!nativeName[i])
-                              results[i] = StageWaw(c, donors, names[i], scratchRoot / std::to_string(i));
+                              results[i] = StageWaw(c, donors, names[i]);
                       });
         Json out = Json::array();
         std::map<std::string, std::string> written;

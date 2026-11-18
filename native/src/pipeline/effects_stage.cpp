@@ -164,6 +164,7 @@ namespace w2b::pipeline
         const auto names = request["names"];
         auto roots = Paths(request["roots"]);
         const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
+        shaders::FolderOutput projectOutput(projectRoot);
         const auto stockMaterials = files::FromUtf8(request["stock_materials"].get<std::string>());
         const std::optional<fs::path> techsetDump = request["techset_dump"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["techset_dump"].get<std::string>()));
         const auto bo2Root = files::FromUtf8(request["bo2_root"].get<std::string>());
@@ -364,7 +365,7 @@ namespace w2b::pipeline
                 variants.emplace_back(outName + FX_TRAIL_MATERIAL_SUFFIX, mat + "#trail", out, true);
             for (auto& [name, key, material, trail] : variants)
             {
-                const auto runtime = techsetDump ? shaders::BindMaterial(t4, material, all, projectRoot, *techsetDump, std::nullopt, true, trail)
+                const auto runtime = techsetDump ? shaders::BindMaterial(t4, material, all, projectOutput, *techsetDump, std::nullopt, true, trail)
                                                  : Json{{"active", Json::array()}, {"unsupported", Json::array({"native technique dump absent"})}};
                 if (trail && !mod::Truthy(runtime, "face_on_falloff"))
                     continue; // no view falloff: trails share the ordinary material
@@ -425,8 +426,7 @@ namespace w2b::pipeline
                                        {"falloff_placement", nullptr},
                                        {"light_shadows", true},
                                        {"layered_vertex_data", request.value("layered_vertex_data", false)},
-                                       {"native_fallbacks", Json::object()},
-                                       {"scratch", Str(scratch / "work")}};
+                                       {"native_fallbacks", Json::object()}};
             fs::create_directories(scratch);
             files::WriteText(scratch / "request.json", py::JsonDumpsDefault(materialRequest));
             const auto staged = StageMaterials(scratch / "request.json");

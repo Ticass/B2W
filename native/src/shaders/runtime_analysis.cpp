@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <functional>
 #include <mutex>
+#include <unordered_map>
 
 namespace w2b::shaders::runtime
 {
@@ -17,7 +18,9 @@ namespace w2b::shaders::runtime
         std::mutex lock;
 
         // results per assembly text, as the Python lru_caches keep them
-        template <typename T> T& Cached(std::map<std::string, T>& cache, const std::string& assembly, const std::function<T()>& make)
+        template <typename T> using Cache = std::unordered_map<std::string, T>;
+
+        template <typename T> T& Cached(Cache<T>& cache, const std::string& assembly, const std::function<T()>& make)
         {
             {
                 const std::lock_guard guard(lock);
@@ -49,7 +52,7 @@ namespace w2b::shaders::runtime
 
     const Ordered<Register>& Registers(const std::string& assembly)
     {
-        static std::map<std::string, Ordered<Register>> cache;
+        static Cache<Ordered<Register>> cache;
         return Cached<Ordered<Register>>(cache, assembly, [&]
                                          {
                                              static const pyre::Regex pattern("^//\\s+(\\w+)\\s+([cs])(\\d+)\\s+(\\d+)\\s*$", pyre::MULTILINE);
@@ -63,7 +66,7 @@ namespace w2b::shaders::runtime
 
     std::map<std::string, std::pair<int, std::string>> Signature(const std::string& assembly, const std::string& kind)
     {
-        static std::map<std::string, std::map<std::string, std::pair<int, std::string>>> cache;
+        static Cache<std::map<std::string, std::pair<int, std::string>>> cache;
         return Cached<std::map<std::string, std::pair<int, std::string>>>(
             cache, kind + '\0' + assembly,
             [&]
@@ -89,7 +92,7 @@ namespace w2b::shaders::runtime
 
     const std::map<std::string, Field>& Buffers(const std::string& assembly)
     {
-        static std::map<std::string, std::map<std::string, Field>> cache;
+        static Cache<std::map<std::string, Field>> cache;
         return Cached<std::map<std::string, Field>>(cache, assembly, [&]
                                                     {
                                                         // the SDK compiler prints "cb3", the Windows 8.1 one a bare slot
@@ -114,18 +117,23 @@ namespace w2b::shaders::runtime
 
     std::vector<std::pair<int, Resource>> ResourceNames(const std::string& assembly)
     {
-        static const pyre::Regex pattern("^//\\s+(\\w+)\\s+texture\\s+\\w+\\s+(\\w+)\\s+t?(\\d+)\\s+\\d+", pyre::MULTILINE);
-        std::vector<std::pair<int, Resource>> out;
-        for (const auto& m : pattern.FindAll(assembly))
-        {
-            const int slot = Int(m[2]);
-            const auto it = std::find_if(out.begin(), out.end(), [&](const auto& e) { return e.first == slot; });
-            if (it != out.end())
-                it->second = Resource{m[0], m[1]};
-            else
-                out.emplace_back(slot, Resource{m[0], m[1]});
-        }
-        return out;
+        using Resources = std::vector<std::pair<int, Resource>>;
+        static Cache<Resources> cache;
+        return Cached<Resources>(cache, assembly, [&]
+                                 {
+                                     static const pyre::Regex pattern("^//\\s+(\\w+)\\s+texture\\s+\\w+\\s+(\\w+)\\s+t?(\\d+)\\s+\\d+", pyre::MULTILINE);
+                                     Resources out;
+                                     for (const auto& m : pattern.FindAll(assembly))
+                                     {
+                                         const int slot = Int(m[2]);
+                                         const auto it = std::find_if(out.begin(), out.end(), [&](const auto& e) { return e.first == slot; });
+                                         if (it != out.end())
+                                             it->second = Resource{m[0], m[1]};
+                                         else
+                                             out.emplace_back(slot, Resource{m[0], m[1]});
+                                     }
+                                     return out;
+                                 });
     }
 
     std::set<std::pair<std::string, char>> TaintedOutputs(const std::string& assembly, const std::set<std::string>& sources)

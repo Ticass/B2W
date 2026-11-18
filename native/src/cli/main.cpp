@@ -690,7 +690,7 @@ namespace
         });
     }
 
-    // build-map --settings-json J [--redump] [--build-root R] [--waw-cache-root R] [--bo2-cache-root R]
+    // build-map --settings-json J | --settings-file F [--redump] [--build-root R] [--waw-cache-root R] [--bo2-cache-root R]
     // stage-bridge <stage> <project> --gfx ... (cli.py stage-bridge)
     int StageBridgeCommand(const Arguments& args)
     {
@@ -715,13 +715,16 @@ namespace
     {
         auto args = input;
         const bool redump = std::erase(args, std::string("--redump")) > 0;
-        const auto p = Parse(args, {"--settings-json", "--build-root", "--waw-cache-root", "--bo2-cache-root"});
-        if (!p || !p->positional.empty() || !p->Option("--settings-json"))
+        const auto p = Parse(args, {"--settings-json", "--settings-file", "--build-root", "--waw-cache-root", "--bo2-cache-root"});
+        if (!p || !p->positional.empty() || (!p->Option("--settings-json") == !p->Option("--settings-file")))
             return Usage();
         try
         {
             namespace l = w2b::launcher;
-            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(*p->Option("--settings-json")));
+            // --settings-file: the same JSON in a file (shells that mangle quoted arguments)
+            const auto* file = p->Option("--settings-file");
+            const auto text = file ? w2b::files::ReadText(w2b::files::FromUtf8(*file)) : *p->Option("--settings-json");
+            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(text));
             w2b::pipeline::BuildOptions options;
             options.redump = redump;
             if (const auto* r = p->Option("--build-root"))

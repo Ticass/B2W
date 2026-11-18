@@ -3,6 +3,7 @@
 
 #include "core/files.h"
 #include "core/hash.h"
+#include "core/profile.h"
 #include "core/pyre.h"
 #include "d3d.h"
 #include "materials/techsets.h"
@@ -189,19 +190,15 @@ namespace w2b::shaders
         }
 
         // _write_program: content-named program and its proof
-        std::string WriteProgram(const fs::path& projectRoot, const std::string& stage, const std::string& code, const fs::path& source, const Json& contract, const Json& info)
+        std::string WriteProgram(Output& output, const std::string& stage, const std::string& code, const fs::path& source, const Json& contract, const Json& info)
         {
             const auto digest = hash::Sha256Hex(code);
             const auto name = "waw/runtime_" + digest.substr(0, 20);
-            const auto path = projectRoot / "shader_bin" / files::FromUtf8(stage + "_" + name + ".cso");
-            fs::create_directories(path.parent_path());
-            files::WriteBytes(path, code);
-            const auto proof = projectRoot / "content_source/shaders/runtime" / files::FromUtf8(name.substr(name.rfind('/') + 1) + ".json");
-            fs::create_directories(proof.parent_path());
+            output.Write(fs::path("shader_bin") / files::FromUtf8(stage + "_" + name + ".cso"), code, false);
             Json data{{"source", Str(source)}, {"bindings", contract}, {"shader", name}, {"sha256", digest}};
             for (const auto& [k, v] : info.items())
                 data[k] = v;
-            files::WriteText(proof, py::JsonDumps(data, 2));
+            output.Write(fs::path("content_source/shaders/runtime") / files::FromUtf8(name.substr(name.rfind('/') + 1) + ".json"), py::JsonDumps(data, 2), true);
             return name;
         }
 
@@ -242,7 +239,7 @@ namespace w2b::shaders
                 result["face_on_falloff"] = true;
         }
 
-        Json BindMaterialCore(const Json& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, const fs::path& projectRoot, const fs::path& nativeRoot,
+        Json BindMaterialCore(const Json& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, Output& output, const fs::path& nativeRoot,
                               const std::optional<std::array<double, 4>>& falloffPlacement, const bool lightShadows, const bool trailGeometry)
         {
             Json result{{"active", Json::array()}, {"unsupported", Json::array()}};
@@ -306,7 +303,11 @@ namespace w2b::shaders
                         std::optional<std::string> visibility;
                         if (vertexBinding.contains("lighting_visibility") && vertexBinding["lighting_visibility"].is_string())
                             visibility = vertexBinding["lighting_visibility"].get<std::string>();
-                        auto contract = PairedPixelContract(assembly, pixelPass, targetPass, nativeRoot, linked, visibility, &sourceMaterial, falloffPlacement, &outputMaterial);
+                        auto contract = [&]
+                        {
+                            const profile::Scope scope("bind: pixel contract");
+                            return PairedPixelContract(assembly, pixelPass, targetPass, nativeRoot, linked, visibility, &sourceMaterial, falloffPlacement, &outputMaterial);
+                        }();
                         if (outputScale)
                             contract["output_rgb_scale"] = WAW_OUTPUT_SCALE;
                         const auto targetReg = TargetRegister(contract);
@@ -330,8 +331,8 @@ namespace w2b::shaders
                         if (materials::ParseTechnique(sourceName).unlit == "unlit_falloff_add")
                             targetPass["vertexDecl"] = VertexDecl(vertexBinding, {{"POSITION0", {0, 0}}, {"COLOR0", {1, 2}}, {"TEXCOORD0", {2, 5}}, {"NORMAL0", {3, 1}}});
                         PruneMissingMaterialConstants(targetPass, outputMaterial, {&vertexBinding, &contract}, true);
-                        const auto shaderName = WriteProgram(projectRoot, "ps", dxbc, *binary, contract, translation.report);
-                        const auto vertexName = WriteProgram(projectRoot, "vs", vertexCode, *vertexBinary, vertexBinding, vertexTranslation.report);
+                        const auto shaderName = WriteProgram(output, "ps", dxbc, *binary, contract, translation.report);
+                        const auto vertexName = WriteProgram(output, "vs", vertexCode, *vertexBinary, vertexBinding, vertexTranslation.report);
                         targetPass["pixelShader"] = Json{{"name", shaderName}};
                         targetPass["vertexShader"] = Json{{"name", vertexName}};
                         result["active"].push_back(Json{{"slot", slot},
@@ -357,7 +358,7 @@ namespace w2b::shaders
                         contract["output_rgb_scale"] = WAW_OUTPUT_SCALE;
                     const auto translation = Translate(assembly, &contract);
                     const auto dxbc = CompileHlsl(translation.hlsl, "ps_5_0");
-                    const auto shaderName = WriteProgram(projectRoot, "ps", dxbc, *binary, contract, translation.report);
+                    const auto shaderName = WriteProgram(output, "ps", dxbc, *binary, contract, translation.report);
                     Json vertexName = nullptr;
                     if (vertexBinary)
                     {
@@ -369,7 +370,7 @@ namespace w2b::shaders
                             const auto vertexTranslation = Translate(vertexAssembly, &vertexBinding);
                             const auto vertexHlsl = NativeFogAdapter(vertexTranslation.hlsl, vertexAssembly, vertexBinding, targetPass, nativeRoot);
                             const auto vertexCode = CompileHlsl(vertexHlsl, "vs_5_0");
-                            vertexName = WriteProgram(projectRoot, "vs", vertexCode, *vertexBinary, vertexBinding, vertexTranslation.report);
+                            vertexName = WriteProgram(output, "vs", vertexCode, *vertexBinary, vertexBinding, vertexTranslation.report);
                         }
                         catch (const ShaderError& exc)
                         {
@@ -545,9 +546,7 @@ namespace w2b::shaders
                 for (const auto& a : result["active"])
                     native["techniques"][static_cast<size_t>(I(a["slot"]))]["name"] = tsName + "_" + std::to_string(I(a["slot"]));
                 native["name"] = tsName;
-                const auto path = projectRoot / "techniquesets" / files::FromUtf8(tsName + ".json");
-                fs::create_directories(path.parent_path());
-                files::WriteText(path, py::JsonDumps(native, 2));
+                output.Write(fs::path("techniquesets") / files::FromUtf8(tsName + ".json"), py::JsonDumps(native, 2), true);
                 outputMaterial["techniqueSet"] = tsName;
             }
             return result;
@@ -572,12 +571,17 @@ namespace w2b::shaders
         return cache.emplace(key, std::move(text)).first->second;
     }
 
-    Json BindMaterial(const Json& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, const fs::path& projectRoot, const fs::path& nativeRoot,
+    Json BindMaterial(const Json& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, Output& output, const fs::path& nativeRoot,
                       const std::optional<std::array<double, 4>>& falloffPlacement, const bool lightShadows, const bool trailGeometry)
     {
-        auto result = BindMaterialCore(sourceMaterial, outputMaterial, roots, projectRoot, nativeRoot, falloffPlacement, lightShadows, trailGeometry);
+        auto result = [&]
+        {
+            const profile::Scope scope("bind: core");
+            return BindMaterialCore(sourceMaterial, outputMaterial, roots, output, nativeRoot, falloffPlacement, lightShadows, trailGeometry);
+        }();
         // original WaW cube channels are shared by translated and native readers
-        if (const int count = BindNativeProbes(outputMaterial, projectRoot, nativeRoot))
+        const profile::Scope scope("bind: native probes (lock included)");
+        if (const int count = BindNativeProbes(outputMaterial, output, nativeRoot))
             result["native_probe_passes"] = count;
         return result;
     }

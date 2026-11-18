@@ -15,6 +15,8 @@ namespace w2b::files
     // where text mode turns every "\n" into "\r\n". Creates parent folders.
     void WriteBytes(const fs::path& path, std::string_view data);
     void WriteText(const fs::path& path, std::string_view text);
+    // the bytes WriteText writes: text with Windows line endings
+    std::string TextBytes(std::string_view text);
     // Path.read_text(encoding="utf-8"): strict UTF-8, universal newlines;
     // throws std::runtime_error when unreadable or not UTF-8
     std::string ReadText(const fs::path& path);

@@ -96,25 +96,23 @@ namespace w2b::audio
             return decoded;
         }
 
-        std::string SelfIdentity()
-        {
-            wchar_t path[MAX_PATH];
-            const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
-            return cache::FileIdentity(fs::path(std::wstring(path, length)));
-        }
+        // The version of this file's decoding (ACM, PCM and XWMA handling, the
+        // stored header). Bump it whenever decoded output can change: the
+        // cache is keyed on it rather than on the program file, so rebuilds
+        // and updates of the converter keep reusing the decoded audio.
+        constexpr const char* DECODE_VERSION = "audio-v2";
 
         // audiocache: the decode is a pure function of the source bytes, this
-        // program and the native tools
+        // decoder and the native tools
         Decoded CachedDecode(const fs::path& source, const Tools& tools)
         {
             std::string bytes;
             if (!files::ReadBytes(source, bytes))
                 return Decode(source, tools); // raises the read error
-            static const std::string self = SelfIdentity();
             wchar_t windows[MAX_PATH];
             const UINT n = GetWindowsDirectoryW(windows, MAX_PATH);
             static const std::string codec = cache::FileIdentity(fs::path(std::wstring(windows, n)) / "SysWOW64" / "XAudio2_0.dll");
-            const auto key = cache::Key({"audio-v1", self, codec, tools.xwmaHelper ? cache::FileIdentity(*tools.xwmaHelper) : "-",
+            const auto key = cache::Key({DECODE_VERSION, codec, tools.xwmaHelper ? cache::FileIdentity(*tools.xwmaHelper) : "-",
                                          tools.resampler ? cache::FileIdentity(*tools.resampler) : "-", bytes});
             if (const auto hit = cache::Load("audio_decode", key); hit && hit->size() >= 8)
             {

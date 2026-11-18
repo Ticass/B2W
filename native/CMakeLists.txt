@@ -31,6 +31,7 @@ add_library(w2b_core STATIC
     src/core/hash.cpp
     src/core/cache.cpp
     src/core/process.cpp
+    src/core/profile.cpp
     src/core/encoding.cpp
     src/core/unicode.cpp
     src/core/string_repr.cpp
@@ -52,7 +53,7 @@ add_library(w2b_shaders STATIC
     src/shaders/stage.cpp)
 target_link_libraries(w2b_shaders PUBLIC w2b_core)
 
-add_library(w2b_shaderruntime STATIC src/shaders/runtime.cpp src/shaders/runtime_analysis.cpp src/shaders/runtime_contracts.cpp
+add_library(w2b_shaderruntime STATIC src/shaders/output.cpp src/shaders/runtime.cpp src/shaders/runtime_analysis.cpp src/shaders/runtime_contracts.cpp
     src/shaders/native_probes.cpp)
 target_link_libraries(w2b_shaderruntime PUBLIC w2b_shaders w2b_materials w2b_gsc w2b_core)
 

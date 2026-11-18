@@ -249,7 +249,8 @@ namespace w2b::pipeline
                             for (const auto& key : STATE_FIELDS)
                                 if (state->contains(key))
                                     native[key] = (*state)[key];
-                const auto runtime = shaders::BindMaterial(source, target, roots, projectRoot, nativeRoot);
+                shaders::FolderOutput output(projectRoot);
+                const auto runtime = shaders::BindMaterial(source, target, roots, output, nativeRoot);
                 bool paired = false;
                 for (const auto& a : runtime.value("active", Json::array()))
                     if (mod::Truthy(a, "paired") && a.at("slot") == 2)

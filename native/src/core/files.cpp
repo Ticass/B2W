@@ -31,26 +31,24 @@ namespace w2b::files
             throw std::runtime_error("cannot write " + Utf8(path));
     }
 
-    void WriteText(const fs::path& path, const std::string_view text)
+    std::string TextBytes(const std::string_view text)
     {
-        auto newline = text.find('\n');
-        if (newline == text.npos)
-        {
-            WriteBytes(path, text);
-            return;
-        }
         std::string out;
         out.reserve(text.size() + text.size() / 32);
         std::size_t start = 0;
-        while (newline != text.npos)
+        for (auto newline = text.find('\n'); newline != text.npos; newline = text.find('\n', start))
         {
             out.append(text.substr(start, newline - start));
             out += "\r\n";
             start = newline + 1;
-            newline = text.find('\n', start);
         }
         out.append(text.substr(start));
-        WriteBytes(path, out);
+        return out;
+    }
+
+    void WriteText(const fs::path& path, const std::string_view text)
+    {
+        WriteBytes(path, TextBytes(text));
     }
 
     std::string ReadText(const fs::path& path)

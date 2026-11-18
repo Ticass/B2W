@@ -6,6 +6,7 @@
 #include "core/files.h"
 #include "core/hash.h"
 #include "core/process.h"
+#include "core/profile.h"
 #include "core/pyre.h"
 #include "core/share_files.h"
 
@@ -567,6 +568,7 @@ namespace w2b::extract
         const auto receipt = folder / "extraction.json";
         try
         {
+            const profile::Scope scope("extract: reuse a cached zone");
             const auto cached = ReadJson(receipt);
             if (!r.refresh && py::SortKeys(cached.at("inputs")) == inputs && Complete(folder, receipt, cached.at("files")))
                 return {folder, cached};

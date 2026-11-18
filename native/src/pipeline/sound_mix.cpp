@@ -1,6 +1,9 @@
 // The sound mix measurements and the bank (see sound_mix.h).
 #include "sound_mix.h"
 
+#include "core/profile.h"
+#include "core/timeline.h"
+
 #include "core/encoding.h"
 #include "core/pyre.h"
 #include "core/sum.h"
@@ -16,6 +19,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <fstream>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -633,18 +637,24 @@ namespace w2b::pipeline
         }
 
         // _bank_entry_sizes: SndAssetBankEntry id -> data size
+        // entry id -> size from a bank's entry table (header, then 20-byte entries);
+        // reads only those bytes, not the bank's audio
         std::map<uint32_t, uint32_t> BankEntrySizes(const fs::path& path)
         {
-            const auto data = mod::Bytes(path);
+            std::ifstream stream(path, std::ios::binary);
             uint32_t header[8];
             long long offsets[3];
-            std::memcpy(header, data.data(), 32);
-            std::memcpy(offsets, data.data() + 32, 24);
+            if (!stream.read(reinterpret_cast<char*>(header), sizeof header) || !stream.read(reinterpret_cast<char*>(offsets), sizeof offsets))
+                throw StepError("SoundError", "unreadable sound bank header: " + Str(path));
+            std::string table(static_cast<size_t>(header[5]) * 20, '\0');
+            stream.seekg(offsets[1]);
+            if (!stream.read(table.data(), static_cast<std::streamsize>(table.size())))
+                throw StepError("SoundError", "unreadable sound bank entry table: " + Str(path));
             std::map<uint32_t, uint32_t> sizes;
             for (uint32_t i = 0; i < header[5]; i++)
             {
                 uint32_t entry[2];
-                std::memcpy(entry, data.data() + offsets[1] + 20LL * i, 8);
+                std::memcpy(entry, table.data() + 20LL * i, 8);
                 sizes[entry[0]] = entry[1];
             }
             return sizes;
@@ -810,7 +820,7 @@ namespace w2b::pipeline
         Json budget;
         if (bo2Root)
         {
-            budget = LoadedBudget(*bo2Root);
+            budget = [&] { const profile::Scope scope("sound mix: loaded budget"); return LoadedBudget(*bo2Root); }();
             std::set<std::string> played;
             for (const auto& s : request["script_sounds"])
                 played.insert(s.get<std::string>());
@@ -840,12 +850,16 @@ namespace w2b::pipeline
                 std::vector<fs::path> roots;
                 for (const auto& zone : wawZones)
                     roots.push_back(stockWaw->Dump(zone, std::string("sound")));
+                const timeline::Span span("measure the stock WaW sound mix");
                 records = WawMixRecords(roots, globals);
             }
         }
         std::optional<Stock> stock;
         if (bo2Root)
+        {
+            const timeline::Span span("read the stock BO2 sound tables");
             stock.emplace(*bo2Root);
+        }
         // measure_sound_classes: the WaW bus -> BO2 group table of this build
         Json soundClasses;
         if (bo2Root)
@@ -856,7 +870,8 @@ namespace w2b::pipeline
                 for (const auto& r : *records)
                     wawBuses[r.name] = r.bus;
             std::map<std::string, std::map<std::string, long long>> votes;
-            for (const auto& [name, group] : StockAliasGroups(*stock))
+            const auto stockGroups = [&] { const profile::Scope scope("sound mix: stock alias groups"); return StockAliasGroups(*stock); }();
+            for (const auto& [name, group] : stockGroups)
                 if (const auto bus = FamilySource(name, wawBuses))
                     votes[*bus][group]++;
             Json learned = Json::object(), differs = Json::object();
@@ -899,6 +914,7 @@ namespace w2b::pipeline
         // measure_reverb_send: the WaW-to-BO2 send offset from both games' stock aliases
         Json reverbSend;
         {
+            const profile::Scope scope("sound mix: reverb send");
             const auto soundbank = bo2Root ? *bo2Root / "raw/soundbank" : fs::path();
             if (!bo2Root || !IsDir(soundbank))
                 reverbSend = Json{{"status", "unmeasured_default"}, {"db", REVERB_SEND_DB}, {"reason", "no BO2 mod tools raw/soundbank"}};
@@ -982,6 +998,7 @@ namespace w2b::pipeline
                                 name.replace(at, key.size(), value);
                         vocalTwins[Lower("waw/" + alias.get<std::string>())] = name;
                     }
+            const profile::Scope remasterScope("sound mix: remaster profiles");
             auto twins = SoundTableTwins(projectRoot, *bo2Root, api["map_content"]["sound_table"]["register"].get<std::string>());
             for (const auto& [k, v] : vocalTwins.items())
                 twins[k] = v;
@@ -1078,7 +1095,12 @@ namespace w2b::pipeline
                                    {"remaster", remaster},
                                    {"flac_encoder", request.value("flac_encoder", std::string{})},
                                    {"engine_names", templateCsv ? TemplateAliasNames(*templateCsv) : std::vector<std::string>{}}};
-            const auto result = sound::WriteT6Bank(bankRequest);
+            const auto result = [&]
+            {
+                const timeline::Span span("write the sound bank");
+                const profile::Scope scope("sound mix: write the bank");
+                return sound::WriteT6Bank(bankRequest);
+            }();
             bankReport = result["report"];
             budget = result["budget"];
         }

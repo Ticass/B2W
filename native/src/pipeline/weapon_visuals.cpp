@@ -144,8 +144,7 @@ namespace w2b::pipeline
                                        {"falloff_placement", nullptr},
                                        {"light_shadows", true},
                                        {"layered_vertex_data", request.value("layered_vertex_data", false)},
-                                       {"native_fallbacks", request.value("native_fallbacks", Json::object())},
-                                       {"scratch", Str(scratch / "work")}};
+                                       {"native_fallbacks", request.value("native_fallbacks", Json::object())}};
             fs::create_directories(scratch);
             files::WriteText(scratch / "request.json", py::JsonDumpsDefault(materialRequest));
             const auto staged = StageMaterials(scratch / "request.json");
@@ -192,7 +191,8 @@ namespace w2b::pipeline
                     report.errors.push_back("material " + name + ": " + exc.what());
                     continue;
                 }
-                const auto runtime = shaders::BindMaterial(source, material, roots, project, techsetDump);
+                shaders::FolderOutput output(project);
+                const auto runtime = shaders::BindMaterial(source, material, roots, output, techsetDump);
                 const auto outName = weapons::OutputName("material", name);
                 const auto relative = assets::MaterialPath(outName);
                 files::WriteText(project / relative, py::JsonDumps(material, 2));

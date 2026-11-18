@@ -4,6 +4,7 @@
 
 #include "core/files.h"
 #include "core/hash.h"
+#include "core/profile.h"
 #include "core/pyre.h"
 #include "d3d.h"
 #include "pipeline/finish.h"
@@ -238,15 +239,29 @@ namespace w2b::shaders
             std::map<std::string, std::string> adapted;
         };
 
-        int BindProbesWith(py::Json& material, const fs::path& project, const fs::path& stock, ProbeCache& cache)
+        // a file the binding output holds, else the stock one: (cache key, bytes)
+        std::optional<std::pair<std::string, std::string>> OutputOrStock(const Output& output, const fs::path& stock, const fs::path& relative)
+        {
+            if (auto held = output.Read(relative))
+                return std::pair{"output:" + hash::Sha256Hex(*held), std::move(*held)};
+            const auto path = stock / relative;
+            if (!IsFile(path))
+                return std::nullopt;
+            return std::pair{Str(path), std::string()};
+        }
+
+        int BindProbesWith(py::Json& material, Output& output, const fs::path& stock, ProbeCache& cache)
         {
             const auto name = material.value("techniqueSet", std::string());
-            const auto file = FirstFile({project / "techniquesets" / files::FromUtf8(name + ".json"), stock / "techniquesets" / files::FromUtf8(name + ".json")});
+            const auto file = OutputOrStock(output, stock, fs::path("techniquesets") / files::FromUtf8(name + ".json"));
             if (!file)
                 return 0;
-            const auto fileKey = Str(*file);
+            const auto& fileKey = file->first;
             if (!cache.techniques.count(fileKey))
-                cache.techniques[fileKey] = Json(*file);
+            {
+                const profile::Scope scope("probes: read technique set");
+                cache.techniques[fileKey] = file->second.empty() ? Json(stock / "techniquesets" / files::FromUtf8(name + ".json")) : py::Json::parse(file->second);
+            }
             auto data = cache.techniques[fileKey];
             int count = 0;
             for (auto& technique : data["techniques"])
@@ -258,15 +273,22 @@ namespace w2b::shaders
                     const auto shader = p.contains("pixelShader") ? p["pixelShader"].value("name", std::string()) : std::string();
                     if (StartsWith(shader, "waw/runtime_") || StartsWith(shader, "waw/native_probe_"))
                         continue;
-                    const auto path = FirstFile({project / "shader_bin" / files::FromUtf8("ps_" + shader + ".cso"), stock / "shader_bin" / files::FromUtf8("ps_" + shader + ".cso")});
-                    if (!path)
+                    const auto program = fs::path("shader_bin") / files::FromUtf8("ps_" + shader + ".cso");
+                    const auto held = OutputOrStock(output, stock, program);
+                    if (!held)
                         continue;
-                    const auto shaderKey = Str(*path);
+                    const auto& shaderKey = held->first;
                     if (!cache.shaders.count(shaderKey))
                     {
-                        auto bytes = Bytes(*path);
+                        auto bytes = held->second.empty() ? Bytes(stock / program) : held->second;
                         std::vector<long long> found;
-                        for (const auto& [slot, n] : ResourceNames(shaders::Disassemble(bytes)))
+                        std::string assembly;
+                        {
+                            const profile::Scope scope("probes: disassemble");
+                            assembly = shaders::Disassemble(bytes);
+                        }
+                        const profile::Scope scope("probes: resource names");
+                        for (const auto& [slot, n] : ResourceNames(assembly))
                             if (n == "reflectionProbeSampler")
                                 found.push_back(slot);
                         cache.shaders[shaderKey] = {std::move(bytes), std::move(found)};
@@ -281,9 +303,7 @@ namespace w2b::shaders
                         cache.adapted[adaptKey] = Adapt(bytes, static_cast<uint32_t>(slots[0]));
                     const auto& code = cache.adapted[adaptKey];
                     const auto adapted = "waw/native_probe_" + hash::Sha256Hex(code).substr(0, 20);
-                    const auto out = project / "shader_bin" / files::FromUtf8("ps_" + adapted + ".cso");
-                    MakeParent(out);
-                    files::WriteBytes(out, code);
+                    output.Write(fs::path("shader_bin") / files::FromUtf8("ps_" + adapted + ".cso"), code, false);
                     p["pixelShader"] = py::Json{{"name", adapted}};
                     count++;
                 }
@@ -299,9 +319,7 @@ namespace w2b::shaders
                         t["name"] = identity + "_" + std::to_string(i);
                     i++;
                 }
-                const auto out = project / "techniquesets" / files::FromUtf8(identity + ".json");
-                MakeParent(out);
-                files::WriteText(out, py::JsonDumpsDefault(data));
+                output.Write(fs::path("techniquesets") / files::FromUtf8(identity + ".json"), py::JsonDumpsDefault(data), true);
                 material["techniqueSet"] = identity;
             }
             return count;
@@ -309,11 +327,11 @@ namespace w2b::shaders
 
     } // namespace
 
-    int BindNativeProbes(py::Json& material, const fs::path& project, const fs::path& stock)
+    int BindNativeProbes(py::Json& material, Output& output, const fs::path& stock)
     {
         static std::mutex lock;
         static ProbeCache cache;
         const std::lock_guard guard(lock);
-        return BindProbesWith(material, project, stock, cache);
+        return BindProbesWith(material, output, stock, cache);
     }
 } // namespace w2b::shaders

@@ -4,6 +4,7 @@
 #include "shaderbind.h"
 
 #include "core/hash.h"
+#include "core/profile.h"
 #include "core/pyre.h"
 #include "modutil.h"
 #include "shaders/runtime.h"
@@ -94,13 +95,14 @@ namespace w2b::pipeline
         // sorted(Path): case-insensitive on Windows
         std::sort(sources.begin(), sources.end(), [](const auto& a, const auto& b) { return Lower(Str(a.second)) < Lower(Str(b.second)); });
         std::map<std::string, int> changed;
+        shaders::FolderOutput overlayOutput(overlay);
         for (const auto& [relative, source] : sources)
         {
             const auto target = overlay / files::FromUtf8(relative);
             if (fs::exists(target))
                 continue;
-            auto material = Json(source);
-            if (const int count = shaders::BindNativeProbes(material, overlay, stock))
+            auto material = [&] { const profile::Scope scope("probes: read material"); return Json(source); }();
+            if (const int count = shaders::BindNativeProbes(material, overlayOutput, stock))
             {
                 MakeParent(target);
                 files::WriteText(target, py::JsonDumpsDefault(material));

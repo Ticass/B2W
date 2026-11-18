@@ -30,6 +30,14 @@ namespace w2b::pipeline::bridge
         const TemporaryFolder folder;
         const auto path = folder.Path() / "request.json";
         files::WriteText(path, py::JsonDumpsDefault(request));
+        // WAW2BO2_CAPTURE=<folder> keeps every request, to replay a step alone
+        if (const wchar_t* capture = _wgetenv(L"WAW2BO2_CAPTURE"); capture && *capture)
+        {
+            static std::atomic<unsigned> captured{0};
+            std::error_code e;
+            fs::create_directories(capture, e);
+            fs::copy_file(path, fs::path(capture) / ("request_" + std::to_string(captured++) + ".json"), fs::copy_options::overwrite_existing, e);
+        }
         return step(path);
     }
 

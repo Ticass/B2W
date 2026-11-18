@@ -7,6 +7,7 @@
 #include "core/process.h"
 #include "core/pyre.h"
 #include "core/pytext.h"
+#include "core/timeline.h"
 #include "gsc/parse.h"
 #include "gsc/port/generators.h"
 #include "gsc/port/staging.h"
@@ -137,8 +138,14 @@ namespace w2b::pipeline
     {
         const char* flag = std::getenv("WAW2BO2_VERBOSE");
         const bool verbose = flag && std::string(flag) == "1";
+        const auto tool = files::Utf8(fs::path(files::FromUtf8(command[0])).filename());
         if (verbose)
-            std::printf("[tool] Running %s\n", files::Utf8(fs::path(files::FromUtf8(command[0])).filename()).c_str());
+            std::printf("[tool] Running %s\n", tool.c_str());
+        // each tool run is a span of the build timeline, named by its command line
+        std::string name = tool;
+        for (size_t i = 1; i < command.size() && name.size() < 160; i++)
+            name += " " + command[i];
+        const timeline::Span span(name);
         return process::RunMerged(command, cwd, verbose ? Verbose : nullptr);
     }
 

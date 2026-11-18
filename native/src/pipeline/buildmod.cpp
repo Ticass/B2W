@@ -157,6 +157,7 @@ namespace w2b::pipeline
         }
         std::set<std::string> bound;
         std::set<std::string> currentFiles;
+        std::optional<timeline::Span> phase(std::in_place, "bind runtime shader materials");
         for (const auto& [root, entry] : StagedMaterials(project))
             currentFiles.insert(Lower(Str(Resolve(root / files::FromUtf8(entry["file"].get<std::string>())))));
         for (const auto& root : {project, project / "content_source"})
@@ -183,6 +184,7 @@ namespace w2b::pipeline
                 files::WriteText(overlay / relative, py::JsonDumpsDefault(material));
                 bound.insert(Generic(relative));
             }
+        phase.reset();
         {
             timeline::Span span("copy shader overlay");
             for (const auto& root : {stock, project, project / "content_source"})
@@ -190,7 +192,9 @@ namespace w2b::pipeline
                     if (IsDir(root / folder))
                         CopyTree(root / folder, overlay / folder);
         }
+        phase.emplace("bind impact materials");
         const auto impact = BindImpactMaterials(project, dump, overlay, stock);
+        phase.emplace("bind probe materials");
         for (const auto& [relative, _] : impact)
             bound.insert(relative);
         std::map<std::string, int> probes;
@@ -206,6 +210,7 @@ namespace w2b::pipeline
             }
             files::WriteText(work / "native_probe_materials.json", py::JsonDumps(report, 1));
         }
+        phase.reset();
         // stringtables and project rawfiles override loaded and stock assets
         for (const char* name : {"mapstable.csv", "gametypestable.csv", "zm_statstable.csv", "waw_menu_layers.csv", "waw_menu_preview.csv", "waw_hud_maps.csv",
                                  "waw_hud_weapons.csv", "waw_hud_glyphs.csv"})

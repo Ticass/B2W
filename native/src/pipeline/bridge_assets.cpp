@@ -369,13 +369,12 @@ namespace w2b::pipeline::bridge
             Json fallbacks = Json::object();
             for (const auto& [name, path] : options.nativeFallbacks)
                 fallbacks[name] = Str(path);
-            const TemporaryFolder scratch;
             const Json request{{"names", SortedNames(names)}, {"roots", Paths(roots)}, {"stock_materials", Str(stockMaterials)},
                                {"project_root", Str(projectRoot)}, {"techset_root", PathOrNull(techsetRoot)}, {"rename", Json::object()},
                                {"image_prefix", "waw_world/"}, {"donors", donors},
                                {"falloff_placement", options.falloffPlacement ? Json(*options.falloffPlacement) : Json()},
                                {"light_shadows", options.lightShadows}, {"layered_vertex_data", options.layeredVertexData},
-                               {"native_fallbacks", fallbacks}, {"scratch", Str(scratch.Path() / "scratch")}};
+                               {"native_fallbacks", fallbacks}};
             const auto data = Call(pipeline::StageMaterials, request);
             Names used;
             for (const auto& result : data["results"])

@@ -1,5 +1,6 @@
 #include "assets/dependencies.h"
 
+#include "core/profile.h"
 #include "core/files.h"
 #include "weapons/stage.h"
 
@@ -72,14 +73,15 @@ namespace w2b::assets
                     if (nodes_.contains(asset))
                         continue;
                     const auto& [kind, name] = asset;
-                    const auto source = Find(asset);
+                    const auto source = [&] { const profile::Scope scope("resolver: find"); return Find(asset); }();
                     auto& node = nodes_[asset];
                     node = {{"kind", kind}, {"name", name}, {"status", source.file.empty() ? "missing_compiled_source" : "resolved"}};
                     if (source.file.empty())
                         continue;
                     node["source"] = files::Utf8(source.file);
                     AddProvenance(source.file, node);
-                    for (const auto& child : ReadDependencies(asset, source, node))
+                    const auto children = [&] { const profile::Scope scope("resolver: read dependencies"); return ReadDependencies(asset, source, node); }();
+                    for (const auto& child : children)
                     {
                         SourcePath(child);
                         edges_.insert({kind, name, child.first, child.second});
