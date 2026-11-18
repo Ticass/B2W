@@ -6,6 +6,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace w2b::textures
 {
@@ -28,6 +29,7 @@ namespace w2b::textures
 
         RecoveredImage Recover(const std::string& stem);
         RecoveredImage Resolve(const std::string& stem, const std::filesystem::path& source);
+        std::unordered_set<std::string> ImageStems(std::span<const std::filesystem::path> directories) const;
 
     private:
         struct Archive

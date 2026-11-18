@@ -82,6 +82,7 @@
 #include "pipeline/lighting_tail.h"
 #include "pipeline/bridge_tail.h"
 #include "pipeline/bridge_geometry.h"
+#include "pipeline/bridge_images.h"
 #include "sound/bank.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
@@ -961,7 +962,7 @@ namespace
         {
             if (!a.empty())
                 return Usage();
-            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}, {"stage-waw-menu-art", w2b::pipeline::StageWawMenuArt}, {"stage-weapon-visuals", w2b::pipeline::StageWeaponVisuals}, {"bridge-tail", w2b::pipeline::BridgeTail}});
+            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}, {"stage-waw-menu-art", w2b::pipeline::StageWawMenuArt}, {"stage-weapon-visuals", w2b::pipeline::StageWeaponVisuals}, {"stage-bridge-images", w2b::pipeline::StageBridgeImages}, {"bridge-tail", w2b::pipeline::BridgeTail}});
             return 0;
         }},
         {"lightmaps", JsonRequest<w2b::textures::StageLightmaps>},

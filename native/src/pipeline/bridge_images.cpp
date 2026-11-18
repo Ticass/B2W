@@ -1,0 +1,243 @@
+#include "pipeline/bridge_images.h"
+
+#include "core/asset_paths.h"
+#include "core/parallel.h"
+#include "pipeline/bridge_support.h"
+#include "textures/iwd_recovery.h"
+#include "textures/stage.h"
+
+#include <windows.h>
+
+#include <algorithm>
+#include <map>
+#include <set>
+
+namespace w2b::pipeline
+{
+    namespace
+    {
+        using py::Json;
+        using Color = std::array<unsigned char, 4>;
+        using files::FromUtf8;
+
+        struct Conversion
+        {
+            std::size_t index;
+            fs::path source, destination;
+            Json recovered;
+        };
+
+        struct DestinationOrder
+        {
+            bool operator()(const std::wstring& left, const std::wstring& right) const
+            {
+                return CompareStringOrdinal(left.c_str(), -1, right.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+            }
+        };
+
+        std::string ImageStem(std::string name, bool material)
+        {
+            if (material)
+                for (const std::string_view prefix : {"waw_fx/", "waw_world/"})
+                    if (name.starts_with(prefix))
+                        name.erase(0, prefix.size());
+            std::ranges::replace(name, '*', '_');
+            return name;
+        }
+
+        std::map<std::string, std::string> WantedImages(const fs::path& project, const Json& materialFiles, const Json& extras)
+        {
+            std::map<std::string, std::string> wanted;
+            for (const auto& extra : extras)
+            {
+                const auto& name = extra.get_ref<const std::string&>();
+                wanted.try_emplace(name, ImageStem(name, false));
+            }
+            for (const auto& file : materialFiles)
+            {
+                const auto material = mod::Json(project / FromUtf8(file.get_ref<const std::string&>()));
+                for (const auto& texture : material.value("textures", Json::array()))
+                    if (const auto image = texture.find("image"); image != texture.end() && image->is_string())
+                    {
+                        const auto& name = image->get_ref<const std::string&>();
+                        if (!name.empty() && !name.starts_with(','))
+                            wanted.try_emplace(name, ImageStem(name, true));
+                    }
+            }
+            wanted.insert_or_assign("lightmap0_secondary", "_lightmap0_secondary");
+            wanted.insert_or_assign("reflection_probe0", "_reflection_probe0");
+            wanted.insert_or_assign("$outdoor", "$outdoor");
+            return wanted;
+        }
+
+        fs::path FindDds(const std::vector<fs::path>& roots, const std::string& stem)
+        {
+            const auto relative = FromUtf8(stem + ".dds");
+            for (const auto& root : roots)
+                if (fs::exists(root / relative))
+                    return root / relative;
+            return {};
+        }
+
+        Json RecoveredMetadata(const textures::RecoveredImage& image)
+        {
+            Json metadata{{"archive", mod::Str(image.archive)}, {"entry", image.entry}, {"iwi_format", image.iwiFormat}};
+            if (image.decoderTables)
+                metadata["decoder_tables"] = mod::Str(*image.decoderTables);
+            return metadata;
+        }
+
+        void Fill(std::string& pixels, const Color& rgba, unsigned count)
+        {
+            const std::string_view value(reinterpret_cast<const char*>(rgba.data()), rgba.size());
+            for (unsigned i = 0; i < count; ++i)
+                pixels += value;
+        }
+
+        Json WriteSynthesized(const std::string& name, const fs::path& output, std::string_view reason, Json& warnings,
+                              unsigned width, unsigned height, std::span<const Color> pages, bool cube = false)
+        {
+            std::string pixels;
+            const auto countPerPage = width * height / static_cast<unsigned>(pages.size()) * (cube ? 6 : 1);
+            for (const auto& color : pages)
+                Fill(pixels, color, countPerPage);
+            files::WriteBytes(output, textures::RgbaToIwi(width, height, pixels, cube).bytes);
+            warnings.push_back("image " + name + ": synthesized, " + std::string(reason));
+            return {{"name", name}, {"source", nullptr}, {"synthesized", reason}};
+        }
+
+        std::optional<Json> RequiredImage(const std::string& asset, const fs::path& dst, const Json& request, Json& warnings)
+        {
+            if (asset == "lightmap0_secondary")
+            {
+                constexpr Color magenta{255, 0, 255, 255};
+                const auto pages = request.value("diagnostic_lightmap", false) ? std::array{magenta, magenta, magenta} :
+                    std::array<Color, 3>{{{116, 164, 181, 154}, {132, 172, 191, 111}, {129, 129, 192, 147}}};
+                return WriteSynthesized(asset, dst, "fallback flat lightmap, linked only when the map has no WaW lightmap pages "
+                                        "(BSP/lightmaps.json); pages = stock zm_nuked lightmap means", warnings, 4, 12, pages);
+            }
+            if (asset == "reflection_probe0")
+            {
+                const std::array<Color, 1> color{{{static_cast<unsigned char>(request.value("diagnostic_probes", false) ? 255 : 0), 0, 0, 255}}};
+                return WriteSynthesized(asset, dst, "black cube probe; the WaW probe is a solid red placeholder", warnings, 4, 4, color, true);
+            }
+            return std::nullopt;
+        }
+
+        void ConvertGroups(const std::vector<std::vector<Conversion>>& groups, const std::vector<std::string>& names,
+                           std::vector<Json>& images, std::vector<bool>& written, Json& errors, unsigned workers)
+        {
+            std::vector<std::string> failures(names.size());
+            parallel::For(groups.size(), [&](std::size_t group)
+            {
+                for (const auto& task : groups[group])
+                    try
+                    {
+                        const auto header = textures::ConvertFile(task.source, task.destination);
+                        Json image{{"name", names[task.index]}, {"source", mod::Str(task.source)}};
+                        image.update(textures::HeaderJson(header));
+                        if (!task.recovered.is_null())
+                            image["wavelet"] = task.recovered;
+                        images[task.index] = std::move(image);
+                    }
+                    catch (const textures::TextureError& error)
+                    {
+                        failures[task.index] = "image " + names[task.index] + ": " + error.what();
+                    }
+            }, workers);
+
+            // Earlier assets own the first occurrence of a destination group.
+            for (const auto& group : groups)
+                for (const auto& task : group)
+                    if (!failures[task.index].empty())
+                        errors.push_back(failures[task.index]);
+                    else
+                        written[task.index] = true;
+        }
+    }
+
+    Json StageBridgeImages(const Json& request, textures::IwdRecovery& recovery)
+    {
+        const auto project = FromUtf8(request.at("project_root").get_ref<const std::string&>());
+        const auto imageRoots = bridge::PathList(request.at("image_roots"));
+        const auto wanted = WantedImages(project, request.at("materials"), request.at("extra_images"));
+        const auto equivalents = request.at("native_images").get<std::set<std::string>>();
+        auto knownRecovered = request.at("known_recovered");
+        std::optional<std::unordered_set<std::string>> iwdStems;
+        auto warnings = Json::array(), errors = Json::array(), recovered = Json::object();
+        std::vector<std::string> names;
+        std::vector<Json> images(wanted.size());
+        std::vector<bool> written(wanted.size());
+        std::vector<std::vector<Conversion>> groups;
+        std::map<std::wstring, std::size_t, DestinationOrder> byDestination;
+        for (const auto& [asset, stem] : wanted)
+        {
+            const auto index = names.size();
+            names.push_back(asset);
+            const auto dst = project / assets::ImagePath(asset, ".iwi");
+            if (equivalents.contains(asset))
+            {
+                if (!mod::IsFile(dst))
+                    return {{"stage_error", "staged BO2 equivalent image " + asset + " disappeared"}};
+                written[index] = true;
+                continue;
+            }
+            if (auto image = RequiredImage(asset, dst, request, warnings))
+            {
+                images[index] = std::move(*image);
+                written[index] = true;
+                continue;
+            }
+            textures::RecoveredImage source;
+            try
+            {
+                source = recovery.Resolve(stem, FindDds(imageRoots, stem));
+            }
+            catch (const textures::TextureError& error)
+            {
+                errors.push_back("image " + asset + ": " + error.what());
+                continue;
+            }
+            catch (const fs::filesystem_error& error)
+            {
+                errors.push_back("image " + asset + ": " + error.what());
+                continue;
+            }
+            if (source.path.empty())
+            {
+                if (stem.starts_with("~$white-rgb&"))
+                    images[index] = WriteSynthesized(asset, dst, "packed spec map with no pixel data in any zone or IWD; white RGB, mid gloss",
+                                                     warnings, 4, 4, std::array<Color, 1>{{{255, 255, 255, 128}}});
+                else if (!request.at("iwd_dirs").is_null())
+                {
+                    if (!iwdStems)
+                        iwdStems = recovery.ImageStems(bridge::PathList(request.at("iwd_dirs")));
+                    if (!iwdStems->contains(mod::Lower(stem)))
+                        images[index] = WriteSynthesized(asset, dst, "no pixel data in any zone or IWD (WaW draws its default image); neutral grey",
+                                                         warnings, 4, 4, std::array<Color, 1>{{{128, 128, 128, 255}}});
+                }
+                written[index] = !images[index].is_null();
+                if (!written[index])
+                    errors.push_back("image " + asset + ": source " + stem + ".dds missing from every image root");
+                continue;
+            }
+            if (!source.archive.empty())
+                knownRecovered[stem] = recovered[stem] = RecoveredMetadata(source);
+            const auto [key, first] = byDestination.try_emplace(fs::weakly_canonical(dst).wstring(), groups.size());
+            if (first)
+                groups.emplace_back();
+            groups[key->second].push_back({index, std::move(source.path), dst, knownRecovered.value(stem, Json())});
+        }
+        ConvertGroups(groups, names, images, written, errors, request.value("workers", parallel::Workers()));
+        auto output = Json::array(), report = Json::array();
+        for (std::size_t index = 0; index < names.size(); ++index)
+        {
+            if (written[index])
+                output.push_back(names[index]);
+            if (!images[index].is_null())
+                report.push_back(std::move(images[index]));
+        }
+        return {{"written", std::move(output)}, {"images", std::move(report)}, {"warnings", std::move(warnings)}, {"errors", std::move(errors)},
+                {"recovered", std::move(recovered)}};
+    }
+}

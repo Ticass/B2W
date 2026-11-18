@@ -1,8 +1,11 @@
 # Plan: the converter in C++
 
-Move the converter and CLI to C++ and preserve existing map behavior while
-improving build speed. A native desktop UI is optional and can replace the
-Python frontend once it covers the same workflows.
+Move all project-owned Python to C++. This covers the converter, CLI,
+desktop UI, tests, verification tools, and build and release tooling.
+Preserve working map behavior and measure performance on representative
+builds. Completion requires a working build, package, launcher, and test
+workflow on a machine without Python, plus zero tracked project-owned
+Python source.
 
 ## How it is ported without regressions
 
@@ -13,9 +16,10 @@ Python frontend once it covers the same workflows.
    reference on Cheese Cube Unlimited. Use existing staged inputs and focused
    regressions for component checks. Python behaviour that depended on the hash seed is made
    deterministic in Python first, then matched.
-3. **Python is the oracle until removal.** `WAW2BO2_NATIVE=0` keeps the Python
-   path, and `native/tools/shadow_*.py` runs both and diffs them. The Python
-   module is deleted only after its native step has shipped in playtested builds.
+3. **Capture parity before removing the reference.** `WAW2BO2_NATIVE=0`
+   selects the Python implementation during the transition. Before deletion,
+   exercise the native workflow end to end and move representative checks and
+   fixtures into the C++ test suite.
 4. **Then the data path changes.** Once the steps that read OAT's JSON/raw dumps
    are native, they read zones in process through OAT's libraries (no
    Unlinker dump, no JSON round trip), and the final link calls OAT's linker
@@ -48,6 +52,7 @@ No file over ~1,000 lines; areas talk through headers only.
 | 7 | weapons.py, fx.py, entities.py, barriers.py, paths, traversals ... | 5,000 |
 | 8 | t6bridge.py stage orchestration, modzone.py, builddriver.py, cli.py | 5,700 |
 | 9 | in-process OAT zone reading and linking (no dumps, no JSON) | - |
+| 10 | Desktop launcher, tests, verification, and build and release tooling | - |
 
 The remaining small modules move with the area that uses them.
 
@@ -74,6 +79,7 @@ The remaining small modules move with the area that uses them.
 | Stage lightmap pages, primary lights, and reflection probes | yes | Seven maps matched files, probe assignments, and diagnostics. The full Der Riese build passed with the same 20 BSP files. | 0.08 s / 1.69 s (two lightmap pages, one worker) |
 | Bake static-model light grid | yes | Six maps matched the model placements and grid byte for byte. Anguish's over-budget test returned the same palette-limit failure. | 0.09 s / 1.51 s |
 | Recover textures from WaW IWDs | yes | 41 real textures matched DDS bytes and source reports across seven IWI formats. Der Riese linked and matched all 20 BSP files. | 0.25 s / 39.56 s (41 IWD requests) |
+| Stage bridge images on the IWD service | yes | Cheese Cube Unlimited matched all 846 map images, 48 impact-material images, the reports, and archive provenance. Source selection is ordered and independent destinations convert concurrently. | 1.405 s / 1.889 s (846 images compared with the prior mixed path) |
 | Index stock T6 material donors | yes | All 323 technique-to-material mappings matched in the stock asset cache used by Der Riese. | 0.05 s / 0.27 s |
 | Select material donors and prepare material JSON | yes | 2,847 source materials from Der Riese, Cheese Cube, Nightclub, and Clinic of Evil matched Python with layered vertex data enabled and disabled. Der Riese's 1,143 staged materials, 319 technique sets, and 1,780 shader binaries also matched. | 0.19 s / 1.20 s (921 materials with layered vertex data) |
 | Convert compiled WaW effects and stage model overlays | yes | 800 converted FX assets and their reports matched. Der Riese's 231 staged FX files matched. Tests cover overlay files, rejected spotlights, and transitive failures. | 0.81 s / 1.28 s (800 source effects) |

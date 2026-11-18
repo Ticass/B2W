@@ -655,6 +655,23 @@ def _in_iwds(stem: str, iwd_dirs: list[Path]) -> bool:
 def stage_images(report: StageReport, image_roots: list[Path], project_root: Path,
                  iwd_dirs: list[Path] | None = None, extra_images: list[str] = (),
                  wavelets: wavelet.IwdRecovery | wavelet.NativeIwdRecovery | None = None) -> list[str]:
+    if isinstance(wavelets, wavelet.NativeIwdRecovery) and not SYNTHESIZED_IMAGES:
+        result = wavelets.operation('stage-bridge-images', {
+            'project_root': str(project_root), 'image_roots': list(map(str, image_roots)),
+            'iwd_dirs': list(map(str, iwd_dirs)) if iwd_dirs is not None else None,
+            'extra_images': list(extra_images), 'materials': [m['file'] for m in report.materials],
+            'native_images': [e['name'] for e in report.images if e.get('source_kind') == 't6_equivalent'],
+            'known_recovered': wavelets.recovered,
+            'diagnostic_lightmap': bool(os.environ.get('WAW2BO2_DIAG_FALLBACK_MAGENTA')),
+            'diagnostic_probes': bool(os.environ.get('WAW2BO2_DIAG_PROBES')),
+            'workers': parallel.worker_count(2**31 - 1),
+        })
+        if 'stage_error' in result:
+            raise StageError(result['stage_error'])
+        report.images.extend(result['images'])
+        report.warnings.extend(result['warnings'])
+        report.errors.extend(result['errors'])
+        return result['written']
     wanted: dict[str, str] = {name: name.replace("*", "_") for name in extra_images}
     for mat in report.materials:
         data = _load_json(project_root / mat["file"])

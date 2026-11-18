@@ -1,9 +1,13 @@
+#include "core/files.h"
+#include "pipeline/bridge_images.h"
 #include "textures/iwi.h"
+#include "textures/iwd_recovery.h"
 #include "textures/wavelet.h"
 #include "world/probe_plan.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <random>
 #include <string>
 
 namespace
@@ -69,6 +73,52 @@ TEST_CASE("Face-major DDS cubes keep each face inside its mip")
     const auto single = DdsToIwi(dds, true, true);
     CHECK(single.header.flags == (cubemap | noMipmaps));
     CHECK(single.bytes.substr(64) == base);
+}
+
+TEST_CASE("Bridge image staging distinguishes missing pixels from an unsearched IWD")
+{
+    namespace fs = std::filesystem;
+    using w2b::py::Json;
+    struct Fixture
+    {
+        fs::path root = fs::temp_directory_path() / ("w2b-bridge-images-" + std::to_string(std::random_device{}()));
+        bool owned = fs::create_directory(root);
+        ~Fixture()
+        {
+            if (!owned)
+                return;
+            std::error_code error;
+            for (const auto* path : {"images/$outdoor.iwi", "images/grey.iwi", "images/lightmap0_secondary.iwi",
+                                     "images/reflection_probe0.iwi", "images/~$white-rgb&missing.iwi", "images"})
+                fs::remove(root / path, error);
+            fs::remove(root, error);
+        }
+    } fixture;
+    REQUIRE(fixture.owned);
+    const auto& root = fixture.root;
+    using w2b::files::Utf8;
+    w2b::textures::IwdRecovery recovery({}, root / "recovered", std::nullopt, {}, {});
+    Json request{{"project_root", Utf8(root)}, {"image_roots", Json::array()}, {"iwd_dirs", Json::array()},
+                 {"materials", Json::array()}, {"extra_images", {"grey", "~$white-rgb&missing"}},
+                 {"native_images", Json::array()}, {"known_recovered", Json::object()}, {"workers", 1}};
+    const auto invented = w2b::pipeline::StageBridgeImages(request, recovery);
+    CHECK(invented.at("written") == Json::array({"$outdoor", "grey", "lightmap0_secondary", "reflection_probe0", "~$white-rgb&missing"}));
+    CHECK(invented.at("errors").empty());
+    std::string cube;
+    REQUIRE(w2b::files::ReadBytes(root / "images/reflection_probe0.iwi", cube));
+    REQUIRE(cube.size() == 64 + 4 * 4 * 4 * 6);
+    CHECK(static_cast<unsigned char>(cube[5]) == (w2b::textures::noMipmaps | w2b::textures::cubemap));
+    CHECK(cube.substr(64, 4) == std::string("\0\0\0\xff", 4));
+    std::string pages;
+    REQUIRE(w2b::files::ReadBytes(root / "images/lightmap0_secondary.iwi", pages));
+    REQUIRE(pages.size() == 64 + 4 * 12 * 4);
+    CHECK(pages.substr(64 + 4 * 4 * 4, 4) == std::string("\x84\xac\xbf\x6f", 4));
+
+    request["iwd_dirs"] = nullptr;
+    const auto unknown = w2b::pipeline::StageBridgeImages(request, recovery);
+    CHECK(unknown.at("errors") == Json::array({"image $outdoor: source $outdoor.dds missing from every image root",
+                                              "image grey: source grey.dds missing from every image root"}));
+    CHECK(unknown.at("written") == Json::array({"lightmap0_secondary", "reflection_probe0", "~$white-rgb&missing"}));
 }
 
 TEST_CASE("Alpha wavelet cubemaps retain all six faces at both mip levels")

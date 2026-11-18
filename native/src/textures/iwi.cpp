@@ -127,11 +127,11 @@ namespace w2b::textures
         return {header, std::move(bytes)};
     }
 
-    IwiImage RgbaToIwi(unsigned width, unsigned height, std::string_view pixels)
+    IwiImage RgbaToIwi(unsigned width, unsigned height, std::string_view pixels, bool cube)
     {
-        if (pixels.size() != MipSize(Format::rgba, width, height, 1, 0))
+        if (pixels.size() != MipSize(Format::rgba, width, height, 1, 0) * (cube ? 6 : 1))
             throw TextureError("RGBA data size does not match the image dimensions");
-        IwiHeader header{Format::rgba, noMipmaps, width, height, 1, {FileSize(pixels.size())}};
+        IwiHeader header{Format::rgba, noMipmaps | (cube ? cubemap : 0u), width, height, 1, {FileSize(pixels.size())}};
         auto bytes = HeaderBytes(header);
         bytes += pixels;
         return {header, std::move(bytes)};

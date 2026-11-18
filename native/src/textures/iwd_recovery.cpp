@@ -123,6 +123,34 @@ namespace w2b::textures
         archives_.push_back({path, overrides, std::move(archive)});
     }
 
+    std::unordered_set<std::string> IwdRecovery::ImageStems(std::span<const fs::path> directories) const
+    {
+        std::unordered_set<std::string> names;
+        const auto add = [&](const zip::Archive& archive)
+        {
+            for (const auto& entry : archive.Entries())
+                if (auto name = LowerName(entry.name); name.ends_with(".iwi"))
+                    names.insert(files::Utf8(files::FromUtf8(name).stem()));
+        };
+        for (const auto& dir : directories)
+        {
+            if (!fs::is_directory(dir))
+                continue;
+            for (const auto& entry : fs::directory_iterator(dir))
+            {
+                const auto& path = entry.path();
+                if (!LowerName(files::Utf8(path.extension())).ends_with(".iwd"))
+                    continue;
+                const auto found = std::ranges::find_if(archives_, [&](const Archive& archive) { return SamePart(path, archive.path); });
+                if (found == archives_.end())
+                    add(zip::Archive(path));
+                else
+                    add(*found->contents);
+            }
+        }
+        return names;
+    }
+
     std::string IwdRecovery::Read(Source source)
     {
         auto& archive = *archives_[source.archive].contents;
