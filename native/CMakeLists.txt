@@ -110,6 +110,7 @@ add_library(w2b_barricades STATIC src/barriers/xanim.cpp src/barriers/floor.cpp 
 target_link_libraries(w2b_barricades PUBLIC w2b_mapents w2b_physics)
 
 add_library(w2b_world STATIC
+    src/world/zone_manifest.cpp
     src/world/vertices.cpp
     src/world/bsp_visibility.cpp
     src/world/brush_records.cpp
@@ -141,6 +142,7 @@ add_library(w2b_gsc STATIC
 target_link_libraries(w2b_gsc PUBLIC w2b_core)
 
 add_library(w2b_gscport STATIC
+    src/gsc/port/staging.cpp
     src/gsc/port/util.cpp
     src/gsc/port/api.cpp
     src/gsc/port/rewrites.cpp

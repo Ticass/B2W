@@ -1280,11 +1280,32 @@ def verify_techsets(report: StageReport, used: set[str], techset_root: Path | No
                 report.errors.append(f"technique set {name}: shader {rel} missing from dump")
 
 
+def _script_staging_request(command: str, fields: dict):
+    with tempfile.TemporaryDirectory(prefix="waw2bo2_script_stage_") as folder:
+        request = Path(folder) / "request.json"
+        request.write_text(json.dumps(fields), encoding="utf-8")
+        return json.loads(native.run(command, str(request)))
+
+
+def _script_template(root: Path | None, name: str | None) -> dict | None:
+    return {"root": str(root), "name": name} if root is not None and name is not None else None
+
+
+def _stage_native_script_files(report: StageReport, root: Path, project: str, **fields) -> None:
+    result = _script_staging_request("stage-script-files", {"root": str(root), "project": project, **fields})
+    report.errors.extend(result["errors"])
+    report.warnings.extend(result["warnings"])
+
+
 def stage_template_scripts(report: StageReport, project: str, project_root: Path,
                            template_root: Path, template_name: str) -> None:
     """Instantiate every map script of a template map (e.g. the mod tools'
     zm_test boilerplate: main, _classic, _gamemodes, _fx, createfx, createart
     and the client scripts) under the project name."""
+    if native.tool() is not None:
+        _stage_native_script_files(report, project_root, project,
+                                   bo2Template=_script_template(template_root, template_name))
+        return
     for src in sorted(template_root.rglob(f"{template_name}*.[gc]sc")):
         rel = src.relative_to(template_root)
         if rel.parts[0] not in ("maps", "clientscripts"):
@@ -1456,6 +1477,10 @@ def source_entities(gfx_bin: Path, stage: Path, roots: list[Path]) -> Path:
 
 def stage_scripts(report: StageReport, project: str, project_root: Path,
                   template_root: Path | None, template_name: str | None) -> None:
+    if native.tool() is not None:
+        _stage_native_script_files(report, project_root, project,
+                                   requiredTemplate=_script_template(template_root, template_name))
+        return
     for folder, pattern in SCRIPT_FILES:
         dst = project_root / folder / pattern.format(p=project)
         if dst.exists():
@@ -1512,6 +1537,10 @@ def stage_water_bullets(report: StageReport, clip, roots: list[Path], project_ro
 
 
 def stage_rawfiles(report: StageReport, project_root: Path, bo2_root: Path | None) -> None:
+    if native.tool() is not None:
+        _stage_native_script_files(report, project_root, report.project,
+                                   rawfilesBo2=str(bo2_root) if bo2_root is not None else None)
+        return
     rel = Path("animtrees") / "fxanim_props.atr"
     dst = project_root / rel
     if dst.exists():
@@ -1529,6 +1558,8 @@ def stage_rawfiles(report: StageReport, project_root: Path, bo2_root: Path | Non
 
 def map_scripts(project_root: Path, project: str) -> list[str]:
     """Every map-specific script staged for the project (asset names)."""
+    if native.tool() is not None:
+        return _script_staging_request("list-map-scripts", {"root": str(project_root), "project": project})
     found = []
     for folder, ext in (("maps/mp", ".gsc"), ("clientscripts/mp", ".csc")):
         for sub in ("", "createfx/", "createart/"):
@@ -1545,10 +1576,34 @@ def map_scripts(project_root: Path, project: str) -> list[str]:
     return found
 
 
+def stage_map_scripts(report: StageReport, project: str, project_root: Path, bo2_root: Path | None,
+                      template_root: Path | None, template_name: str | None) -> None:
+    if native.tool() is not None:
+        template = _script_template(bo2_root / "mods" / "zm_test", "zm_test") if bo2_root is not None else None
+        _stage_native_script_files(report, project_root, project, bo2Template=template,
+                                   requiredTemplate=_script_template(template_root, template_name),
+                                   rewriteTemplateReferences=True)
+        return
+    if bo2_root is not None and (bo2_root / "mods" / "zm_test").exists():
+        stage_template_scripts(report, project, project_root, bo2_root / "mods" / "zm_test", "zm_test")
+    stage_scripts(report, project, project_root, template_root, template_name)
+    for script_name in map_scripts(project_root, project):
+        script_path = project_root / script_name
+        source = script_path.read_text(encoding="utf-8", errors="replace")
+        if "zm_test" in source:
+            script_path.write_text(source.replace("zm_test", project), encoding="utf-8")
+            report.warnings.append(f"template references renamed in {script_name}")
+
+
 def write_zone(stage: Path, project: str, images: list[str], ipak: bool,
                xmodels: list[str] = (), scripts: list[str] = (), zbarriers: list[str] = (),
                effects: list[str] = (), materials: list[str] = (), localizations: list[str] = (),
                rawfiles: list[str] = ()) -> Path:
+    if native.tool() is not None:
+        assets = {"image": images, "xmodel": xmodels, "zbarrier": zbarriers, "fx": effects, "material": materials,
+                  "script": scripts, "localize": localizations, "rawfile": rawfiles}
+        return Path(_script_staging_request("write-map-zone", {"stage": str(stage), "project": project,
+                                                               "assets": assets, "ipak": ipak}))
     zone_dir = stage / "zone_source"
     zone_dir.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -2157,15 +2212,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     verify_techsets(report, used, techset_dump, project_root,
                     sorted({next(a for a in p.parents if (a / "remaster.json").is_file())
                             for p in remastered.values()}))
-    if bo2_root is not None and (bo2_root / "mods" / "zm_test").exists():
-        stage_template_scripts(report, project, project_root, bo2_root / "mods" / "zm_test", "zm_test")
-    stage_scripts(report, project, project_root, template_root, template_name)
-    for script_name in map_scripts(project_root, project):
-        script_path = project_root / script_name
-        source = script_path.read_text(encoding="utf-8", errors="replace")
-        if "zm_test" in source:
-            script_path.write_text(source.replace("zm_test", project), encoding="utf-8")
-            report.warnings.append(f"template references renamed in {script_name}")
+    stage_map_scripts(report, project, project_root, bo2_root, template_root, template_name)
     main_gsc = project_root / "maps" / "mp" / f"{project}.gsc"
     if waw_map_script is not None and main_gsc.exists():
         try:

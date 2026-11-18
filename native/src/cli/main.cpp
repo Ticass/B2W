@@ -16,6 +16,7 @@
 #include "gsc/port/api.h"
 #include "gsc/port/portmap.h"
 #include "gsc/port/rewrites.h"
+#include "gsc/port/staging.h"
 #include "materials/donor_index.h"
 #include "materials/prepare.h"
 #include "weapons/stage.h"
@@ -30,6 +31,7 @@
 #include "world/grid_stage.h"
 #include "world/inspect.h"
 #include "world/primary_lights.h"
+#include "world/zone_manifest.h"
 #include "world/probe_stage.h"
 #include "world/vertices.h"
 
@@ -856,6 +858,9 @@ namespace
         {"recover-projectile-collision", JsonRequest<w2b::models::RecoverProjectileCollision>},
         {"stage-materials", JsonRequest<w2b::pipeline::StageMaterials>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
+        {"stage-script-files", JsonRequest<w2b::gsc::port::StageScriptFilesRequest>},
+        {"list-map-scripts", JsonRequest<w2b::gsc::port::MapScriptsRequest>},
+        {"write-map-zone", JsonRequest<w2b::world::WriteMapZoneRequest>},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
         {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},

@@ -9,6 +9,7 @@
 #include "core/pytext.h"
 #include "gsc/parse.h"
 #include "gsc/port/generators.h"
+#include "gsc/port/staging.h"
 
 #include <windows.h>
 
@@ -102,11 +103,6 @@ namespace w2b::pipeline
             return x.eof() && y.eof();
         }
 
-        std::string Posix(const fs::path& path)
-        {
-            return files::Utf8(path.generic_wstring());
-        }
-
         // text=True, errors="replace": UTF-8 with replacement, universal newlines
         std::string Text(const std::string& bytes)
         {
@@ -156,30 +152,7 @@ namespace w2b::pipeline
 
     std::vector<std::string> MapScripts(const fs::path& projectRoot, const std::string& project)
     {
-        std::vector<std::string> found;
-        for (const auto& [folder, ext] : {std::pair<const char*, const char*>{"maps/mp", ".gsc"}, {"clientscripts/mp", ".csc"}})
-            for (const char* sub : {"", "createfx/", "createart/"})
-            {
-                auto paths = Glob(projectRoot / folder / sub, project, ext);
-                SortPaths(paths);
-                for (const auto& p : paths)
-                    found.push_back(std::string(folder) + "/" + sub + files::Utf8(p.filename()));
-            }
-        auto traverse = Glob(projectRoot / "maps/mp/animscripts/traverse", "waw2bo2_", ".gsc");
-        SortPaths(traverse);
-        for (const auto& p : traverse)
-            found.push_back("maps/mp/animscripts/traverse/" + files::Utf8(p.filename()));
-        for (const auto& p : Glob(projectRoot / "aitype", "waw_", ".gsc"))
-            found.push_back(Posix(p.lexically_relative(projectRoot)));
-        for (const auto& p : Glob(projectRoot / "aitype/clientscripts", "waw_", ".csc"))
-            found.push_back(Posix(p.lexically_relative(projectRoot)));
-        for (const auto& s : gsc::port::Bo2Scripts(projectRoot))
-            found.push_back(s);
-        auto client = files::GlobSuffix(projectRoot / "clientscripts/mp/waw", ".csc");
-        SortPaths(client);
-        for (const auto& p : client)
-            found.push_back(Posix(p.lexically_relative(projectRoot)));
-        return found;
+        return gsc::port::MapScripts(projectRoot, project);
     }
 
     void ValidateOwnedInitCalls(const fs::path& projectRoot, const std::string& project)
