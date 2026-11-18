@@ -36,16 +36,14 @@
 #include "world/primary_lights.h"
 #include "world/zone_manifest.h"
 
-#include <windows.h>
-
 #include <algorithm>
-#include <atomic>
 #include <map>
 #include <set>
 
 namespace w2b::pipeline
 {
     using bridge::AppendZone;
+    using bridge::Call;
     using bridge::OptionalPath;
     using bridge::PathList;
     using bridge::PathOrNull;
@@ -58,31 +56,6 @@ namespace w2b::pipeline
 
     namespace
     {
-        // a native step's JsonRequest entry point, called in process
-        Json Call(Json (*step)(const fs::path&), const Json& request)
-        {
-            static std::atomic<unsigned long long> serial{0};
-            const auto temporary = fs::temp_directory_path();
-            const auto prefix = "w2b_bridge_tail_" + std::to_string(GetCurrentProcessId()) + "_";
-            fs::path folder;
-            do
-                folder = temporary / (prefix + std::to_string(serial++));
-            while (!fs::create_directory(folder));
-            struct Cleanup
-            {
-                fs::path folder;
-                ~Cleanup()
-                {
-                    std::error_code e;
-                    fs::remove(folder / "request.json", e);
-                    fs::remove(folder, e);
-                }
-            } cleanup{folder};
-            const auto path = folder / "request.json";
-            files::WriteText(path, py::JsonDumpsDefault(request));
-            return step(path);
-        }
-
         // stockperks.asset_lines: explicit native perk dependencies
         std::vector<std::string> PerkAssetLines(const fs::path& outRoot)
         {

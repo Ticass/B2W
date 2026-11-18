@@ -3,6 +3,7 @@
 #include "driver.h"
 
 #include "audit.h"
+#include "bridge_stage.h"
 #include "core/files.h"
 #include "core/hash.h"
 #include "core/process.h"
@@ -87,6 +88,20 @@ namespace w2b::pipeline
         {
             std::lock_guard lock(stepMutex);
             currentStep = step;
+        }
+
+        // stage-bridge in this process; the Python conversion worker stages
+        // only the opt-ins this port lacks, and WAW2BO2_NATIVE=0 selects the
+        // Python reference
+        void StageBridgeStep(const std::vector<std::string>& args)
+        {
+            const auto options = BridgeStageOptions::Parse({args.begin() + 1, args.end()});
+            const wchar_t* native = _wgetenv(L"WAW2BO2_NATIVE");
+            if (!options.PythonOnlyOption().empty() || (native && std::wstring(native) == L"0"))
+                return RunCli(args);
+            SetStep("stage-bridge");
+            if (const int code = StageBridge(options))
+                throw StepError("RuntimeError", "stage-bridge failed (" + std::to_string(code) + ")");
         }
 
         std::string WorldName(const fs::path& dump, const std::string& stem)
@@ -390,7 +405,7 @@ namespace w2b::pipeline
                 fs::remove(receiptPath, e);
                 {
                     timeline::Span span("2 stage-bridge");
-                    RunCli(args);
+                    StageBridgeStep(args);
                 }
                 files::WriteText(receiptPath, py::JsonDumpsDefault(py::Json{{"project", project}, {"fingerprint", fingerprint}, {"files", EditableFiles(stage / "zone_raw" / l::Path(project))}}));
             }

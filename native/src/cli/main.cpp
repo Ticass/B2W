@@ -63,6 +63,7 @@
 #include "strings/localization.h"
 #include "visions/visions.h"
 #include "models/projectile_collision.h"
+#include "pipeline/bridge_stage.h"
 #include "pipeline/materials_stage.h"
 #include "pipeline/effects_stage.h"
 #include "pipeline/scripts_stage.h"
@@ -690,6 +691,26 @@ namespace
     }
 
     // build-map --settings-json J [--redump] [--build-root R] [--waw-cache-root R] [--bo2-cache-root R]
+    // stage-bridge <stage> <project> --gfx ... (cli.py stage-bridge)
+    int StageBridgeCommand(const Arguments& args)
+    {
+        try
+        {
+            return w2b::pipeline::StageBridge(w2b::pipeline::BridgeStageOptions::Parse(args));
+        }
+        catch (const w2b::pipeline::StepError& error)
+        {
+            std::fflush(stdout);
+            std::fprintf(stderr, "waw2bo2: error: %s: %s\n", error.kind.c_str(), error.what());
+        }
+        catch (const std::exception& error)
+        {
+            std::fflush(stdout);
+            std::fprintf(stderr, "waw2bo2: error: RuntimeError: %s\n", error.what());
+        }
+        return 1;
+    }
+
     int BuildMapCommand(const Arguments& input)
     {
         auto args = input;
@@ -988,6 +1009,7 @@ namespace
                         w2b::files::FromUtf8(a[1]), a.size() == 3));
         }},
         {"package", PackageCommand}, {"compile-scripts", CompileScriptsCommand}, {"bridge-link", BridgeLinkCommand},
+        {"stage-bridge", StageBridgeCommand},
         {"build-map", BuildMapCommand}, {"build-mod", BuildModCommand}, {"audit-zone", AuditZoneCommand}, {"all2raw", All2RawCommand}, {"extract-prepare", ExtractPrepareCommand},
         {"extract-sources", ExtractSourcesCommand}, {"audit-material-args", AuditMaterialArgsCommand},
         {"inspect", Inspect}, {"world-inspect", Inspect},

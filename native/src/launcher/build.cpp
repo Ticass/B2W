@@ -601,7 +601,7 @@ namespace w2b::launcher
                 failures.push_back(c.name + ": " + c.detail);
         if (!failures.empty())
             Fail(Join(failures, "\n"));
-        return runner.Run(CliCommand({"all2raw", "--settings-json", py::JsonDumpsDefault(settings.ToJson())}), Path(settings.work) / "asset_cache/extract.log");
+        return runner.Run(NativeCommand({"all2raw", "--settings-json", py::JsonDumpsDefault(settings.ToJson())}), Path(settings.work) / "asset_cache/extract.log");
     }
 
     int PerformInstall(const Settings& settings, ProcessRunner& runner)

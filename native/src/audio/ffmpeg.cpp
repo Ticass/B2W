@@ -45,6 +45,9 @@ namespace w2b::audio
             return {};
         for (auto folder = path(pathBuffer.data()).parent_path(); !folder.empty(); folder = folder.parent_path())
         {
+            // the converter's own native tools folder (tools/bin/ffmpeg.exe)
+            if (const auto shipped = folder / "tools/bin/ffmpeg.exe"; GetFileAttributesW(shipped.c_str()) != INVALID_FILE_ATTRIBUTES)
+                return shipped;
             for (const auto& root : {folder, folder / "_internal"})
                 if (auto bundled = FindBundledFfmpeg(root); !bundled.empty())
                     return bundled;

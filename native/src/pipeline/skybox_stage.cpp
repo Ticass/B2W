@@ -2,11 +2,13 @@
 #include "skybox_stage.h"
 
 #include "core/asset_paths.h"
+#include "finish.h"
 #include "modutil.h"
 #include "shaders/runtime.h"
 #include "weapons/weapon.h"
 
 #include <algorithm>
+#include <cstring>
 #include <set>
 
 namespace w2b::pipeline
@@ -69,6 +71,113 @@ namespace w2b::pipeline
                         }
                         bone[bound] = values;
                     }
+        }
+
+        // T6 sky cubemaps (mc_skycubemaphdr) carry an HDR intensity in alpha;
+        // WaW sky cubes are LDR with alpha 0. round(255 / 6) in Python: the
+        // LDR colour comes out at about its WaW brightness with the stock
+        // material's skyColorParms intensity of 6.
+        constexpr unsigned char SKY_HDR_ALPHA = 42;
+        const std::string SKYBOX_TEMPLATE = "skybox_dlc0_zm_nuketown";
+        const std::string SKY_SOURCE_DIR = "sky_src";
+        const std::string NO_SKY_IMAGE = "waw2bo2_no_sky";
+
+        void PutU32(std::string& data, std::size_t offset, std::uint32_t value)
+        {
+            std::memcpy(data.data() + offset, &value, 4);
+        }
+
+        std::uint32_t GetU32(const std::string& data, std::size_t offset)
+        {
+            std::uint32_t value = 0;
+            std::memcpy(&value, data.data() + offset, 4);
+            return value;
+        }
+
+        // repr() of a bytearray
+        std::string BytearrayRepr(std::string_view bytes)
+        {
+            const bool doubleQuote = bytes.find('\'') != std::string_view::npos && bytes.find('"') == std::string_view::npos;
+            const char quote = doubleQuote ? '"' : '\'';
+            std::string out = std::string("bytearray(b") + quote;
+            for (const unsigned char c : bytes)
+            {
+                if (c == '\\' || c == static_cast<unsigned char>(quote))
+                    out += std::string("\\") + static_cast<char>(c);
+                else if (c == '\t')
+                    out += "\\t";
+                else if (c == '\n')
+                    out += "\\n";
+                else if (c == '\r')
+                    out += "\\r";
+                else if (c < 0x20 || c >= 0x7f)
+                {
+                    char hex[8];
+                    std::snprintf(hex, sizeof hex, "\\x%02x", c);
+                    out += hex;
+                }
+                else
+                    out += static_cast<char>(c);
+            }
+            return out + quote + ")";
+        }
+
+        // black_cube_dds: an uncompressed A8R8G8B8 cube map (6 faces, one mip),
+        // the layout SkyWithHdrAlpha writes for WaW sky cubes
+        std::string BlackCubeDds(std::uint32_t size, unsigned char alpha)
+        {
+            std::string data(128, '\0');
+            data.replace(0, 4, "DDS ");
+            const std::uint32_t header[] = {124, 0x100F, size, size, size * 4, 0, 1};
+            for (std::size_t i = 0; i < std::size(header); ++i)
+                PutU32(data, 4 + 4 * i, header[i]);
+            const std::uint32_t pixelFormat[] = {32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000};
+            for (std::size_t i = 0; i < std::size(pixelFormat); ++i)
+                PutU32(data, 76 + 4 * i, pixelFormat[i]);
+            PutU32(data, 108, 0x1008);
+            PutU32(data, 112, 0xFE00);
+            std::string face;
+            for (std::uint32_t i = 0; i < size * size; ++i)
+                face += std::string{'\0', '\0', '\0', static_cast<char>(alpha)};
+            for (int i = 0; i < 6; ++i)
+                data += face;
+            return data;
+        }
+
+        // _sky_with_hdr_alpha: the WaW sky cube with the T6 HDR intensity in
+        // alpha (uncompressed 32-bit DDS only); returns the image name to use
+        std::string SkyWithHdrAlpha(Json& report, const fs::path& projectRoot, const std::string& skyImage, const std::vector<fs::path>& imageRoots)
+        {
+            const auto source = Find(imageRoots, files::FromUtf8(skyImage + ".dds"));
+            if (!source)
+            {
+                report["errors"].push_back("skybox: " + skyImage + ".dds not found in the image roots");
+                return skyImage;
+            }
+            auto data = mod::Bytes(*source);
+            const auto fourcc = data.substr(84, 4);
+            const auto bits = GetU32(data, 88);
+            if (fourcc != std::string(4, '\0') || bits != 32)
+            {
+                report["warnings"].push_back("skybox: " + skyImage + " is " + BytearrayRepr(fourcc) + "/" + std::to_string(bits) +
+                                             "bpp; its alpha is not rewritten, the T6 sky may render dark");
+                return skyImage;
+            }
+            const auto alphaMask = GetU32(data, 104);
+            const std::size_t shift = alphaMask == 0x000000FF ? 0 : 3;
+            if (!alphaMask)
+            {
+                // X8R8G8B8 -> A8R8G8B8 (converted to an RGBA IWI, not 24-bit RGB)
+                PutU32(data, 80, GetU32(data, 80) | 0x1);
+                PutU32(data, 104, 0xFF000000);
+            }
+            for (auto i = 128 + shift; i < data.size(); i += 4)
+                data[i] = static_cast<char>(SKY_HDR_ALPHA);
+            const auto name = skyImage + "_t6sky";
+            files::WriteBytes(projectRoot / SKY_SOURCE_DIR / files::FromUtf8(name + ".dds"), data);
+            report["warnings"].push_back("skybox: " + skyImage + " alpha set to " + std::to_string(SKY_HDR_ALPHA) +
+                                         "/255 as the T6 HDR sky intensity (WaW sky cubes have none)");
+            return name;
         }
     } // namespace
 
@@ -171,5 +280,64 @@ namespace w2b::pipeline
         {
             return Json{{"stage_error", error.what()}};
         }
+    }
+
+    TemplateSky StageTemplateSkybox(Json& report, const std::string& project, const fs::path& projectRoot, const std::optional<fs::path>& bo2Root,
+                                    std::optional<std::string> skyImage, const std::vector<fs::path>& imageRoots)
+    {
+        if (!bo2Root)
+        {
+            report["errors"].push_back("skybox: needs --bo2");
+            return {};
+        }
+        const bool synthesized = !skyImage;
+        if (synthesized)
+        {
+            // An enclosed map with no sky surface and no skybox model: WaW
+            // draws nothing there (black). Keep T6's dome behind everything, black.
+            skyImage = NO_SKY_IMAGE;
+            files::WriteBytes(projectRoot / SKY_SOURCE_DIR / files::FromUtf8(*skyImage + ".dds"), BlackCubeDds(4, SKY_HDR_ALPHA));
+            report["warnings"].push_back("SKY_SYNTHESIZED the WaW map has no sky surface or skybox model; the T6 sky dome is black, as WaW draws it");
+        }
+        const auto raw = *bo2Root / "raw";
+        const auto sourceModel = raw / "xmodel" / files::FromUtf8(SKYBOX_TEMPLATE + ".json");
+        const auto sourceMaterial = raw / assets::MaterialPath(SKYBOX_MATERIAL);
+        if (!IsFile(sourceModel) || !IsFile(sourceMaterial))
+        {
+            report["errors"].push_back("skybox: " + mod::Str(sourceModel) + " or " + mod::Str(sourceMaterial) + " missing (run the mod tools All2Raw)");
+            return {};
+        }
+        auto model = mod::Json(sourceModel);
+        try
+        {
+            BridgeBoneBounds(model);
+        }
+        catch (const StageError& error)
+        {
+            throw StepError("StageError", error.what());
+        }
+        for (const auto& lod : model.value("lods", Json::array()))
+        {
+            const auto file = files::FromUtf8(lod.at("file").get<std::string>());
+            if (!IsFile(raw / file))
+            {
+                report["errors"].push_back("skybox: " + mod::Str(raw / file) + " missing");
+                return {};
+            }
+            CopyFile(raw / file, projectRoot / file);
+        }
+        files::WriteText(projectRoot / "xmodel" / files::FromUtf8("skybox_" + project + ".json"), py::JsonDumps(model, 4) + "\n");
+        if (!synthesized)
+            skyImage = SkyWithHdrAlpha(report, projectRoot, *skyImage, imageRoots);
+        auto material = mod::Json(sourceMaterial);
+        for (auto& texture : material["textures"])
+            if (texture.value("name", std::string()) == "colorMap")
+                texture["image"] = *skyImage;
+        files::WriteText(projectRoot / assets::MaterialPath(SKYBOX_MATERIAL), py::JsonDumps(material, 2) + "\n");
+        report["warnings"].push_back("skybox: BO2 " + SKYBOX_TEMPLATE + " dome with the WaW sky cube " + *skyImage);
+        TemplateSky sky{std::nullopt, skyImage};
+        if (material.contains("techniqueSet") && material["techniqueSet"].is_string())
+            sky.techset = material["techniqueSet"].get<std::string>();
+        return sky;
     }
 } // namespace w2b::pipeline

@@ -70,4 +70,46 @@ namespace w2b::pipeline::bridge
         files::ReadBytes(projectRoot / "mod_extra.zone", existing);
         files::WriteBytes(projectRoot / "mod_extra.zone", existing + mod::TextBytes(lines));
     }
+
+    // appends every element of the array `items` to the array report[key]
+    inline void Extend(Json& report, const char* key, const Json& items)
+    {
+        for (const auto& item : items)
+            report[key].push_back(item);
+    }
+
+    // a private folder under the temporary directory, removed with its contents
+    class TemporaryFolder
+    {
+    public:
+        TemporaryFolder();
+        ~TemporaryFolder();
+        TemporaryFolder(const TemporaryFolder&) = delete;
+        TemporaryFolder& operator=(const TemporaryFolder&) = delete;
+        const fs::path& Path() const
+        {
+            return folder_;
+        }
+
+    private:
+        fs::path folder_;
+    };
+
+    // a native step's JsonRequest entry point, called in process: the request
+    // is written to a private temporary file the step reads
+    Json Call(Json (*step)(const fs::path&), const Json& request);
+}
+
+namespace w2b::extract
+{
+    class StockWaw;
+}
+
+namespace w2b::pipeline::bridge
+{
+    // the request form of the stock WaW zones a native step continues from
+    // ({waw_root, unlinker, work, prepared}); null without them
+    Json StockRequest(const extract::StockWaw* stock);
+    // takes over the zone dumps a step prepared ({stock_prepared})
+    void AdoptPrepared(extract::StockWaw* stock, const Json& result);
 }
