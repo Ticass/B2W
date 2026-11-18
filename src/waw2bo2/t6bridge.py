@@ -2374,43 +2374,64 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                         for name in vision_report.get('default_fallback', [])]
     if vision_report['visions']:
         images.append('waw_vision_lut')
-    client_dir = project_root / 'clientscripts/mp/waw'
-    client_dir.mkdir(parents=True, exist_ok=True)
-    environment = (gscport.COMPAT_DIR / '_waw2bo2_environment.csc').read_text(encoding='utf-8')
-    environment = flame_environment_source(environment, project_root / 'content_source')
     weapon_runtime = project_root / 'content_source/weapons.runtime.json'
     weapon_table = json.loads(weapon_runtime.read_text())['table'] if weapon_runtime.is_file() else {}
-    stage_water_bullets(report, clip, roots, project_root, weapon_table)
     client_sound_names = zone_sound_names | compiled_sound_names | ({n for kinds in stock_waw.index.values()
         for n in kinds.get('sound', [])} if stock_waw else set())
-    tesla_client = clientport.stage_tesla(roots, project_root, report.fx_table, weapon_table, client_sound_names)
-    if tesla_client:
-        environment = environment.replace('init()\n{', 'init()\n{\n' + tesla_client, 1)
-    (client_dir / '_waw2bo2_environment.csc').write_text(environment, encoding='utf-8')
-    client_main = project_root / 'clientscripts/mp' / f'{project}.csc'
-    if (report.scripts or {}).get('characters'):
-        gscport.hook_bo2_client_characters(client_main)
-    client_text = client_main.read_text(encoding='utf-8')
-    # The donor's fog-volume monitor selects its own vision every frame.
-    # Converted WaW scripts own both fog and vision changes instead.
-    client_text = client_text.replace('    level thread init_fog_vol_to_visionset();\n', '')
-    hook = '    clientscripts\\mp\\waw\\_waw2bo2_environment::init();\n'
-    if hook.strip() not in client_text:
-        client_text = client_text.replace('    start_zombie_stuff();', '    start_zombie_stuff();\n' + hook, 1)
-    map_client = (report.scripts or {}).get('client')
-    if map_client:
-        # The map's client main runs once BO2's client main has set up its
-        # runtime, before the wait for client 0 (as WaW's main ends with it).
-        client_hook = clientport.finish_map_client(project_root, map_client, report.fx_table, weapon_table,
-                                                   client_sound_names)
-        report.warnings += [f"CLIENT_FX_UNBOUND {name}: loaded by the map's client scripts, not converted"
-                            for name in map_client['unbound_fx']]
-        marker = '    waitforclient( 0 );'
-        if client_hook.strip() not in client_text:
-            if marker not in client_text:
-                raise ValueError(f'{client_main.name}: no waitforclient( 0 ) to start the map client before')
-            client_text = client_text.replace(marker, client_hook + marker, 1)
-    client_main.write_text(client_text, encoding='utf-8')
+    if native.tool() is not None:
+        stage_water_bullets(report, clip, roots, project_root, weapon_table)
+        # the environment script and the client mains (pipeline/client_stage.cpp)
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_client_') as folder:
+            path = Path(folder) / 'request.json'
+            path.write_text(json.dumps({'project_root': str(project_root), 'project': project,
+                                        'roots': [str(r) for r in roots], 'fx_table': report.fx_table,
+                                        'sound_names': sorted(client_sound_names),
+                                        'characters': bool((report.scripts or {}).get('characters')),
+                                        'map_client': (report.scripts or {}).get('client')}), encoding='utf-8')
+            client = json.loads(native.run('finish-client-scripts', str(path)))
+        if 'value_error' in client:
+            raise ValueError(client['value_error'])
+        if (report.scripts or {}).get('client'):
+            report.scripts['client'] = client['map_client']
+        report.warnings += client['warnings']
+    else:
+        client_dir = project_root / 'clientscripts/mp/waw'
+        client_dir.mkdir(parents=True, exist_ok=True)
+        environment = (gscport.COMPAT_DIR / '_waw2bo2_environment.csc').read_text(encoding='utf-8')
+        environment = flame_environment_source(environment, project_root / 'content_source')
+        weapon_runtime = project_root / 'content_source/weapons.runtime.json'
+        weapon_table = json.loads(weapon_runtime.read_text())['table'] if weapon_runtime.is_file() else {}
+        stage_water_bullets(report, clip, roots, project_root, weapon_table)
+        client_sound_names = zone_sound_names | compiled_sound_names | ({n for kinds in stock_waw.index.values()
+            for n in kinds.get('sound', [])} if stock_waw else set())
+        tesla_client = clientport.stage_tesla(roots, project_root, report.fx_table, weapon_table, client_sound_names)
+        if tesla_client:
+            environment = environment.replace('init()\n{', 'init()\n{\n' + tesla_client, 1)
+        (client_dir / '_waw2bo2_environment.csc').write_text(environment, encoding='utf-8')
+        client_main = project_root / 'clientscripts/mp' / f'{project}.csc'
+        if (report.scripts or {}).get('characters'):
+            gscport.hook_bo2_client_characters(client_main)
+        client_text = client_main.read_text(encoding='utf-8')
+        # The donor's fog-volume monitor selects its own vision every frame.
+        # Converted WaW scripts own both fog and vision changes instead.
+        client_text = client_text.replace('    level thread init_fog_vol_to_visionset();\n', '')
+        hook = '    clientscripts\\mp\\waw\\_waw2bo2_environment::init();\n'
+        if hook.strip() not in client_text:
+            client_text = client_text.replace('    start_zombie_stuff();', '    start_zombie_stuff();\n' + hook, 1)
+        map_client = (report.scripts or {}).get('client')
+        if map_client:
+            # The map's client main runs once BO2's client main has set up its
+            # runtime, before the wait for client 0 (as WaW's main ends with it).
+            client_hook = clientport.finish_map_client(project_root, map_client, report.fx_table, weapon_table,
+                                                       client_sound_names)
+            report.warnings += [f"CLIENT_FX_UNBOUND {name}: loaded by the map's client scripts, not converted"
+                                for name in map_client['unbound_fx']]
+            marker = '    waitforclient( 0 );'
+            if client_hook.strip() not in client_text:
+                if marker not in client_text:
+                    raise ValueError(f'{client_main.name}: no waitforclient( 0 ) to start the map client before')
+                client_text = client_text.replace(marker, client_hook + marker, 1)
+        client_main.write_text(client_text, encoding='utf-8')
     source_amb = None
     if waw_map_script is not None:
         source_amb = source_amb_script([*(waw_patch_script_roots or []), waw_map_script.parent.parent,
@@ -2639,6 +2660,36 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                    f"nearest stock T6 curve {entry['nearest']['t6']} "
                                    f"({entry['nearest']['rmsDbError']:.1f} dB RMS, "
                                    f"max gain error {entry['nearest']['maxError']:.3f})")
+    if hasattr(wavelets, 'operation'):
+        # the rest of the stage in C++ (pipeline/bridge_tail.cpp), served by the IWD recovery
+        tail = wavelets.operation('bridge-tail', {
+            'report': json.loads(report.to_json()), 'project': project, 'project_root': str(project_root),
+            'stage': str(stage), 'roots': [str(r) for r in roots],
+            'bo2_root': str(bo2_root) if bo2_root is not None else None,
+            'techset_dump': str(techset_dump) if techset_dump is not None else None,
+            't4_unlinker': str(t4_unlinker) if t4_unlinker is not None else None,
+            't6_unlinker': str(t6_unlinker) if t6_unlinker is not None else None,
+            'waw_map_stem': waw_map_script.stem if waw_map_script is not None else None,
+            'raw_roots': [str(r / 'raw') for r in (waw_mod_tools, waw_root) if r is not None],
+            'iwd_dirs': [str(d) for d in (iwd_dirs or [])],
+            'stock_waw': {'waw_root': str(stock_waw.waw_root), 'unlinker': str(stock_waw.unlinker), 'work': str(stock_waw.work),
+                          'prepared': {zone: {'folder': str(folder), 'inputs': stock_waw.prepared_sources.get(zone, {})}
+                                       for zone, folder in stock_waw.prepared.items()}} if stock_waw is not None else None,
+            'images': images, 'hud_materials': list(hud_materials),
+            'zone_models': sorted(script_models | (shipped & resolved) | fx_models | projectile_models),
+            'zone_fx': list(effects.zone_fx), 'ipak': ipak, 'bo2_stock_perks': bo2_stock_perks,
+            'lighting': {'base': str(gfx_bin).removesuffix('.gfx.bin'), 'clip_source': str(clip_bin),
+                         'shadow_lights': bool(world.shadow_lights),
+                         'script_render_dvars': vision_report.get('script_render_dvars', {})},
+            'coverage_roots': [str(r) for r in [*(waw_patch_script_roots or []),
+                                                *([waw_map_script.parent.parent] if waw_map_script else []),
+                                                *(waw_script_roots or []), *([waw_stock_scripts] if waw_stock_scripts else [])]]})
+        for zone, entry in (tail.get('stock_prepared') or {}).items():
+            stock_waw.prepared[zone] = Path(entry['folder'])
+            stock_waw.prepared_sources[zone] = entry['inputs']
+        report = StageReport(**tail['report'])
+        wavelets.close()
+        return report
     lighting_base = str(gfx_bin).removesuffix(".gfx.bin")
     grid_file = Path(lighting_base + ".lightgrid.bin")
     if grid_file.exists():
@@ -2680,37 +2731,48 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             if unshadowed:
                 report.warnings.append(f"{len(unshadowed)} primary spot/omni lights drawn without shadow maps "
                                        "(render dump has no shadow geometry: re-extract gfxworld with the v6 T4 dumper)")
-            attenuation_images = set()
-            for name in sorted(definitions):
-                source_def = _find(roots, Path(f"lightdef/{name}.json"))
-                if source_def is None:
-                    report.errors.append(f"source light definition {name} is missing; re-extract lightdef assets")
-                    continue
-                definition = _load_json(source_def)
-                image_name = definition["attenuation"].removeprefix(",")
-                if image_name:
-                    source_image = _find(roots, Path(f"images/{image_name}.dds"))
-                    if source_image is None:
-                        report.errors.append(f"light attenuation image {image_name} is missing from source dumps")
+            if native.tool() is not None:
+                # pipeline/lighting_tail.cpp
+                with tempfile.TemporaryDirectory(prefix="waw2bo2_lightdefs_") as folder:
+                    path = Path(folder) / "request.json"
+                    path.write_text(json.dumps({"project_root": str(project_root), "roots": [str(r) for r in roots],
+                                                "definitions": sorted(definitions), "lighting_base": lighting_base}),
+                                    encoding="utf-8")
+                    lightdefs = json.loads(native.run("stage-light-defs", str(path)))
+                images += lightdefs["images"]
+                report.errors += lightdefs["errors"]
+            else:
+                attenuation_images = set()
+                for name in sorted(definitions):
+                    source_def = _find(roots, Path(f"lightdef/{name}.json"))
+                    if source_def is None:
+                        report.errors.append(f"source light definition {name} is missing; re-extract lightdef assets")
                         continue
-                    output_image = "waw_light/" + image_name
-                    image_path = project_root / f"images/{output_image}.iwi"
-                    image_path.parent.mkdir(parents=True, exist_ok=True)
-                    # T6 binds the ramp with its own sampler state (19: mipmapped);
-                    # WaW's def samples it unmipped, so only the base level is kept.
-                    image_path.write_bytes(iwi.dds_to_iwi(source_image.read_bytes(), base_level_only=True))
-                    definition["attenuation"] = output_image
-                    images.append(output_image)
-                    attenuation_images.add(output_image)
-                definition["name"] = "waw_light/" + name
-                output_def = project_root / f"lightdef/waw_light/{name}.json"
-                output_def.parent.mkdir(parents=True, exist_ok=True)
-                output_def.write_text(json.dumps(definition, indent=1) + "\n", encoding="utf-8")
-            # A light def's ramp is a code texture no material requests: the
-            # world streamer (mode 1) never made it resident and every WaW
-            # spot/omni light sampled a black falloff.
-            if attenuation_images:
-                write_image_streaming(project_root, attenuation_images, merge=True)
+                    definition = _load_json(source_def)
+                    image_name = definition["attenuation"].removeprefix(",")
+                    if image_name:
+                        source_image = _find(roots, Path(f"images/{image_name}.dds"))
+                        if source_image is None:
+                            report.errors.append(f"light attenuation image {image_name} is missing from source dumps")
+                            continue
+                        output_image = "waw_light/" + image_name
+                        image_path = project_root / f"images/{output_image}.iwi"
+                        image_path.parent.mkdir(parents=True, exist_ok=True)
+                        # T6 binds the ramp with its own sampler state (19: mipmapped);
+                        # WaW's def samples it unmipped, so only the base level is kept.
+                        image_path.write_bytes(iwi.dds_to_iwi(source_image.read_bytes(), base_level_only=True))
+                        definition["attenuation"] = output_image
+                        images.append(output_image)
+                        attenuation_images.add(output_image)
+                    definition["name"] = "waw_light/" + name
+                    output_def = project_root / f"lightdef/waw_light/{name}.json"
+                    output_def.parent.mkdir(parents=True, exist_ok=True)
+                    output_def.write_text(json.dumps(definition, indent=1) + "\n", encoding="utf-8")
+                # A light def's ramp is a code texture no material requests: the
+                # world streamer (mode 1) never made it resident and every WaW
+                # spot/omni light sampled a black falloff.
+                if attenuation_images:
+                    write_image_streaming(project_root, attenuation_images, merge=True)
         destination = project_root / "content_source/lighting"
         destination.mkdir(parents=True, exist_ok=True)
         for suffix in (".lightgrid.bin", ".lighting.json", ".primarylights.json"):
@@ -2721,40 +2783,53 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         report.warnings.append(f"WaW LightGrid staged with {pages} lightmap pages; T4 corner obstruction traces "
                                "require a separate runtime adapter because T6 stores scalar visibility")
     zbarriers = []
-    stock_barrier = techset_dump / "zbarrier" / entities.ZBARRIER_ASSET if techset_dump else None
-    if stock_barrier is not None and stock_barrier.exists():
-        target = project_root / "zbarrier" / entities.ZBARRIER_ASSET
-        target.parent.mkdir(parents=True, exist_ok=True)
-        barrier_text = stock_barrier.read_text(encoding="utf-8", errors="replace")
-        # The bridge has no T6 FX loader. The stock barrier's repair effects
-        # would make the otherwise valid barrier fail to link.
-        barrier_text = barrier_text.replace(r"\impacts/fx_large_woodhit", "\\")
-        target.write_text(barrier_text, encoding="utf-8")
-        report.warnings.append("stock T6 barrier repair FX omitted (bridge has no T6 FX loader)")
-        # The boards rebuild with the map's replace_chunk motion: its timings
-        # over each native board's repair animation (same names, in the mod
-        # link's first asset layer: modzone.MOD_OVERRIDE). Without the map's
-        # function the stock repair stays, reported.
-        from . import barriers
-        from .modzone import MOD_OVERRIDE
-        override = project_root / MOD_OVERRIDE
-        shutil.rmtree(override / "xanim", ignore_errors=True)
-        timing = (report.scripts or {}).get("window_repair_timing")
-        if timing is not None and bo2_root is not None:
-            written = barriers.stage_waw_repair_animations(barrier_text, bo2_root, timing, override)
-            report.content["window_repair_animations"] = {"timing": timing, "animations": written}
-            report.warnings.append(f"WINDOW_REBUILD {len(written)} board repair animations play the map's "
-                                   f"{timing['script']}::replace_chunk motion (lift {timing['lift']}s, turn "
-                                   f"{timing['turn']}s, hold {timing['hold']}s, push {timing['push']}s); the "
-                                   f"fast-reload perk scales it as BO2 does")
-        else:
-            report.warnings.append("FRAMEWORK_BO2 window rebuild: no replace_chunk in the map's scripts; "
-                                   "the boards keep BO2's repair animation")
-        # zm_test's mod.ff already owns this asset. Including it again in the
-        # map zone produces a runtime "Attempting to override asset" error.
-        report.warnings.append("T6 barrier asset supplied by zm_test mod.ff")
+    if native.tool() is not None:
+        # pipeline/lighting_tail.cpp
+        with tempfile.TemporaryDirectory(prefix="waw2bo2_zbarrier_") as folder:
+            path = Path(folder) / "request.json"
+            path.write_text(json.dumps({"project_root": str(project_root),
+                                        "techset_dump": str(techset_dump) if techset_dump else None,
+                                        "bo2_root": str(bo2_root) if bo2_root is not None else None,
+                                        "timing": (report.scripts or {}).get("window_repair_timing")}), encoding="utf-8")
+            barrier = json.loads(native.run("stage-zbarrier", str(path)))
+        report.warnings += barrier["warnings"]
+        report.errors += barrier["errors"]
+        report.content.update(barrier["content"])
     else:
-        report.errors.append(f"stock T6 zbarrier {entities.ZBARRIER_ASSET} missing from techset dump")
+        stock_barrier = techset_dump / "zbarrier" / entities.ZBARRIER_ASSET if techset_dump else None
+        if stock_barrier is not None and stock_barrier.exists():
+            target = project_root / "zbarrier" / entities.ZBARRIER_ASSET
+            target.parent.mkdir(parents=True, exist_ok=True)
+            barrier_text = stock_barrier.read_text(encoding="utf-8", errors="replace")
+            # The bridge has no T6 FX loader. The stock barrier's repair effects
+            # would make the otherwise valid barrier fail to link.
+            barrier_text = barrier_text.replace(r"\impacts/fx_large_woodhit", "\\")
+            target.write_text(barrier_text, encoding="utf-8")
+            report.warnings.append("stock T6 barrier repair FX omitted (bridge has no T6 FX loader)")
+            # The boards rebuild with the map's replace_chunk motion: its timings
+            # over each native board's repair animation (same names, in the mod
+            # link's first asset layer: modzone.MOD_OVERRIDE). Without the map's
+            # function the stock repair stays, reported.
+            from . import barriers
+            from .modzone import MOD_OVERRIDE
+            override = project_root / MOD_OVERRIDE
+            shutil.rmtree(override / "xanim", ignore_errors=True)
+            timing = (report.scripts or {}).get("window_repair_timing")
+            if timing is not None and bo2_root is not None:
+                written = barriers.stage_waw_repair_animations(barrier_text, bo2_root, timing, override)
+                report.content["window_repair_animations"] = {"timing": timing, "animations": written}
+                report.warnings.append(f"WINDOW_REBUILD {len(written)} board repair animations play the map's "
+                                       f"{timing['script']}::replace_chunk motion (lift {timing['lift']}s, turn "
+                                       f"{timing['turn']}s, hold {timing['hold']}s, push {timing['push']}s); the "
+                                       f"fast-reload perk scales it as BO2 does")
+            else:
+                report.warnings.append("FRAMEWORK_BO2 window rebuild: no replace_chunk in the map's scripts; "
+                                       "the boards keep BO2's repair animation")
+            # zm_test's mod.ff already owns this asset. Including it again in the
+            # map zone produces a runtime "Attempting to override asset" error.
+            report.warnings.append("T6 barrier asset supplied by zm_test mod.ff")
+        else:
+            report.errors.append(f"stock T6 zbarrier {entities.ZBARRIER_ASSET} missing from techset dump")
     model_overlay_fx = stage_model_overlay_fx(report, project_root)
     from . import modelisolation
     model_names = modelisolation.stage(project_root)

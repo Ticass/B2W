@@ -77,6 +77,9 @@
 #include "pipeline/weapon_runtime.h"
 #include "pipeline/weapon_visuals.h"
 #include "pipeline/skybox_stage.h"
+#include "pipeline/client_stage.h"
+#include "pipeline/lighting_tail.h"
+#include "pipeline/bridge_tail.h"
 #include "sound/bank.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
@@ -911,6 +914,9 @@ namespace
         {"stage-weapon-runtime", JsonRequest<w2b::pipeline::StageWeaponRuntime>},
         {"finish-weapon-runtime", JsonRequest<w2b::pipeline::FinishWeaponRuntime>},
         {"stage-source-skybox", JsonRequest<w2b::pipeline::StageSourceSkybox>},
+        {"finish-client-scripts", JsonRequest<w2b::pipeline::FinishClientScripts>},
+        {"stage-light-defs", JsonRequest<w2b::pipeline::StageLightDefs>},
+        {"stage-zbarrier", JsonRequest<w2b::pipeline::StageZbarrier>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"fix-model-surfaces", JsonRequest<w2b::models::StageSurfaceFixesRequest>},
         {"isolate-model-names", JsonRequest<w2b::models::IsolateModelNamesRequest>},
@@ -938,7 +944,7 @@ namespace
         {
             if (!a.empty())
                 return Usage();
-            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}, {"stage-waw-menu-art", w2b::pipeline::StageWawMenuArt}, {"stage-weapon-visuals", w2b::pipeline::StageWeaponVisuals}});
+            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}, {"stage-waw-menu-art", w2b::pipeline::StageWawMenuArt}, {"stage-weapon-visuals", w2b::pipeline::StageWeaponVisuals}, {"bridge-tail", w2b::pipeline::BridgeTail}});
             return 0;
         }},
         {"lightmaps", JsonRequest<w2b::textures::StageLightmaps>},
