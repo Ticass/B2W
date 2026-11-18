@@ -1,11 +1,14 @@
+import csv
 import json
 import hashlib
 import math
+import os
 import struct
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from waw2bo2 import sounds
 
@@ -563,6 +566,41 @@ class PlaybackBankTests(unittest.TestCase):
         self.assertEqual((row["DistMaxDry"], row["DistMaxWet"], row["PitchMin"]), ("600", "800", "-100"))
         self.assertEqual((row["Storage"], row["LimitCount"], row["EntityLimitCount"]), ("loaded", "0", "2"))
         self.assertEqual(row["PanType"], "2d")
+
+    def test_native_bank_packs_only_streams_without_shared_loaded_sources(self):
+        from waw2bo2 import audio, native
+
+        if native.tool() is None or audio.find_decoder() is None:
+            self.skipTest("native converter and FFmpeg required")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "content_source"
+            (root / "sound_bound_ir").mkdir(parents=True)
+            pcm_dir = root / "pcm"
+            pcm_dir.mkdir()
+            pcm = audio.canonical_pcm(b"\x02\x00" * 24000, 1, 48000)
+            for filename in ("shared.wav", "exclusive.wav"):
+                (pcm_dir / filename).write_bytes(pcm)
+            aliases = []
+            for name, filename, storage in (("loaded", "shared.wav", 1), ("shared", "shared.wav", 2),
+                                            ("exclusive", "exclusive.wav", 2)):
+                document = self.bound()
+                document["name"] = "waw/" + name
+                document["aliases"][0]["flags"]["loadType"] = storage
+                document["aliases"][0]["pcm_binding"]["output"] = filename
+                path = root / "sound_bound_ir" / (name + ".json")
+                path.write_text(json.dumps(document), encoding="utf-8")
+                aliases.append({"name": document["name"], "output": path.relative_to(root).as_posix()})
+            (root / "sounds.bindings.json").write_text(json.dumps({"aliases": aliases}), encoding="utf-8")
+            with patch.dict(os.environ, {"WAW2BO2_STREAM_FLAC": "1", "WAW2BO2_WORKERS": "2"}):
+                report = sounds.write_t6_bank(root, "fixture", root / "soundbank")
+            with (root / "soundbank/fixture.aliases.csv").open(newline="", encoding="utf-8") as stream:
+                rows = list(csv.DictReader(stream))
+            self.assertEqual([r["FileSource"] for r in rows], ["shared.wav", "shared.wav", "exclusive.flac"])
+            self.assertEqual(report["streamed_flac"]["files"], 1)
+            self.assertEqual(report["streamed_flac"]["original_bytes"], len(pcm) - 44)
+            self.assertTrue((pcm_dir / "exclusive.flac").is_file())
+            self.assertFalse((pcm_dir / "shared.flac").exists())
+            self.assertEqual((pcm_dir / "shared.wav").read_bytes(), pcm)
 
     def test_linear_gains_survive_native_t6_volume_encoding(self):
         document = self.bound()

@@ -1,0 +1,20 @@
+#pragma once
+
+#include <array>
+#include <string_view>
+
+namespace w2b::sound
+{
+    inline constexpr std::array<std::string_view, 60> T6AliasColumns{
+        "Name", "FileSource", "Secondary", "Storage", "Bus", "VolumeGroup", "DuckGroup",
+        "Duck", "ReverbSend", "CenterSend", "VolMin", "VolMax", "DistMin", "DistMaxDry",
+        "DistMaxWet", "DryMinCurve", "DryMaxCurve", "WetMinCurve", "WetMaxCurve", "LimitCount",
+        "EntityLimitCount", "LimitType", "EntityLimitType", "PitchMin", "PitchMax", "PriorityMin",
+        "PriorityMax", "PriorityThresholdMin", "PriorityThresholdMax", "PanType", "Pan", "Looping",
+        "RandomizeType", "Probability", "StartDelay", "EnvelopMin", "EnvelopMax", "EnvelopPercent",
+        "OcclusionLevel", "IsBig", "DistanceLpf", "FluxType", "FluxTime", "Subtitle", "Doppler",
+        "ContextType", "ContextValue", "Timescale", "IsMusic", "IsCinematic", "FadeIn", "FadeOut",
+        "Pauseable", "StopOnEntDeath", "StopOnPlay", "DopplerScale", "FutzPatch", "VoiceLimit",
+        "IgnoreMaxDist", "NeverPlayTwice"
+    };
+}

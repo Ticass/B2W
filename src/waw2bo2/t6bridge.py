@@ -2505,9 +2505,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # sound is loaded beside the map's, and its engine names get WaW copies
     template_bank_csv = bo2_root / "mods" / "zm_test" / "soundbank" / f"{sounds.TEMPLATE_SOUNDBANK}.aliases.csv" \
         if bo2_root is not None else None
-    if native.tool() is not None and os.environ.get("WAW2BO2_STREAM_FLAC") != "1":
+    if native.tool() is not None:
         # the stock measurements, the remaster profiles and the bank (pipeline/sound_mix.cpp)
+        flac_encoder = audio.find_decoder() if os.environ.get("WAW2BO2_STREAM_FLAC") == "1" else None
         request = {"project_root": str(project_root), "project": project,
+                   "flac_encoder": str(flac_encoder) if flac_encoder else "",
                    "bo2_root": str(bo2_root) if bo2_root is not None else None,
                    "stock_waw": {"waw_root": str(stock_waw.waw_root), "unlinker": str(stock_waw.unlinker),
                                  "work": str(stock_waw.work),

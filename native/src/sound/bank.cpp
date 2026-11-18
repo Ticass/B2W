@@ -2,8 +2,11 @@
 #include "bank.h"
 
 #include "core/files.h"
+#include "core/parallel.h"
 #include "core/pyre.h"
 #include "core/sum.h"
+#include "sound/bank_csv.h"
+#include "sound/streamed_bank.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,13 +22,6 @@ namespace w2b::sound
 
     namespace
     {
-        const std::vector<std::string> T6_ALIAS_COLUMNS{
-            "Name", "FileSource", "Secondary", "Storage", "Bus", "VolumeGroup", "DuckGroup", "Duck", "ReverbSend", "CenterSend", "VolMin", "VolMax",
-            "DistMin", "DistMaxDry", "DistMaxWet", "DryMinCurve", "DryMaxCurve", "WetMinCurve", "WetMaxCurve", "LimitCount", "EntityLimitCount",
-            "LimitType", "EntityLimitType", "PitchMin", "PitchMax", "PriorityMin", "PriorityMax", "PriorityThresholdMin", "PriorityThresholdMax",
-            "PanType", "Pan", "Looping", "RandomizeType", "Probability", "StartDelay", "EnvelopMin", "EnvelopMax", "EnvelopPercent", "OcclusionLevel",
-            "IsBig", "DistanceLpf", "FluxType", "FluxTime", "Subtitle", "Doppler", "ContextType", "ContextValue", "Timescale", "IsMusic", "IsCinematic",
-            "FadeIn", "FadeOut", "Pauseable", "StopOnEntDeath", "StopOnPlay", "DopplerScale", "FutzPatch", "VoiceLimit", "IgnoreMaxDist", "NeverPlayTwice"};
         const std::vector<std::string> PLAYBACK_NOT_TRANSLATED{
             "driver routing/ducking (stock BO2 groups; original bus gain baked into alias)", "speaker map (stock pan)",
             "alias-triggered ducks (BO2's Duck column: stock gunfire and impacts duck the mix)",
@@ -999,33 +995,10 @@ namespace w2b::sound
             return out;
         }
 
-        std::string CsvField(const std::string& field)
-        {
-            if (field.find_first_of(",\"\r\n") == std::string::npos)
-                return field;
-            std::string out = "\"";
-            for (const char c : field)
-                out += c == '"' ? std::string("\"\"") : std::string(1, c);
-            return out + "\"";
-        }
-
-        std::string CsvValue(const Json& v)
-        {
-            if (v.is_string())
-                return v.get<std::string>();
-            if (v.is_null())
-                return "";
-            if (v.is_boolean())
-                return v.get<bool>() ? "True" : "False";
-            if (v.is_number_integer())
-                return std::to_string(v.get<long long>());
-            return py::FloatRepr(v.get<double>());
-        }
     } // namespace
 
-    Json WriteT6Bank(const fs::path& requestPath)
+    Json WriteT6Bank(const Json& request)
     {
-        const auto request = ReadJson(requestPath);
         const auto project = files::FromUtf8(request["project"].get<std::string>());
         const auto bank = request["bank"].get<std::string>();
         const auto destination = files::FromUtf8(request["destination"].get<std::string>());
@@ -1066,9 +1039,23 @@ namespace w2b::sound
             for (const auto& a : remaster.value("ambience", Json::array()))
                 ambience.insert(a.get<std::string>());
         }
-        long long aliases = 0;
-        for (const auto& item : bindings["aliases"])
+        const auto& inputs = bindings.at("aliases");
+        const auto classes = remastering ? remaster.value("classes", Json()) : Json();
+        const auto stingers = remastering ? remaster.value("stingers", Json()) : Json();
+        const auto& measuredReverb = report.at("reverb_send");
+        struct AliasWork
         {
+            std::string name;
+            std::optional<std::string> role;
+            Json approximations = Json::array();
+            Json errors = Json::array();
+            std::vector<Json> rows;
+        };
+        std::vector<AliasWork> converted(inputs.size());
+        parallel::For(inputs.size(), [&](std::size_t i)
+        {
+            const auto& item = inputs.at(i);
+            auto& result = converted[i];
             const auto document = ReadJson(project / files::FromUtf8(item["output"].get<std::string>()));
             if (remastering && !document["aliases"].empty())
             {
@@ -1085,24 +1072,34 @@ namespace w2b::sound
                         bus = first["bus"].get<std::string>();
                 }
                 const bool spatialized = (first["source"].value("flags", 0LL) & (1LL << 6)) != 0;
-                if (const auto r = Role(bus, spatialized, document["name"].get<std::string>(), music, ambience, remaster.value("stingers", Json())))
-                    roles[Lower(document["name"].get<std::string>())] = *r;
+                result.name = Lower(document["name"].get<std::string>());
+                result.role = Role(bus, spatialized, document["name"].get<std::string>(), music, ambience, stingers);
             }
-            auto [fresh, errors] = AliasRows(document, weaponAliases, report["reverb_send"], remastering ? remaster.value("classes", Json()) : Json());
+            auto [fresh, errors] = AliasRows(document, weaponAliases, measuredReverb, classes);
             size_t index = 0;
             for (const auto& row : document["aliases"])
             {
                 for (const char* field : {"limitType", "entityLimitType"})
                     if (row["source"].contains(field) && row["source"][field] == 4)
-                        report["voice_limit_approximations"].push_back(
+                        result.approximations.push_back(
                             Json{{"alias", document["name"]}, {"variant", index}, {"field", field}, {"source", "softest"}, {"t6", "priority"}});
                 index++;
             }
-            for (const auto& x : errors)
-                report["errors"].push_back(x);
-            if (!fresh.empty())
+            result.rows = std::move(fresh);
+            result.errors = std::move(errors);
+        }, 4);
+        long long aliases = 0;
+        for (auto& result : converted)
+        {
+            if (result.role)
+                roles[result.name] = std::move(*result.role);
+            for (auto& approximation : result.approximations)
+                report["voice_limit_approximations"].push_back(std::move(approximation));
+            for (auto& error : result.errors)
+                report["errors"].push_back(std::move(error));
+            if (!result.rows.empty())
             {
-                rows.insert(rows.end(), fresh.begin(), fresh.end());
+                rows.insert(rows.end(), std::make_move_iterator(result.rows.begin()), std::make_move_iterator(result.rows.end()));
                 aliases++;
             }
         }
@@ -1150,6 +1147,9 @@ namespace w2b::sound
             report["loaded_to_streamed"] = FitLoadedBudget(rows, project / "pcm", budget, weaponAliases);
             report["loaded_budget"] = budget;
         }
+        if (request.value("stream_flac", StreamFlacEnabled()))
+            report["streamed_flac"] = PackStreamedAudio(rows, project / "pcm",
+                                                        files::FromUtf8(request.value("flac_encoder", std::string{})));
         std::set<std::string> known;
         for (const auto& r : rows)
             known.insert(r["Name"].get<std::string>());
@@ -1163,20 +1163,14 @@ namespace w2b::sound
             }
         }
         report["variants"] = rows.size();
-        fs::create_directories(destination);
-        std::string csv;
-        for (size_t i = 0; i < T6_ALIAS_COLUMNS.size(); i++)
-            csv += (i ? "," : "") + CsvField(T6_ALIAS_COLUMNS[i]);
-        csv += "\r\n";
-        for (const auto& row : rows)
-        {
-            for (size_t i = 0; i < T6_ALIAS_COLUMNS.size(); i++)
-                csv += (i ? "," : "") + CsvField(row.contains(T6_ALIAS_COLUMNS[i]) ? CsvValue(row[T6_ALIAS_COLUMNS[i]]) : std::string());
-            csv += "\r\n";
-        }
-        files::WriteBytes(destination / files::FromUtf8(bank + ".aliases.csv"), csv);
+        WriteAliasCsv(destination / files::FromUtf8(bank + ".aliases.csv"), rows);
         files::WriteText(project / "sounds.bank.json", py::JsonDumps(report, 2) + "\n");
         return Json{{"report", report}, {"budget", budget}};
+    }
+
+    Json WriteT6BankRequest(const fs::path& path)
+    {
+        return WriteT6Bank(ReadJson(path));
     }
     Json DefaultReverbMixOf(const fs::path& project)
     {

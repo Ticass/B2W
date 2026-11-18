@@ -4,8 +4,6 @@
 
 namespace w2b::pipeline
 {
-    std::filesystem::path FindMenuDecoder(const std::filesystem::path& explicitDecoder);
-
     class TemporaryMenuFile
     {
     public:

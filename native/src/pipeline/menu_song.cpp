@@ -2,11 +2,13 @@
 
 #include "audio/convert.h"
 #include "core/encoding.h"
+#include "audio/flac_batch.h"
 #include "core/files.h"
 #include "core/hash.h"
 #include "core/process.h"
 #include "pipeline/csvtable.h"
 #include "pipeline/menu_media.h"
+#include "sound/bank_schema.h"
 
 #include <algorithm>
 #include <array>
@@ -72,7 +74,7 @@ namespace w2b::pipeline
                 throw std::invalid_argument("Cannot read loading song: " + files::Utf8(input));
             if (auto pcm = ParseSong(bytes, false); pcm)
                 return std::move(*pcm);
-            const auto program = FindMenuDecoder(decoder);
+            const auto program = audio::FindFfmpeg(decoder);
             if (program.empty())
                 throw std::invalid_argument("Loading-song conversion needs FFmpeg. Use the desktop package or install FFmpeg.");
             const TemporaryMenuFile scratch;
@@ -93,20 +95,13 @@ namespace w2b::pipeline
         {
             // BO2 linker uses this column order and the same routing as stock loading music.
             const auto defaults = ReadCsv(
-                "Name,FileSource,Secondary,Storage,Bus,VolumeGroup,DuckGroup,Duck,ReverbSend,CenterSend,VolMin,VolMax,"
-                "DistMin,DistMaxDry,DistMaxWet,DryMinCurve,DryMaxCurve,WetMinCurve,WetMaxCurve,LimitCount,"
-                "EntityLimitCount,LimitType,EntityLimitType,PitchMin,PitchMax,PriorityMin,PriorityMax,PriorityThresholdMin,"
-                "PriorityThresholdMax,PanType,Pan,Looping,RandomizeType,Probability,StartDelay,EnvelopMin,EnvelopMax,"
-                "EnvelopPercent,OcclusionLevel,IsBig,DistanceLpf,FluxType,FluxTime,Subtitle,Doppler,ContextType,ContextValue,"
-                "Timescale,IsMusic,IsCinematic,FadeIn,FadeOut,Pauseable,StopOnEntDeath,StopOnPlay,DopplerScale,FutzPatch,"
-                "VoiceLimit,IgnoreMaxDist,NeverPlayTwice\n"
                 ",,,streamed,bus_music,grp_menu,snp_music,,0,0,79,79,0,5000,5000,allon,default,allon,default,1,8,"
                 "oldest,oldest,0,0,100,100,0,1,2d,music_all,looping,,1,0,0,0,0,0.25,no,yes,none,0,,no,,,no,yes,no,500,"
                 "5000,yes,no,,0,,no,no,no\n");
-            CsvRows rows{defaults[0]};
+            CsvRows rows{std::vector<std::string>(sound::T6AliasColumns.begin(), sound::T6AliasColumns.end())};
             for (const auto& name : names)
             {
-                auto row = defaults[1];
+                auto row = defaults.front();
                 row[0] = name;
                 row[1] = relativeWave;
                 rows.push_back(std::move(row));

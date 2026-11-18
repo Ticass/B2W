@@ -1071,19 +1071,15 @@ namespace w2b::pipeline
         // the bank (sounds.write_t6_bank)
         Json bankReport;
         {
-            const auto scratch = fs::temp_directory_path() / ("w2b_sound_mix_" + std::to_string(GetCurrentProcessId()));
-            fs::create_directories(scratch);
             const Json bankRequest{{"project", Str(projectRoot / "content_source")},
                                    {"bank", bank},
                                    {"destination", Str(projectRoot / "soundbank")},
                                    {"budget", budget},
                                    {"reverb_send", reverbSend},
                                    {"remaster", remaster},
+                                   {"flac_encoder", request.value("flac_encoder", std::string{})},
                                    {"engine_names", templateCsv ? TemplateAliasNames(*templateCsv) : std::vector<std::string>{}}};
-            files::WriteText(scratch / "request.json", py::JsonDumpsDefault(bankRequest));
-            const auto result = sound::WriteT6Bank(scratch / "request.json");
-            std::error_code e;
-            fs::remove_all(scratch, e);
+            const auto result = sound::WriteT6Bank(bankRequest);
             bankReport = result["report"];
             budget = result["budget"];
         }

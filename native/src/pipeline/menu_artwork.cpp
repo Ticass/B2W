@@ -1,5 +1,6 @@
 #include "pipeline/menu_artwork.h"
 
+#include "audio/flac_batch.h"
 #include "core/files.h"
 #include "core/process.h"
 #include "pipeline/menu_media.h"
@@ -174,7 +175,7 @@ namespace w2b::pipeline
                 // the Windows installation, so use the packaged decoder when absent.
                 if (launcher::Lower(files::Utf8(path.extension())) != ".webp" || !fs::is_regular_file(path))
                     throw;
-                const auto program = FindMenuDecoder(decoder);
+                const auto program = audio::FindFfmpeg(decoder);
                 if (program.empty())
                     throw;
                 const TemporaryMenuFile scratch;

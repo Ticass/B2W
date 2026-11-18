@@ -1649,10 +1649,13 @@ def write_t6_bank(project: Path, bank: str, destination: Path, budget: dict | No
     pans and unmatched curves come from the stock BO2 driver (a map cannot
     load its own, measured); every such mapping is listed in the report.
     """
-    if native.tool() is not None and os.environ.get("WAW2BO2_STREAM_FLAC") != "1":
+    if native.tool() is not None:
         import tempfile
+        from . import audio
+        flac_encoder = audio.find_decoder() if os.environ.get("WAW2BO2_STREAM_FLAC") == "1" else None
         request = {"project": str(project), "bank": bank, "destination": str(destination), "budget": budget,
-                   "reverb_send": reverb_send, "remaster": remaster, "engine_names": list(engine_names or [])}
+                   "reverb_send": reverb_send, "remaster": remaster, "engine_names": list(engine_names or []),
+                   "flac_encoder": str(flac_encoder) if flac_encoder else ""}
         with tempfile.TemporaryDirectory(prefix="waw2bo2_bank_") as folder:
             path = Path(folder) / "request.json"
             path.write_text(json.dumps(request, default=lambda value: sorted(value)), encoding="utf-8")

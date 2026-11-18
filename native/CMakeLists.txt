@@ -54,13 +54,15 @@ target_link_libraries(w2b_shaderruntime PUBLIC w2b_shaders w2b_materials w2b_gsc
 
 add_library(w2b_audio STATIC
     src/audio/convert.cpp
+    src/audio/ffmpeg.cpp
     src/audio/flac_batch.cpp
     src/audio/stage.cpp)
 target_link_libraries(w2b_audio PUBLIC w2b_core)
 
 add_library(w2b_sound STATIC
     src/sound/stage.cpp src/sound/names.cpp src/sound/pcm_binding.cpp
-    src/sound/curve_driver.cpp src/sound/curve_match.cpp src/sound/curve_binding.cpp src/sound/bank.cpp)
+    src/sound/curve_driver.cpp src/sound/curve_match.cpp src/sound/curve_binding.cpp src/sound/bank.cpp
+    src/sound/bank_csv.cpp src/sound/streamed_bank.cpp)
 target_link_libraries(w2b_sound PUBLIC w2b_core PRIVATE w2b_audio)
 
 add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/pillow_decode.cpp src/textures/iwi.cpp src/textures/stage.cpp src/textures/block_compress.cpp

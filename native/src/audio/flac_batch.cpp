@@ -92,14 +92,17 @@ namespace w2b::audio
         }
     }
 
-    py::Json EncodeFlacBatch(const files::fs::path& request)
+    py::Json EncodeFlacBatch(const std::string& encoder, const py::Json& tasks, unsigned workers)
+    {
+        std::vector<py::Json> results(tasks.size());
+        parallel::For(tasks.size(), [&](std::size_t i) { results[i] = Encode(encoder, tasks[i]); }, workers);
+        return results;
+    }
+
+    py::Json EncodeFlacBatchRequest(const files::fs::path& request)
     {
         const auto input = py::Json::parse(files::ReadText(request));
-        const auto encoder = input.at("encoder").get<std::string>();
-        const auto& tasks = input.at("tasks");
-        std::vector<py::Json> results(tasks.size());
-        parallel::For(tasks.size(), [&](std::size_t i) { results[i] = Encode(encoder, tasks[i]); },
-                      input.at("workers").get<unsigned>());
-        return results;
+        return EncodeFlacBatch(input.at("encoder").get_ref<const std::string&>(), input.at("tasks"),
+                               input.at("workers").get<unsigned>());
     }
 }
