@@ -25,4 +25,16 @@ namespace w2b::hash
         }
         return out;
     }
+
+    std::string Sha1Hex(const std::string_view data)
+    {
+        unsigned char digest[20];
+        if (BCryptHash(BCRYPT_SHA1_ALG_HANDLE, nullptr, 0, reinterpret_cast<PUCHAR>(const_cast<char*>(data.data())), static_cast<ULONG>(data.size()), digest, 20) != 0)
+            throw std::runtime_error("SHA-1 failed");
+        static constexpr char hex[] = "0123456789abcdef";
+        std::string out;
+        for (const unsigned char b : digest)
+            out += hex[b >> 4], out += hex[b & 15];
+        return out;
+    }
 } // namespace w2b::hash

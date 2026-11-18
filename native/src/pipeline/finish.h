@@ -3,6 +3,8 @@
 // mod tools linker (t6bridge.compile_scripts), link the map zone with the T6
 // bridge (cli._bridge_link) and assemble the Plutonium mod folder (package.py).
 
+#include "core/process.h"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -18,6 +20,8 @@ namespace w2b::pipeline
         std::string kind;
     };
 
+    // progress.captured: one merged output; WAW2BO2_VERBOSE=1 streams the tool's lines
+    process::Result Captured(const std::vector<std::string>& command, const std::string& cwd = "");
     std::vector<std::string> MapScripts(const fs::path& projectRoot, const std::string& project);
     void ValidateOwnedInitCalls(const fs::path& projectRoot, const std::string& project);
     // (compiled script names, linker log)

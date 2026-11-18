@@ -135,16 +135,16 @@ namespace w2b::pipeline
             std::fflush(stdout);
         }
 
-        // progress.captured: verbose runs stream the tool's lines
-        process::Result Captured(const std::vector<std::string>& command, const std::string& cwd = "")
-        {
-            const char* flag = std::getenv("WAW2BO2_VERBOSE");
-            const bool verbose = flag && std::string(flag) == "1";
-            if (verbose)
-                std::printf("[tool] Running %s\n", files::Utf8(fs::path(files::FromUtf8(command[0])).filename()).c_str());
-            return process::RunMerged(command, cwd, verbose ? Verbose : nullptr);
-        }
     } // namespace
+
+    process::Result Captured(const std::vector<std::string>& command, const std::string& cwd)
+    {
+        const char* flag = std::getenv("WAW2BO2_VERBOSE");
+        const bool verbose = flag && std::string(flag) == "1";
+        if (verbose)
+            std::printf("[tool] Running %s\n", files::Utf8(fs::path(files::FromUtf8(command[0])).filename()).c_str());
+        return process::RunMerged(command, cwd, verbose ? Verbose : nullptr);
+    }
 
     std::string QuotedJoin(const std::vector<std::string>& command)
     {

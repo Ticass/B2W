@@ -1,6 +1,8 @@
 // The converted HUD's runtime files (see hud.h).
 #include "hud.h"
 
+#include "csvtable.h"
+
 #include "core/files.h"
 #include "core/hash.h"
 #include "core/pytext.h"
@@ -59,29 +61,8 @@ namespace w2b::pipeline
 
     void WriteTable(const fs::path& path, const std::vector<std::vector<std::string>>& rows)
     {
-        std::string text;
-        for (const auto& row : rows)
-        {
-            for (size_t i = 0; i < row.size(); i++)
-            {
-                const auto& field = row[i];
-                if (i)
-                    text += ',';
-                // QUOTE_MINIMAL: delimiter, quote character or line breaks
-                if (field.find_first_of(",\"\r\n") != std::string::npos)
-                {
-                    text += '"';
-                    for (const char c : field)
-                        text += c == '"' ? std::string("\"\"") : std::string(1, c);
-                    text += '"';
-                }
-                else
-                    text += field;
-            }
-            text += '\n';
-        }
         fs::create_directories(path.parent_path());
-        files::WriteText(path, text);
+        files::WriteText(path, CsvText(rows, "\n"));
     }
 
     std::vector<std::string> StageHudRuntime(const fs::path& bo2, const fs::path& project, const std::string& name)

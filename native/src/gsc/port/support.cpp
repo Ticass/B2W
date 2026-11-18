@@ -201,7 +201,8 @@ namespace w2b::gsc::port
             std::error_code error;
             if (!fs::exists(path, error))
                 return names;
-            for (const auto& ent : LoadJson(path)["entities"])
+            const auto data = LoadJson(path);
+            for (const auto& ent : data["entities"])
             {
                 if (ent.contains("waw_actor_type"))
                     names.insert(ent["waw_actor_type"].get<std::string>());

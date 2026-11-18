@@ -9,6 +9,7 @@
 #include "core/timeline.h"
 #include "extract/stock.h"
 #include "finish.h"
+#include "modzone.h"
 #include "knowledge.h"
 #include "launcher/diagnostics.h"
 
@@ -408,8 +409,8 @@ namespace w2b::pipeline
                         timeline::Parent nest(parent);
                         {
                             timeline::Span span("3a build-mod");
-                            RunCli({"build-mod", S(stage), project, "--bo2", S(bo2), "--work", S(mod), "--unlinker", S(t6), "--linker", S(linker), "--techset-dump", S(stock),
-                                    "--scripts-ready", S(ready)});
+                            SetStep("build-mod");
+                            BuildMod({stage, bo2, mod, t6, project, linker, stock, ready});
                         }
                         AuditZone(mod / "out/mod.ff", stage, project, bo2, stock, t6);
                     }

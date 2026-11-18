@@ -53,6 +53,7 @@
 #include <stdexcept>
 #include "launcher/build.h"
 #include "extract/stock.h"
+#include "pipeline/modzone.h"
 #include "pipeline/audit.h"
 #include "pipeline/driver.h"
 #include "pipeline/finish.h"
@@ -680,6 +681,30 @@ namespace
         return 1;
     }
 
+    // build-mod STAGE PROJECT --bo2 B --work W --unlinker U [--linker L] [--techset-dump D] [--scripts-ready F]
+    int BuildModCommand(const Arguments& args)
+    {
+        const auto p = Parse(args, {"--bo2", "--work", "--unlinker", "--linker", "--techset-dump", "--scripts-ready"});
+        if (!p || p->positional.size() != 2 || !p->Option("--bo2") || !p->Option("--work") || !p->Option("--unlinker"))
+            return Usage();
+        return Step([&] {
+            w2b::pipeline::BuildModOptions o;
+            o.stage = w2b::files::FromUtf8(p->positional[0]);
+            o.project = p->positional[1];
+            o.bo2 = w2b::files::FromUtf8(*p->Option("--bo2"));
+            o.work = w2b::files::FromUtf8(*p->Option("--work"));
+            o.unlinker = w2b::files::FromUtf8(*p->Option("--unlinker"));
+            if (const auto* v = p->Option("--linker"))
+                o.linker = w2b::files::FromUtf8(*v);
+            if (const auto* v = p->Option("--techset-dump"))
+                o.techsetDump = w2b::files::FromUtf8(*v);
+            if (const auto* v = p->Option("--scripts-ready"))
+                o.scriptsReady = w2b::files::FromUtf8(*v);
+            w2b::pipeline::BuildMod(o);
+            return 0;
+        });
+    }
+
     int BridgeLinkCommand(const Arguments& args)
     {
         const auto p = Parse(args, {"--linker", "--techset-dump", "--log"});
@@ -864,7 +889,7 @@ namespace
                         w2b::files::FromUtf8(a[1]), a.size() == 3));
         }},
         {"package", PackageCommand}, {"compile-scripts", CompileScriptsCommand}, {"bridge-link", BridgeLinkCommand},
-        {"build-map", BuildMapCommand}, {"audit-zone", AuditZoneCommand}, {"all2raw", All2RawCommand}, {"extract-prepare", ExtractPrepareCommand},
+        {"build-map", BuildMapCommand}, {"build-mod", BuildModCommand}, {"audit-zone", AuditZoneCommand}, {"all2raw", All2RawCommand}, {"extract-prepare", ExtractPrepareCommand},
         {"extract-sources", ExtractSourcesCommand}, {"audit-material-args", AuditMaterialArgsCommand},
         {"inspect", Inspect}, {"world-inspect", Inspect},
         {"static-models", StaticModels},

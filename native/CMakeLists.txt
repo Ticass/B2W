@@ -173,8 +173,9 @@ add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp)
 target_link_libraries(w2b_extract PUBLIC w2b_core)
 
 add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp src/pipeline/knowledge.cpp src/pipeline/driver.cpp
-    src/pipeline/modsupport.cpp src/pipeline/hud.cpp)
-target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_extract w2b_launcher w2b_weapons)
+    src/pipeline/modsupport.cpp src/pipeline/hud.cpp src/pipeline/csvtable.cpp src/pipeline/modzone.cpp
+    src/pipeline/lobby.cpp src/pipeline/shaderbind.cpp src/pipeline/buildmod.cpp)
+target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_weapons w2b_textures w2b_shaders)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
@@ -188,8 +189,8 @@ enable_testing()
 if(EXISTS "${OAT_THIRDPARTY}/catch2/CMakeLists.txt")
     add_subdirectory("${OAT_THIRDPARTY}/catch2" catch2 EXCLUDE_FROM_ALL)
     add_executable(w2b_tests tests/test_pytext.cpp tests/test_registers.cpp tests/test_translate.cpp
-        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp tests/test_extract.cpp)
-    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher w2b_extract Catch2::Catch2WithMain)
+        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp tests/test_extract.cpp tests/test_pipeline.cpp)
+    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher w2b_extract w2b_pipeline Catch2::Catch2WithMain)
     add_executable(fake_unlinker tests/fake_unlinker.cpp)
     add_dependencies(w2b_tests fake_unlinker)
     target_compile_definitions(w2b_tests PRIVATE FAKE_UNLINKER="$<TARGET_FILE:fake_unlinker>")

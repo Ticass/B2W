@@ -361,7 +361,8 @@ namespace w2b::extract
             const std::set<std::string> stockZones{"code_pre_gfx_zm", "code_post_gfx_zm", "common_zm", "patch_zm"};
             std::vector<std::string> order;
             std::map<std::string, std::set<std::string>> sets;
-            for (const auto& [filename, entry] : ReadJson(stockDump / "catalog.json")["zones"].items())
+            const auto catalog = ReadJson(stockDump / "catalog.json");
+            for (const auto& [filename, entry] : catalog["zones"].items())
             {
                 if (!stockZones.count(files::Utf8(files::FromUtf8(filename).stem())))
                     continue;
@@ -436,7 +437,8 @@ namespace w2b::extract
         if (IsFile(raw / "catalog.json"))
         {
             bool complete = true;
-            for (const auto& [name, _] : ReadJson(raw / "catalog.json")["owners"].items())
+            const auto catalog = ReadJson(raw / "catalog.json");
+            for (const auto& [name, _] : catalog["owners"].items())
                 complete = complete && IsFile(raw / files::FromUtf8(name));
             if (!complete)
                 raw = root / "views" / files::FromUtf8(generation + "-" + Key(py::Json(Str(raw) + std::to_string(std::rand()))).substr(0, 8));
