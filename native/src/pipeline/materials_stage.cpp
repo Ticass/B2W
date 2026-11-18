@@ -79,7 +79,8 @@ namespace w2b::pipeline
                             continue;
                         const auto stem = files::Utf8(entry.path().stem());
                         std::vector<std::string> parts;
-                        for (const auto part : py::Split(stem.substr(1), "_"))
+                        const auto body = stem.substr(1);
+                        for (const auto part : py::Split(body, "_"))
                             parts.emplace_back(part);
                         int common = 0;
                         for (size_t i = 0; i < std::min(want.size(), parts.size()); i++)

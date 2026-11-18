@@ -3455,6 +3455,32 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
                  stock_variant_roots: list[Path] | None = None) -> set[str]:
     """Translate the WaW map's gameplay scripts (gscport). Returns the WaW
     models the scripts use that the map zone must carry."""
+    if native.tool() is not None and source_waw is None and stock is not None and stock.exists():
+        t6api.build(bo2_root, stage / "t6api_cache.json", t6_unlinker)    # the native step reads this cache
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_scripts_') as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps({
+                'stage': str(stage), 'project_root': str(project_root), 'waw_map_script': str(waw_map_script),
+                'bo2_root': str(bo2_root), 'roots': [str(r) if r is not None else None for r in roots],
+                'iwd_dirs': [str(d) for d in iwd_dirs], 'stock': str(stock), 'model_roots': [str(r) for r in model_roots],
+                'stock_waw': {'waw_root': str(stock_waw.waw_root), 'unlinker': str(stock_waw.unlinker), 'work': str(stock_waw.work),
+                              'prepared': {zone: {'folder': str(folder), 'inputs': stock_waw.prepared_sources.get(zone, {})}
+                                           for zone, folder in stock_waw.prepared.items()}}
+                if stock_waw is not None else None,
+                'source_waw': False, 'bo2_stock_perks': bo2_stock_perks, 'waw_stock_map': waw_stock_map,
+                'stock_variant_roots': [str(r) for r in stock_variant_roots or []]}), encoding='utf-8')
+            if os.environ.get('WAW2BO2_CAPTURE'):
+                shutil.copy2(request, Path(os.environ['WAW2BO2_CAPTURE']) / 'port_scripts.json')
+            result = json.loads(native.run('port-scripts', str(request)))
+        if result['scripts']:
+            report.scripts = result['scripts']
+        report.warnings += result['warnings']
+        report.errors += result['errors']
+        model_roots[:] = [Path(r) for r in result['model_roots']]
+        for zone, entry in (result.get('stock_prepared') or {}).items():
+            stock_waw.prepared[zone] = Path(entry['folder'])
+            stock_waw.prepared_sources[zone] = entry['inputs']
+        return set(result['models'])
     map_name = waw_map_script.stem
     # the map zone's own rawfiles first (the folder holding maps/<map>.gsc)
     # None marks the map zone's place: a _patch zone loads after the map zone

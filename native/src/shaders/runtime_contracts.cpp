@@ -443,7 +443,8 @@ namespace w2b::shaders::runtime
             if (!literal)
                 return 1.0;
             std::vector<double> values;
-            for (const auto part : py::Split((*literal)[1], ","))
+            const auto listed = (*literal)[1];
+            for (const auto part : py::Split(listed, ","))
             {
                 double v = 0;
                 if (!py::ParseFloat(py::Strip(part), v))

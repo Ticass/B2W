@@ -65,6 +65,7 @@
 #include "models/projectile_collision.h"
 #include "pipeline/materials_stage.h"
 #include "pipeline/effects_stage.h"
+#include "pipeline/scripts_stage.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
 #include "pipeline/driver.h"
@@ -868,6 +869,7 @@ namespace
         {"stage-visions", JsonRequest<w2b::visions::StageVisions>},
         {"recover-projectile-collision", JsonRequest<w2b::models::RecoverProjectileCollision>},
         {"stage-materials", JsonRequest<w2b::pipeline::StageMaterials>},
+        {"port-scripts", JsonRequest<w2b::pipeline::PortScripts>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"fix-model-surfaces", JsonRequest<w2b::models::StageSurfaceFixesRequest>},
         {"isolate-model-names", JsonRequest<w2b::models::IsolateModelNamesRequest>},

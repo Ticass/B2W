@@ -1074,8 +1074,9 @@ namespace w2b::gsc::port::zombiebehavior
         const auto tree = outRoot / "animtrees" / (std::string(SCRIPTED_TREE) + ".atr");
         std::set<std::string> scriptedSet;
         std::error_code error;
+        const auto treeText = fs::is_regular_file(tree, error) ? files::ReadText(tree) : std::string();
         if (fs::is_regular_file(tree, error))
-            for (const auto line : py::SplitLines(files::ReadText(tree)))
+            for (const auto line : py::SplitLines(treeText))
             {
                 const std::string stripped(py::Strip(line));
                 if (!stripped.empty() && !StartsWith(line, "//"))

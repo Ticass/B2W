@@ -1,4 +1,5 @@
 """Runtime model requests must survive the full original WaW lookup."""
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,7 +27,8 @@ class ScriptModelSourcesTest(unittest.TestCase):
             stock = root / 'stock'
             stock.mkdir()
             report = t6bridge.StageReport('test')
-            with patch.object(t6bridge.t6api, 'build', return_value=T6Api(
+            # the Python step's helpers are patched: run the Python oracle
+            with patch.dict(os.environ, {'WAW2BO2_NATIVE': '0'}), patch.object(t6bridge.t6api, 'build', return_value=T6Api(
                     {'precacheshader': (1, 1)}, {}, methods={'setmodel': (1, 1)})), \
                  patch.object(t6bridge, 'stage_core_animtrees', return_value=({}, set())), \
                  patch.object(t6bridge, 'recover_script_models',

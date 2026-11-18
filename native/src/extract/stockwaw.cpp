@@ -124,7 +124,8 @@ namespace w2b::extract
         {
             const auto result = process::RunMerged({Str(unlinker), "--no-color", "--list", Str(ff)});
             py::Json types = py::Json::object();
-            for (const auto line : py::SplitLines(encoding::Utf8Replace(result.out)))
+            const auto listing = encoding::Utf8Replace(result.out);
+            for (const auto line : py::SplitLines(listing))
             {
                 const auto comma = line.find(',');
                 const auto kind = std::string(py::Strip(line.substr(0, comma)));
