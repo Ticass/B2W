@@ -4,7 +4,6 @@
 
 #include <array>
 #include <filesystem>
-#include <span>
 
 namespace w2b::world { struct CollisionWorld; }
 
@@ -21,7 +20,6 @@ namespace w2b::barriers
     };
 
     std::string ReadBytes(const Path& file);
-    double Sum(std::span<const double> values);
     Vec3 RepairedTranslation(const Path& file);
     Json RepairTiming(std::string_view script);
     std::string RetimeRepair(std::string_view raw, const Json& timing);

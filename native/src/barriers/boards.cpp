@@ -2,6 +2,7 @@
 
 #include "barriers/floor.h"
 #include "core/files.h"
+#include "core/sum.h"
 #include "mapents/entities.h"
 #include "physics/constraints.h"
 
@@ -52,7 +53,7 @@ namespace w2b::barriers
             Vec3 factors{};
             for (std::size_t i = 0; i < factors.size(); ++i)
                 factors[i] = (point[i] - origin[i]) * forward[i];
-            return Sum(factors);
+            return py::Sum(factors);
         }
 
         double RepairDepth(const Json& native, const Path& bo2, Json& poses)
@@ -69,7 +70,7 @@ namespace w2b::barriers
                     poses[name] = RepairedTranslation(Animation(bo2, name));
                 depths.push_back(poses.at(name).at(0).get<double>());
             }
-            return Sum(depths) / static_cast<double>(depths.size());
+            return py::Sum(depths) / static_cast<double>(depths.size());
         }
 
         struct Window
@@ -118,7 +119,7 @@ namespace w2b::barriers
             for (const auto index : group->second.boards)
                 depths.push_back(BoardDepth(entities.at(index), origin, forward));
             auto& native = entities.at(group->second.native.front());
-            const auto sourceDepth = Sum(depths) / static_cast<double>(depths.size());
+            const auto sourceDepth = py::Sum(depths) / static_cast<double>(depths.size());
             const auto nativeDepth = RepairDepth(native, bo2, poses);
             const auto shift = sourceDepth - nativeDepth;
             Vec3 root{};

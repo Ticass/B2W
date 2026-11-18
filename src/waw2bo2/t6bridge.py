@@ -1008,7 +1008,33 @@ def _gltf_game_bounds(path: Path):
 def stage_models(report: StageReport, world, project: str, stage: Path, project_root: Path,
                  extra_models: set[str] = frozenset(), roots: list[Path] | None = None,
                  entity_box_models: set[str] = frozenset()) -> set[str]:
-    """Stage every placed static model and the skybox as T6 xmodel sources.
+    """Stage placed models and their collision as T6 xmodel sources."""
+    if native.tool() is None:
+        return _stage_models_python(report, world, project, stage, project_root, extra_models, roots, entity_box_models)
+    fields = {'project': str(project_root), 'partCsv': str(OAT_T6_RAW / 'partclassification.csv'),
+              'placements': _model_placements(world), 'roots': list(map(str, roots or [stage])),
+              'extraModels': sorted(extra_models), 'boxModels': sorted(entity_box_models)}
+    with tempfile.TemporaryDirectory(prefix='waw2bo2_map_models_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps(fields), encoding='utf-8')
+        result = json.loads(native.run('stage-map-models', str(request)))
+    report.errors.extend(result['errors'])
+    report.warnings.extend(result['warnings'])
+    for name, entries in result['content'].items():
+        report.content.setdefault(name, []).extend(entries)
+    return set(result['materials'])
+
+
+def _model_placements(world) -> list[dict]:
+    return [{"name": m.name, "origin": list(m.origin), "axis": list(m.axis), "scale": m.scale, "flags": m.flags,
+             "cullDist": m.cull_dist, "primaryLightIndex": m.primary_light_index,
+             "reflectionProbeIndex": m.reflection_probe_index} for m in world.static_models]
+
+
+def _stage_models_python(report: StageReport, world, project: str, stage: Path, project_root: Path,
+                         extra_models: set[str], roots: list[Path] | None,
+                         entity_box_models: set[str]) -> set[str]:
+    """Stage every placed static model as a T6 xmodel source.
 
     Writes ``xmodel/<name>.json`` (OAT xmodel v2 pointing at the GLTF LODs)
     and ``BSP/models.json`` with the placements read by the bridge's
@@ -1096,10 +1122,7 @@ def stage_models(report: StageReport, world, project: str, stage: Path, project_
         shutil.copy2(part_csv, project_root / part_csv.name)
     else:
         report.errors.append(f"{part_csv} missing")
-    placements = [{"name": m.name, "origin": list(m.origin), "axis": list(m.axis),
-                   "scale": m.scale, "flags": m.flags, "cullDist": m.cull_dist,
-                   "primaryLightIndex": m.primary_light_index,
-                   "reflectionProbeIndex": m.reflection_probe_index} for m in world.static_models]
+    placements = _model_placements(world)
     for placement in placements:
         bounds = model_bounds.get(placement["name"])
         if bounds is not None:

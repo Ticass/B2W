@@ -1,6 +1,7 @@
 #include "barriers/xanim.h"
 
 #include "core/files.h"
+#include "core/sum.h"
 
 #include <algorithm>
 #include <charconv>
@@ -114,7 +115,7 @@ namespace w2b::barriers
             Quaternion products{};
             for (std::size_t i = 0; i < products.size(); ++i)
                 products[i] = a[i] * b[i];
-            auto dot = Sum(products);
+            auto dot = py::Sum(products);
             if (dot < 0)
             {
                 for (auto& value : b)
@@ -134,7 +135,7 @@ namespace w2b::barriers
             }
             for (std::size_t i = 0; i < products.size(); ++i)
                 products[i] = result[i] * result[i];
-            const auto length = std::sqrt(Sum(products));
+            const auto length = std::sqrt(py::Sum(products));
             for (auto& value : result)
                 value /= length;
             if (result[3] < 0)

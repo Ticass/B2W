@@ -23,6 +23,7 @@
 #include "mapents/entities.h"
 #include "paths/paths.h"
 #include "barriers/barriers.h"
+#include "models/models.h"
 #include "world/collision_stage.h"
 #include "world/fbx_stage.h"
 #include "world/grid_stage.h"
@@ -574,6 +575,7 @@ namespace
         {"convert-map-entities", JsonRequest<w2b::mapents::Run>},
         {"stage-ai-paths", JsonRequest<w2b::paths::Run>},
         {"stage-barricades", JsonRequest<w2b::barriers::Run>},
+        {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
         {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},

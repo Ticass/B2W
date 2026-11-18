@@ -79,6 +79,29 @@ class ZombieAppearanceAndHudTests(unittest.TestCase):
         self.assertEqual(data[2]['target'], 'authored_display')
         self.assertEqual(sum(counts.values()), 1)
 
+    def test_shared_model_destination_keeps_source_model_order(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            first, second = base / 'map', base / 'stock'
+            for source, name in ((first, 'a_model'), (second, 'z_model')):
+                (source / 'xmodel').mkdir(parents=True)
+                (source / 'xmodel' / f'{name}.json').write_text(
+                    json.dumps({'lods': [{'file': 'shared.gltf'}]}), encoding='utf-8')
+                (source / 'shared.gltf').write_text(
+                    json.dumps({'materials': [{'name': name}]}), encoding='utf-8')
+            (first / 'partclassification.csv').write_text('', encoding='utf-8')
+            report = t6bridge.StageReport('sample')
+            output = base / 'output'
+            with patch.object(t6bridge, 'OAT_T6_RAW', first):
+                materials = t6bridge.stage_models(report, SimpleNamespace(static_models=[]), 'sample',
+                                                  first, output, {'a_model', 'z_model'}, [first, second])
+            self.assertEqual(materials, {'a_model', 'z_model'})
+            self.assertEqual(report.errors, [])
+            self.assertEqual((output / 'shared.gltf').read_bytes(), (second / 'shared.gltf').read_bytes())
+
     def test_distinct_source_actor_types_keep_distinct_characters(self):
         template = '''#include character\\donor;
         main() { self.animtree = "native";

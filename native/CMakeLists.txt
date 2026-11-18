@@ -80,6 +80,9 @@ add_library(w2b_weapons STATIC src/weapons/infostring.cpp src/weapons/convert.cp
     src/weapons/models.cpp src/weapons/skeleton.cpp src/weapons/rebind.cpp src/weapons/viewmodels.cpp src/weapons/physics_preset.cpp)
 target_link_libraries(w2b_weapons PUBLIC w2b_core PRIVATE w2b_base64)
 
+add_library(w2b_models STATIC src/models/bounds.cpp src/models/geometry.cpp src/models/stage.cpp)
+target_link_libraries(w2b_models PUBLIC w2b_weapons)
+
 add_library(w2b_assets STATIC src/assets/paths.cpp src/assets/dependencies.cpp src/assets/resolver.cpp)
 target_link_libraries(w2b_assets PUBLIC w2b_weapons w2b_effects)
 
@@ -166,7 +169,7 @@ target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler 
 
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
 target_link_libraries(waw2bo2n PRIVATE w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
-    w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents w2b_paths w2b_barricades)
+    w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents w2b_paths w2b_barricades w2b_models)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()
