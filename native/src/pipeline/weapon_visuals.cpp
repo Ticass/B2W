@@ -144,7 +144,6 @@ namespace w2b::pipeline
                                        {"falloff_placement", nullptr},
                                        {"light_shadows", true},
                                        {"layered_vertex_data", request.value("layered_vertex_data", false)},
-                                       {"remaster", Json::object()},
                                        {"native_fallbacks", request.value("native_fallbacks", Json::object())},
                                        {"scratch", Str(scratch / "work")}};
             fs::create_directories(scratch);

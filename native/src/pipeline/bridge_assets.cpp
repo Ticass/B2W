@@ -336,7 +336,7 @@ namespace w2b::pipeline::bridge
                                {"image_prefix", "waw_world/"}, {"donors", donors},
                                {"falloff_placement", options.falloffPlacement ? Json(*options.falloffPlacement) : Json()},
                                {"light_shadows", options.lightShadows}, {"layered_vertex_data", options.layeredVertexData},
-                               {"remaster", Json::object()}, {"native_fallbacks", fallbacks}, {"scratch", Str(scratch.Path() / "scratch")}};
+                               {"native_fallbacks", fallbacks}, {"scratch", Str(scratch.Path() / "scratch")}};
             const auto data = Call(pipeline::StageMaterials, request);
             Names used;
             for (const auto& result : data["results"])

@@ -23,13 +23,12 @@ namespace w2b::pipeline
         std::optional<std::string> scriptTemplateName;
         std::optional<std::vector<fs::path>> iwdDirs;
         std::vector<fs::path> extraRoots, mapRoots, wawScriptRoots, wawPatchScriptRoots;
-        bool noIpak = false, fxFallback = false, wawSourceFx = false, approximateSoundCurves = false, bo2StockPerks = false,
-             wawStockMap = false, remasterBo2Materials = false;
+        bool noIpak = false, wawSourceFx = false, approximateSoundCurves = false, bo2StockPerks = false, wawStockMap = false;
 
         // throws StepError("ArgumentError") for an unknown or incomplete argument
         static BridgeStageOptions Parse(const std::vector<std::string>& args);
-        // the opt-in staging that still runs only in Python (--waw-source-fx,
-        // --fx-fallback, --remaster-bo2-materials); empty when this port covers it
+        // the opt-in staging that still runs only in Python (--waw-source-fx);
+        // empty when this port covers it
         std::string PythonOnlyOption() const;
     };
 

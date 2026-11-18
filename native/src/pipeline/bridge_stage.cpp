@@ -905,7 +905,6 @@ namespace w2b::pipeline
             const auto images = StageSkyAndImages(used);
 
             Json scripts{{"used_techsets", SortedNames(used)},
-                         {"remaster_roots", Json::array()},
                          {"waw_map_script", Str(*o_.wawMapScript)},
                          {"required_template", o_.scriptTemplate && o_.scriptTemplateName
                                                    ? Json{{"root", Str(*o_.scriptTemplate)}, {"name", *o_.scriptTemplateName}}
@@ -955,12 +954,10 @@ namespace w2b::pipeline
                                                                    {"--waw-script-root", &o.wawScriptRoots},
                                                                    {"--waw-patch-script-root", &o.wawPatchScriptRoots}};
         const std::map<std::string, bool*> flags{{"--no-ipak", &o.noIpak},
-                                                 {"--fx-fallback", &o.fxFallback},
                                                  {"--waw-source-fx", &o.wawSourceFx},
                                                  {"--approximate-sound-curves", &o.approximateSoundCurves},
                                                  {"--bo2-stock-perks", &o.bo2StockPerks},
-                                                 {"--waw-stock-map", &o.wawStockMap},
-                                                 {"--remaster-bo2-materials", &o.remasterBo2Materials}};
+                                                 {"--waw-stock-map", &o.wawStockMap}};
         std::optional<fs::path> gfx, clip, stockMaterials;
         for (std::size_t i = 0; i < args.size(); ++i)
         {
@@ -1008,13 +1005,7 @@ namespace w2b::pipeline
 
     std::string BridgeStageOptions::PythonOnlyOption() const
     {
-        if (wawSourceFx)
-            return "--waw-source-fx";
-        if (fxFallback)
-            return "--fx-fallback";
-        if (remasterBo2Materials)
-            return "--remaster-bo2-materials";
-        return {};
+        return wawSourceFx ? "--waw-source-fx" : std::string();
     }
 
     int StageBridge(const BridgeStageOptions& options)

@@ -168,8 +168,6 @@ Important behavior:
 - WaW's `main` search path supplies stock textures/sounds. Using only the map
   folder produces missing-asset reports.
 - `-NoWawSourceFx` disables raw source FX compilation with WaW Mod Tools.
-- `-FxFallback` enables reported stock BO2 FX substitutions for debugging;
-  this is off by default.
 - The driver enables `--approximate-sound-curves`. To require exact curve
   matches, invoke `stage-bridge` without that option. See [sound conversion](SOUND_CONVERSION.md).
 - Ordinary WaW primary frags currently map to BO2's `frag_grenade_zm`;

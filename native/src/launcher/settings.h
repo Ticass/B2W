@@ -20,7 +20,7 @@ namespace w2b::launcher
         std::string menu_title, menu_description, menu_mode, menu_location;
         std::string menu_blit, menu_large, menu_blur, menu_loading, menu_icon, menu_location_point, menu_preview;
         std::string menu_longitude = "0", menu_latitude = "0", loading_song;
-        bool source_fx = false, bo2_stock_perks = false, remaster = false, redump = false, resume = false, verbose = false;
+        bool source_fx = false, bo2_stock_perks = false, redump = false, resume = false, verbose = false;
 
         Settings();
         // dataclasses.asdict order

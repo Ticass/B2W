@@ -129,7 +129,7 @@ namespace w2b::pipeline
             std::optional<std::array<double, 4>> falloff;
             bool lightShadows = true, layered = false;
             std::set<std::string> native, nativeFallbacks;
-            std::map<std::string, fs::path> remaster, fallbacks;
+            std::map<std::string, fs::path> fallbacks;
         };
 
         std::string Renamed(const Context& c, const std::string& name)
@@ -275,7 +275,7 @@ namespace w2b::pipeline
 
         Result StageNative(const Context& c, const std::string& name)
         {
-            // a BO2 native material in place of the WaW one (remaster, or absent from WaW)
+            // the BO2 equivalent of a material absent from the whole WaW lookup
             Result result;
             result.native = true;
             const auto outRel = assets::MaterialPath(Renamed(c, name));
@@ -283,8 +283,7 @@ namespace w2b::pipeline
             if (c.rename.count(name))
                 entry["source"] = name;
             Json notes = Json::array();
-            const bool remastered = c.remaster.count(name) > 0;
-            const auto nativePath = remastered ? c.remaster.at(name) : c.fallbacks.at(name);
+            const auto& nativePath = c.fallbacks.at(name);
             auto out = ReadJson(nativePath);
             if (out.contains("thermalMaterial"))
             {
@@ -305,7 +304,7 @@ namespace w2b::pipeline
                         texture["image"] = StartsWith(image, "$") ? "," + image : image;
                         continue;
                     }
-                    const auto output = (c.imagePrefix.empty() ? std::string("waw_image/") : c.imagePrefix) + (remastered ? "bo2_remaster/" : "bo2_fallback/") + image;
+                    const auto output = (c.imagePrefix.empty() ? std::string("waw_image/") : c.imagePrefix) + "bo2_fallback/" + image;
                     fs::path materialFolder;
                     for (auto p = nativePath.parent_path(); !p.empty() && p != p.parent_path(); p = p.parent_path())
                         if (files::Utf8(p.filename()) == "materials")
@@ -313,8 +312,7 @@ namespace w2b::pipeline
                             materialFolder = p;
                             break;
                         }
-                    const std::vector<fs::path> imageRoots = remastered ? std::vector<fs::path>{materialFolder.parent_path(), nativeRoot}
-                                                                        : std::vector<fs::path>{nativeRoot, materialFolder.parent_path()};
+                    const std::vector<fs::path> imageRoots{nativeRoot, materialFolder.parent_path()};
                     auto imagePath = FindAny(imageRoots, assets::ImagePath(image, ".iwi"));
                     if (!imagePath && !FindAny(imageRoots, assets::ImagePath(image, ".dds")))
                         imagePath = extract::RequiredBo2Image(nativeRoot, image);
@@ -339,7 +337,7 @@ namespace w2b::pipeline
             const auto dst = c.projectRoot / outRel;
             fs::create_directories(dst.parent_path());
             files::WriteText(dst, py::JsonDumps(out, 2) + "\n");
-            const std::string why = remastered ? "remaster: native BO2 material replaces the WaW one" : "original material absent from WaW lookup";
+            const std::string why = "original material absent from WaW lookup";
             entry["t4_techset"] = nullptr;
             entry["t6_techset"] = out["techniqueSet"];
             entry["native_equivalent"] = Str(nativePath);
@@ -347,11 +345,9 @@ namespace w2b::pipeline
             for (const auto& n : notes)
                 allNotes.push_back(n);
             entry["notes"] = allNotes;
-            if (remastered)
-                entry["remastered"] = true;
             result.entry = entry;
             result.techset = out["techniqueSet"].get<std::string>();
-            result.warnings.push_back(std::string(remastered ? "REMASTER" : "BO2_FALLBACK") + " material " + name + " -> " + Str(nativePath) + ": " + why);
+            result.warnings.push_back("BO2_FALLBACK material " + name + " -> " + Str(nativePath) + ": " + why);
             return result;
         }
     } // namespace
@@ -379,8 +375,6 @@ namespace w2b::pipeline
         }
         c.lightShadows = request["light_shadows"].get<bool>();
         c.layered = request["layered_vertex_data"].get<bool>();
-        for (const auto& [k, v] : request["remaster"].items())
-            c.remaster[k] = files::FromUtf8(v.get<std::string>());
         for (const auto& [k, v] : request["native_fallbacks"].items())
             c.fallbacks[k] = files::FromUtf8(v.get<std::string>());
         std::vector<std::string> names;
@@ -395,7 +389,7 @@ namespace w2b::pipeline
         for (size_t i = 0; i < names.size(); i++)
         {
             const auto source = FindAny(c.roots, assets::MaterialPath(names[i]));
-            nativeName[i] = c.remaster.count(names[i]) || (!source && c.fallbacks.count(names[i]));
+            nativeName[i] = !source && c.fallbacks.count(names[i]);
         }
         parallel::For(names.size(), [&](const size_t i)
                       {

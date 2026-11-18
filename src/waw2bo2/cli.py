@@ -272,10 +272,8 @@ def _stage_bridge(args: argparse.Namespace) -> int:
         waw_patch_script_roots=[p.resolve() for p in args.waw_patch_script_root or []],
         waw_stock_scripts=args.waw_stock_scripts.resolve() if args.waw_stock_scripts else None,
         t6_unlinker=args.t6_unlinker.resolve() if args.t6_unlinker else None,
-        fx_fallback=args.fx_fallback,
         bo2_stock_perks=args.bo2_stock_perks,
         waw_stock_map=args.waw_stock_map,
-        remaster_bo2_materials=args.remaster_bo2_materials,
         waw_root=args.waw_root.resolve() if args.waw_root else None,
         t4_unlinker=args.t4_unlinker.resolve() if args.t4_unlinker else None,
         waw_stock_dumps=args.waw_stock_dumps.resolve() if args.waw_stock_dumps else None,
@@ -557,9 +555,6 @@ def parser() -> argparse.ArgumentParser:
     sb_p.add_argument("--waw-patch-script-root", type=Path, action="append",
                       help="rawfile dump of the map's _patch zone; WaW loads it after the map zone, so its "
                            "scripts replace the map zone's (searched first)")
-    sb_p.add_argument("--fx-fallback", action="store_true",
-                      help="OPT-IN: play WaW effects that are not converted as stock BO2 effects "
-                           "(compat/fx_fallback.json + compat/overrides/<map>.json); each is reported")
     sb_p.add_argument("--t6-unlinker", type=Path, help="OAT T6 Unlinker.exe (lists the stock BO2 zones' assets)")
     sb_p.add_argument("--waw-root", type=Path, help="WaW install (stock zones hold assets the map only references)")
     sb_p.add_argument("--t4-unlinker", type=Path, help="OAT T4 Unlinker.exe (lists/dumps stock WaW zones)")
@@ -588,9 +583,6 @@ def parser() -> argparse.ArgumentParser:
     sb_p.add_argument('--waw-stock-map', action='store_true',
                       help='The source is a retail WaW level (its fastfile is in the WaW install zone folder): '
                            'apply gsc_api.json stock_map_policies; custom maps keep their own logic')
-    sb_p.add_argument('--remaster-bo2-materials', action='store_true',
-                      help='Draw model materials that are ports of BO2 materials with the original BO2 material '
-                           '(textures, specular/gloss, shaders); each one reported as REMASTER')
     sb_p.set_defaults(func=_stage_bridge)
     bm_p = sub.add_parser("build-mod", help="link the zombies gameplay mod.ff with the BO2 mod tools linker")
     bm_p.add_argument("stage", type=Path)

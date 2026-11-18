@@ -60,7 +60,6 @@ class Settings:
     loading_song: str = ''
     source_fx: bool = False
     bo2_stock_perks: bool = False
-    remaster: bool = False
     redump: bool = False
     resume: bool = False
     verbose: bool = False
@@ -73,7 +72,7 @@ class Settings:
                 return cls()
             allowed = cls.__dataclass_fields__
             return cls(**{k: v for k, v in data.items() if k in allowed and
-                          (isinstance(v, bool) if k in ('source_fx', 'bo2_stock_perks', 'remaster', 'redump', 'resume', 'verbose') else isinstance(v, str))})
+                          (isinstance(v, bool) if k in ('source_fx', 'bo2_stock_perks', 'redump', 'resume', 'verbose') else isinstance(v, str))})
         except (OSError, ValueError, TypeError):
             return cls()
 

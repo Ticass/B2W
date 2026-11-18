@@ -111,8 +111,8 @@ def diagnostics_facts(data: bytes) -> dict:
                        ('project', settings.get('project')), ('map', settings.get('menu_title'))):
         if isinstance(value, str) and value.strip():
             facts[key] = redact(value.strip())[:200]
-    options = [label for key, label in (('bo2_stock_perks', 'BO2 stock perks'), ('source_fx', 'WaW source FX'),
-                                        ('remaster', 'BO2 remaster materials')) if settings.get(key) is True]
+    options = [label for key, label in (('bo2_stock_perks', 'BO2 stock perks'), ('source_fx', 'WaW source FX'))
+               if settings.get(key) is True]
     if options:
         facts['options'] = options
     errors = []

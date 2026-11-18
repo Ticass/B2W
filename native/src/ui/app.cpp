@@ -27,9 +27,9 @@ namespace w2b::ui
     App::App(Gpu& gpu, const HWND window, std::optional<fs::path> path)
         : gpu(gpu), window(window), settingsPath(std::move(path)), settings(l::Discover(l::Settings::Load(settingsPath)))
     {
-        // Refresh source files, Resume, BO2 stock perks and Remaster are not offered:
+        // Refresh source files, Resume and BO2 stock perks are not offered:
         // a value an older launcher saved must not keep applying unseen.
-        settings.redump = settings.resume = settings.bo2_stock_perks = settings.remaster = false;
+        settings.redump = settings.resume = settings.bo2_stock_perks = false;
         Refresh();
         if (!settings.fastfile.empty())
             status = "Map selected. Click Build Map when setup is ready.";

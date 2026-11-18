@@ -131,7 +131,6 @@ namespace w2b::pipeline
                     errors.push_back("no --techset-dump given; the bridge cannot load technique sets without techniquesets/*.json + shader_bin/*.cso dumped from a stock T6 zone");
                 else
                 {
-                    const auto extraRoots = PathList(scriptsReq.at("remaster_roots"));
                     const std::vector<fs::path> lookup{projectRoot, *techsetDump};
                     const auto find = [&](const fs::path& rel) -> std::optional<fs::path>
                     {
@@ -162,15 +161,7 @@ namespace w2b::pipeline
                         if (!path)
                         {
                             // outside the donor view: copy it and its shaders from its own zone
-                            std::optional<fs::path> owner;
-                            for (const auto& r : extraRoots)
-                                if (mod::IsFile(r / rel))
-                                {
-                                    owner = r;
-                                    break;
-                                }
-                            if (!owner)
-                                owner = extract::RequiredBo2Techset(*techsetDump, name);
+                            const auto owner = extract::RequiredBo2Techset(*techsetDump, name);
                             if (owner)
                             {
                                 std::vector<std::string> rels{mod::Generic(rel)};

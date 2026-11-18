@@ -52,7 +52,6 @@ class Launcher(ArtworkTab, ttk.Frame):
         self.art_cache = {}
         self.source_fx = tk.BooleanVar(value=self.settings.source_fx)
         self.bo2_stock_perks = tk.BooleanVar(value=self.settings.bo2_stock_perks)
-        self.remaster = tk.BooleanVar(value=self.settings.remaster)
         self.redump = tk.BooleanVar(value=self.settings.redump)
         self.resume = tk.BooleanVar(value=self.settings.resume)
         self.verbose = tk.BooleanVar(value=self.settings.verbose)
@@ -236,9 +235,6 @@ class Launcher(ArtworkTab, ttk.Frame):
         check = ttk.Checkbutton(build, text='Use BO2 stock perks and machines (keeps the WaW Pack-a-Punch)', variable=self.bo2_stock_perks)
         check.pack(anchor='w', pady=(0, 4))
         self.action_widgets.append(check)
-        check = ttk.Checkbutton(build, text='Remaster with BO2 materials (props ported from BO2)', variable=self.remaster)
-        check.pack(anchor='w', pady=(0, 4))
-        self.action_widgets.append(check)
         self.build_button = self._button(build, 'Build Map', self._build, style='Build.TButton')
         self.build_button.pack(fill='x', pady=(5, 6))
         self.ready_label = ttk.Label(build, text='', wraplength=400, style='Muted.TLabel')
@@ -387,7 +383,7 @@ class Launcher(ArtworkTab, ttk.Frame):
     def _snapshot(self) -> Settings:
         return Settings(**{key: value.get().strip() for key, value in self.vars.items()},
                         source_fx=self.source_fx.get(), bo2_stock_perks=self.bo2_stock_perks.get(),
-                        remaster=self.remaster.get(), redump=self.redump.get(), resume=self.resume.get(), verbose=self.verbose.get())
+                        redump=self.redump.get(), resume=self.resume.get(), verbose=self.verbose.get())
 
     def _refresh(self):
         settings = self._snapshot()

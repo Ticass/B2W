@@ -29,9 +29,6 @@ param(
     [string]$WawDumps = 'C:\WawConverter\work\waw_zone_dumps',
     [string]$ModBuild = 'C:\WawConverter\work\mod_build',
     [switch]$Redump,
-    # OPT-IN debugging aid, off by default (GUIDELINES 17): play unconverted WaW
-    # effects as stock BO2 effects (compat/fx_fallback.json, each reported FX_FALLBACK)
-    [switch]$FxFallback,
     # WaW Mod Tools (bin\linker_pc.exe). Effects in no compiled WaW zone are
     # compiled from their raw\fx sources with WaW's linker (reported
     # WAW_SOURCE_ASSET). On here because the user asked for them; the converter
@@ -43,10 +40,8 @@ param(
     [switch]$NoInstall,
     [switch]$Bo2StockPerks
 )
-$fxFallbackArgs = @()
 $perkArgs = @()
 if ($Bo2StockPerks) { $perkArgs = @('--bo2-stock-perks') }
-if ($FxFallback) { $fxFallbackArgs = @('--fx-fallback') }
 $sourceFxArgs = @('--waw-mod-tools', $WawModTools)
 if (-not $NoWawSourceFx) {
     $sourceFxArgs += @('--waw-source-fx', '--waw-source-dumps', (Join-Path $WawDumps 'source'))
@@ -187,7 +182,7 @@ Write-Host "== 2. staging $Project"
     --iwd-dir $MapMod --iwd-dir (Join-Path $Waw 'main') `
     --waw-map-script (Join-Path $WawDumps "map_rawfiles\maps\$MapZone.gsc") `
     --waw-script-root $modRaw --waw-stock-scripts $stockScripts --t6-unlinker (Join-Path $OatT6 'Unlinker.exe') `
-    @fxFallbackArgs @sourceFxArgs @perkArgs `
+    @sourceFxArgs @perkArgs `
     --waw-root $Waw --t4-unlinker (Join-Path $OatT4 'Unlinker.exe') --waw-stock-dumps (Join-Path $WawDumps 'stock') `
     --xwma-decoder $XwmaDecoder `
     --approximate-sound-curves `

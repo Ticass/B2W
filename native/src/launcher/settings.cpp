@@ -55,7 +55,6 @@ namespace w2b::launcher
                 {"loading_song", &Settings::loading_song, nullptr},
                 {"source_fx", nullptr, &Settings::source_fx},
                 {"bo2_stock_perks", nullptr, &Settings::bo2_stock_perks},
-                {"remaster", nullptr, &Settings::remaster},
                 {"redump", nullptr, &Settings::redump},
                 {"resume", nullptr, &Settings::resume},
                 {"verbose", nullptr, &Settings::verbose},

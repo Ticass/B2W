@@ -234,7 +234,7 @@ class ResumeTests(BuildWorkspace, unittest.TestCase):
         from dataclasses import replace
         self._pipeline(self.settings)
         # another build option changes the stage-bridge inputs
-        steps, _ = self._pipeline(replace(self.settings, resume=True, remaster=True))
+        steps, _ = self._pipeline(replace(self.settings, resume=True, bo2_stock_perks=True))
         self.assertEqual(steps[0], 'stage-bridge')
         # a staging that failed half-way leaves no receipt to resume from
         self._pipeline(self.settings, fail='stage-bridge')

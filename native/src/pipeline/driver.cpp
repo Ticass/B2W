@@ -338,8 +338,6 @@ namespace w2b::pipeline
                                      "--script-template-name", "bridge"});
             if (settings.bo2_stock_perks)
                 args.push_back("--bo2-stock-perks");
-            if (settings.remaster)
-                args.push_back("--remaster-bo2-materials");
             if (const auto patch = find("patch"))
                 args.insert(args.end(), {"--waw-patch-script-root", S(*patch)});
             {

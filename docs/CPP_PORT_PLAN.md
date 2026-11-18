@@ -112,7 +112,7 @@ The remaining small modules move with the area that uses them.
 | Orchestrate the bridge's script, weapon, shader, audio, lighting and runtime finishing passes | yes | Cached Cheese Cube Unlimited staging with FLAC enabled preserved all 10,207 sound variants and matched the entity, path, sound-binding, curve, and ambient script files. The bridge encoded 1,794 streamed sources from 714 MiB to 415 MiB. | — |
 | Framework coverage, WaW HUD, menu art and in-game menus (`framework-coverage`, `stage-waw-hud`, `stage-waw-menu-art` on the IWD service, `stage-waw-menus`) | yes | `textures/pillow_decode` matched Pillow byte for byte on 630 stock images of all seven DDS formats. The menu translator matched Python on WaW's raw/ui sources; Cheese Cube Unlimited identical. | — |
 | Carried weapons (`stage-weapon-runtime`: weapon sound events, runtime selection, BO2 equivalents; `finish-weapon-runtime`: map string tables, assets script, wall buys) | yes | Cheese Cube Unlimited: every staged file, the report content and warnings identical. | — |
-| Run the whole bridge stage in C++ (`stage-bridge`: `t6bridge.stage_bridge` and `cli._stage_bridge`; weapons, script models, material sources, impact materials, the template sky) | yes | Cheese Cube Unlimited from an empty project folder, warm and cold caches: all 51,213 staged files and the stage report identical to the Python stage. The build runs no Python unless `--waw-source-fx`, `--fx-fallback` or `--remaster-bo2-materials` is set, or `WAW2BO2_NATIVE=0`. | 219.7–257.0 s / 271.9 s (whole warm build) |
+| Run the whole bridge stage in C++ (`stage-bridge`: `t6bridge.stage_bridge` and `cli._stage_bridge`; weapons, script models, material sources, impact materials, the template sky) | yes | Cheese Cube Unlimited from an empty project folder, warm and cold caches: all 51,213 staged files and the stage report identical to the Python stage. The build runs no Python unless `--waw-source-fx` is set, or `WAW2BO2_NATIVE=0`. | 219.7–257.0 s / 271.9 s (whole warm build) |
 | Extend stock WaW zone dumps by the missing asset kinds only (`ZoneRequest::base`) | yes | Unlinker dumps of kinds A+B matched dump(A) merged with dump(B) byte for byte on nazi_zombie_prototype (sounds), ber2 (models, materials, images, technique sets) and code_post_gfx (fonts, light defs). The cold Cheese Cube Unlimited build matched every staged file. | 710.7 s / 1,346.9 s (whole cold build); 3.6 GB / 12 GB dependency cache |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
@@ -121,8 +121,7 @@ The bridge opens the native IWD recovery service once per build so the ZIP
 index and wavelet tables stay in memory. The native geometry stage owns the
 render surface filtering and the source material lookup needed for it.
 The driver runs every build step in process. The Python conversion worker
-runs only for the opt-in `--waw-source-fx`, `--fx-fallback` and
-`--remaster-bo2-materials` staging, or when `WAW2BO2_NATIVE=0` selects the
+runs only for the opt-in `--waw-source-fx` staging, or when `WAW2BO2_NATIVE=0` selects the
 Python reference. Extract All runs the native `all2raw`. Audio resampling finds
 FFmpeg in `tools/bin/ffmpeg.exe` (or on `PATH`); it no longer needs the
 `imageio_ffmpeg` Python package.
@@ -143,7 +142,7 @@ Builds run natively; the conversion worker (`WAW2BO2_WORKER`, the portable
 Python-only opt-ins. The Artwork tab draws `menupreviews.py`'s globe, map selection, lobby and
 loading screens on the GPU: the globe is a pixel shader, stock DXT textures
 upload as BC1/BC3, and clicks place the map and the start location. The
-Refresh, Resume, BO2 stock perks and Remaster options are not offered, and
+Refresh, Resume and BO2 stock perks options are not offered, and
 saved values are cleared. The native executables are long-path aware.
 Map names near 25 characters push staging paths past `MAX_PATH`, which the closed
 BO2 mod tools linker cannot open. The release packaging still ships the

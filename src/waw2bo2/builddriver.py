@@ -293,8 +293,6 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
             '--script-template', str(stage / 'zone_raw/bridge'), '--script-template-name', 'bridge']
     if settings.bo2_stock_perks:
         args += ['--bo2-stock-perks']
-    if settings.remaster:
-        args += ['--remaster-bo2-materials']
     if 'patch' in sources:
         # WaW loads <map>_patch.ff after the map zone: its scripts win
         args += ['--waw-patch-script-root', str(sources['patch'])]
