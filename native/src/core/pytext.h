@@ -21,6 +21,10 @@ namespace w2b::py
     std::string JsonDumps(const Json& value, int indent);
     // json.dumps(value): no indent, ", " and ": " separators
     std::string JsonDumpsDefault(const Json& value);
+    // json.dumps(value, sort_keys=True); SortKeys orders every object by key
+    // (Python sorts str keys by code point: UTF-8 byte order)
+    std::string JsonDumpsSorted(const Json& value);
+    Json SortKeys(const Json& value);
 
     // str.splitlines() for ASCII and Unicode line boundaries.
     std::vector<std::string_view> SplitLines(std::string_view text);

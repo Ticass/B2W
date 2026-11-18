@@ -574,8 +574,37 @@ def ready(game: Path, tool: Path, root: Path, *, engine: str) -> Path:
     raise RuntimeError(f'{engine} game asset cache is missing or stale. Run Extract All in Setup before building.')
 
 
+def _native_extract(args: list[str]):
+    """Run an extraction step natively (native/src/extract) when it is built:
+    its progress streams to this console; the result comes back as JSON.
+    None when the native converter is not available."""
+    import subprocess
+    import tempfile
+    from . import native
+    exe = native.tool()
+    if exe is None:
+        return None
+    with tempfile.TemporaryDirectory(prefix='waw2bo2_extract_') as temporary:
+        result = Path(temporary) / 'result.json'
+        proc = subprocess.run([str(exe), *args, '--result', str(result)], stderr=subprocess.PIPE, text=True,
+                              encoding='utf-8', errors='replace')
+        if proc.returncode:
+            message = proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else f'{exe.name} {args[0]} failed'
+            raise RuntimeError(message.split(': ', 2)[-1] if message.startswith('waw2bo2: error: ') else message)
+        return json.loads(result.read_text(encoding='utf-8'))
+
+
 def prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = False,
             workers: int | None = None) -> Path:
+    native_raw = _native_extract(['extract-prepare', str(game), str(tool), str(root), engine,
+                                  *(['--refresh'] if refresh else [])]) if workers is None else None
+    if native_raw is not None:
+        return Path(native_raw)
+    return python_prepare(game, tool, root, engine=engine, refresh=refresh, workers=workers)
+
+
+def python_prepare(game: Path, tool: Path, root: Path, *, engine: str, refresh: bool = False,
+                   workers: int | None = None) -> Path:
     if not refresh:
         try:
             raw = ready(game, tool, root, engine=engine)
@@ -663,6 +692,15 @@ def extract_all(settings, *, refresh=False, cache_paths: CachePaths | None = Non
 
 
 def source_dumps(settings, paths: CachePaths, *, refresh=False) -> dict[str, Path]:
+    native_dumps = _native_extract(['extract-sources', str(settings.fastfile), str(settings.waw),
+                                    str(Path(settings.t4) / 'Unlinker.exe'), str(paths.waw),
+                                    *(['--refresh'] if refresh else [])])
+    if native_dumps is not None:
+        return {role: Path(folder) for role, folder in native_dumps.items()}
+    return python_source_dumps(settings, paths, refresh=refresh)
+
+
+def python_source_dumps(settings, paths: CachePaths, *, refresh=False) -> dict[str, Path]:
     source = Path(settings.fastfile).resolve()
     folder = source.parent
     tool = Path(settings.t4) / 'Unlinker.exe'

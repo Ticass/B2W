@@ -31,6 +31,11 @@ class All2RawTests(unittest.TestCase):
             self.assertEqual((staging / "changed.gltf").read_bytes(), b"b" * 300_000)
 
     def setUp(self):
+        # These cases drive the Python implementation (the native one's
+        # oracle) with a scripted unlinker; the native steps run real tools.
+        native_steps = patch.object(all2raw, '_native_extract', return_value=None)
+        native_steps.start()
+        self.addCleanup(native_steps.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

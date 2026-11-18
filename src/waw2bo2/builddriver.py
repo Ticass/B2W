@@ -20,9 +20,25 @@ from .resources import resource_root
 _current_step: list[str] = []
 
 
+def step_command(name: str, *args: str) -> list[str]:
+    """A build step run by the native converter when it is built (it prints
+    and fails as the Python command does), else the Python CLI."""
+    from . import native
+    exe = native.tool()
+    if exe is not None and name in NATIVE_STEPS:
+        return [str(exe), name, *args]
+    return cli_command(name, *args)
+
+
+# build steps waw2bo2n runs itself (native/src/pipeline)
+NATIVE_STEPS = ('compile-scripts', 'bridge-link', 'package')
+
+
 def run(command: list[str], log: Path | None = None) -> None:
     if '-m' in command and command.index('-m') + 2 < len(command):
         _current_step[:] = [command[command.index('-m') + 2]]
+    elif len(command) > 1 and command[1] in NATIVE_STEPS:
+        _current_step[:] = [command[1]]
     if log is None:
         result = subprocess.run(command, check=False)
     else:
@@ -332,10 +348,10 @@ def _build(settings: Settings, *, redump: bool = False, root: Path | None = None
             raise RuntimeError('build-mod ended without finishing the map scripts')
         print('== 3b. compiling map scripts with the BO2 mod tools linker', flush=True)
         with timeline.span('3b compile-scripts'):
-            run(cli_command('compile-scripts', str(stage), project, '--bo2', str(bo2), '--unlinker', str(t6)))
+            run(step_command('compile-scripts', str(stage), project, '--bo2', str(bo2), '--unlinker', str(t6)))
         print(f'== 4. linking {project} with the T6 bridge', flush=True)
         with timeline.span('4 bridge-link'):
-            run(cli_command('bridge-link', str(stage), project, '--linker', str(linker),
+            run(step_command('bridge-link', str(stage), project, '--linker', str(linker),
                             '--techset-dump', str(stock), '--log', str(stage / (project + '_bridge.log'))))
         print('== 6. auditing built material arguments', flush=True)
         _audit_zone(stage / 'zone_out' / project / (project + '.ff'), stage, project, bo2, stock, t6)

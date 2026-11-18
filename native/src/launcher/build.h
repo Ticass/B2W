@@ -20,7 +20,9 @@ namespace w2b::launcher
         bool required = true;
     };
 
-    std::vector<Check> Preflight(const Settings& settings, bool includeMap = true);
+    struct CachePaths;
+    // caches: the shared asset caches to check (default: the settings' own)
+    std::vector<Check> Preflight(const Settings& settings, bool includeMap = true, const CachePaths* caches = nullptr);
 
     struct CachePaths
     {
@@ -40,6 +42,8 @@ namespace w2b::launcher
     // WawConverter.CLI.exe beside the launcher, else the checkout's Python CLI
     std::vector<std::string> CliCommand(const std::vector<std::string>& args);
     std::vector<std::string> BuildCommand(const Settings& settings);
+    // waw2bo2n.exe beside the launcher, else the checkout's native/build one
+    std::vector<std::string> NativeCommand(const std::vector<std::string>& args);
 
     // Streams a process into a log file and the UI; Cancel ends its whole tree.
     class ProcessRunner

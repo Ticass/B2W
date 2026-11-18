@@ -36,7 +36,8 @@ add_library(w2b_core STATIC
     src/core/string_repr.cpp
     src/core/pyre.cpp
     src/core/zip.cpp
-    src/core/zipwrite.cpp)
+    src/core/zipwrite.cpp
+    src/core/timeline.cpp)
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
 target_link_libraries(w2b_core PUBLIC w2b_zlib)
 
@@ -168,8 +169,16 @@ target_compile_definitions(w2b_imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 add_executable(B2W WIN32 src/app.manifest src/ui/main.cpp src/ui/app.cpp src/ui/views.cpp src/ui/theme.cpp src/ui/gpu.cpp src/ui/shell.cpp src/ui/previews.cpp)
 target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler dwmapi)
 
+add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp)
+target_link_libraries(w2b_extract PUBLIC w2b_core)
+
+add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp src/pipeline/knowledge.cpp src/pipeline/driver.cpp
+    src/pipeline/modsupport.cpp src/pipeline/hud.cpp)
+target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_extract w2b_launcher w2b_weapons)
+target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
+
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
-target_link_libraries(waw2bo2n PRIVATE w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
+target_link_libraries(waw2bo2n PRIVATE w2b_extract w2b_pipeline w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
     w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents w2b_paths w2b_barricades w2b_models)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
@@ -179,7 +188,10 @@ enable_testing()
 if(EXISTS "${OAT_THIRDPARTY}/catch2/CMakeLists.txt")
     add_subdirectory("${OAT_THIRDPARTY}/catch2" catch2 EXCLUDE_FROM_ALL)
     add_executable(w2b_tests tests/test_pytext.cpp tests/test_registers.cpp tests/test_translate.cpp
-        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp)
-    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher Catch2::Catch2WithMain)
+        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp tests/test_extract.cpp)
+    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher w2b_extract Catch2::Catch2WithMain)
+    add_executable(fake_unlinker tests/fake_unlinker.cpp)
+    add_dependencies(w2b_tests fake_unlinker)
+    target_compile_definitions(w2b_tests PRIVATE FAKE_UNLINKER="$<TARGET_FILE:fake_unlinker>")
     add_test(NAME w2b_tests COMMAND w2b_tests)
 endif()

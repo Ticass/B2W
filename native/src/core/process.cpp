@@ -145,4 +145,101 @@ namespace w2b::process
         CloseHandle(errRead);
         return result;
     }
+    Result RunMerged(const std::vector<std::string>& args, const std::string& cwd, void (*onLine)(const std::string&))
+    {
+        SECURITY_ATTRIBUTES inherit{sizeof(inherit), nullptr, TRUE};
+        HANDLE outRead{}, outWrite{};
+        PROCESS_INFORMATION info{};
+        auto command = Wide(CommandLine(args));
+        const auto folder = Wide(cwd);
+        BOOL created;
+        {
+            static std::mutex launch;
+            std::lock_guard lock(launch);
+            if (!CreatePipe(&outRead, &outWrite, &inherit, 0) || !SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0))
+                throw std::runtime_error("could not create child process pipes");
+            HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit, OPEN_EXISTING, 0, nullptr);
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdInput = nul;
+            startup.hStdOutput = outWrite;
+            startup.hStdError = outWrite;
+            created = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                                     folder.empty() ? nullptr : folder.c_str(), &startup, &info);
+            CloseHandle(outWrite);
+            CloseHandle(nul);
+        }
+        if (!created)
+        {
+            CloseHandle(outRead);
+            throw std::runtime_error("cannot start " + (args.empty() ? std::string() : args[0]));
+        }
+        Result result;
+        char buffer[65536];
+        DWORD read = 0;
+        size_t lineStart = 0;
+        while (ReadFile(outRead, buffer, sizeof(buffer), &read, nullptr) && read > 0)
+        {
+            result.out.append(buffer, read);
+            if (onLine)
+                for (size_t i = lineStart; i < result.out.size(); i++)
+                    if (result.out[i] == '\n')
+                    {
+                        auto line = result.out.substr(lineStart, i - lineStart);
+                        while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+                            line.pop_back();
+                        onLine(line);
+                        lineStart = i + 1;
+                    }
+        }
+        if (onLine && lineStart < result.out.size())
+            onLine(result.out.substr(lineStart));
+        CloseHandle(outRead);
+        WaitForSingleObject(info.hProcess, INFINITE);
+        DWORD code = 0;
+        GetExitCodeProcess(info.hProcess, &code);
+        CloseHandle(info.hProcess);
+        CloseHandle(info.hThread);
+        result.exitCode = static_cast<int>(code);
+        return result;
+    }
+    int RunInherited(const std::vector<std::string>& args, const std::vector<std::wstring>& env, void (*onExit)(void*, void*), void* context)
+    {
+        std::wstring block;
+        if (!env.empty())
+        {
+            std::vector<std::wstring> entries;
+            if (wchar_t* current = GetEnvironmentStringsW())
+            {
+                for (const wchar_t* p = current; *p; p += wcslen(p) + 1)
+                    entries.emplace_back(p);
+                FreeEnvironmentStringsW(current);
+            }
+            for (const auto& extra : env)
+            {
+                const auto name = extra.substr(0, extra.find(L'=') + 1);
+                std::erase_if(entries, [&](const std::wstring& e) { return _wcsnicmp(e.c_str(), name.c_str(), name.size()) == 0; });
+                entries.push_back(extra);
+            }
+            for (const auto& e : entries)
+                block += e + L'\0';
+            block += L'\0';
+        }
+        auto command = Wide(CommandLine(args));
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION info{};
+        if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, env.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT,
+                            env.empty() ? nullptr : block.data(), nullptr, &startup, &info))
+            throw std::runtime_error("cannot start " + (args.empty() ? std::string() : args[0]));
+        WaitForSingleObject(info.hProcess, INFINITE);
+        DWORD code = 0;
+        GetExitCodeProcess(info.hProcess, &code);
+        if (onExit)
+            onExit(info.hProcess, context);
+        CloseHandle(info.hProcess);
+        CloseHandle(info.hThread);
+        return static_cast<int>(code);
+    }
 } // namespace w2b::process

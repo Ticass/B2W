@@ -52,6 +52,11 @@
 #include <iostream>
 #include <stdexcept>
 #include "launcher/build.h"
+#include "extract/stock.h"
+#include "pipeline/audit.h"
+#include "pipeline/driver.h"
+#include "pipeline/finish.h"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -451,6 +456,246 @@ namespace
     }
     using Arguments = std::vector<std::string>;
 
+    // argparse-style: positionals in order, "--name value" options
+    struct Parsed
+    {
+        std::vector<std::string> positional;
+        std::map<std::string, std::string> options;
+        const std::string* Option(const std::string& name) const
+        {
+            const auto it = options.find(name);
+            return it == options.end() ? nullptr : &it->second;
+        }
+    };
+
+    std::optional<Parsed> Parse(const Arguments& args, const std::set<std::string>& valued)
+    {
+        Parsed parsed;
+        for (size_t i = 0; i < args.size(); i++)
+        {
+            if (args[i].starts_with("--"))
+            {
+                if (!valued.count(args[i]) || i + 1 >= args.size())
+                    return std::nullopt;
+                parsed.options[args[i]] = args[i + 1];
+                i++;
+            }
+            else
+                parsed.positional.push_back(args[i]);
+        }
+        return parsed;
+    }
+
+    // a build step: Python's "waw2bo2: error: <Kind>: <message>" on failure
+    int Step(const std::function<int()>& run)
+    {
+        try
+        {
+            return run();
+        }
+        catch (const w2b::pipeline::StepError& error)
+        {
+            std::fflush(stdout);
+            std::fprintf(stderr, "waw2bo2: error: %s: %s\n", error.kind.c_str(), error.what());
+            return 1;
+        }
+    }
+
+    int PackageCommand(const Arguments& args)
+    {
+        const auto p = Parse(args, {"--bo2", "--work", "--dest"});
+        if (!p || p->positional.size() != 2 || !p->Option("--bo2") || !p->Option("--work"))
+            return Usage();
+        return Step([&] {
+            namespace fs = std::filesystem;
+            const auto& project = p->positional[1];
+            std::error_code ec;
+            const auto stage = fs::weakly_canonical(fs::absolute(w2b::files::FromUtf8(p->positional[0])), ec);
+            const auto work = fs::weakly_canonical(fs::absolute(w2b::files::FromUtf8(*p->Option("--work"))), ec);
+            std::optional<fs::path> dest;
+            if (const auto* d = p->Option("--dest"))
+                dest = w2b::files::FromUtf8(*d);
+            auto out = w2b::pipeline::Package(project, stage / "zone_out" / w2b::files::FromUtf8(project), work / "out", dest ? &*dest : nullptr);
+            std::printf("packaged %s\n", w2b::files::Utf8(out.make_preferred()).c_str());
+            std::printf("launch: %s\n", w2b::pipeline::QuotedJoin(w2b::pipeline::LaunchCommand(project, w2b::files::FromUtf8(*p->Option("--bo2")))).c_str());
+            return 0;
+        });
+    }
+
+    int CompileScriptsCommand(const Arguments& args)
+    {
+        const auto p = Parse(args, {"--bo2", "--unlinker"});
+        if (!p || p->positional.size() != 2 || !p->Option("--bo2") || !p->Option("--unlinker"))
+            return Usage();
+        return Step([&] {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            const auto resolve = [&](const std::string& s) { return fs::weakly_canonical(fs::absolute(w2b::files::FromUtf8(s)), ec); };
+            const auto [compiled, log] = w2b::pipeline::CompileScripts(resolve(p->positional[0]), p->positional[1], resolve(*p->Option("--bo2")), resolve(*p->Option("--unlinker")));
+            for (const auto& name : compiled)
+                std::printf("compiled %s\n", name.c_str());
+            return 0;
+        });
+    }
+
+    // audit-zone <ff> <stage> <project> --bo2 B --stock S --unlinker U: builddriver._audit_zone
+    int AuditZoneCommand(const Arguments& args)
+    {
+        const auto p = Parse(args, {"--bo2", "--stock", "--unlinker"});
+        if (!p || p->positional.size() != 3 || !p->Option("--bo2") || !p->Option("--stock") || !p->Option("--unlinker"))
+            return Usage();
+        return Step([&] {
+            const auto f = [](const std::string& s) { return w2b::files::FromUtf8(s); };
+            w2b::pipeline::AuditZone(f(p->positional[0]), f(p->positional[1]), p->positional[2], f(*p->Option("--bo2")), f(*p->Option("--stock")), f(*p->Option("--unlinker")));
+            return 0;
+        });
+    }
+
+    // audit-material-args <zone> [<extra techset folder> ...]: tools/audit_material_args.py
+    int AuditMaterialArgsCommand(const Arguments& args)
+    {
+        if (args.empty())
+            return Usage();
+        std::vector<std::filesystem::path> extra;
+        for (size_t i = 1; i < args.size(); i++)
+            extra.push_back(w2b::files::FromUtf8(args[i]));
+        return w2b::pipeline::PrintMaterialAudit(w2b::files::FromUtf8(args[0]), extra);
+    }
+
+    int ExtractStep(const std::function<int()>& run)
+    {
+        try
+        {
+            return run();
+        }
+        catch (const w2b::extract::Error& error)
+        {
+            std::fflush(stdout);
+            std::fprintf(stderr, "waw2bo2: error: %s: %s\n", error.kind.c_str(), error.what());
+            return 1;
+        }
+    }
+
+    // all2raw --settings-json J [--waw-cache-root R] [--bo2-cache-root R] [--refresh]: cli._extract_all
+    int All2RawCommand(const Arguments& input)
+    {
+        auto args = input;
+        const bool refresh = std::erase(args, std::string("--refresh")) > 0;
+        const auto p = Parse(args, {"--settings-json", "--waw-cache-root", "--bo2-cache-root"});
+        if (!p || !p->positional.empty() || !p->Option("--settings-json"))
+            return Usage();
+        return ExtractStep([&] {
+            namespace l = w2b::launcher;
+            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(*p->Option("--settings-json")));
+            _wputenv_s(L"WAW2BO2_VERBOSE", settings.verbose ? L"1" : L"0");
+            auto caches = l::CachePaths::ForSettings(settings);
+            if (const auto* r = p->Option("--waw-cache-root"))
+                caches.waw = w2b::files::FromUtf8(*r);
+            if (const auto* r = p->Option("--bo2-cache-root"))
+                caches.bo2 = w2b::files::FromUtf8(*r);
+            const auto f = [](const std::string& s) { return w2b::files::FromUtf8(s); };
+            w2b::extract::Prepare(f(settings.waw), f(settings.t4) / "Unlinker.exe", caches.waw, "T4", refresh);
+            w2b::extract::Prepare(f(settings.bo2), f(settings.t6) / "Unlinker.exe", caches.bo2, "T6", refresh);
+            std::error_code ec;
+            if (!settings.fastfile.empty() && std::filesystem::is_regular_file(f(settings.fastfile), ec))
+                w2b::extract::SourceDumps({f(settings.fastfile), f(settings.waw), f(settings.t4) / "Unlinker.exe"}, caches.waw, refresh);
+            return 0;
+        });
+    }
+
+    // extract-prepare <game> <unlinker> <cache root> T4|T6 --result <file> [--refresh]: all2raw.prepare
+    int ExtractPrepareCommand(const Arguments& input)
+    {
+        auto args = input;
+        const bool refresh = std::erase(args, std::string("--refresh")) > 0;
+        const auto p = Parse(args, {"--result"});
+        if (!p || p->positional.size() != 4 || !p->Option("--result"))
+            return Usage();
+        return ExtractStep([&] {
+            const auto f = [](const std::string& s) { return w2b::files::FromUtf8(s); };
+            const auto raw = w2b::extract::Prepare(f(p->positional[0]), f(p->positional[1]), f(p->positional[2]), p->positional[3], refresh);
+            w2b::files::WriteBytes(f(*p->Option("--result")), nlohmann::ordered_json(w2b::extract::Str(raw)).dump());
+            return 0;
+        });
+    }
+
+    // extract-sources <fastfile> <waw> <t4 unlinker> <waw cache root> --result <file> [--refresh]: all2raw.source_dumps
+    int ExtractSourcesCommand(const Arguments& input)
+    {
+        auto args = input;
+        const bool refresh = std::erase(args, std::string("--refresh")) > 0;
+        const auto p = Parse(args, {"--result"});
+        if (!p || p->positional.size() != 4 || !p->Option("--result"))
+            return Usage();
+        return ExtractStep([&] {
+            const auto f = [](const std::string& s) { return w2b::files::FromUtf8(s); };
+            const auto dumps = w2b::extract::SourceDumps({f(p->positional[0]), f(p->positional[1]), f(p->positional[2])}, f(p->positional[3]), refresh);
+            nlohmann::ordered_json out = nlohmann::ordered_json::object();
+            for (const auto& [role, folder] : dumps)
+                out[role] = w2b::extract::Str(folder);
+            w2b::files::WriteBytes(f(*p->Option("--result")), out.dump());
+            return 0;
+        });
+    }
+
+    // build-map --settings-json J [--redump] [--build-root R] [--waw-cache-root R] [--bo2-cache-root R]
+    int BuildMapCommand(const Arguments& input)
+    {
+        auto args = input;
+        const bool redump = std::erase(args, std::string("--redump")) > 0;
+        const auto p = Parse(args, {"--settings-json", "--build-root", "--waw-cache-root", "--bo2-cache-root"});
+        if (!p || !p->positional.empty() || !p->Option("--settings-json"))
+            return Usage();
+        try
+        {
+            namespace l = w2b::launcher;
+            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(*p->Option("--settings-json")));
+            w2b::pipeline::BuildOptions options;
+            options.redump = redump;
+            if (const auto* r = p->Option("--build-root"))
+                options.root = w2b::files::FromUtf8(*r);
+            auto caches = l::CachePaths::ForSettings(settings);
+            if (const auto* r = p->Option("--waw-cache-root"))
+                caches.waw = w2b::files::FromUtf8(*r);
+            if (const auto* r = p->Option("--bo2-cache-root"))
+                caches.bo2 = w2b::files::FromUtf8(*r);
+            options.caches = caches;
+            return w2b::pipeline::BuildMap(settings, options);
+        }
+        catch (const w2b::pipeline::StepError& error)
+        {
+            std::fflush(stdout);
+            std::fprintf(stderr, "waw2bo2: error: %s: %s\n", error.kind.c_str(), error.what());
+        }
+        catch (const w2b::extract::Error& error)
+        {
+            std::fflush(stdout);
+            std::fprintf(stderr, "waw2bo2: error: %s: %s\n", error.kind.c_str(), error.what());
+        }
+        catch (const std::exception& error)
+        {
+            std::fflush(stdout);
+            std::fprintf(stderr, "waw2bo2: error: RuntimeError: %s\n", error.what());
+        }
+        return 1;
+    }
+
+    int BridgeLinkCommand(const Arguments& args)
+    {
+        const auto p = Parse(args, {"--linker", "--techset-dump", "--log"});
+        if (!p || p->positional.size() != 2 || !p->Option("--linker"))
+            return Usage();
+        return Step([&] {
+            std::optional<std::filesystem::path> techset, log;
+            if (const auto* t = p->Option("--techset-dump"))
+                techset = w2b::files::FromUtf8(*t);
+            if (const auto* l = p->Option("--log"))
+                log = w2b::files::FromUtf8(*l);
+            return w2b::pipeline::BridgeLink(w2b::files::FromUtf8(p->positional[0]), p->positional[1], w2b::files::FromUtf8(*p->Option("--linker")),
+                                             techset ? &*techset : nullptr, log ? &*log : nullptr);
+        });
+    }
+
     int PrintReport(const w2b::py::Json& report)
     {
         std::puts(report.dump(-1, ' ', true).c_str());
@@ -618,6 +863,9 @@ namespace
             return PrintReport(w2b::world::StageCollisionMesh(w2b::files::FromUtf8(a[0]),
                         w2b::files::FromUtf8(a[1]), a.size() == 3));
         }},
+        {"package", PackageCommand}, {"compile-scripts", CompileScriptsCommand}, {"bridge-link", BridgeLinkCommand},
+        {"build-map", BuildMapCommand}, {"audit-zone", AuditZoneCommand}, {"all2raw", All2RawCommand}, {"extract-prepare", ExtractPrepareCommand},
+        {"extract-sources", ExtractSourcesCommand}, {"audit-material-args", AuditMaterialArgsCommand},
         {"inspect", Inspect}, {"world-inspect", Inspect},
         {"static-models", StaticModels},
         {"sounds-stage", [](const Arguments& a) { return a.size() == 1 ? SoundsStage(a[0]) : Usage(); }},

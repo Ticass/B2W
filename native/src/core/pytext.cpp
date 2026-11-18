@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "pytext.h"
 
 #include <cerrno>
@@ -248,6 +249,34 @@ namespace w2b::py
             }
         }
     } // namespace
+
+    Json SortKeys(const Json& value)
+    {
+        if (value.is_object())
+        {
+            std::vector<std::string> keys;
+            for (const auto& [k, _] : value.items())
+                keys.push_back(k);
+            std::sort(keys.begin(), keys.end());
+            Json out = Json::object();
+            for (const auto& k : keys)
+                out[k] = SortKeys(value.at(k));
+            return out;
+        }
+        if (value.is_array())
+        {
+            Json out = Json::array();
+            for (const auto& item : value)
+                out.push_back(SortKeys(item));
+            return out;
+        }
+        return value;
+    }
+
+    std::string JsonDumpsSorted(const Json& value)
+    {
+        return JsonDumpsDefault(SortKeys(value));
+    }
 
     std::string JsonDumpsDefault(const Json& value)
     {

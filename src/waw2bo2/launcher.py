@@ -413,7 +413,8 @@ def perform_build(settings: Settings, runner: ProcessRunner) -> int:
                 'If that log is empty, the bundled worker did not execute the build pipeline. '
                 'Missing: ' + ', '.join(missing))
         runner.emit('line', '== 7. assembling the finished map package')
-        code = runner.run(cli_command('package', str(paths.stage), settings.project, '--bo2', settings.bo2,
+        from .builddriver import step_command
+        code = runner.run(step_command('package', str(paths.stage), settings.project, '--bo2', settings.bo2,
                                      '--work', str(paths.mod), '--dest', str(paths.output)), paths.root / 'package.log')
         if code or runner.cancelled.is_set():
             return code or -1

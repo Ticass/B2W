@@ -385,6 +385,14 @@ def _finish_map_scripts(args: argparse.Namespace, unavailable: list[str]) -> Non
         args.scripts_ready.write_text('ready\n', encoding='utf-8')
 
 
+def _stage_art(args: argparse.Namespace) -> int:
+    """The map's menu art for the native build driver (menuart.stage_art)."""
+    from .launcher import Settings
+    from .menuart import stage_art
+    stage_art(Settings(**json.loads(args.settings_json)), args.root)
+    return 0
+
+
 def _package(args: argparse.Namespace) -> int:
     from . import package
 
@@ -595,6 +603,10 @@ def parser() -> argparse.ArgumentParser:
     bm_p.add_argument("--scripts-ready", type=Path,
                       help="file written once the map scripts are final (the rest of build-mod does not touch them)")
     bm_p.set_defaults(func=_build_mod)
+    art_p = sub.add_parser("stage-art", help="stage the map's menu art (native build driver step)")
+    art_p.add_argument("--settings-json", required=True)
+    art_p.add_argument("--root", type=Path, required=True)
+    art_p.set_defaults(func=_stage_art)
     pk_p = sub.add_parser("package", help="assemble the Plutonium mod folder")
     pk_p.add_argument("stage", type=Path)
     pk_p.add_argument("project")

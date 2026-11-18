@@ -25,7 +25,8 @@ def python_view(path: Path) -> dict:
         p = launcher.BuildPaths.for_settings(s)
         out['paths'] = [str(p.root), str(p.stage), str(p.stock), str(p.waw_dumps), str(p.mod), str(p.output)]
         out['complete'] = p.complete(s.project, bo2_stock_perks=s.bo2_stock_perks)
-        out['build_command'] = launcher.build_command(s)[3:]
+        command = launcher.build_command(s)
+        out['build_command'] = command[command.index('build-map'):]
     except ValueError as error:
         out['paths'] = str(error)
     out['checks'] = [[c.name, c.ready, c.detail, c.required] for c in launcher.preflight(s)]
@@ -38,7 +39,8 @@ def main():
         native = json.loads(subprocess.run([str(NATIVE), 'launcher-check', name], capture_output=True, text=True, check=True).stdout)
         python = python_view(Path(name))
         if 'build_command' in native:
-            native['build_command'] = native['build_command'][3:]   # the worker prefix differs by design
+            # the executable differs by design: the native driver against python -m waw2bo2.cli
+            native['build_command'] = native['build_command'][native['build_command'].index('build-map'):]
         native.pop('installed', None)
         native.pop('stamp', None)
         keys = sorted(set(native) | set(python))

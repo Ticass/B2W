@@ -228,7 +228,7 @@ namespace w2b::launcher
         }
     }
 
-    std::vector<Check> Preflight(const Settings& settings, const bool includeMap)
+    std::vector<Check> Preflight(const Settings& settings, const bool includeMap, const CachePaths* cacheOverride)
     {
         std::vector<Check> checks;
         const auto files = [&](const std::string& name, const std::string& folder, const std::vector<std::string>& paths, const bool required = true)
@@ -251,7 +251,7 @@ namespace w2b::launcher
         files("WaW source tools", settings.waw_tools, {"bin/linker_pc.exe"}, settings.source_fx);
         if (includeMap)
         {
-            const auto caches = CachePaths::ForSettings(settings);
+            const auto caches = cacheOverride ? *cacheOverride : CachePaths::ForSettings(settings);
             const bool extracted = IsFile(caches.waw / "all2raw.json") && IsFile(caches.bo2 / "all2raw.json");
             checks.push_back({"Shared game assets", extracted,
                               extracted ? "Verified and refreshed automatically when building" : "Build Map will prepare the shared game assets automatically", false});
@@ -298,10 +298,24 @@ namespace w2b::launcher
         return command;
     }
 
+    std::vector<std::string> NativeCommand(const std::vector<std::string>& args)
+    {
+        wchar_t buffer[MAX_PATH * 4];
+        const auto length = GetModuleFileNameW(nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
+        auto exe = fs::path(std::wstring(buffer, length)).parent_path() / "waw2bo2n.exe";
+        if (!IsFile(exe))
+            exe = ResourceRoot() / "native" / "build" / "waw2bo2n.exe";
+        std::vector<std::string> command{Utf8(exe)};
+        command.insert(command.end(), args.begin(), args.end());
+        return command;
+    }
+
     std::vector<std::string> BuildCommand(const Settings& settings)
     {
         BuildPaths::ForSettings(settings);
-        auto command = CliCommand({"build-map", "--settings-json", py::JsonDumpsDefault(settings.ToJson())});
+        // the native build driver (pipeline/driver.cpp); it runs the steps still in
+        // Python as conversion-worker steps itself
+        auto command = NativeCommand({"build-map", "--settings-json", py::JsonDumpsDefault(settings.ToJson())});
         if (settings.redump)
             command.push_back("--redump");
         return command;
@@ -561,7 +575,7 @@ namespace w2b::launcher
             Fail("Build driver returned success without creating the required map files. Review " + Utf8(paths.root / "build.log")
                  + ". If that log is empty, the bundled worker did not execute the build pipeline. Missing: " + Join(missing, ", "));
         runner.Line("== 7. assembling the finished map package");
-        code = runner.Run(CliCommand({"package", Utf8(paths.stage), settings.project, "--bo2", settings.bo2, "--work", Utf8(paths.mod), "--dest", Utf8(paths.output)}),
+        code = runner.Run(NativeCommand({"package", Utf8(paths.stage), settings.project, "--bo2", settings.bo2, "--work", Utf8(paths.mod), "--dest", Utf8(paths.output)}),
                           paths.root / "package.log");
         if (code || runner.Cancelled())
             return code ? code : -1;
@@ -595,7 +609,7 @@ namespace w2b::launcher
         const auto paths = BuildPaths::ForSettings(settings);
         if (!paths.Complete(settings.project, &settings.bo2_stock_perks))
             return 0;
-        const int code = runner.Run(CliCommand({"package", Utf8(paths.stage), settings.project, "--bo2", settings.bo2, "--work", Utf8(paths.mod)}), paths.root / "install.log");
+        const int code = runner.Run(NativeCommand({"package", Utf8(paths.stage), settings.project, "--bo2", settings.bo2, "--work", Utf8(paths.mod)}), paths.root / "install.log");
         if (!code && !runner.Cancelled())
         {
             py::Json data = py::Json::object();
