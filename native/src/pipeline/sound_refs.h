@@ -14,5 +14,6 @@ namespace w2b::pipeline
     // request {project_root, roots, stock_waw, zone_sounds, compiled_sounds,
     // ents, source_amb}; returns {script_sounds, entity_sounds, compiled_sounds,
     // sound_graph, stock_roots, content, stock_prepared}
-    py::Json DiscoverSounds(const std::filesystem::path& request);
+    py::Json DiscoverSounds(const py::Json& request);
+    py::Json DiscoverSoundsRequest(const std::filesystem::path& request);
 } // namespace w2b::pipeline

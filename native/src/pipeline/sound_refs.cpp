@@ -379,9 +379,8 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json DiscoverSounds(const fs::path& requestPath)
+    Json DiscoverSounds(const Json& request)
     {
-        const auto request = mod::Json(requestPath);
         const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
         auto stockWaw = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
         const auto zoneSounds = StringSet(request["zone_sounds"]);
@@ -461,5 +460,10 @@ namespace w2b::pipeline
                     {"animation_sound_identities", BindActorSounds(projectRoot, soundNames)},
                     {"content", content},
                     {"stock_prepared", stockWaw ? stockWaw->PreparedJson() : Json()}};
+    }
+
+    Json DiscoverSoundsRequest(const fs::path& request)
+    {
+        return DiscoverSounds(mod::Json(request));
     }
 } // namespace w2b::pipeline

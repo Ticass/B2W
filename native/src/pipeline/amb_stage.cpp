@@ -432,9 +432,8 @@ namespace w2b::pipeline
         return out;
     }
 
-    Json WriteAmbCsc(const fs::path& requestPath)
+    Json WriteAmbCsc(const Json& request)
     {
-        const auto request = mod::Json(requestPath);
         const auto project = request["project"].get<std::string>();
         const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
         const std::optional<fs::path> sourceAmb = request["source_amb"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["source_amb"].get<std::string>()));
@@ -546,5 +545,10 @@ namespace w2b::pipeline
         out["default_reverb"] = mix;
         files::WriteText(dst, text);
         return Json{{"warnings", warnings}, {"content", out}};
+    }
+
+    Json WriteAmbCscRequest(const fs::path& request)
+    {
+        return WriteAmbCsc(mod::Json(request));
     }
 } // namespace w2b::pipeline

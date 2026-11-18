@@ -12,5 +12,6 @@ namespace w2b::pipeline
     // request {project_root, project, bo2_root, stock_waw, script_sounds,
     // entity_sounds, source_amb}; returns {warnings, content, bank_report,
     // budget, reverb_send, stock_prepared}
-    py::Json SoundMix(const std::filesystem::path& request);
+    py::Json SoundMix(const py::Json& request);
+    py::Json SoundMixRequest(const std::filesystem::path& request);
 } // namespace w2b::pipeline

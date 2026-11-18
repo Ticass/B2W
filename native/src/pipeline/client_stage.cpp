@@ -70,8 +70,11 @@ namespace w2b::pipeline
         const auto content = projectRoot / "content_source";
         std::map<std::string, std::string> weaponTable;
         if (IsFile(content / "weapons.runtime.json"))
-            for (const auto& [k, v] : mod::Json(content / "weapons.runtime.json").at("table").items())
+        {
+            const auto runtime = mod::Json(content / "weapons.runtime.json"); // items() views into it
+            for (const auto& [k, v] : runtime.at("table").items())
                 weaponTable[k] = v.get<std::string>();
+        }
         Json warnings = Json::array();
         auto environment = FlameEnvironment(files::ReadText(compat / "_waw2bo2_environment.csc"), content);
         const auto tesla = gsc::port::clientport::StageTesla(roots, projectRoot, fxTable, weaponTable, soundNames);

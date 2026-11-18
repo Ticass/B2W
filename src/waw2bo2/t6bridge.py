@@ -1945,6 +1945,15 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
     return None
 
 
+def _xwma_helper(explicit: Path | None) -> str | None:
+    """xwma.find_helper, or None when the bridge is not built (reported per sound)."""
+    from . import xwma
+    try:
+        return str(xwma.find_helper(explicit))
+    except sounds.SoundError:
+        return None
+
+
 def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock_materials: Path,
                  techset_dump: Path | None, bo2_root: Path | None,
                  template_root: Path | None = None, template_name: str | None = None,
@@ -2237,6 +2246,74 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # streams nothing - reflective surfaces (Pack-a-Punch gold) drew black.
     if probe_plan is not None:
         images += [probes.image_name(t6) for t6 in range(1, len(probe_plan.kept)) if probes.image_name(t6) not in images]
+    native_tail = hasattr(wavelets, 'operation') and not _python_only_shader_diagnostics()
+
+    def run_tail(**blocks):
+        # the rest of the stage in C++ (pipeline/bridge_tail.cpp), served by the IWD recovery
+        nonlocal report
+        resampler = audio.find_decoder()
+        tail = wavelets.operation('bridge-tail', {**blocks,
+            'report': json.loads(report.to_json()), 'project': project, 'project_root': str(project_root),
+            'stage': str(stage), 'roots': [str(r) for r in roots],
+            'bo2_root': str(bo2_root) if bo2_root is not None else None,
+            'techset_dump': str(techset_dump) if techset_dump is not None else None,
+            't4_unlinker': str(t4_unlinker) if t4_unlinker is not None else None,
+            't6_unlinker': str(t6_unlinker) if t6_unlinker is not None else None,
+            'waw_map_stem': waw_map_script.stem if waw_map_script is not None else None,
+            'raw_roots': [str(r / 'raw') for r in (waw_mod_tools, waw_root) if r is not None],
+            'iwd_dirs': [str(d) for d in (iwd_dirs or [])],
+            'stock_waw': {'waw_root': str(stock_waw.waw_root), 'unlinker': str(stock_waw.unlinker), 'work': str(stock_waw.work),
+                          'prepared': {zone: {'folder': str(folder), 'inputs': stock_waw.prepared_sources.get(zone, {})}
+                                       for zone, folder in stock_waw.prepared.items()}} if stock_waw is not None else None,
+            'images': images, 'hud_materials': list(hud_materials),
+            'zone_models': sorted(script_models | (shipped & resolved) | fx_models | projectile_models),
+            'zone_fx': list(effects.zone_fx), 'ipak': ipak, 'bo2_stock_perks': bo2_stock_perks,
+            'weapons': {'staged': weapon_report is not None, 'stock_materials': str(stock_materials),
+                        'native_fallbacks': {k: str(v) for k, v in (native_fallbacks or {}).items()},
+                        'layered_vertex_data': techsets.LAYERED_VERTEX_DATA, 'converted_fx': sorted(effects.table),
+                        'table_roots': [str(r) for r in [*(waw_patch_script_roots or []), *roots]],
+                        'map_table_roots': [str(r) for r in [*(waw_patch_script_roots or []),
+                                                             *([waw_map_script.parent.parent] if waw_map_script else []),
+                                                             *(waw_script_roots or [])]]},
+            'visuals': {'iwd_dirs': [str(d) for d in (iwd_dirs or [])],
+                        'vision_roots': [str(r) for r in [*(waw_patch_script_roots or []),
+                                                          *([waw_map_script.parent.parent] if waw_map_script else []),
+                                                          *(waw_script_roots or []), *roots,
+                                                          *([waw_stock_scripts] if waw_stock_scripts else [])]]},
+            'client': {'has_water': waterbullets.has_water(clip)},
+            'sounds': {'map_stem': waw_map_script.stem if waw_map_script is not None else None,
+                       'amb_roots': [str(r) for r in [*(waw_patch_script_roots or []), waw_map_script.parent.parent,
+                                                      *(waw_script_roots or []), *roots]] if waw_map_script is not None else [],
+                       'ents': str(ents_file) if ents_file is not None else None,
+                       'zone_sounds': sorted(zone_sound_names), 'compiled_sounds': sorted(compiled_sound_names),
+                       'iwd_dirs': [str(d) for d in image_iwds],
+                       'audio_decoder': str(audio.find_decoder(audio_decoder)) if audio_decoder else None,
+                       'xwma_helper': _xwma_helper(xwma_decoder),
+                       'resampler': str(resampler) if resampler else None,
+                       't6_sound_driver': str(t6_sound_driver) if t6_sound_driver is not None else
+                       (str(techset_dump / "sounddriverglobals/singleton.w2bsdg") if techset_dump is not None else None),
+                       'approximate_sound_curves': approximate_sound_curves, 'vision_report': None},
+            'lighting': {'base': str(gfx_bin).removesuffix('.gfx.bin'), 'clip_source': str(clip_bin),
+                         'shadow_lights': bool(world.shadow_lights),
+                         'script_render_dvars': {}},
+            'coverage_roots': [str(r) for r in [*(waw_patch_script_roots or []),
+                                                *([waw_map_script.parent.parent] if waw_map_script else []),
+                                                *(waw_script_roots or []), *([waw_stock_scripts] if waw_stock_scripts else [])]]})
+        for zone, entry in (tail.get('stock_prepared') or {}).items():
+            stock_waw.prepared[zone] = Path(entry['folder'])
+            stock_waw.prepared_sources[zone] = entry['inputs']
+        report = StageReport(**tail['report'])
+        wavelets.close()
+        return report
+    if native_tail and weapon_report is not None:
+        return run_tail(scripts={
+            'used_techsets': sorted(used),
+            'remaster_roots': [str(r) for r in sorted({next(a for a in p.parents if (a / "remaster.json").is_file())
+                                                       for p in remastered.values()})],
+            'waw_map_script': str(waw_map_script) if waw_map_script is not None else None,
+            'required_template': _script_template(template_root, template_name),
+            'drop_zone_manager': None if zone_graph is None and waw_map_script is not None else waw_map_script is not None,
+            'zone_graph': {'initial': zone_graph.initial, 'adjacency': zone_graph.adjacency} if zone_graph is not None else None})
     verify_techsets(report, used, techset_dump, project_root,
                     sorted({next(a for a in p.parents if (a / "remaster.json").is_file())
                             for p in remastered.values()}))
@@ -2315,6 +2392,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     if weapon_report is None:
         weapon_report, roots = _stage_weapons(report, roots, project_root, compiled_weapon_names, script_models,
                                               stock_waw, compiled_sound_names)
+    if native_tail:
+        return run_tail()
     entities_json = project_root / "BSP" / "entities.json"
     if entities_json.exists():
         # T6 resolves a placed weapon at spawn and crashes on an unknown one;
@@ -2662,36 +2741,6 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                    f"nearest stock T6 curve {entry['nearest']['t6']} "
                                    f"({entry['nearest']['rmsDbError']:.1f} dB RMS, "
                                    f"max gain error {entry['nearest']['maxError']:.3f})")
-    if hasattr(wavelets, 'operation'):
-        # the rest of the stage in C++ (pipeline/bridge_tail.cpp), served by the IWD recovery
-        tail = wavelets.operation('bridge-tail', {
-            'report': json.loads(report.to_json()), 'project': project, 'project_root': str(project_root),
-            'stage': str(stage), 'roots': [str(r) for r in roots],
-            'bo2_root': str(bo2_root) if bo2_root is not None else None,
-            'techset_dump': str(techset_dump) if techset_dump is not None else None,
-            't4_unlinker': str(t4_unlinker) if t4_unlinker is not None else None,
-            't6_unlinker': str(t6_unlinker) if t6_unlinker is not None else None,
-            'waw_map_stem': waw_map_script.stem if waw_map_script is not None else None,
-            'raw_roots': [str(r / 'raw') for r in (waw_mod_tools, waw_root) if r is not None],
-            'iwd_dirs': [str(d) for d in (iwd_dirs or [])],
-            'stock_waw': {'waw_root': str(stock_waw.waw_root), 'unlinker': str(stock_waw.unlinker), 'work': str(stock_waw.work),
-                          'prepared': {zone: {'folder': str(folder), 'inputs': stock_waw.prepared_sources.get(zone, {})}
-                                       for zone, folder in stock_waw.prepared.items()}} if stock_waw is not None else None,
-            'images': images, 'hud_materials': list(hud_materials),
-            'zone_models': sorted(script_models | (shipped & resolved) | fx_models | projectile_models),
-            'zone_fx': list(effects.zone_fx), 'ipak': ipak, 'bo2_stock_perks': bo2_stock_perks,
-            'lighting': {'base': str(gfx_bin).removesuffix('.gfx.bin'), 'clip_source': str(clip_bin),
-                         'shadow_lights': bool(world.shadow_lights),
-                         'script_render_dvars': vision_report.get('script_render_dvars', {})},
-            'coverage_roots': [str(r) for r in [*(waw_patch_script_roots or []),
-                                                *([waw_map_script.parent.parent] if waw_map_script else []),
-                                                *(waw_script_roots or []), *([waw_stock_scripts] if waw_stock_scripts else [])]]})
-        for zone, entry in (tail.get('stock_prepared') or {}).items():
-            stock_waw.prepared[zone] = Path(entry['folder'])
-            stock_waw.prepared_sources[zone] = entry['inputs']
-        report = StageReport(**tail['report'])
-        wavelets.close()
-        return report
     lighting_base = str(gfx_bin).removesuffix(".gfx.bin")
     grid_file = Path(lighting_base + ".lightgrid.bin")
     if grid_file.exists():

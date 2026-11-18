@@ -12,7 +12,8 @@
 namespace w2b::pipeline
 {
     // request {project, project_root, source_amb, ents}; returns {warnings, content}
-    py::Json WriteAmbCsc(const std::filesystem::path& request);
+    py::Json WriteAmbCsc(const py::Json& request);
+    py::Json WriteAmbCscRequest(const std::filesystem::path& request);
     // sounds.ambient_aliases: what the source ambient packages and room tones play
     std::set<std::string> AmbientAliases(const std::string& source);
 } // namespace w2b::pipeline

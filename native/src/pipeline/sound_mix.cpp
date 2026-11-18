@@ -796,9 +796,8 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json SoundMix(const fs::path& requestPath)
+    Json SoundMix(const Json& request)
     {
-        const auto request = mod::Json(requestPath);
         const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
         const auto project = request["project"].get<std::string>();
         const std::optional<fs::path> bo2Root = request["bo2_root"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["bo2_root"].get<std::string>()));
@@ -1134,5 +1133,10 @@ namespace w2b::pipeline
         content["reverb_send"] = reverbSend;
         return Json{{"warnings", warnings}, {"content", content}, {"bank_report", bankReport}, {"budget", budget}, {"reverb_send", reverbSend},
                     {"stock_prepared", stockWaw ? stockWaw->PreparedJson() : Json()}};
+    }
+
+    Json SoundMixRequest(const fs::path& request)
+    {
+        return SoundMix(mod::Json(request));
     }
 } // namespace w2b::pipeline
