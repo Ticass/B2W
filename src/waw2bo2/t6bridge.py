@@ -1968,29 +1968,38 @@ class _BridgeGeometry:
     map_dynents: list[dict]
     clip_models: set[str]
     has_water: bool
+    navigation: dict | None
 
 
 @progress.phase('Convert world geometry')
 def _stage_native_geometry(report, gfx, clip, roots, project, stock, probe_source, visibility_source,
-                           dynent_source, constraint_source):
+                           dynent_source, constraint_source, navigation=None):
     stock_request = None
     if stock is not None:
         stock_request = {'waw_root': str(stock.waw_root), 'unlinker': str(stock.unlinker), 'work': str(stock.work),
                          'prepared': {zone: {'folder': str(folder), 'inputs': stock.prepared_sources.get(zone, {})}
                                       for zone, folder in stock.prepared.items()}}
-    staged = _script_staging_request('stage-bridge-geometry', {
+    request = {
         'gfx': str(gfx), 'clip': str(clip), 'project_root': str(project), 'roots': [str(root) for root in roots],
         'stock_waw': stock_request, 'compensated': sys.version_info >= (3, 12),
         'probe_source': str(probe_source), 'visibility_source': str(visibility_source),
         'image_roots': [str(root / 'images') for root in roots],
         'dynents': str(dynent_source), 'constraints': str(constraint_source),
-    })
+    }
+    if navigation is not None:
+        request['navigation'] = navigation
+    staged = _script_staging_request('stage-bridge-geometry', request)
     if 'stage_error' in staged:
         raise StageError(staged['stage_error'])
     if 'weapon_error' in staged:
         raise weapons.WeaponError(staged['weapon_error'])
     if 'invalid' in staged:
         raise ValueError(staged['invalid'])
+    if 'syntax_error' in staged:
+        from .gsc import GscSyntaxError
+        raise GscSyntaxError(staged['syntax_error'])
+    if 'path_error' in staged:
+        raise paths.PathError(staged['path_error'])
     for zone, entry in (staged.get('stock_prepared') or {}).items():
         stock.prepared[zone] = Path(entry['folder'])
         stock.prepared_sources[zone] = entry['inputs']
@@ -2016,7 +2025,59 @@ def _stage_native_geometry(report, gfx, clip, roots, project, stock, probe_sourc
     world = _BridgeWorld([_BridgeSurface(*surface) for surface in metadata['surfaces']],
                          [StaticModel(*model) for model in metadata['static_models']], metadata['shadow_lights'])
     return _BridgeGeometry(world, staged['sky'], len(probe_result.get('kept', ())), staged['physics']['dynents'],
-                           set(staged['clip_models']), staged['has_water'])
+                           set(staged['clip_models']), staged['has_water'], staged.get('navigation'))
+
+
+def _stage_python_navigation(report, gfx_bin, clip, clip_bin, ents_file, project, project_root, bo2_root,
+                             waw_map_script, traversal_roots, bo2_stock_perks):
+    script_models = set()
+
+    animscripts: dict[str, str] = {}
+    dog_traversals = None
+    paths_file = gfx_bin.parent / f"{gfx_bin.name.removesuffix('.gfx.bin')}.paths.json"
+    if paths_file.exists():
+        try:
+            # the zombie actor the converted spawners use (entities.ZOMBIE_ACTOR_CLASS)
+            asd = bo2_root / "raw" / "animstatedefs" / "zm_nuked_basic.asd" if bo2_root is not None else None
+            path_summary, animscripts, dog_traversals = paths.stage_paths(
+                paths_file, project_root / "BSP", project_root,
+                asd if asd is not None and asd.exists() else None, traversal_roots)
+            report.warnings += [f"UNCONVERTED_TRAVERSAL {e}" for e in dog_traversals.errors]
+            report.warnings.append(f"path nodes: {path_summary.nodes} nodes, {path_summary.links} links, "
+                                   f"vis {path_summary.vis_bytes} bytes; traversals {path_summary.traversals}")
+        except paths.PathError as exc:
+            report.errors.append(f"path nodes: {exc}")
+    else:
+        report.errors.append(f"path nodes {paths_file.name} missing (dump gameworldsp): zombies cannot path")
+    bo2_machine_models = set()
+    if bo2_stock_perks and bo2_root is not None:
+        from . import stockperks
+        bo2_machine_models = stockperks.machine_models(bo2_root)
+    zone_graph = None
+    if ents_file.exists():
+        zone_script = waw_map_script if waw_map_script is not None and waw_map_script.exists() else None
+        try:
+            report.entities, script_models, zone_graph = entities.write_map_entities(
+                ents_file, project, project_root / "BSP", clip, clip_bin, animscripts, zone_script)
+            if bo2_root is not None:
+                from . import barriers
+                alignment, chunks = barriers.stage_native_boards(project_root / 'BSP', bo2_root, clip, clip_bin)
+                report.entities['barrier_alignment'] = alignment
+                report.entities['barrier_chunks'] = chunks
+        except ValueError as exc:
+            raise StageError(f"map entities: {exc}") from exc
+        synthesized = report.entities.get("synthesized_zones")
+        if synthesized:
+            report.warnings.append(
+                f"ZONES_SYNTHESIZED the WaW map has no add_adjacent_zone graph: {len(synthesized['groups'])} spawner "
+                f"group(s) became map-wide zones, opened by the doors that add them in WaW "
+                f"(initial {synthesized['initial']}, {len(synthesized['adjacency'])} door-unlocked)")
+            if synthesized["never_unlocked"]:
+                report.warnings.append(f"ZONE_SPAWNERS_UNREACHED {synthesized['never_unlocked']}: no door or debris "
+                                       f"adds these spawners; they stay inactive unless the map script enables them")
+    else:
+        report.errors.append(f"map entities {ents_file.name} missing")
+    return script_models, zone_graph, dog_traversals.states if dog_traversals is not None else {}, bo2_machine_models
 
 
 def _xwma_helper(explicit: Path | None) -> str | None:
@@ -2050,13 +2111,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     project_root = stage / "zone_raw" / project
     project_root.mkdir(parents=True, exist_ok=True)
     roots = [stage, *(extra_roots or [])]
-    compiled_weapon_names = set(weapons.discover(roots))
-    # A WaW zone file pulls whole alias CSVs, so the map's fastfiles define
-    # thousands of aliases the map never plays (other maps' content, sounds
-    # only WaW's engine requests by name). Those are candidates, not
-    # dependencies: weapons, FX, entities and scripts select what is staged.
-    zone_sound_names = {p.relative_to(r / "soundaliases").as_posix().removesuffix(".w2bsnd.json")
-                        for r in roots for p in (r / "soundaliases").rglob("*.w2bsnd.json")}
+    native_geometry = native.tool() is not None
+    if not native_geometry:
+        compiled_weapon_names = set(weapons.discover(roots))
+        zone_sound_names = {p.relative_to(r / 'soundaliases').as_posix().removesuffix('.w2bsnd.json')
+                            for r in roots for p in (r / 'soundaliases').rglob('*.w2bsnd.json')}
     compiled_sound_names: set[str] = set()
     stock_waw = None
     if waw_root is not None and t4_unlinker is not None:
@@ -2075,7 +2134,6 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     world_stem = gfx_bin.name.removesuffix('.gfx.bin')
     probe_source = gfx_bin.with_name(world_stem + '.reflectionprobes.json')
     visibility_source = gfx_bin.with_name(world_stem + '.visibility.json')
-    native_geometry = native.tool() is not None
     if not native_geometry:
         world = progress.timed('Read map world', read_gfx_world, gfx_bin)
         source_probes = probes.read(probe_source)
@@ -2085,9 +2143,22 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     clip_stem = clip_bin.name.removesuffix('.clip.bin')
     dynent_source = clip_bin.with_name(clip_stem + '.dynents.json')
     constraint_source = clip_bin.with_name(clip_stem + '.constraints.json')
+    traversal_roots = [*(waw_patch_script_roots or []),
+                       *([waw_map_script.parent.parent] if waw_map_script else []),
+                       *(waw_script_roots or []), *roots,
+                       *([waw_stock_scripts] if waw_stock_scripts else [])]
     if native_geometry:
         geometry = _stage_native_geometry(report, gfx_bin, clip_bin, roots, project_root, stock_waw,
-                                          probe_source, visibility_source, dynent_source, constraint_source)
+                                          probe_source, visibility_source, dynent_source, constraint_source, {
+                                              'project': project, 'stage': str(stage),
+                                              'bo2_root': str(bo2_root) if bo2_root is not None else None,
+                                              'waw_map_script': str(waw_map_script) if waw_map_script is not None else None,
+                                              'traversal_roots': list(map(str, traversal_roots)),
+                                              'map_roots': list(map(str, map_roots or [])),
+                                              'level_weapons': stock_waw.index.get('common', {}).get('weapon', []) if stock_waw else [],
+                                              'bo2_stock_perks': bo2_stock_perks,
+                                              'respawn_exclusion': gscport.API['zombie_runtime']['source_respawn']['native_exclusion_tag'],
+                                          })
         world, sky_image, probe_count = geometry.world, geometry.sky, geometry.probe_count
         map_dynents, clip_models, has_water = geometry.map_dynents, geometry.clip_models, geometry.has_water
         clip = None  # remaining native steps use the packed clip file
@@ -2101,65 +2172,35 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
         has_water = waterbullets.has_water(clip)
     map_constraints = report.content['physics_constraints']
-    ents_file = source_entities(gfx_bin, stage, roots)
     # The map is king: every model its own zones ship converts, referenced or
     # not (Industrial Estate's zombie-hero viewhands are picked through arrays
     # no reference scan follows). Stock WaW models stay reference-driven.
-    shipped = shipped_models(map_roots or [])
-    report.content['map_shipped_models'] = len(shipped)
-    script_models: set[str] = set()
     # map-placed script_model entities: WaW collides each one (see hulls.SCRIPT_MODEL_CONTENTS)
     entity_box_models: set[str] = set()
-    animscripts: dict[str, str] = {}
-    dog_traversals = None
-    paths_file = gfx_bin.parent / f"{gfx_bin.name.removesuffix('.gfx.bin')}.paths.json"
-    if paths_file.exists():
-        try:
-            # the zombie actor the converted spawners use (entities.ZOMBIE_ACTOR_CLASS)
-            asd = bo2_root / "raw" / "animstatedefs" / "zm_nuked_basic.asd" if bo2_root is not None else None
-            # the source traversal scripts (map zones first, then stock WaW)
-            traversal_roots = [*(waw_patch_script_roots or []),
-                               *([waw_map_script.parent.parent] if waw_map_script else []),
-                               *(waw_script_roots or []), *roots,
-                               *([waw_stock_scripts] if waw_stock_scripts else [])]
-            path_summary, animscripts, dog_traversals = paths.stage_paths(
-                paths_file, project_root / "BSP", project_root,
-                asd if asd is not None and asd.exists() else None, traversal_roots)
-            report.warnings += [f"UNCONVERTED_TRAVERSAL {e}" for e in dog_traversals.errors]
-            report.warnings.append(f"path nodes: {path_summary.nodes} nodes, {path_summary.links} links, "
-                                   f"vis {path_summary.vis_bytes} bytes; traversals {path_summary.traversals}")
-        except paths.PathError as exc:
-            report.errors.append(f"path nodes: {exc}")
+    if native_geometry:
+        navigation = geometry.navigation
+        inventory = navigation['inventory']
+        compiled_weapon_names = set(inventory['compiled_weapons'])
+        zone_sound_names = set(inventory['zone_sounds'])
+        shipped = set(inventory['shipped_models'])
+        ents_file = Path(navigation['entity_source'])
+        report.entities = navigation['entities']
+        report.warnings.extend(navigation['warnings'])
+        report.errors.extend(navigation['errors'])
+        script_models = set(navigation['script_models'])
+        zone_graph = zones.ZoneGraph.from_json(navigation['zone_graph']) if navigation['zone_graph'] is not None else None
+        dog_states = navigation['dog_states']
+        bo2_machine_models = set(navigation['bo2_machine_models'])
     else:
-        report.errors.append(f"path nodes {paths_file.name} missing (dump gameworldsp): zombies cannot path")
-    bo2_machine_models: set[str] = set()
-    if bo2_stock_perks and bo2_root is not None:
-        from . import stockperks
-        # converted WaW models of these names would shadow BO2's machines
-        bo2_machine_models = stockperks.machine_models(bo2_root)
-    zone_graph = None
+        shipped = shipped_models(map_roots or [])
+        ents_file = source_entities(gfx_bin, stage, roots)
+        script_models, zone_graph, dog_states, bo2_machine_models = _stage_python_navigation(
+            report, gfx_bin, clip, clip_bin, ents_file, project, project_root, bo2_root,
+            waw_map_script, traversal_roots, bo2_stock_perks)
+    report.content['map_shipped_models'] = len(shipped)
     if ents_file.exists():
-        zone_script = waw_map_script if waw_map_script is not None and waw_map_script.exists() else None
-        try:
-            report.entities, script_models, zone_graph = entities.write_map_entities(
-                ents_file, project, project_root / "BSP", clip, clip_bin, animscripts, zone_script)
-            if bo2_root is not None:
-                from . import barriers
-                alignment, chunks = barriers.stage_native_boards(project_root / 'BSP', bo2_root, clip, clip_bin)
-                report.entities['barrier_alignment'] = alignment
-                report.entities['barrier_chunks'] = chunks
-        except ValueError as exc:
-            raise StageError(f"map entities: {exc}") from exc
-        synthesized = report.entities.get("synthesized_zones")
-        if synthesized:
-            report.warnings.append(
-                f"ZONES_SYNTHESIZED the WaW map has no add_adjacent_zone graph: {len(synthesized['groups'])} spawner "
-                f"group(s) became map-wide zones, opened by the doors that add them in WaW "
-                f"(initial {synthesized['initial']}, {len(synthesized['adjacency'])} door-unlocked)")
-            if synthesized["never_unlocked"]:
-                report.warnings.append(f"ZONE_SPAWNERS_UNREACHED {synthesized['never_unlocked']}: no door or debris "
-                                       f"adds these spawners; they stay inactive unless the map script enables them")
-        if bo2_machine_models:
+        if not native_geometry and bo2_machine_models:
+            from . import stockperks
             # BO2 owns the perk machines: native perk names and machine models
             try:
                 stockperks.translate_entities(project_root / 'BSP/entities.json', bo2_root)
@@ -2168,12 +2209,11 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             script_models = (script_models & entities.placed_models(project_root / 'BSP/entities.json')) - \
                 bo2_machine_models
         entity_box_models = set(script_models)
-        if (project_root / "BSP" / "paths.json").exists():
+        if not native_geometry and (project_root / "BSP" / "paths.json").exists():
             report.warnings += entities.link_barrier_traversals(project_root / "BSP")
-        named = entities.placed_weapons(project_root / "BSP" / "entities.json") | script_weapons(map_roots or [])
-        compiled_weapon_names |= level_stock_weapons(report, named - compiled_weapon_names, stock_waw)
-    else:
-        report.errors.append(f"map entities {ents_file.name} missing")
+        if not native_geometry:
+            named = entities.placed_weapons(project_root / 'BSP/entities.json') | script_weapons(map_roots or [])
+            compiled_weapon_names |= level_stock_weapons(report, named - compiled_weapon_names, stock_waw)
     effects = EffectsResult()
     source_waw = None
     weapon_report = None
@@ -2238,8 +2278,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 for tree, kind in sorted(native_trees.items()):
                     cfg = gscport.API['zombie_runtime']['actor_templates'].get(kind)
                     if isinstance(cfg, dict) and cfg.get('owned_tree'):
-                        dog_states = dog_traversals.states if dog_traversals is not None and kind == 'dog' else {}
-                        tree, atr = stage_owned_actor_tree(project_root, bo2_root, tree, cfg, dog_states,
+                        tree, atr = stage_owned_actor_tree(project_root, bo2_root, tree, cfg, dog_states if kind == 'dog' else {},
                                                            report, roots, stock_waw)
                     else:
                         atr = (bo2_root / 'raw/animtrees' / f'{tree}.atr').read_text(encoding='utf-8')

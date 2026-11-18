@@ -26,5 +26,6 @@ namespace w2b::barriers
     Json StageRepairs(std::string_view asset, const Path& bo2, const Json& timing, const Path& destination);
     Json AlignBoards(Json& entities, const Path& bo2, const world::CollisionWorld* clip);
     Json DropChunks(Json& entities);
+    Json StageBoards(const Path& bsp, const Path& bo2, const world::CollisionWorld* clip);
     Json Run(const Path& request);
 }

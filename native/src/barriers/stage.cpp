@@ -9,29 +9,37 @@ namespace w2b::barriers
 {
     namespace
     {
+        Json UpdateBoards(const Path& bsp, const Path* bo2, const world::CollisionWorld* clip, bool drop)
+        {
+            const auto path = bsp / "entities.json";
+            auto data = Json::parse(ReadBytes(path));
+            auto& entities = data.at("entities");
+            auto result = Json::object();
+            if (bo2)
+                result["alignment"] = AlignBoards(entities, *bo2, clip);
+            if (drop)
+                result["chunks"] = DropChunks(entities);
+            if (bo2 || result.at("chunks").at("dropped_brushes") != 0)
+                files::WriteText(path, py::JsonDumps(data, 1) + '\n');
+            return result;
+        }
+
         Path ReadPath(const Json& request, std::string_view key)
         {
             return files::FromUtf8(request.at(key).get_ref<const std::string&>());
         }
 
-        Json StageBoards(const Json& request, bool align, bool drop)
+        Json StageBoardsRequest(const Json& request, bool align, bool drop)
         {
-            const auto path = ReadPath(request, "bsp") / "entities.json";
-            auto data = Json::parse(ReadBytes(path));
-            auto& entities = data.at("entities");
-            auto result = Json::object();
+            std::optional<Path> bo2;
+            std::optional<world::CollisionWorld> clip;
             if (align)
             {
-                std::optional<world::CollisionWorld> clip;
+                bo2 = ReadPath(request, "bo2");
                 if (request.contains("clip"))
                     clip.emplace(world::ReadCollisionWorld(ReadPath(request, "clip")));
-                result["alignment"] = AlignBoards(entities, ReadPath(request, "bo2"), clip ? &*clip : nullptr);
             }
-            if (drop)
-                result["chunks"] = DropChunks(entities);
-            if (align || result.at("chunks").at("dropped_brushes") != 0)
-                files::WriteText(path, py::JsonDumps(data, 1) + '\n');
-            return result;
+            return UpdateBoards(ReadPath(request, "bsp"), bo2 ? &*bo2 : nullptr, clip ? &*clip : nullptr, drop);
         }
 
         Json FindTiming(const Json& request)
@@ -50,14 +58,19 @@ namespace w2b::barriers
         }
     }
 
+    Json StageBoards(const Path& bsp, const Path& bo2, const world::CollisionWorld* clip)
+    {
+        return UpdateBoards(bsp, &bo2, clip, true);
+    }
+
     Json Run(const Path& file)
     {
         using Operation = Json (*)(const Json&);
         static const std::map<std::string_view, Operation, std::less<>> operations{
             {"translation", [](const Json& request) -> Json { return RepairedTranslation(ReadPath(request, "source")); }},
-            {"align", [](const Json& request) { return StageBoards(request, true, false).at("alignment"); }},
-            {"drop", [](const Json& request) { return StageBoards(request, false, true).at("chunks"); }},
-            {"boards", [](const Json& request) { return StageBoards(request, true, true); }},
+            {"align", [](const Json& request) { return StageBoardsRequest(request, true, false).at("alignment"); }},
+            {"drop", [](const Json& request) { return StageBoardsRequest(request, false, true).at("chunks"); }},
+            {"boards", [](const Json& request) { return StageBoardsRequest(request, true, true); }},
             {"timing", FindTiming},
             {"repair", [](const Json& request) {
                 files::WriteBytes(ReadPath(request, "destination"),

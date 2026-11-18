@@ -9,9 +9,8 @@
 
 namespace w2b::mapents
 {
-    Json Run(const Path& path)
+    Json ConvertRequest(const Json& request, const world::CollisionWorld* collision)
     {
-        const auto request = Json::parse(files::ReadText(path));
         Json graph;
         if (const auto script = request.find("zoneScript"); script != request.end())
             graph = gsc::port::ReadZoneGraphFile(files::FromUtf8(script->get_ref<const std::string&>())).ToJson();
@@ -35,10 +34,14 @@ namespace w2b::mapents
             if (destination == request.end())
                 return output;
             std::optional<world::CollisionWorld> clip;
-            if (const auto source = request.find("clip"); source != request.end())
-                clip.emplace(world::ReadCollisionWorld(files::FromUtf8(source->get_ref<const std::string&>())));
+            if (!collision)
+                if (const auto source = request.find("clip"); source != request.end())
+                {
+                    clip.emplace(world::ReadCollisionWorld(files::FromUtf8(source->get_ref<const std::string&>())));
+                    collision = &*clip;
+                }
             auto written = Write(std::move(output), files::FromUtf8(destination->get_ref<const std::string&>()),
-                                 clip ? &*clip : nullptr, graph.is_null() ? request.at("startZones") : graph.at("initial"));
+                                 collision, graph.is_null() ? request.at("startZones") : graph.at("initial"));
             if (!graph.is_null())
                 written["zoneGraph"] = std::move(graph);
             return written;
@@ -47,5 +50,10 @@ namespace w2b::mapents
         {
             return {{"invalid", error.what()}};
         }
+    }
+
+    Json Run(const Path& path)
+    {
+        return ConvertRequest(Json::parse(files::ReadText(path)), nullptr);
     }
 }

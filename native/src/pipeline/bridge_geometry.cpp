@@ -2,7 +2,11 @@
 
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
+#include "gsc/tokens.h"
+#include "paths/paths.h"
 #include "physics/physics.h"
+#include "pipeline/bridge_inventory.h"
+#include "pipeline/bridge_navigation.h"
 #include "pipeline/bridge_support.h"
 #include "pipeline/finish.h"
 #include "pipeline/geometry_materials.h"
@@ -259,11 +263,23 @@ namespace w2b::pipeline
         if (!meshes.at("shadow_geometry").is_null())
             content["shadow_geometry"] = meshes.at("shadow_geometry");
         auto collision = StageCollision(clip, output, warnings, errors);
-        return {{"content", std::move(content)}, {"collision", std::move(collision)}, {"warnings", std::move(warnings)}, {"errors", std::move(errors)},
+        Json result{{"content", std::move(content)}, {"collision", std::move(collision)}, {"warnings", std::move(warnings)}, {"errors", std::move(errors)},
                 {"visibility_warning", meshes.at("visibility_warning")}, {"world", std::move(metadata)}, {"probes", std::move(probes)},
                 {"sky", materials.skyImage ? Json(*materials.skyImage) : Json()},
-                {"layered", !render.layerData.empty()}, {"stock_prepared", stock ? stock->PreparedJson() : Json()},
+                {"layered", !render.layerData.empty()}, {"stock_prepared", nullptr},
                 {"physics", std::move(physicsReport)}, {"has_water", hasWater}, {"clip_models", std::move(clipModels)}};
+        if (const auto requestNavigation = request.find("navigation"); requestNavigation != request.end())
+        {
+            auto navigation = StageBridgeNavigation(*requestNavigation, path("gfx"), project, roots, clip);
+            const auto entities = navigation.at("has_entities").get<bool>() ? std::optional(project / "BSP/entities.json") : std::nullopt;
+            auto inventory = BridgeInventory(roots, bridge::PathList(requestNavigation->at("map_roots")), entities,
+                                             requestNavigation->at("level_weapons"), navigation.at("warnings"));
+            navigation["inventory"] = std::move(inventory);
+            result["navigation"] = std::move(navigation);
+        }
+        if (stock)
+            result["stock_prepared"] = stock->PreparedJson();
+        return result;
     }
 
     Json StageBridgeGeometryRequest(const fs::path& path)
@@ -275,6 +291,14 @@ namespace w2b::pipeline
         catch (const StepError& error)
         {
             return {{"stage_error", error.what()}};
+        }
+        catch (const gsc::GscSyntaxError& error)
+        {
+            return {{"syntax_error", error.what()}};
+        }
+        catch (const paths::Error& error)
+        {
+            return {{"path_error", error.what()}};
         }
         catch (const weapons::WeaponError& error)
         {

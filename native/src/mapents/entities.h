@@ -14,6 +14,7 @@ namespace w2b::mapents
     Json Parse(std::string_view text);
     Json Convert(Json entities, std::string_view project, const Json& animscripts, const Json& zoneNames,
                  std::string_view respawnExclusion);
+    Json ConvertRequest(const Json& request, const world::CollisionWorld* clip);
     Json Run(const Path& request);
     Json Write(Json converted, const Path& bsp, const world::CollisionWorld* clip, Json startZones);
     Json SynthesizeZones(Json& entities, const world::CollisionWorld& clip, const Path& bsp, Json& summary);

@@ -1,4 +1,6 @@
 // build-mod helpers against CPython's csv module and modzone.py.
+#include "core/files.h"
+#include "pipeline/bridge_inventory.h"
 #include "pipeline/csvtable.h"
 #include "pipeline/geometry_materials.h"
 #include "pipeline/modzone.h"
@@ -6,7 +8,46 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <random>
+
 using namespace w2b::pipeline;
+
+TEST_CASE("Bridge inventory preserves weapon include matching and source names", "[pipeline]")
+{
+    namespace fs = std::filesystem;
+    using w2b::files::WriteText;
+    using w2b::py::Json;
+    struct Fixture
+    {
+        fs::path root = fs::temp_directory_path() / ("w2b-inventory-" + std::to_string(std::random_device{}()));
+        bool created = fs::create_directory(root);
+        ~Fixture()
+        {
+            if (!created)
+                return;
+            std::error_code error;
+            for (const auto* name : {"entities.json", "maps/source.gsc", "maps/utf8.gsc", "weapons/compiled", "soundaliases/hit.w2bsnd.json",
+                                     "xmodel/sub/tree.json", "maps", "weapons", "soundaliases", "xmodel/sub", "xmodel"})
+                fs::remove(root / name, error);
+            fs::remove(root, error);
+        }
+    } fixture;
+    const auto& root = fixture.root;
+    REQUIRE(fixture.created);
+    WriteText(root / "entities.json", R"({"entities":[{"classname":"weapon_world"},{"classname":"misc_turret","weaponinfo":"turret"}]})");
+    WriteText(root / "maps/source.gsc", "include_weapon(\"\"); xinclude_weapon(\"ignored\"); INCLUDE_WEAPON \n(\t\"mixed\");\n");
+    WriteText(root / "maps/utf8.gsc", "\xC4\xB0NCLUDE_WEAPON(\"unicode\");");
+    WriteText(root / "weapons/compiled", "WEAPONFILE\\data");
+    WriteText(root / "soundaliases/hit.w2bsnd.json", "{}");
+    WriteText(root / "xmodel/sub/tree.json", "{}");
+
+    auto warnings = Json::array();
+    const auto inventory = BridgeInventory({root}, {root}, root / "entities.json", {"ignored", "mixed", "unicode", "turret", "world"}, warnings);
+    CHECK(inventory.at("compiled_weapons") == Json::array({"compiled", "mixed", "turret", "unicode", "world"}));
+    CHECK(inventory.at("zone_sounds") == Json::array({"hit"}));
+    CHECK(inventory.at("shipped_models") == Json::array({"sub/tree"}));
+    CHECK(warnings.size() == 4);
+}
 
 TEST_CASE("Bridge geometry resolves vertex layers by stride and generated layer count", "[pipeline]")
 {
