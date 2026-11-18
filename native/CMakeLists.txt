@@ -99,7 +99,7 @@ target_link_libraries(w2b_physics PUBLIC w2b_weapons)
 
 add_library(w2b_mapents STATIC src/mapents/parse.cpp src/mapents/convert.cpp src/mapents/wall_buys.cpp src/mapents/stage.cpp
     src/mapents/write.cpp src/mapents/zones.cpp)
-target_link_libraries(w2b_mapents PUBLIC w2b_world)
+target_link_libraries(w2b_mapents PUBLIC w2b_world PRIVATE w2b_gscport)
 
 add_library(w2b_paths STATIC src/paths/aliases.cpp src/paths/convert.cpp src/paths/dogs.cpp src/paths/stage.cpp
     src/paths/window_ends.cpp src/paths/window_traversals.cpp)
@@ -143,6 +143,8 @@ target_link_libraries(w2b_gsc PUBLIC w2b_core)
 
 add_library(w2b_gscport STATIC
     src/gsc/port/staging.cpp
+    src/gsc/port/zone_graph.cpp
+    src/gsc/port/zone_scripts.cpp
     src/gsc/port/util.cpp
     src/gsc/port/api.cpp
     src/gsc/port/rewrites.cpp

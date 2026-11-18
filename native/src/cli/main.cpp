@@ -17,6 +17,7 @@
 #include "gsc/port/portmap.h"
 #include "gsc/port/rewrites.h"
 #include "gsc/port/staging.h"
+#include "gsc/port/zone_scripts.h"
 #include "materials/donor_index.h"
 #include "materials/prepare.h"
 #include "weapons/stage.h"
@@ -860,6 +861,7 @@ namespace
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"stage-script-files", JsonRequest<w2b::gsc::port::StageScriptFilesRequest>},
         {"list-map-scripts", JsonRequest<w2b::gsc::port::MapScriptsRequest>},
+        {"map-zone-scripts", JsonRequest<w2b::gsc::port::ZoneScriptsRequest>},
         {"write-map-zone", JsonRequest<w2b::world::WriteMapZoneRequest>},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},

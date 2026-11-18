@@ -1291,10 +1291,11 @@ def _script_template(root: Path | None, name: str | None) -> dict | None:
     return {"root": str(root), "name": name} if root is not None and name is not None else None
 
 
-def _stage_native_script_files(report: StageReport, root: Path, project: str, **fields) -> None:
+def _stage_native_script_files(report: StageReport, root: Path, project: str, **fields) -> dict:
     result = _script_staging_request("stage-script-files", {"root": str(root), "project": project, **fields})
     report.errors.extend(result["errors"])
     report.warnings.extend(result["warnings"])
+    return result
 
 
 def stage_template_scripts(report: StageReport, project: str, project_root: Path,
@@ -1577,13 +1578,15 @@ def map_scripts(project_root: Path, project: str) -> list[str]:
 
 
 def stage_map_scripts(report: StageReport, project: str, project_root: Path, bo2_root: Path | None,
-                      template_root: Path | None, template_name: str | None) -> None:
+                      template_root: Path | None, template_name: str | None, *,
+                      drop_zone_manager: bool | None = None) -> zones.ZoneMainResult | None:
     if native.tool() is not None:
         template = _script_template(bo2_root / "mods" / "zm_test", "zm_test") if bo2_root is not None else None
-        _stage_native_script_files(report, project_root, project, bo2Template=template,
-                                   requiredTemplate=_script_template(template_root, template_name),
-                                   rewriteTemplateReferences=True)
-        return
+        options = {"dropZoneManager": drop_zone_manager} if drop_zone_manager is not None else {}
+        result = _stage_native_script_files(report, project_root, project, bo2Template=template,
+                                            requiredTemplate=_script_template(template_root, template_name),
+                                            rewriteTemplateReferences=True, **options)
+        return zones.ZoneMainResult.from_json(result["zoneMain"]) if "zoneMain" in result else None
     if bo2_root is not None and (bo2_root / "mods" / "zm_test").exists():
         stage_template_scripts(report, project, project_root, bo2_root / "mods" / "zm_test", "zm_test")
     stage_scripts(report, project, project_root, template_root, template_name)
@@ -1593,6 +1596,10 @@ def stage_map_scripts(report: StageReport, project: str, project_root: Path, bo2
         if "zm_test" in source:
             script_path.write_text(source.replace("zm_test", project), encoding="utf-8")
             report.warnings.append(f"template references renamed in {script_name}")
+    main = project_root / "maps" / "mp" / f"{project}.gsc"
+    if drop_zone_manager is not None and main.exists():
+        return zones.stage_main(main, drop_manager=drop_zone_manager)
+    return None
 
 
 def write_zone(stage: Path, project: str, images: list[str], ipak: bool,
@@ -2016,15 +2023,12 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         from . import stockperks
         # converted WaW models of these names would shadow BO2's machines
         bo2_machine_models = stockperks.machine_models(bo2_root)
+    zone_graph = None
     if ents_file.exists():
-        start_zones, zone_names = None, set()
-        if waw_map_script is not None and waw_map_script.exists():
-            start_zones, adjacency = zones.read_waw_zones(waw_map_script.read_text(encoding="utf-8", errors="replace"))
-            zone_names = zones.zone_names(start_zones, adjacency)
+        zone_script = waw_map_script if waw_map_script is not None and waw_map_script.exists() else None
         try:
-            report.entities, script_models = entities.write_entities(ents_file, project, project_root / "BSP",
-                                                                     clip, start_zones, animscripts, zone_names,
-                                                                     clip_source=clip_bin)
+            report.entities, script_models, zone_graph = entities.write_map_entities(
+                ents_file, project, project_root / "BSP", clip, clip_bin, animscripts, zone_script)
             if bo2_root is not None:
                 from . import barriers
                 alignment, chunks = barriers.stage_native_boards(project_root / 'BSP', bo2_root, clip, clip_bin)
@@ -2212,23 +2216,24 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     verify_techsets(report, used, techset_dump, project_root,
                     sorted({next(a for a in p.parents if (a / "remaster.json").is_file())
                             for p in remastered.values()}))
-    stage_map_scripts(report, project, project_root, bo2_root, template_root, template_name)
+    drop_zone_manager = None if zone_graph is None and waw_map_script is not None else waw_map_script is not None
+    main_result = stage_map_scripts(report, project, project_root, bo2_root, template_root, template_name,
+                                    drop_zone_manager=drop_zone_manager)
     main_gsc = project_root / "maps" / "mp" / f"{project}.gsc"
-    if waw_map_script is not None and main_gsc.exists():
-        try:
-            initial, links = zones.apply(waw_map_script, main_gsc, project,
-                                         (report.entities or {}).get("synthesized_zones"))
-            report.warnings.append(f"zone graph from {waw_map_script.name}: start zones {initial}, {links} links")
-        except zones.ZoneError as exc:
-            report.errors.append(f"zones: {exc}")
-    else:
+    has_main = main_gsc.exists()
+    if waw_map_script is None or not has_main:
         report.errors.append("no WaW map script given; the BO2 map script would keep the template's single zone")
-    if main_gsc.exists():
-        source = main_gsc.read_text(encoding="utf-8", errors="replace")
-        marker = "    master_switch notsolid();"
-        guard = "    if ( !isdefined( trig ) || !isdefined( master_switch ) )\n        return;\n"
-        if marker in source and guard not in source:
-            main_gsc.write_text(source.replace(marker, guard + marker, 1), encoding="utf-8")
+    if has_main:
+        if zone_graph is None and waw_map_script is not None:
+            zone_graph = zones.read_waw_zone_graph(waw_map_script)
+        if main_result is None:
+            main_result = zones.stage_main(main_gsc, drop_manager=waw_map_script is not None)
+        if main_result.error:
+            report.errors.append(f"zones: {main_result.error}")
+        elif waw_map_script is not None:
+            report.warnings.append(f"zone graph from {waw_map_script.name}: start zones {zone_graph.initial}, "
+                                   f"{len(zone_graph.adjacency)} links")
+        if main_result.guarded_switch:
             report.warnings.append("zm_test electric_switch guarded: WaW map has no template switch entities")
     if report.scripts and main_gsc.exists():
         try:

@@ -4,6 +4,7 @@
 #include "core/files.h"
 #include "gsc/port/generators.h"
 #include "gsc/port/util.h"
+#include "gsc/port/zone_scripts.h"
 
 #include <algorithm>
 #include <array>
@@ -207,7 +208,17 @@ namespace w2b::gsc::port
         if (const auto bo2 = request.find("rawfilesBo2"); bo2 != request.end())
             StageScriptRawfiles(root, bo2->is_null() ? std::nullopt : std::optional{files::FromUtf8(bo2->get<std::string>())},
                                 diagnostics);
-        return {{"errors", std::move(diagnostics.errors)}, {"warnings", std::move(diagnostics.warnings)}};
+        Json result{{"errors", std::move(diagnostics.errors)}, {"warnings", std::move(diagnostics.warnings)}};
+        if (const auto manager = request.find("dropZoneManager"); manager != request.end())
+        {
+            const auto main = root / "maps/mp" / files::FromUtf8(project + ".gsc");
+            if (fs::exists(main))
+            {
+                const auto edited = StageZoneMain(main, manager->get<bool>(), true);
+                result["zoneMain"] = {{"error", edited.error}, {"guardedSwitch", edited.guardedSwitch}};
+            }
+        }
+        return result;
     }
 
     Json MapScriptsRequest(const fs::path& path)

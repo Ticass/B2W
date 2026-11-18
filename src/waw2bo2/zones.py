@@ -14,10 +14,13 @@ resolved from the local assignments in source order as ``[ "f0", "f1" ]``.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import NamedTuple
 
-from . import gsc
+from . import gsc, native
 
 ADJACENT_RE = re.compile(r"^\s*(?:[\w\\/]+::)?add_adjacent_zone\s*\(([^;]*)\)\s*;", re.MULTILINE)
 INIT_ZONE_RE = re.compile(
@@ -27,6 +30,32 @@ INIT_ZONE_RE = re.compile(
 
 class ZoneError(ValueError):
     pass
+
+
+class ZoneGraph(NamedTuple):
+    initial: list[str]
+    adjacency: list[str]
+    names: set[str]
+
+    @classmethod
+    def from_json(cls, result: dict) -> ZoneGraph:
+        return cls(result["initial"], result["adjacency"], set(result["names"]))
+
+
+class ZoneMainResult(NamedTuple):
+    error: str
+    guarded_switch: bool
+
+    @classmethod
+    def from_json(cls, result: dict) -> ZoneMainResult:
+        return cls(result["error"], result["guardedSwitch"])
+
+
+def _native_request(**fields) -> dict:
+    with TemporaryDirectory(prefix="waw2bo2_zones_") as folder:
+        request = Path(folder) / "request.json"
+        request.write_text(json.dumps(fields), encoding="utf-8")
+        return json.loads(native.run("map-zone-scripts", str(request)))
 
 
 def live_tokens(waw_gsc: str) -> list[gsc.Token]:
@@ -126,6 +155,13 @@ def zone_names(initial: list[str], adjacency: list[str]) -> set[str]:
     return names
 
 
+def read_waw_zone_graph(source: Path) -> ZoneGraph:
+    if native.tool() is not None:
+        return ZoneGraph.from_json(_native_request(source=str(source)))
+    initial, adjacency = read_waw_zones(source.read_text(encoding="utf-8", errors="replace"))
+    return ZoneGraph(initial, adjacency, zone_names(initial, adjacency))
+
+
 # The template main starts BO2's zone manager on its own graph.
 BO2_ZONE_MANAGER = re.compile(
     r'^\s*level\.zone_manager_init_func = ::\w+_zone_init;\n'
@@ -152,7 +188,30 @@ def drop_bo2_zone_manager(bo2_gsc: str) -> str:
 def apply(waw_gsc_path: Path, bo2_gsc_path: Path, project: str,
           synthesized: dict | None = None) -> tuple[list[str], int]:
     """The map's zone graph (reported), and BO2's zone manager removed."""
-    initial, adjacency = read_waw_zones(waw_gsc_path.read_text(encoding="utf-8", errors="replace"))
-    text = bo2_gsc_path.read_text(encoding="utf-8", errors="replace")
-    bo2_gsc_path.write_text(drop_bo2_zone_manager(text), encoding="utf-8")
-    return initial, len(adjacency)
+    graph = read_waw_zone_graph(waw_gsc_path)
+    result = stage_main(bo2_gsc_path, drop_manager=True, guard_switch=False)
+    if result.error:
+        raise ZoneError(result.error)
+    return graph.initial, len(graph.adjacency)
+
+
+def stage_main(main: Path, *, drop_manager: bool, guard_switch: bool = True) -> ZoneMainResult:
+    if native.tool() is not None:
+        return ZoneMainResult.from_json(_native_request(main=str(main), dropManager=drop_manager,
+                                                        guardSwitch=guard_switch))
+    source = main.read_text(encoding="utf-8", errors="replace")
+    error, changed = "", False
+    if drop_manager:
+        try:
+            source = drop_bo2_zone_manager(source)
+            changed = True
+        except ZoneError as exc:
+            error = str(exc)
+    marker = "    master_switch notsolid();"
+    guard = "    if ( !isdefined( trig ) || !isdefined( master_switch ) )\n        return;\n"
+    guarded = guard_switch and marker in source and guard not in source
+    if guarded:
+        source = source.replace(marker, guard + marker, 1)
+    if changed or guarded:
+        main.write_text(source, encoding="utf-8")
+    return ZoneMainResult(error, guarded)

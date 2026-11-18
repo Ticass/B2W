@@ -20,7 +20,7 @@ from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from . import native, paths as pathgraph
+from . import native, paths as pathgraph, zones
 
 ENTITY_RE = re.compile(r"\{([^{}]*)\}")
 KV_RE = re.compile(r'"([^"]*)"\s+"([^"]*)"')
@@ -525,6 +525,19 @@ def placed_models(entities_json: Path) -> set[str]:
     """xmodel names placed by entities (brush models ``*N`` excluded)."""
     data = json.loads(entities_json.read_text(encoding="utf-8"))
     return {e["model"] for e in data["entities"] if e.get("model") and not e["model"].startswith("*")}
+
+
+def write_map_entities(ents_file: Path, project: str, bsp_dir: Path, clip, clip_source: Path,
+                       animscripts: dict[str, str], zone_script: Path | None) -> tuple[dict, set[str], zones.ZoneGraph | None]:
+    """Stage map entities using its source zone graph and return the graph for script staging."""
+    if zone_script is not None and native.tool() is not None:
+        result = _convert_native(project, animscripts, (), source=str(ents_file), bsp=str(bsp_dir),
+                                 clip=str(clip_source), zoneScript=str(zone_script))
+        return result['summary'], set(result['scriptModels']), zones.ZoneGraph.from_json(result['zoneGraph'])
+    graph = zones.read_waw_zone_graph(zone_script) if zone_script is not None else None
+    summary, models = write_entities(ents_file, project, bsp_dir, clip, graph.initial if graph else None,
+                                     animscripts, graph.names if graph else frozenset(), clip_source=clip_source)
+    return summary, models, graph
 
 
 def entity_weapon(ent: dict) -> str | None:

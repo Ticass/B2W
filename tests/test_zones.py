@@ -1,8 +1,10 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from waw2bo2 import entities, zones
 
@@ -74,6 +76,34 @@ class ZoneGraphTests(unittest.TestCase):
 
     def test_map_without_zone_graph_is_not_an_error(self):
         self.assertEqual(zones.read_waw_zones("main() { maps\\_zombiemode::main(); }"), ([], []))
+
+    def test_file_graph_matches_reference_with_nested_args_and_reused_locals(self):
+        script = r'''
+main()
+{
+    level.DLC3.initialZones[0] = "a";
+    level.dlc3.initialzones[1] = "a";
+    flags = [];
+    flags[3] = "third";
+    flags[0] = "first";
+    maps\_zombiemode_zone_manager::add_adjacent_zone("a", "b", flags);
+    level.add_adjacent_zone("a", "ignored", "no");
+    /# add_adjacent_zone("a", "ghost", flags); #/
+}
+other()
+{
+    add_adjacent_zone("b", "c", pick(flags[2], "fallback"));
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.gsc"
+            source.write_text(script, encoding="utf-8")
+            with patch.dict(os.environ, {"WAW2BO2_NATIVE": "0"}):
+                reference = zones.read_waw_zone_graph(source)
+            self.assertEqual(zones.read_waw_zone_graph(source), reference)
+        self.assertEqual(reference.names, {"a", "b", "c"})
+        self.assertEqual(reference.initial, ["a"])
+        self.assertEqual(reference.adjacency[0], '"a", "b", [ "first", "third" ]')
 
 
 class SynthesizedZoneTests(unittest.TestCase):
@@ -172,6 +202,18 @@ class SynthesizedZoneTests(unittest.TestCase):
         self.assertEqual(zones.drop_bo2_zone_manager(out), out)
         with self.assertRaises(zones.ZoneError):
             zones.drop_bo2_zone_manager("main()\n{\n}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            main = Path(tmp) / "main.gsc"
+            for script in (template, "main()\n{\n}\n"):
+                script += "switch_update()\n{\n    master_switch notsolid();\n}\n"
+                main.write_text(script, encoding="utf-8")
+                with patch.dict(os.environ, {"WAW2BO2_NATIVE": "0"}):
+                    reference = zones.stage_main(main, drop_manager=True)
+                output = main.read_bytes()
+                main.write_text(script, encoding="utf-8")
+                self.assertEqual(zones.stage_main(main, drop_manager=True), reference)
+                self.assertEqual(main.read_bytes(), output)
+                self.assertFalse(zones.stage_main(main, drop_manager=True).guarded_switch)
 
 
 if __name__ == "__main__":
