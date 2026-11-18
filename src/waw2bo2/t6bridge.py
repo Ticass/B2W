@@ -1877,7 +1877,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             zone_names = zones.zone_names(start_zones, adjacency)
         try:
             report.entities, script_models = entities.write_entities(ents_file, project, project_root / "BSP",
-                                                                     clip, start_zones, animscripts, zone_names)
+                                                                     clip, start_zones, animscripts, zone_names,
+                                                                     clip_source=clip_bin)
             if bo2_root is not None:
                 from . import barriers
                 report.entities['barrier_alignment'] = barriers.align_native_boards(project_root / 'BSP', bo2_root, clip)

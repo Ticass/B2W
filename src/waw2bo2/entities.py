@@ -18,8 +18,9 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from . import paths as pathgraph
+from . import native, paths as pathgraph
 
 ENTITY_RE = re.compile(r"\{([^{}]*)\}")
 KV_RE = re.compile(r'"([^"]*)"\s+"([^"]*)"')
@@ -92,7 +93,30 @@ def struct_defaults(ent: dict[str, str]) -> None:
         ent['angles'] = '-90 0 0' if angle == '-1' else '90 0 0' if angle == '-2' else f'0 {angle} 0'
 
 
+def _convert_native(project: str, animscripts, zone_names, **inputs) -> dict:
+    from .gscport import API
+
+    fields = dict(project=project, animscripts=animscripts or {}, zoneNames=sorted(zone_names), **inputs,
+                  respawnExclusion=API['zombie_runtime']['source_respawn']['native_exclusion_tag'])
+    with TemporaryDirectory(prefix='waw2bo2_entities_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps(fields), encoding='utf-8')
+        result = json.loads(native.run('convert-map-entities', str(request)))
+    if 'invalid' in result:
+        raise ValueError(result['invalid'])
+    return result
+
+
 def convert_entities(ents: list[dict[str, str]], project: str,
+                     animscripts: dict[str, str] | None = None,
+                     zone_names: set[str] = frozenset()) -> tuple[list[dict], dict, dict]:
+    if native.tool() is not None:
+        result = _convert_native(project, animscripts, zone_names, entities=ents)
+        return result['entities'], result['spawns'], result['summary']
+    return _convert_python(ents, project, animscripts, zone_names)
+
+
+def _convert_python(ents: list[dict[str, str]], project: str,
                      animscripts: dict[str, str] | None = None,
                      zone_names: set[str] = frozenset()) -> tuple[list[dict], dict, dict]:
     out: list[dict] = []
@@ -476,9 +500,14 @@ def synthesize_zones(out: list[dict], clip, bsp_dir: Path, summary: dict) -> tup
 def write_entities(ents_file: Path, project: str, bsp_dir: Path, clip=None,
                    start_zones: list[str] | None = None,
                    animscripts: dict[str, str] | None = None,
-                   zone_names: set[str] = frozenset()) -> tuple[dict, set[str]]:
+                   zone_names: set[str] = frozenset(), *, clip_source: Path | None = None) -> tuple[dict, set[str]]:
+    if native.tool() is not None and (clip_source is not None or clip is None):
+        geometry = {'clip': str(clip_source)} if clip_source is not None else {}
+        result = _convert_native(project, animscripts, zone_names, source=str(ents_file), bsp=str(bsp_dir),
+                                 startZones=start_zones, **geometry)
+        return result['summary'], set(result['scriptModels'])
     ents = parse_entities(ents_file.read_text(encoding="utf-8", errors="replace"))
-    out, spawns, summary = convert_entities(ents, project, animscripts, zone_names)
+    out, spawns, summary = _convert_python(ents, project, animscripts, zone_names)
     if start_zones == [] and clip is not None and (bsp_dir / "submodels.json").exists():
         start_zones = synthesize_zones(out, clip, bsp_dir, summary)[0]
     chase_without_barricades(out, summary)

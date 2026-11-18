@@ -20,6 +20,7 @@
 #include "materials/prepare.h"
 #include "weapons/stage.h"
 #include "physics/physics.h"
+#include "mapents/entities.h"
 #include "world/collision_stage.h"
 #include "world/fbx_stage.h"
 #include "world/grid_stage.h"
@@ -568,6 +569,7 @@ namespace
         {"stage-viewmodel-shadows", JsonRequest<w2b::weapons::StageShadowVariants>},
         {"resolve-assets", ResolveAssets},
         {"map-physics", JsonRequest<w2b::physics::Run>},
+        {"convert-map-entities", JsonRequest<w2b::mapents::Run>},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
         {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},

@@ -87,6 +87,10 @@ add_library(w2b_physics STATIC src/physics/dynents.cpp src/physics/constraints.c
     src/physics/suspensions.cpp src/physics/stage.cpp)
 target_link_libraries(w2b_physics PUBLIC w2b_weapons)
 
+add_library(w2b_mapents STATIC src/mapents/parse.cpp src/mapents/convert.cpp src/mapents/wall_buys.cpp src/mapents/stage.cpp
+    src/mapents/write.cpp src/mapents/zones.cpp)
+target_link_libraries(w2b_mapents PUBLIC w2b_world)
+
 add_library(w2b_world STATIC
     src/world/vertices.cpp
     src/world/bsp_visibility.cpp
@@ -154,7 +158,7 @@ target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler 
 
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
 target_link_libraries(waw2bo2n PRIVATE w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
-    w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics)
+    w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

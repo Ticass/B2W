@@ -39,6 +39,15 @@ class TraversalTests(unittest.TestCase):
 
 
 class SpawnerTests(unittest.TestCase):
+    def test_entity_source_preserves_unicode_whitespace_and_last_key_value(self):
+        source = '{ { "classname"\u2003"script_model" "model" "first" "model"\u00a0"second" } }'
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "map.ents"
+            path.write_text(source, encoding="utf-8")
+            _, models = entities.write_entities(path, "proj", root / "BSP")
+            self.assertEqual(models, {"second"})
+
     def test_plain_spawners_use_windows_and_risers_rise_at_zone_rise_structs(self):
         ents = "\n".join([
             '{\n"classname" "info_volume"\n"targetname" "zone_a"\n"target" "zone_a_spawners"\n}',
