@@ -64,6 +64,8 @@
 #include "pipeline/audit.h"
 #include "pipeline/driver.h"
 #include "pipeline/finish.h"
+#include "pipeline/menu_stage.h"
+#include "pipeline/menu_runtime.h"
 #include <optional>
 #include <string>
 #include <vector>
@@ -863,6 +865,8 @@ namespace
         {"list-map-scripts", JsonRequest<w2b::gsc::port::MapScriptsRequest>},
         {"map-zone-scripts", JsonRequest<w2b::gsc::port::ZoneScriptsRequest>},
         {"write-map-zone", JsonRequest<w2b::world::WriteMapZoneRequest>},
+        {"stage-menu-settings", JsonRequest<w2b::pipeline::StageMenuSettingsRequest>},
+        {"stage-menu-runtime", JsonRequest<w2b::pipeline::StageMenuRuntimeRequest>},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
         {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},

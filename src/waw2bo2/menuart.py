@@ -4,9 +4,12 @@ from __future__ import annotations
 import io
 import json
 import warnings
+from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from PIL import Image
+from . import audio, native
 from .iwi import dds_to_iwi
 
 SIZES = {'blit': (512, 256), 'large': (2048, 2048), 'blur': (2048, 2048)}
@@ -151,7 +154,21 @@ def compressed_iwi(image: Image.Image, pixel_format: str) -> bytes:
     return pixels
 
 
+def _native_stage(command: str, root: Path, **fields) -> dict:
+    with TemporaryDirectory(prefix='waw2bo2_menu_stage_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps({'root': str(root), **fields}), encoding='utf-8')
+        result = json.loads(native.run(command, str(request)))
+    if 'invalid' in result:
+        raise ValueError(result['invalid'])
+    return result
+
+
 def stage_art(settings, root: Path) -> None:
+    if native.tool() is not None and not any(getattr(settings, 'menu_' + role) for role in SIZES):
+        decoder = audio.find_decoder() if settings.loading_song else None
+        _native_stage('stage-menu-settings', root, settings=asdict(settings), decoder=str(decoder) if decoder else '')
+        return
     validate_art(settings)
     from .mapmenu import validate_settings, stage_song
     coordinates = validate_settings(settings)
@@ -242,11 +259,15 @@ def stage_art(settings, root: Path) -> None:
             generated.append(f'materials/{name}.json')
         data.update(icon=f'menu_{settings.project}_icon', blit=f'menu_{settings.project}_blit')
         data['texture_report'] = report
-        if aligned:
-            from .menulayers import stage_runtime
-            data.update(stage_runtime(Path(settings.bo2), root, settings.project))
-        from . import menupreview
-        data.update(menupreview.stage_runtime(Path(settings.bo2), root, settings.project))
+        if native.tool() is not None:
+            data.update(_native_stage('stage-menu-runtime', root, bo2=settings.bo2, project=settings.project,
+                                      compat=str(Path(__file__).parent / 'compat'), aligned=aligned))
+        else:
+            if aligned:
+                from .menulayers import stage_runtime
+                data.update(stage_runtime(Path(settings.bo2), root, settings.project))
+            from . import menupreview
+            data.update(menupreview.stage_runtime(Path(settings.bo2), root, settings.project))
     data['desktop_files'] = generated
     song = stage_song(settings, root)
     if song:

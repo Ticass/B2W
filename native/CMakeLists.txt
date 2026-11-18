@@ -190,8 +190,9 @@ target_link_libraries(w2b_visions PUBLIC w2b_core w2b_gsc w2b_extract w2b_shader
 add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp src/pipeline/knowledge.cpp src/pipeline/driver.cpp
     src/pipeline/modsupport.cpp src/pipeline/hud.cpp src/pipeline/csvtable.cpp src/pipeline/modzone.cpp
     src/pipeline/lobby.cpp src/pipeline/shaderbind.cpp src/pipeline/buildmod.cpp
+    src/pipeline/menu_song.cpp src/pipeline/menu_stage.cpp src/pipeline/menu_runtime.cpp
     src/pipeline/materials_stage.cpp)
-target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials)
+target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
