@@ -56,6 +56,7 @@
 #include "strings/localization.h"
 #include "visions/visions.h"
 #include "models/projectile_collision.h"
+#include "pipeline/materials_stage.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
 #include "pipeline/driver.h"
@@ -853,6 +854,7 @@ namespace
         {"stage-localization", JsonRequest<w2b::strings::StageLocalization>},
         {"stage-visions", JsonRequest<w2b::visions::StageVisions>},
         {"recover-projectile-collision", JsonRequest<w2b::models::RecoverProjectileCollision>},
+        {"stage-materials", JsonRequest<w2b::pipeline::StageMaterials>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},

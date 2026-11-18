@@ -503,6 +503,8 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
     ordered = sorted(names)
     batches = [ordered] if len(ordered) < PARALLEL_MATERIALS else [
         ordered[i:i + MATERIAL_BATCH] for i in range(0, len(ordered), MATERIAL_BATCH)]
+    if native.tool() is not None and not _python_only_shader_diagnostics():
+        return _stage_materials_native(report, context, ordered, project_root, remaster, native_fallbacks)
     with tempfile.TemporaryDirectory(prefix='waw2bo2_compiled_') as shared:
         context['shared_compiles'] = Path(shared) if len(batches) > 1 else None
         if native.tool() is not None:
@@ -510,6 +512,45 @@ def stage_materials(report: StageReport, names: set[str], roots: list[Path], sto
         used_techsets |= _apply_material_batches(report, context, batches, project_root, rename, remaster,
                                                  native_fallbacks, stock_materials, image_prefix)
     return used_techsets
+
+
+def _python_only_shader_diagnostics() -> bool:
+    """Diagnostic shader builds (never shipped) exist only in shaderruntime.py."""
+    return any(k.startswith('WAW2BO2_DIAG_') for k in os.environ) or \
+        os.environ.get('WAW2BO2_RUNTIME_SHADERS', 'all') == 'none'
+
+
+def _stage_materials_native(report: StageReport, context: dict, names: list[str], project_root: Path,
+                            remaster: dict[str, Path] | None, native_fallbacks: dict[str, Path] | None) -> set[str]:
+    """stage_materials natively (pipeline/materials_stage.cpp): the same files and report lines."""
+    with tempfile.TemporaryDirectory(prefix='waw2bo2_materials_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps({
+            'names': names, 'roots': [str(r) for r in context['roots']],
+            'stock_materials': str(context['stock_materials']), 'project_root': str(project_root),
+            'techset_root': str(context['techset_root']) if context['techset_root'] is not None else None,
+            'rename': context['rename'], 'image_prefix': context['image_prefix'],
+            'donors': {name: str(path) for name, path in context['donors'].items()},
+            'falloff_placement': list(context['falloff_placement']) if context['falloff_placement'] is not None else None,
+            'light_shadows': context['light_shadows'], 'layered_vertex_data': context['layered_vertex_data'],
+            'remaster': {k: str(v) for k, v in (remaster or {}).items()},
+            'native_fallbacks': {k: str(v) for k, v in (native_fallbacks or {}).items()},
+            'scratch': str(Path(folder) / 'scratch')}), encoding='utf-8')
+        data = json.loads(native.run('stage-materials', str(request)))
+    used: set[str] = set()
+    for result in data['results']:
+        report.images += result['images']
+        if result['native']:
+            report.materials.append(result['entry'])
+            report.warnings += result['warnings']
+            used.add(result['techset'])
+            continue
+        report.warnings += result['warnings']
+        report.errors += result['errors']
+        if result['entry'] is not None:
+            report.materials.append(result['entry'])
+            used.add(result['techset'])
+    return used
 
 
 def _apply_material_batches(report: StageReport, context: dict, batches: list[list[str]], project_root: Path,

@@ -11,15 +11,10 @@
 
 namespace w2b::materials
 {
-    namespace
-    {
-        using py::Json;
-        using files::fs::path;
+    using py::Json;
+    using files::fs::path;
 
-        class Donors
-        {
-        public:
-            explicit Donors(const Json& paths)
+    Donors::Donors(const Json& paths)
             {
                 for (const auto& [name, source] : paths.items())
                 {
@@ -28,7 +23,7 @@ namespace w2b::materials
                 }
             }
 
-            const Json& Get(const std::string& name)
+    const Json& Donors::Get(const std::string& name)
             {
                 // The stock donor files are shared by many converted materials.
                 std::lock_guard guard(lock_);
@@ -38,15 +33,7 @@ namespace w2b::materials
                 return it->second;
             }
 
-            std::vector<Technique> candidates;
-
-        private:
-            std::map<std::string, path> paths_;
-            std::map<std::string, Json> cached_;
-            std::mutex lock_;
-        };
-
-        Json SelectMaterial(const Json& input, bool programs, bool layered, Donors& donors)
+    Json SelectMaterial(const Json& input, bool programs, bool layered, Donors& donors)
         {
             const auto original = input.value("techniqueSet", std::string{});
             auto source = SourceTechnique(input);
@@ -102,7 +89,6 @@ namespace w2b::materials
                 }
             }
         }
-    }
 
     void PrepareMaterials(const files::fs::path& request)
     {
