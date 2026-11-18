@@ -3,6 +3,7 @@
 
 #include "core/files.h"
 #include "core/pyre.h"
+#include "core/sum.h"
 
 #include <algorithm>
 #include <cmath>
@@ -176,10 +177,11 @@ namespace w2b::sound
 
         double CurveArea(const std::vector<std::vector<double>>& p)
         {
-            double sum = 0;
+            // sum() of floats: Python compensates (Neumaier)
+            std::vector<double> terms;
             for (size_t i = 0; i + 1 < p.size(); i++)
-                sum += (p[i + 1][0] - p[i][0]) * (p[i][1] + p[i + 1][1]) / 2;
-            return sum;
+                terms.push_back((p[i + 1][0] - p[i][0]) * (p[i][1] + p[i + 1][1]) / 2);
+            return py::Sum(terms);
         }
 
         bool IsFalloff(const std::vector<std::vector<double>>& p)
@@ -1175,5 +1177,9 @@ namespace w2b::sound
         files::WriteBytes(destination / files::FromUtf8(bank + ".aliases.csv"), csv);
         files::WriteText(project / "sounds.bank.json", py::JsonDumps(report, 2) + "\n");
         return Json{{"report", report}, {"budget", budget}};
+    }
+    Json DefaultReverbMixOf(const fs::path& project)
+    {
+        return DefaultReverbMix(project);
     }
 } // namespace w2b::sound

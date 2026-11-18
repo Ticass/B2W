@@ -1405,6 +1405,17 @@ def source_amb_script(roots: list[Path], map_name: str) -> Path | None:
 
 def write_amb_csc(report: StageReport, project: str, project_root: Path,
                   source_amb: Path | None = None, ents: Path | None = None) -> None:
+    if native.tool() is not None:
+        # pipeline/amb_stage.cpp
+        with tempfile.TemporaryDirectory(prefix="waw2bo2_amb_") as folder:
+            path = Path(folder) / "request.json"
+            path.write_text(json.dumps({"project": project, "project_root": str(project_root),
+                                        "source_amb": str(source_amb) if source_amb is not None else None,
+                                        "ents": str(ents) if ents is not None else None}), encoding="utf-8")
+            result = json.loads(native.run("write-amb-csc", str(path)))
+        report.warnings += result["warnings"]
+        report.content.update(result["content"])
+        return
     dst = project_root / "clientscripts" / "mp" / f"{project}_amb.csc"
     dst.parent.mkdir(parents=True, exist_ok=True)
     content = project_root / "content_source"
@@ -2431,86 +2442,108 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # sound is loaded beside the map's, and its engine names get WaW copies
     template_bank_csv = bo2_root / "mods" / "zm_test" / "soundbank" / f"{sounds.TEMPLATE_SOUNDBANK}.aliases.csv" \
         if bo2_root is not None else None
-    budget = sounds.loaded_budget(bo2_root, None) if bo2_root is not None else None
-    if budget is not None:
-        # what the map plays: its scripts, entities and ambient packages, and
-        # the zombie voices BO2's events play (gsc_api zombie_vocals)
-        vocals = {a for actor, cats in gscport.API["zombie_vocals"].items() if actor != "doc" for a in cats.values()}
-        budget["played"] = sorted(script_sounds | entity_sounds | vocals)
-    audio_api = gscport.API["audio_remaster"]
-    waw_mix = progress.timed('Read stock WaW sound mix', stock_waw_sound_records, stock_waw)
-    sound_classes = measure_sound_classes(bo2_root, waw_mix, audio_api) if bo2_root is not None else None
-    for bus, vote in sorted((sound_classes or {}).get("differs", {}).items()):
-        report.warnings.append(f"SOUND_BUS_GROUP WaW bus {bus}: stock BO2 mixes its engine sounds in {vote['group']} "
-                               f"({vote['twins']} of {vote['of']} twins), not the declared {vote['declared']}; "
-                               f"the stock group is used")
-    reverb_send = progress.timed('Measure reverb send convention', measure_reverb_send, bo2_root, stock_waw, waw_mix,
-                                 sound_classes["bus_groups"] if sound_classes else None)
-    if reverb_send["status"] != "measured":
-        report.warnings.append(f"SOUND_REVERB_SEND unmeasured: {reverb_send['reason']}; "
-                               f"using the last stock measurement {reverb_send['db']} dB")
-    remaster = None
-    if bo2_root is not None:
-        # Mix each WaW role (music, announcer, ambience) as BO2's stock zombie
-        # maps do, from the map's own music table and ambient package.
-        from . import audioremaster
-        amb_text = wawtext.read(source_amb) if source_amb is not None else ""
-        events_file = project_root / "content_source/announcer_events.json"
-        stinger_states = audio_api["music_stingers"]
-        # the stock alias each zombie vocal event plays: the map's alias for
-        # the event takes that alias's placement, limits and priority
-        twin = audio_api["vocal_twins"]
-        vocal_twins = {f"waw/{alias}".lower(): twin["alias"].format(
-                           actor=actor, category=twin["category_names"].get(category, category))
-                       for actor, cats in gscport.API["zombie_vocals"].items() if actor != "doc"
-                       for category, alias in cats.items()}
-        # the stock alias BO2 plays for the same level.zombie_sounds ref
-        table_twins = sounds.sound_table_twins(project_root, bo2_root, gscport.API["map_content"]["sound_table"]["register"])
-        vocal_twins = {**table_twins, **vocal_twins}
-        engine_names = sounds.template_alias_names(template_bank_csv)
-        if "records" not in waw_mix:
-            report.warnings.append(f"AUDIO_MIX {waw_mix['reason']}: classes are read against this map's own "
-                                   f"values instead of stock WaW's")
-        remaster = {"profiles": audioremaster.stock_profiles(bo2_root, sorted(set(stinger_states.values())),
-                                                             [*engine_names, *vocal_twins.values()]),
-                    "classes": sound_classes, "twins": vocal_twins,
-                    "reference": audioremaster.reference_quantiles(sounds.waw_mix_reference(
-                        waw_mix["records"], sound_classes["bus_groups"])) if "records" in waw_mix else None,
-                    "music": audioremaster.music_table_aliases(amb_text),
-                    "stingers": audioremaster.music_stingers(amb_text, stinger_states),
-                    "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)}
-                                | sounds.ambient_emitter_aliases(project_root / "BSP" / "entities.json"),
-                    "announcer_events": json.loads(events_file.read_text()) if events_file.is_file() else {},
-                    "announcer_prefix": audio_api["announcer_alias_prefix"]}
-    bank_report = progress.timed('Build sound bank', sounds.write_t6_bank, project_root / "content_source", bank,
-                                 project_root / "soundbank", budget, reverb_send, remaster,
-                                 sounds.template_alias_names(template_bank_csv))
-    if bank_report.get("engine_names"):
-        engine = bank_report["engine_names"]
-        report.content["engine_sound_names"] = {"copies": len(engine["copies"]), "unmatched": engine["unmatched"]}
-        report.warnings.append(f"SOUND_ENGINE_NAMES {len(engine['copies'])} BO2 engine sound names play WaW's "
-                               f"sound; {len(engine['unmatched'])} template names have no WaW sound and are "
-                               f"silent (BO2's bank is not shipped). List: content_source/sounds.bank.json")
-    if bank_report.get("remaster"):
-        report.content["audio_remaster"] = bank_report["remaster"]
-        for r, info in sorted(bank_report["remaster"]["roles"].items()):
-            report.warnings.append(f"AUDIO_REMASTER {r}: {info['aliases']} aliases take the stock BO2 {r} mix "
-                                   f"({info['stock_mix']['Bus']}/{info['stock_mix']['VolumeGroup']}, "
-                                   f"{info['stock_mix']['PanType']}), volume {info['volume_shift']:+g} dB")
-        for key, info in sorted(bank_report["remaster"]["groups"].items()):
-            if "routing" not in info:
-                continue
-            falloff = info.get("falloff")
-            carry = (f", {falloff['rows']} placed on BO2's {falloff['curve']} falloff (median reach "
-                     f"{falloff['median_dist_max'][0]:g} -> {falloff['median_dist_max'][1]:g} units)") if falloff else ""
-            report.warnings.append(f"AUDIO_MIX {key}: {info['aliases']} aliases mixed as stock BO2's class "
-                                   f"({info['routing']['Bus']}/{info['routing']['DuckGroup']}), volume "
-                                   f"{info['volume_shift']:+g} dB{carry}")
-        placed = bank_report["remaster"].get("twins", {})
-        if placed:
-            report.warnings.append(f"AUDIO_MIX {len(placed['placed'])} aliases take the placement of the stock BO2 "
-                                   f"alias they play for; not in the stock tables: {placed['not_in_stock'] or 'none'}")
-    report.content["reverb_send"] = reverb_send
+    if native.tool() is not None and os.environ.get("WAW2BO2_STREAM_FLAC") != "1":
+        # the stock measurements, the remaster profiles and the bank (pipeline/sound_mix.cpp)
+        request = {"project_root": str(project_root), "project": project,
+                   "bo2_root": str(bo2_root) if bo2_root is not None else None,
+                   "stock_waw": {"waw_root": str(stock_waw.waw_root), "unlinker": str(stock_waw.unlinker),
+                                 "work": str(stock_waw.work),
+                                 "prepared": {zone: {"folder": str(folder), "inputs": stock_waw.prepared_sources.get(zone, {})}
+                                              for zone, folder in stock_waw.prepared.items()}}
+                   if stock_waw is not None and getattr(stock_waw, "waw_root", None) is not None else None,
+                   "script_sounds": sorted(script_sounds), "entity_sounds": sorted(entity_sounds),
+                   "source_amb": str(source_amb) if source_amb is not None else None}
+        with tempfile.TemporaryDirectory(prefix="waw2bo2_mix_") as folder:
+            path = Path(folder) / "request.json"
+            path.write_text(json.dumps(request), encoding="utf-8")
+            mix = json.loads(progress.timed('Build sound bank', native.run, "sound-mix", str(path)))
+        for zone, entry in (mix.get("stock_prepared") or {}).items():
+            stock_waw.prepared[zone] = Path(entry["folder"])
+            stock_waw.prepared_sources[zone] = entry["inputs"]
+        report.warnings += mix["warnings"]
+        report.content.update(mix["content"])
+        budget, reverb_send, bank_report = mix["budget"], mix["reverb_send"], mix["bank_report"]
+    else:
+        budget = sounds.loaded_budget(bo2_root, None) if bo2_root is not None else None
+        if budget is not None:
+            # what the map plays: its scripts, entities and ambient packages, and
+            # the zombie voices BO2's events play (gsc_api zombie_vocals)
+            vocals = {a for actor, cats in gscport.API["zombie_vocals"].items() if actor != "doc" for a in cats.values()}
+            budget["played"] = sorted(script_sounds | entity_sounds | vocals)
+        audio_api = gscport.API["audio_remaster"]
+        waw_mix = progress.timed('Read stock WaW sound mix', stock_waw_sound_records, stock_waw)
+        sound_classes = measure_sound_classes(bo2_root, waw_mix, audio_api) if bo2_root is not None else None
+        for bus, vote in sorted((sound_classes or {}).get("differs", {}).items()):
+            report.warnings.append(f"SOUND_BUS_GROUP WaW bus {bus}: stock BO2 mixes its engine sounds in {vote['group']} "
+                                   f"({vote['twins']} of {vote['of']} twins), not the declared {vote['declared']}; "
+                                   f"the stock group is used")
+        reverb_send = progress.timed('Measure reverb send convention', measure_reverb_send, bo2_root, stock_waw, waw_mix,
+                                     sound_classes["bus_groups"] if sound_classes else None)
+        if reverb_send["status"] != "measured":
+            report.warnings.append(f"SOUND_REVERB_SEND unmeasured: {reverb_send['reason']}; "
+                                   f"using the last stock measurement {reverb_send['db']} dB")
+        remaster = None
+        if bo2_root is not None:
+            # Mix each WaW role (music, announcer, ambience) as BO2's stock zombie
+            # maps do, from the map's own music table and ambient package.
+            from . import audioremaster
+            amb_text = wawtext.read(source_amb) if source_amb is not None else ""
+            events_file = project_root / "content_source/announcer_events.json"
+            stinger_states = audio_api["music_stingers"]
+            # the stock alias each zombie vocal event plays: the map's alias for
+            # the event takes that alias's placement, limits and priority
+            twin = audio_api["vocal_twins"]
+            vocal_twins = {f"waw/{alias}".lower(): twin["alias"].format(
+                               actor=actor, category=twin["category_names"].get(category, category))
+                           for actor, cats in gscport.API["zombie_vocals"].items() if actor != "doc"
+                           for category, alias in cats.items()}
+            # the stock alias BO2 plays for the same level.zombie_sounds ref
+            table_twins = sounds.sound_table_twins(project_root, bo2_root, gscport.API["map_content"]["sound_table"]["register"])
+            vocal_twins = {**table_twins, **vocal_twins}
+            engine_names = sounds.template_alias_names(template_bank_csv)
+            if "records" not in waw_mix:
+                report.warnings.append(f"AUDIO_MIX {waw_mix['reason']}: classes are read against this map's own "
+                                       f"values instead of stock WaW's")
+            remaster = {"profiles": audioremaster.stock_profiles(bo2_root, sorted(set(stinger_states.values())),
+                                                                 [*engine_names, *vocal_twins.values()]),
+                        "classes": sound_classes, "twins": vocal_twins,
+                        "reference": audioremaster.reference_quantiles(sounds.waw_mix_reference(
+                            waw_mix["records"], sound_classes["bus_groups"])) if "records" in waw_mix else None,
+                        "music": audioremaster.music_table_aliases(amb_text),
+                        "stingers": audioremaster.music_stingers(amb_text, stinger_states),
+                        "ambience": {n.lower().removeprefix("waw/") for n in sounds.ambient_aliases(amb_text)}
+                                    | sounds.ambient_emitter_aliases(project_root / "BSP" / "entities.json"),
+                        "announcer_events": json.loads(events_file.read_text()) if events_file.is_file() else {},
+                        "announcer_prefix": audio_api["announcer_alias_prefix"]}
+        bank_report = progress.timed('Build sound bank', sounds.write_t6_bank, project_root / "content_source", bank,
+                                     project_root / "soundbank", budget, reverb_send, remaster,
+                                     sounds.template_alias_names(template_bank_csv))
+        if bank_report.get("engine_names"):
+            engine = bank_report["engine_names"]
+            report.content["engine_sound_names"] = {"copies": len(engine["copies"]), "unmatched": engine["unmatched"]}
+            report.warnings.append(f"SOUND_ENGINE_NAMES {len(engine['copies'])} BO2 engine sound names play WaW's "
+                                   f"sound; {len(engine['unmatched'])} template names have no WaW sound and are "
+                                   f"silent (BO2's bank is not shipped). List: content_source/sounds.bank.json")
+        if bank_report.get("remaster"):
+            report.content["audio_remaster"] = bank_report["remaster"]
+            for r, info in sorted(bank_report["remaster"]["roles"].items()):
+                report.warnings.append(f"AUDIO_REMASTER {r}: {info['aliases']} aliases take the stock BO2 {r} mix "
+                                       f"({info['stock_mix']['Bus']}/{info['stock_mix']['VolumeGroup']}, "
+                                       f"{info['stock_mix']['PanType']}), volume {info['volume_shift']:+g} dB")
+            for key, info in sorted(bank_report["remaster"]["groups"].items()):
+                if "routing" not in info:
+                    continue
+                falloff = info.get("falloff")
+                carry = (f", {falloff['rows']} placed on BO2's {falloff['curve']} falloff (median reach "
+                         f"{falloff['median_dist_max'][0]:g} -> {falloff['median_dist_max'][1]:g} units)") if falloff else ""
+                report.warnings.append(f"AUDIO_MIX {key}: {info['aliases']} aliases mixed as stock BO2's class "
+                                       f"({info['routing']['Bus']}/{info['routing']['DuckGroup']}), volume "
+                                       f"{info['volume_shift']:+g} dB{carry}")
+            placed = bank_report["remaster"].get("twins", {})
+            if placed:
+                report.warnings.append(f"AUDIO_MIX {len(placed['placed'])} aliases take the placement of the stock BO2 "
+                                       f"alias they play for; not in the stock tables: {placed['not_in_stock'] or 'none'}")
+        report.content["reverb_send"] = reverb_send
     write_amb_csc(report, project, project_root, source_amb, ents_file)
     if budget is not None:
         report.warnings.append(
