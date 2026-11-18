@@ -2054,7 +2054,8 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     model_materials = stage_models(report, world, project, stage, project_root,
                                    script_models | (shipped & resolved) | clip_models, roots, entity_box_models)
     stage_dynents(report, project_root, map_dynents, roots, stock_waw)
-    projectile_models = projectilecollision.recover(report, world, clip, project_root, roots)
+    projectile_models = projectilecollision.recover(report, world, clip, project_root, roots,
+                                                    gfx_source=gfx_bin, clip_source=clip_bin)
     fx_models = stage_fx_models(report, project_root, effects.models)
     hud_materials = sorted(report.scripts.get("hud_materials", [])) if report.scripts else []
     names = {s.material for s in world.surfaces} | model_materials | set(hud_materials) | set(map_constraints['materials'])
@@ -2230,7 +2231,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         [*(waw_patch_script_roots or []), *([waw_map_script.parent.parent] if waw_map_script else []),
          *(waw_script_roots or []), *roots, *([waw_stock_scripts] if waw_stock_scripts else [])],
         sorted({f for d in (iwd_dirs or []) for f in d.glob('*.iwd')}), stock_waw,
-        visions.lut_donor(techset_dump), None, techset_dump)
+        None, None, techset_dump)
     report.errors += vision_report['errors']
     overlay = vision_report.get('overlay') or {}
     for name in overlay.get('materials', []):

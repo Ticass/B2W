@@ -194,8 +194,28 @@ def batch_proxies(records: list[dict], entries: list[dict], project_root: Path) 
     return output, names
 
 
-def recover(report, world, clip, project_root: Path, roots: list[Path]) -> set[str]:
-    """Append collision-only placements; keep every existing BSP record exact."""
+def recover(report, world, clip, project_root: Path, roots: list[Path], *,
+            gfx_source: Path | None = None, clip_source: Path | None = None) -> set[str]:
+    """Append collision-only placements; keep every existing BSP record exact.
+    With the map's dumps (gfx_source, clip_source) it runs natively."""
+    from . import native
+    if native.tool() is not None and gfx_source is not None and clip_source is not None:
+        import tempfile
+        request = {'gfx': str(gfx_source), 'clip': str(clip_source), 'project_root': str(project_root),
+                   'roots': [str(r) for r in roots]}
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_projectile_') as folder:
+            path = Path(folder) / 'request.json'
+            path.write_text(json.dumps(request), encoding='utf-8')
+            result = json.loads(native.run('recover-projectile-collision', str(path)))
+        report.warnings += result['warnings']
+        if result['entries'] is not None:
+            report.content['projectile_prop_collision'] = result['entries']
+        return set(result['names'])
+    return python_recover(report, world, clip, project_root, roots)
+
+
+def python_recover(report, world, clip, project_root: Path, roots: list[Path]) -> set[str]:
+    """The Python implementation (equality oracle of the native step)."""
     if not getattr(clip, 'brush_ownership_complete', False) or not clip.submodels:
         report.warnings.append('PROJECTILE_PROP_COLLISION_UNSUPPORTED: complete source brush ownership required')
         return set()

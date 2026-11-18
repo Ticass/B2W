@@ -82,8 +82,9 @@ add_library(w2b_weapons STATIC src/weapons/infostring.cpp src/weapons/convert.cp
     src/weapons/physics_preset.cpp src/weapons/water_bullets.cpp)
 target_link_libraries(w2b_weapons PUBLIC w2b_core PRIVATE w2b_base64)
 
-add_library(w2b_models STATIC src/models/bounds.cpp src/models/geometry.cpp src/models/stage.cpp src/models/effect_assets.cpp)
-target_link_libraries(w2b_models PUBLIC w2b_weapons)
+add_library(w2b_models STATIC src/models/bounds.cpp src/models/geometry.cpp src/models/stage.cpp src/models/effect_assets.cpp
+    src/models/projectile_collision.cpp)
+target_link_libraries(w2b_models PUBLIC w2b_weapons w2b_world w2b_materials PRIVATE w2b_base64)
 
 add_library(w2b_assets STATIC src/assets/paths.cpp src/assets/dependencies.cpp src/assets/resolver.cpp)
 target_link_libraries(w2b_assets PUBLIC w2b_weapons w2b_effects)
@@ -169,8 +170,14 @@ target_compile_definitions(w2b_imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 add_executable(B2W WIN32 src/app.manifest src/ui/main.cpp src/ui/app.cpp src/ui/views.cpp src/ui/theme.cpp src/ui/gpu.cpp src/ui/shell.cpp src/ui/previews.cpp)
 target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler dwmapi)
 
-add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp)
+add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp src/extract/stockwaw.cpp)
 target_link_libraries(w2b_extract PUBLIC w2b_core)
+
+add_library(w2b_strings STATIC src/strings/localization.cpp)
+target_link_libraries(w2b_strings PUBLIC w2b_core w2b_gsc w2b_weapons w2b_extract)
+
+add_library(w2b_visions STATIC src/visions/visions.cpp)
+target_link_libraries(w2b_visions PUBLIC w2b_core w2b_gsc w2b_extract w2b_shaders w2b_materials)
 
 add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp src/pipeline/knowledge.cpp src/pipeline/driver.cpp
     src/pipeline/modsupport.cpp src/pipeline/hud.cpp src/pipeline/csvtable.cpp src/pipeline/modzone.cpp
@@ -179,7 +186,7 @@ target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_la
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
-target_link_libraries(waw2bo2n PRIVATE w2b_extract w2b_pipeline w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
+target_link_libraries(waw2bo2n PRIVATE w2b_extract w2b_strings w2b_visions w2b_pipeline w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
     w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents w2b_paths w2b_barricades w2b_models)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)

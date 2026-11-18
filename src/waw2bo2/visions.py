@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import tempfile
 import re
 import struct
 import zipfile
@@ -188,7 +190,35 @@ def stage(project: Path, roots: list[Path], iwds: list[Path], stock=None,
           donor: Path | None = None, source_root: Path | None = None,
           techset_dump: Path | None = None) -> dict:
     """``techset_dump``: when given, WaW film and glow run in the full-screen
-    overlay pass (glow.py) and the LUT only undoes the composite shoulder."""
+    overlay pass (glow.py) and the LUT only undoes the composite shoulder.
+    ``donor`` None: the LUT donor is looked up in ``techset_dump``."""
+    from . import native
+    # a stock stand-in without the install paths (tests) stays in Python
+    if native.tool() is not None and not os.environ.get('WAW2BO2_DIAG_BLOOM_OVERRIDE') and (
+            stock is None or hasattr(stock, 'waw_root')):
+        request = {'project': str(project), 'roots': [str(r) for r in roots], 'iwds': [str(a) for a in iwds],
+                   'stock': {'waw_root': str(stock.waw_root), 'unlinker': str(stock.unlinker), 'work': str(stock.work)}
+                   if stock is not None else None,
+                   'donor': str(donor) if donor is not None else None,
+                   'source_root': str(source_root) if source_root is not None else None,
+                   'techset_dump': str(techset_dump) if techset_dump is not None else None}
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_visions_') as folder:
+            path = Path(folder) / 'request.json'
+            path.write_text(json.dumps(request), encoding='utf-8')
+            report = json.loads(native.run('stage-visions', str(path)))
+        for note in report['numeric_prefixes']:
+            print(f'WARNING: vision {note["vision"]}: {note["field"]} {note["original"]!r} read as {note["parsed"]:g} '
+                  f'using WaW numeric-prefix parsing ({note["source"]})', flush=True)
+        return report
+    if donor is None:
+        donor = lut_donor(techset_dump)
+    return python_stage(project, roots, iwds, stock, donor, source_root, techset_dump)
+
+
+def python_stage(project: Path, roots: list[Path], iwds: list[Path], stock=None,
+                 donor: Path | None = None, source_root: Path | None = None,
+                 techset_dump: Path | None = None) -> dict:
+    """The Python implementation (equality oracle of the native step)."""
     sources = {}
     for archive in iwds:
         with zipfile.ZipFile(archive) as z:

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -118,6 +119,34 @@ def stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
           language: str = 'english', t6_unlinker: Path | None = None,
           t6_stock_dump: Path | None = None) -> dict:
     """Source zones/IWDs, stock WaW, then raw WaW; never fabricate key text."""
+    request = {'project': str(project), 'roots': [str(r) for r in roots], 'iwd_dirs': [str(d) for d in iwd_dirs],
+               'unlinker': str(unlinker) if unlinker is not None else None,
+               'work': str(work) if work is not None else None, 'raw_roots': [str(r) for r in raw_roots],
+               'bo2_root': str(bo2_root) if bo2_root is not None else None, 'language': language,
+               't6_unlinker': str(t6_unlinker) if t6_unlinker is not None else None,
+               't6_stock_dump': str(t6_stock_dump) if t6_stock_dump is not None else None,
+               'stock': {'waw_root': str(stock.waw_root), 'unlinker': str(stock.unlinker), 'work': str(stock.work)}
+               if stock is not None and hasattr(stock, 'waw_root') else None}
+    capture = os.environ.get('WAW2BO2_CAPTURE')
+    if capture:
+        Path(capture).mkdir(parents=True, exist_ok=True)
+        (Path(capture) / 'localization.json').write_text(json.dumps(request, indent=1), encoding='utf-8')
+    from . import native
+    if native.tool() is not None and (stock is None or hasattr(stock, 'waw_root')):
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_localization_') as folder:
+            path = Path(folder) / 'request.json'
+            path.write_text(json.dumps(request), encoding='utf-8')
+            return json.loads(native.run('stage-localization', str(path)))
+    return python_stage(project, roots, iwd_dirs, stock, unlinker, work, raw_roots, bo2_root, language,
+                        t6_unlinker, t6_stock_dump)
+
+
+def python_stage(project: Path, roots: list[Path], iwd_dirs: list[Path], stock=None,
+                 unlinker: Path | None = None, work: Path | None = None,
+                 raw_roots: list[Path] = (), bo2_root: Path | None = None,
+                 language: str = 'english', t6_unlinker: Path | None = None,
+                 t6_stock_dump: Path | None = None) -> dict:
+    """The Python implementation (equality oracle of the native step)."""
     work = work or project / 'content_source/localization_cache'
     previous = project / 'content_source/localization.stage.json'
     reverse = {e['output']: e['key'] for e in json.loads(previous.read_text()).get('entries', [])} if previous.is_file() else {}

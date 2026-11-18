@@ -53,6 +53,9 @@
 #include <stdexcept>
 #include "launcher/build.h"
 #include "extract/stock.h"
+#include "strings/localization.h"
+#include "visions/visions.h"
+#include "models/projectile_collision.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
 #include "pipeline/driver.h"
@@ -847,6 +850,9 @@ namespace
         {"convert-map-entities", JsonRequest<w2b::mapents::Run>},
         {"stage-ai-paths", JsonRequest<w2b::paths::Run>},
         {"stage-barricades", JsonRequest<w2b::barriers::Run>},
+        {"stage-localization", JsonRequest<w2b::strings::StageLocalization>},
+        {"stage-visions", JsonRequest<w2b::visions::StageVisions>},
+        {"recover-projectile-collision", JsonRequest<w2b::models::RecoverProjectileCollision>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},

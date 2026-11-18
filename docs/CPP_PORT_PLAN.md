@@ -89,6 +89,7 @@ The remaining small modules move with the area that uses them.
 | Audit built zones (`audit-zone`: material arguments, bone hitboxes) | yes | Runs in the native driver on every build | — |
 | Shared stock caches and map source dumps (`all2raw` prepare / source_dumps) | yes | The existing WaW and BO2 caches and Cheese Cube Unlimited's four source dumps were found complete by the native keys and inventories; source dumps returned the same folders as Python. Catch2 tests run a scripted unlinker. | 0.6 s / — (cached) |
 | Link the gameplay and lobby zones (`build-mod`: modzone.py, impact and probe material binding, lobby tables) | yes | Cheese Cube Unlimited built natively and all-Python: 51,213 staged files identical; map zone, mod.ff and mod_load.ff assets equal apart from pointer values in the unlinker's text dumps and zone line order. Catch2 tests cover csv parity, map name keys and zone edits. | 97.5 s / 92.6 s (both bound by the mod tools linker: 51 s baseline link, 41 s shader relink) |
+| Stage localization, visions with the film overlay, and missile-only prop collision (`localization.stage`, `visions.stage` + `glow.stage`, `projectilecollision.recover`; shared `wawassets.StockWawAssets`) | yes | Cheese Cube Unlimited built natively and all-Python: 51,213 staged files identical. The localization, vision and glow test suites run through the native steps. | — |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
 run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.
