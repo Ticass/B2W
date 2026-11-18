@@ -81,6 +81,7 @@
 #include "pipeline/client_stage.h"
 #include "pipeline/lighting_tail.h"
 #include "pipeline/bridge_tail.h"
+#include "pipeline/bridge_geometry.h"
 #include "sound/bank.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
@@ -972,10 +973,11 @@ namespace
             return PrintReport(w2b::world::StagePrimaryLights(w2b::files::FromUtf8(a[0]),
                         w2b::files::FromUtf8(a[1]), a[2] == "keep"));
         }},
-        {"reflection-probes", JsonRequest<w2b::world::StageProbes>},
+        {"reflection-probes", JsonRequest<w2b::world::StageProbesRequest>},
         {"port-map", [](const Arguments& a) { return a.size() == 1 ? PortMapCommand(a[0]) : Usage(); }},
         {"world-vertices", [](const Arguments& a) { return a.size() == 4 ? WorldVertices(a) : Usage(); }},
         {"world-fbx", WorldFbx},
+        {"stage-bridge-geometry", JsonRequest<w2b::pipeline::StageBridgeGeometryRequest>},
         {"collision-fbx", CollisionFbx},
         {"collision-mesh", [](const Arguments& a)
         {

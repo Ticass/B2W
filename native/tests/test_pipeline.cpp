@@ -1,10 +1,38 @@
 // build-mod helpers against CPython's csv module and modzone.py.
 #include "pipeline/csvtable.h"
+#include "pipeline/geometry_materials.h"
 #include "pipeline/modzone.h"
+#include "world/render_world.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 using namespace w2b::pipeline;
+
+TEST_CASE("Bridge geometry resolves vertex layers by stride and generated layer count", "[pipeline]")
+{
+    w2b::world::RenderWorld world;
+    world.layerData.resize(57);
+    const auto surface = [](int index, std::string name, int offset)
+    {
+        w2b::world::WorldSurface result{};
+        result.index = index;
+        result.material = std::move(name);
+        result.vertexCount = 1;
+        result.layerOffset = offset;
+        result.layerFormat = 0xff;
+        return result;
+    };
+    world.surfaces = {surface(0, "inferred", 0), surface(1, "*20_21_22", 8),
+                      surface(2, "*30_31_32_33", 32), surface(3, "unresolved", 56)};
+    auto warnings = w2b::py::Json::array();
+    const auto materials = PlanGeometryMaterials(world, {}, nullptr, warnings);
+    CHECK(world.surfaces[0].layerFormat == 1);
+    CHECK(world.surfaces[1].layerFormat == 5);
+    CHECK(world.surfaces[2].layerFormat == 6);
+    CHECK(world.surfaces[3].layerFormat == 0xff);
+    CHECK(materials.blendWeights.empty());
+    CHECK(warnings == w2b::py::Json::array({"world vertex format unknown for ['unresolved']; layers dropped"}));
+}
 
 TEST_CASE("csv.writer QUOTE_MINIMAL", "[pipeline]")
 {

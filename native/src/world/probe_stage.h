@@ -6,5 +6,8 @@
 
 namespace w2b::world
 {
-    py::Json StageProbes(const std::filesystem::path& request);
+    struct RenderWorld;
+
+    py::Json StageProbes(const py::Json& request, const RenderWorld* world);
+    py::Json StageProbesRequest(const std::filesystem::path& request);
 }

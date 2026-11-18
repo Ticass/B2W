@@ -7,6 +7,9 @@
 
 namespace w2b::world
 {
+    struct CollisionWorld;
+
+    py::Json StageCollisionMesh(const CollisionWorld& world, const std::filesystem::path& output, bool includeRecords);
     py::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output,
                                bool includeRecords = false);
     std::size_t ExportCollisionFbx(const std::filesystem::path& source, const std::filesystem::path& target,

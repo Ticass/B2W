@@ -48,6 +48,24 @@ namespace w2b::world
         }
     }
 
+    Json WriteStagedWorld(RenderWorld& world, const files::fs::path& fbx,
+                          const std::set<std::string>& blendMaterials, const std::set<std::string>& shadowMaterials,
+                          const std::set<std::string>& ownLightCasters, Visibility* visibility)
+    {
+        const auto copies = AddShadowCopies(world, ownLightCasters);
+        const auto result = MergeSurfaces(world, blendMaterials, shadowMaterials);
+        auto report = Export(world, fbx, result, copies);
+        if (visibility)
+        {
+            const auto folder = fbx.parent_path();
+            WriteVisibility(*visibility, result.cells, folder / "visibility.json");
+            report["visibility"] = std::move(visibility->summary);
+            report["visibility_warning"] = std::move(visibility->warning);
+            report["shadow_geometry"] = WriteShadowGeometry(world, result, folder / "shadowgeom.json");
+        }
+        return report;
+    }
+
     Json StageWorldFbx(const files::fs::path& request)
     {
         const auto args = Json::parse(files::ReadText(request));
@@ -63,19 +81,9 @@ namespace w2b::world
         else if (const auto limit = args.value("surface_limit", std::numeric_limits<std::size_t>::max());
                  limit < world.surfaces.size())
             world.surfaces.resize(limit);
-        const auto copies = AddShadowCopies(world, args.value("own_light_casters", std::set<std::string>{}));
-        const auto result = MergeSurfaces(world, args.value("blend_materials", std::set<std::string>{}),
-                                         args.value("shadow_materials", std::set<std::string>{}));
-        const auto folder = request.parent_path();
-        auto report = Export(world, folder / "world.fbx", result, copies);
-        if (assignedVisibility)
-        {
-            WriteVisibility(visibility, result.cells, folder / "visibility.json");
-            report["visibility"] = std::move(visibility.summary);
-            report["visibility_warning"] = std::move(visibility.warning);
-            report["shadow_geometry"] = WriteShadowGeometry(world, result, folder / "shadowgeom.json");
-        }
-        return report;
+        return WriteStagedWorld(world, request.parent_path() / "world.fbx", args.value("blend_materials", std::set<std::string>{}),
+                                args.value("shadow_materials", std::set<std::string>{}), args.value("own_light_casters", std::set<std::string>{}),
+                                assignedVisibility ? &visibility : nullptr);
     }
 
     Json ExportWorldFbx(const files::fs::path& source, const files::fs::path& output,

@@ -50,7 +50,15 @@ namespace w2b::world
             std::map<int, int> counts;
         };
 
-        ProbeUsage WorldProbeUsage(const Json& request)
+        ProbeUsage WorldProbeUsage(const RenderWorld& world)
+        {
+            ProbeUsage usage{world.staticModels.size(), {}};
+            for (const auto& surface : world.surfaces)
+                ++usage.counts[surface.reflectionProbe];
+            return usage;
+        }
+
+        ProbeUsage RequestProbeUsage(const Json& request)
         {
             if (request.contains("surface_counts"))
             {
@@ -60,17 +68,12 @@ namespace w2b::world
                 return usage;
             }
             const auto gfx = files::FromUtf8(request.at("gfx").get<std::string>());
-            const auto world = ReadRenderWorld(gfx, request.at("compensated").get<bool>());
-            ProbeUsage usage{world.staticModels.size(), {}};
-            for (const auto& surface : world.surfaces)
-                ++usage.counts[surface.reflectionProbe];
-            return usage;
+            return WorldProbeUsage(ReadRenderWorld(gfx, request.at("compensated").get<bool>()));
         }
     }
 
-    py::Json StageProbes(const path& request)
+    py::Json StageProbes(const Json& args, const RenderWorld* world)
     {
-        const auto args = Json::parse(files::ReadText(request));
         const auto source = files::FromUtf8(args.at("source").get<std::string>());
         auto report = Json{{"warnings", Json::array()}, {"errors", Json::array()}, {"images", Json::array()}};
         if (!files::fs::is_regular_file(source))
@@ -80,7 +83,7 @@ namespace w2b::world
             return report;
         }
         const auto data = Json::parse(files::ReadText(source));
-        auto usage = WorldProbeUsage(args);
+        auto usage = world ? WorldProbeUsage(*world) : RequestProbeUsage(args);
         const auto staticProbes = data.value("smodelProbes", std::vector<int>{});
         if (!staticProbes.empty() && staticProbes.size() != usage.staticModels)
         {
@@ -157,5 +160,10 @@ namespace w2b::world
         report["smodel_probes"] = staticProbes;
         report["cells"] = std::move(cells);
         return report;
+    }
+
+    Json StageProbesRequest(const path& request)
+    {
+        return StageProbes(Json::parse(files::ReadText(request)), nullptr);
     }
 }

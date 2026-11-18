@@ -30,6 +30,7 @@ import json
 import re
 import shutil
 import struct
+import sys
 import tempfile
 from collections import Counter
 from functools import lru_cache, partial
@@ -43,7 +44,7 @@ from .fbx import (CollisionMesh, RenderMesh, RenderVisibility, collision_materia
                   collision_slot_models, collision_triangle_models,
                   water_only, write_collision_fbx, write_native_collision_mesh, write_native_world_fbx, write_world_fbx)
 from . import native
-from .world import layer_formats_from_strides, read_collision, read_gfx_world
+from .world import StaticModel, layer_formats_from_strides, read_collision, read_gfx_world
 
 REQUIRED_WORLD_IMAGES = {
     # T6 bridge asset name -> WaW unlinker file stem (T4 asset names are "*..." )
@@ -1945,6 +1946,61 @@ def stage_geometry(report: StageReport, world, clip, roots: list[Path], project_
     return None
 
 
+@dataclass(slots=True)
+class _BridgeSurface:
+    material: str
+    lightmap_index: int
+
+
+@dataclass(slots=True)
+class _BridgeWorld:
+    surfaces: list[_BridgeSurface]
+    static_models: list[StaticModel]
+    shadow_lights: bool
+
+
+@progress.phase('Convert world geometry')
+def _stage_native_geometry(report, gfx, clip, roots, project, stock, probe_source, visibility_source, constraints):
+    stock_request = None
+    if stock is not None:
+        stock_request = {'waw_root': str(stock.waw_root), 'unlinker': str(stock.unlinker), 'work': str(stock.work),
+                         'prepared': {zone: {'folder': str(folder), 'inputs': stock.prepared_sources.get(zone, {})}
+                                      for zone, folder in stock.prepared.items()}}
+    staged = _script_staging_request('stage-bridge-geometry', {
+        'gfx': str(gfx), 'clip': str(clip), 'project_root': str(project), 'roots': [str(root) for root in roots],
+        'stock_waw': stock_request, 'compensated': sys.version_info >= (3, 12),
+        'probe_source': str(probe_source), 'visibility_source': str(visibility_source),
+        'image_roots': [str(root / 'images') for root in roots],
+    })
+    if 'stage_error' in staged:
+        raise StageError(staged['stage_error'])
+    for zone, entry in (staged.get('stock_prepared') or {}).items():
+        stock.prepared[zone] = Path(entry['folder'])
+        stock.prepared_sources[zone] = entry['inputs']
+    probe_result = staged['probes']
+    report.images.extend(probe_result['images'])
+    report.warnings.extend(probe_result['warnings'])
+    report.errors.extend(probe_result['errors'])
+    if 'content' in probe_result:
+        report.content['reflection_probes'] = probe_result['content']
+    warning_index = len(report.warnings)
+    report.content['visibility'] = None
+    report.content['physics_constraints'] = constraints
+    techsets.LAYERED_VERTEX_DATA = staged['layered']
+    report.content.update(staged['content'])
+    if report.content['visibility'] is None:
+        report.content.pop('visibility')
+    report.collision = staged['collision']
+    report.warnings.extend(staged['warnings'])
+    if staged['visibility_warning']:
+        report.warnings.insert(warning_index, staged['visibility_warning'])
+    report.errors.extend(staged['errors'])
+    metadata = staged['world']
+    world = _BridgeWorld([_BridgeSurface(*surface) for surface in metadata['surfaces']],
+                         [StaticModel(*model) for model in metadata['static_models']], metadata['shadow_lights'])
+    return world, staged['sky'], len(probe_result.get('kept', ()))
+
+
 def _xwma_helper(explicit: Path | None) -> str | None:
     """xwma.find_helper, or None when the bridge is not built (reported per sound)."""
     from . import xwma
@@ -1998,28 +2054,28 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # Do not add the recovery root to general lookup paths until dependencies
     # have been decoded; stage_images calls recover independently below.
 
-    world = progress.timed('Read map world', read_gfx_world, gfx_bin)
     world_stem = gfx_bin.name.removesuffix('.gfx.bin')
     probe_source = gfx_bin.with_name(world_stem + '.reflectionprobes.json')
     visibility_source = gfx_bin.with_name(world_stem + '.visibility.json')
-    image_roots = [r / "images" for r in roots]
-    native_visibility = None
-    if native.tool() is not None:
-        probe_plan, cell_probes = probes.stage_native(report, world, probe_source, image_roots, project_root)
-        native_visibility = RenderVisibility(visibility_source, cell_probes, len(report.warnings))
-        report.content["visibility"] = None
-    else:
+    native_geometry = native.tool() is not None
+    if not native_geometry:
+        world = progress.timed('Read map world', read_gfx_world, gfx_bin)
         source_probes = probes.read(probe_source)
-        probe_plan = probes.stage(report, world, source_probes, image_roots, project_root)
+        probe_plan = probes.stage(report, world, source_probes, [r / 'images' for r in roots], project_root)
         visibility.assign(report, world, visibility.read(visibility_source), source_probes, probe_plan)
+        probe_count = len(probe_plan.kept) if probe_plan is not None else 0
     clip = progress.timed('Read map collision', read_collision, clip_bin)
     from . import constraints
     clip_stem = clip_bin.name.removesuffix('.clip.bin')
     map_dynents, map_constraints = constraints.load_map_physics(
         clip_bin.with_name(clip_stem + '.dynents.json'), clip_bin.with_name(clip_stem + '.constraints.json'), project_root)
-    report.content['physics_constraints'] = map_constraints
-    sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw,
-                               gfx_source=gfx_bin, clip_source=clip_bin, native_visibility=native_visibility)
+    if native_geometry:
+        world, sky_image, probe_count = _stage_native_geometry(report, gfx_bin, clip_bin, roots, project_root, stock_waw,
+                                                               probe_source, visibility_source, map_constraints)
+    else:
+        report.content['physics_constraints'] = map_constraints
+        sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw,
+                                   gfx_source=gfx_bin, clip_source=clip_bin)
     ents_file = source_entities(gfx_bin, stage, roots)
     # The map is king: every model its own zones ship converts, referenced or
     # not (Industrial Estate's zombie-hero viewhands are picked through arrays
@@ -2244,8 +2300,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     # The map's baked reflection probes (probes.stage wrote them): listed in the
     # zone's >ipak range like every image, or the ipak never holds them and T6
     # streams nothing - reflective surfaces (Pack-a-Punch gold) drew black.
-    if probe_plan is not None:
-        images += [probes.image_name(t6) for t6 in range(1, len(probe_plan.kept)) if probes.image_name(t6) not in images]
+    images += [probes.image_name(t6) for t6 in range(1, probe_count) if probes.image_name(t6) not in images]
     native_tail = hasattr(wavelets, 'operation') and not _python_only_shader_diagnostics()
 
     def run_tail(**blocks):

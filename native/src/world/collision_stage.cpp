@@ -77,10 +77,9 @@ namespace w2b::world
         }
     }
 
-    py::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output,
+    py::Json StageCollisionMesh(const CollisionWorld& world, const std::filesystem::path& output,
                                bool includeRecords)
     {
-        const auto world = ReadCollisionWorld(source);
         const auto plan = PlanCollision(world);
         ExportMesh(output / "terrain.fbx", world, plan);
 
@@ -96,6 +95,11 @@ namespace w2b::world
         if (includeRecords)
             report["records"] = WriteCollisionRecords(output, world);
         return report;
+    }
+
+    py::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output, bool includeRecords)
+    {
+        return StageCollisionMesh(ReadCollisionWorld(source), output, includeRecords);
     }
 
     std::size_t ExportCollisionFbx(const std::filesystem::path& source, const std::filesystem::path& target,
