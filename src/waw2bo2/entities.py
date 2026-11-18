@@ -632,6 +632,12 @@ def link_barrier_traversals(bsp_dir: Path) -> list[str]:
     within BARRIER_NODE_RADIUS whose end lies inward joins the goal's target
     group, in the path data and in its node entity, and lands on its own end
     node (paths.split_window_ends). Returns report lines."""
+    if native.tool() is not None:
+        return pathgraph._run_native(windowBsp=str(bsp_dir))["notes"]
+    return _link_barrier_traversals_python(bsp_dir)
+
+
+def _link_barrier_traversals_python(bsp_dir: Path) -> list[str]:
     entities_json, paths_json = bsp_dir / "entities.json", bsp_dir / "paths.json"
     data = json.loads(entities_json.read_text(encoding="utf-8"))
     paths = json.loads(paths_json.read_text(encoding="utf-8"))

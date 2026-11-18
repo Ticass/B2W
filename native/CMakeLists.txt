@@ -91,8 +91,9 @@ add_library(w2b_mapents STATIC src/mapents/parse.cpp src/mapents/convert.cpp src
     src/mapents/write.cpp src/mapents/zones.cpp)
 target_link_libraries(w2b_mapents PUBLIC w2b_world)
 
-add_library(w2b_paths STATIC src/paths/aliases.cpp src/paths/convert.cpp src/paths/dogs.cpp src/paths/stage.cpp)
-target_link_libraries(w2b_paths PUBLIC w2b_gsc)
+add_library(w2b_paths STATIC src/paths/aliases.cpp src/paths/convert.cpp src/paths/dogs.cpp src/paths/stage.cpp
+    src/paths/window_ends.cpp src/paths/window_traversals.cpp)
+target_link_libraries(w2b_paths PUBLIC w2b_gsc w2b_mapents)
 
 add_library(w2b_world STATIC
     src/world/vertices.cpp

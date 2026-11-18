@@ -33,14 +33,23 @@ namespace w2b::files
 
     void WriteText(const fs::path& path, const std::string_view text)
     {
+        auto newline = text.find('\n');
+        if (newline == text.npos)
+        {
+            WriteBytes(path, text);
+            return;
+        }
         std::string out;
         out.reserve(text.size() + text.size() / 32);
-        for (const char c : text)
+        std::size_t start = 0;
+        while (newline != text.npos)
         {
-            if (c == '\n')
-                out += '\r';
-            out += c;
+            out.append(text.substr(start, newline - start));
+            out += "\r\n";
+            start = newline + 1;
+            newline = text.find('\n', start);
         }
+        out.append(text.substr(start));
         WriteBytes(path, out);
     }
 

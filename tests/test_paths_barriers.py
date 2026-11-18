@@ -126,6 +126,37 @@ class SpawnerTests(unittest.TestCase):
 
 
 class BarrierTests(unittest.TestCase):
+    def test_window_links_preserve_visibility_across_unaligned_rows(self):
+        count = 13
+        nodes = [{"type": 1, "targetname": "", "target": "", "origin": [0, 0, 0]} for _ in range(count)]
+        entries = []
+        for i in range(2):
+            y = i * 24
+            begin, hub, window = f"begin{i}", f"hub{i}", f"window{i}"
+            nodes[i] = {"type": 17, "targetname": begin, "target": hub, "origin": [0, y, 0],
+                        "links": [{"node": i + 2, "negotiationLink": 1, "flags": 40}]}
+            nodes[i + 2] = {"type": 18, "targetname": hub, "target": "", "origin": [80, y, 0]}
+            entries.extend([
+                {"classname": "script_struct", "targetname": "exterior_goal", "target": window, "origin": f"0 {y} 0"},
+                {"classname": "node_negotiation_begin", "targetname": begin, "origin": f"0 {y} 0"},
+                {"classname": "node_negotiation_end", "targetname": hub, "origin": f"80 {y} 0"},
+            ])
+        vis = bytes((i * 53 + 19) % 256 for i in range((count * (count - 1) + 7) // 8))
+        graph = {"nodeCount": count, "visBytes": len(vis), "pathVis": vis.hex(), "nodes": nodes}
+        with tempfile.TemporaryDirectory() as temp:
+            bsp = Path(temp)
+            (bsp / "paths.json").write_text(json.dumps(graph), encoding="utf-8")
+            (bsp / "entities.json").write_text(json.dumps({"entities": entries}), encoding="utf-8")
+            self.assertEqual(entities.link_barrier_traversals(bsp), [])
+            output = json.loads((bsp / "paths.json").read_text(encoding="utf-8"))
+        self.assertEqual(output["nodeCount"], count + 2)
+        self.assertEqual([node["links"][0]["node"] for node in output["nodes"][:2]], [count, count + 1])
+        enlarged = bytes.fromhex(output["pathVis"])
+        backing_nodes = [*range(count), 2, 3]
+        for a, old_a in enumerate(backing_nodes):
+            for b, old_b in enumerate(backing_nodes[:a]):
+                self.assertEqual(paths.vis_bit(enlarged, count + 2, a, b), paths.vis_bit(vis, count, old_a, old_b))
+
     def test_goal_target_group_gets_the_inward_window_traversal(self):
         with tempfile.TemporaryDirectory() as temp:
             bsp = Path(temp)

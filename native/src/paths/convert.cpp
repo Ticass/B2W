@@ -11,8 +11,6 @@ namespace w2b::paths
     namespace
     {
         constexpr int ClearanceSpawnFlags = 0x300000;
-        constexpr int ClearanceLinkFlags = 0x28;
-        constexpr int MaxNodes = 0xFFFF - 128;
         constexpr std::size_t MaxScriptName = 34;
 
         std::string_view StringField(const Json& node, std::string_view field)

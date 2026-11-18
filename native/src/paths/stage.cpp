@@ -16,14 +16,6 @@ namespace w2b::paths
             return files::FromUtf8(request.at(key).get_ref<const std::string&>());
         }
 
-        Json ReadManifest(const Path& file)
-        {
-            std::string input;
-            if (!files::ReadBytes(file, input))
-                throw std::runtime_error("cannot read " + files::Utf8(file));
-            return Json::parse(input);
-        }
-
         void RemoveOld(const Path& folder)
         {
             if (!std::filesystem::is_directory(folder))
@@ -75,6 +67,14 @@ namespace w2b::paths
         }
     }
 
+    Json ReadManifest(const Path& file)
+    {
+        std::string input;
+        if (!files::ReadBytes(file, input))
+            throw std::runtime_error("cannot read " + files::Utf8(file));
+        return Json::parse(input);
+    }
+
     std::string ReadSource(const Path& file)
     {
         std::string input;
@@ -107,6 +107,8 @@ namespace w2b::paths
         const auto request = ReadManifest(file);
         try
         {
+            if (request.contains("windowBsp"))
+                return {{"notes", LinkWindowTraversals(ReadPath(request, "windowBsp"))}};
             if (request.contains("source"))
             {
                 std::optional<Path> asd;

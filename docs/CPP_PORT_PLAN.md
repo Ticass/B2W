@@ -81,6 +81,7 @@ The remaining small modules move with the area that uses them.
 | Stage dynamic entities, physics constraints, and rope runtime | yes | Cheese Cube Unlimited's empty physics manifests and a fixture with a dynent, a rope, and an unsupported joint matched files and reports. | 0.09 s / 0.006 s (three stages through the Python driver) |
 | Convert map entities, synthesize zones, and stage spawns | yes | Cheese Cube Unlimited matched entity and spawn manifests and the report for 1,145 entities. A fixture also matched synthesized submodels, door flags, and wall-buy pairing. | 0.037 s / 0.008 s (including native process startup and clip read) |
 | Stage AI paths and traversal scripts | yes | Cheese Cube Unlimited matched 654 nodes and 8,862 links. Fixtures matched the source dog library and traversal scripts for all 13 stock walking/crawling state pairs. Equal measured distances select the lower height. | 0.097 s / 0.030 s (including native process startup) |
+| Link window traversals and extend path visibility | yes | Cheese Cube Unlimited matched both staged files. A 3,073-node fixture matched all 19 new endpoints, the packed visibility data, and two unsupported-window diagnostics. | 0.061 s / 0.050 s (fixture, including native process startup) |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
 run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.
