@@ -67,6 +67,7 @@
 #include "pipeline/effects_stage.h"
 #include "pipeline/scripts_stage.h"
 #include "pipeline/hooks_stage.h"
+#include "sound/bank.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
 #include "pipeline/driver.h"
@@ -872,6 +873,7 @@ namespace
         {"stage-materials", JsonRequest<w2b::pipeline::StageMaterials>},
         {"port-scripts", JsonRequest<w2b::pipeline::PortScripts>},
         {"hook-map-scripts", JsonRequest<w2b::pipeline::HookMapScripts>},
+        {"write-sound-bank", JsonRequest<w2b::sound::WriteT6Bank>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"fix-model-surfaces", JsonRequest<w2b::models::StageSurfaceFixesRequest>},
         {"isolate-model-names", JsonRequest<w2b::models::IsolateModelNamesRequest>},
