@@ -2235,7 +2235,20 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                    f"{len(zone_graph.adjacency)} links")
         if main_result.guarded_switch:
             report.warnings.append("zm_test electric_switch guarded: WaW map has no template switch entities")
-    if report.scripts and main_gsc.exists():
+    if native.tool() is not None:
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_hooks_') as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps({
+                'project_root': str(project_root), 'project': project,
+                'map_name': waw_map_script.stem if waw_map_script is not None else None,
+                'bo2_root': str(bo2_root) if bo2_root is not None else None, 'bo2_stock_perks': bo2_stock_perks,
+                'scripts': bool(report.scripts), 'characters': bool((report.scripts or {}).get('characters')),
+                'staged_animtrees': (report.scripts or {}).get('staged_animtrees', [])}), encoding='utf-8')
+            hooked = json.loads(native.run('hook-map-scripts', str(request)))
+        report.warnings += hooked['warnings']
+        report.errors += hooked['errors']
+        report.content.update(hooked['content'])
+    elif report.scripts and main_gsc.exists():
         try:
             gscport.hook_bo2_main(main_gsc, waw_map_script.stem)
             if report.scripts.get("characters"):
@@ -2269,7 +2282,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
             report.errors.append(f"scripts: {exc}")
     # A cancelled Wine/Linker run can leave the generated client entry point
     # absent while the compile list still expects it. Recreate it now.
-    if bo2_root is not None:
+    if bo2_root is not None and native.tool() is None:
         try:
             gscport.ensure_owned_client_bootstrap(project_root, bo2_root)
         except ValueError as exc:
