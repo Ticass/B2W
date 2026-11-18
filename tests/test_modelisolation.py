@@ -56,7 +56,11 @@ class ModelIsolationTests(unittest.TestCase):
             (root/'BSP/staticmodels.json').write_text(json.dumps({'staticModels':[{'name':'shared'}]}))
             (root/'BSP/entities.json').write_text(json.dumps({'entities':[
                 {'model':'shared','targetname':'shared'}, {'model':'*12'}]}))
-            (root/'maps/mp/waw/test.gsc').write_text('main(){ names[0]="shared"; self setmodel(names[0]); if(self.model=="shared") return; }')
+            (root/'maps/mp/waw/test.gsc').write_text(
+                'main(){ names[0]="shared"; self setmodel(names[0]); if(self.model=="shared") return; }')
+            (root/'clientscripts/mp').mkdir(parents=True)
+            client = root/'clientscripts/mp/model.csc'
+            client.write_text('main(){ tag = "shared"; PlayViewmodelFx( 0, fx, tag ); self attach("shared", "shared"); }')
             (root/'fx/piece.efx').write_text('model "shared"')
             renamed = modelisolation.stage(root)
             self.assertEqual(renamed, {'shared':'waw_world_model/shared'})
@@ -66,6 +70,8 @@ class ModelIsolationTests(unittest.TestCase):
             self.assertEqual(ents[0],{'model':renamed['shared'],'targetname':'shared'})
             self.assertEqual(ents[1]['model'],'*12')
             self.assertNotIn('"shared"',(root/'maps/mp/waw/test.gsc').read_text())
+            self.assertIn('tag = "shared";', client.read_text())
+            self.assertIn('attach("waw_world_model/shared", "shared")', client.read_text())
             self.assertIn('models["s" + "hared"] = "waw_world_model/shared";',
                           (root/'maps/mp/waw/_waw2bo2_models.gsc').read_text())
             self.assertEqual((root/'fx/piece.efx').read_text(),'model "waw_world_model/shared"')

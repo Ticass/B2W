@@ -27,6 +27,8 @@
 #include "paths/paths.h"
 #include "barriers/barriers.h"
 #include "models/models.h"
+#include "models/identities.h"
+#include "models/surface_fixes.h"
 #include "world/collision_stage.h"
 #include "world/fbx_stage.h"
 #include "world/grid_stage.h"
@@ -861,6 +863,8 @@ namespace
         {"recover-projectile-collision", JsonRequest<w2b::models::RecoverProjectileCollision>},
         {"stage-materials", JsonRequest<w2b::pipeline::StageMaterials>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
+        {"fix-model-surfaces", JsonRequest<w2b::models::StageSurfaceFixesRequest>},
+        {"isolate-model-names", JsonRequest<w2b::models::IsolateModelNamesRequest>},
         {"stage-script-files", JsonRequest<w2b::gsc::port::StageScriptFilesRequest>},
         {"list-map-scripts", JsonRequest<w2b::gsc::port::MapScriptsRequest>},
         {"map-zone-scripts", JsonRequest<w2b::gsc::port::ZoneScriptsRequest>},

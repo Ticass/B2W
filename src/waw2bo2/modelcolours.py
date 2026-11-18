@@ -12,8 +12,27 @@ import base64
 import json
 import struct
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from . import native
 
 ADDITIVE_MODEL_TECHSETS = ("mc_unlit_add",)
+
+
+def _native_surface_fixes(project: Path, materials, *, colors: bool, sort: bool) -> dict:
+    with TemporaryDirectory(prefix='waw2bo2_model_surfaces_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps({'project': str(project), 'materials': list(materials),
+                                       'colors': colors, 'sort': sort}), encoding='utf-8')
+        return json.loads(native.run('fix-model-surfaces', str(request)))
+
+
+def stage_surface_fixes(project: Path, materials) -> tuple[dict, dict]:
+    if native.tool() is not None:
+        result = _native_surface_fixes(project, materials, colors=True, sort=True)
+        return result['opacity'], result['sortKeys']
+    from . import modelsortorder
+    return stage(project, materials), modelsortorder.stage(project, materials)
 
 
 def additive_materials(materials) -> set[str]:
@@ -67,6 +86,8 @@ def opaque_vertex_alpha(gltf: dict, materials: set[str]) -> int:
 
 def stage(project: Path, materials) -> dict[str, int]:
     """Apply opaque_vertex_alpha to every staged model glTF."""
+    if native.tool() is not None:
+        return _native_surface_fixes(project, materials, colors=True, sort=False)['opacity']
     wanted = additive_materials(materials)
     result: dict[str, int] = {}
     if not wanted:

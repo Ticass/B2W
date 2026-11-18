@@ -1,8 +1,9 @@
 """Keep source map models distinct from same-named BO2 engine assets."""
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from . import gsc
+from . import gsc, native
 
 PREFIX = 'waw_world_model/'
 
@@ -58,6 +59,11 @@ def rewrite_script(source: str, renamed: dict[str, str]) -> str:
 
 
 def stage(project: Path) -> dict[str, str]:
+    if native.tool() is not None:
+        with TemporaryDirectory(prefix='waw2bo2_model_identities_') as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps({'project': str(project)}), encoding='utf-8')
+            return json.loads(native.run('isolate-model-names', str(request)))
     renamed = {}
     folder = project/'xmodel'
     for path in list(folder.rglob('*.json')):

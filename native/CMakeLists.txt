@@ -87,8 +87,10 @@ add_library(w2b_weapons STATIC src/weapons/infostring.cpp src/weapons/convert.cp
 target_link_libraries(w2b_weapons PUBLIC w2b_core PRIVATE w2b_base64)
 
 add_library(w2b_models STATIC src/models/bounds.cpp src/models/geometry.cpp src/models/stage.cpp src/models/effect_assets.cpp
+    src/models/vertex_colours.cpp src/models/surface_sort.cpp src/models/surface_stage.cpp
+    src/models/identity_scripts.cpp src/models/identities.cpp
     src/models/projectile_collision.cpp)
-target_link_libraries(w2b_models PUBLIC w2b_weapons w2b_world w2b_materials PRIVATE w2b_base64)
+target_link_libraries(w2b_models PUBLIC w2b_weapons w2b_world w2b_materials PRIVATE w2b_base64 w2b_gscport)
 
 add_library(w2b_assets STATIC src/assets/paths.cpp src/assets/dependencies.cpp src/assets/resolver.cpp)
 target_link_libraries(w2b_assets PUBLIC w2b_weapons w2b_effects)

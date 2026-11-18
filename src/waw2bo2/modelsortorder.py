@@ -12,6 +12,8 @@ with the same WaW key is raised just past it.
 import json
 from pathlib import Path
 
+from . import modelcolours, native
+
 MAX_SORT_KEY = 63
 
 
@@ -61,6 +63,8 @@ def raise_keys(orders, waw_keys: dict[str, int], t6_keys: dict[str, int]) -> dic
 
 def stage(project: Path, materials) -> dict[str, list[int]]:
     """Apply raise_keys to the staged translucent model materials."""
+    if native.tool() is not None:
+        return modelcolours._native_surface_fixes(project, materials, colors=False, sort=True)['sortKeys']
     entries = {m.get("source", m["name"]): m for m in materials
                if "t4_sort_key" in m and m.get("t4_techset", "").startswith("mc_")}
     files, waw_keys, t6_keys = {}, {}, {}
