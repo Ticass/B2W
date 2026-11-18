@@ -156,6 +156,8 @@ def stage_assets(project: Path, roots: list[Path], stock=None) -> dict:
             path = Path(folder) / 'request.json'
             path.write_text(json.dumps(request), encoding='utf-8')
             staged = json.loads(native.run('stage-waw-hud', str(path)))
+        if 'value_error' in staged:
+            raise ValueError(staged['value_error'])
         for zone, entry in (staged.get('stock_prepared') or {}).items():
             stock.prepared[zone] = Path(entry['folder'])
             stock.prepared_sources[zone] = entry['inputs']

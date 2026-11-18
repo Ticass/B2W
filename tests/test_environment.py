@@ -48,7 +48,8 @@ class EnvironmentTests(unittest.TestCase):
                 output['techniqueSet'] = 'translated/' + material['textures'][0]['image']
                 return {'active': [{'paired': True, 'slot': 2}], 'unsupported': []}
             report = t6bridge.StageReport('converted')
-            with patch.object(t6bridge.shaderruntime, 'bind_material', side_effect=bind):
+            with (patch.object(t6bridge.native, 'tool', return_value=None),
+                  patch.object(t6bridge.shaderruntime, 'bind_material', side_effect=bind)):
                 t6bridge.stage_source_skybox(report, 'converted', target, [source], 'source_sky', root, bo2)
             self.assertEqual(report.content['sky']['materials'], ['background', 'clouds'])
             self.assertEqual((target / 'model_export/sky.bin').read_bytes(), b'abcd')

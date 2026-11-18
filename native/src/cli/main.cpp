@@ -780,6 +780,20 @@ namespace
         return args.size() == 1 ? PrintReport(Stage(w2b::files::FromUtf8(args[0]))) : Usage();
     }
 
+    int StageWawHudCommand(const Arguments& args)
+    {
+        try
+        {
+            return JsonRequest<w2b::pipeline::StageWawHud>(args);
+        }
+        catch (const w2b::pipeline::StepError& error)
+        {
+            if (error.kind != "ValueError")
+                throw;
+            return PrintReport(w2b::py::Json{{"value_error", error.what()}});
+        }
+    }
+
     w2b::py::Json ReadResolverMessage()
     {
         std::string line;
@@ -909,7 +923,7 @@ namespace
         {"write-amb-csc", JsonRequest<w2b::pipeline::WriteAmbCsc>},
         {"discover-sounds", JsonRequest<w2b::pipeline::DiscoverSounds>},
         {"framework-coverage", JsonRequest<w2b::pipeline::FrameworkCoverage>},
-        {"stage-waw-hud", JsonRequest<w2b::pipeline::StageWawHud>},
+        {"stage-waw-hud", StageWawHudCommand},
         {"stage-waw-menus", JsonRequest<w2b::pipeline::StageWawMenus>},
         {"stage-weapon-runtime", JsonRequest<w2b::pipeline::StageWeaponRuntime>},
         {"finish-weapon-runtime", JsonRequest<w2b::pipeline::FinishWeaponRuntime>},
