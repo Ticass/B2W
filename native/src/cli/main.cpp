@@ -64,6 +64,7 @@
 #include "visions/visions.h"
 #include "models/projectile_collision.h"
 #include "pipeline/materials_stage.h"
+#include "pipeline/effects_stage.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
 #include "pipeline/driver.h"
@@ -894,7 +895,7 @@ namespace
         {
             if (!a.empty())
                 return Usage();
-            w2b::textures::ServeIwdRecovery(std::cin, std::cout);
+            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}});
             return 0;
         }},
         {"lightmaps", JsonRequest<w2b::textures::StageLightmaps>},

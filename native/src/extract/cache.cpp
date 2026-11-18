@@ -441,7 +441,8 @@ namespace w2b::extract
     std::map<std::string, std::vector<std::string>> Listing(const std::string& text, const bool references)
     {
         std::map<std::string, std::vector<std::string>> assets;
-        for (const auto& kv : ListingJson(text, references).items())
+        const auto listing = ListingJson(text, references);
+        for (const auto& kv : listing.items())
             assets[kv.key()] = kv.value().get<std::vector<std::string>>();
         return assets;
     }

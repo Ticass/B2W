@@ -2813,6 +2813,9 @@ def stage_effects(report: StageReport, names: list[str], roots: list[Path], stoc
     to T6 (fx.py), with their materials (fxmaterials.py / world techsets),
     models and images. Output names carry fx.OUTPUT_PREFIX / FX_MATERIAL_PREFIX
     so no converted asset overrides a stock BO2 one of the same name."""
+    if source_waw is None and isinstance(wavelets, wavelet.NativeIwdRecovery):
+        return _stage_effects_native(report, names, roots, stock_waw, project_root, stock_materials,
+                                     techset_dump, bo2_root, iwd_dirs, wavelets)
     res = EffectsResult()
     stock_used: dict[tuple[str, str], str] = {}
     # converted output of earlier runs (effects that no longer convert must not linger)
@@ -2968,6 +2971,37 @@ def stage_effects(report: StageReport, names: list[str], roots: list[Path], stoc
                                f"stock WaW zone {zone}.ff")
     report.warnings.append(f"fx: {len(converted)} WaW effects converted ({len(res.table)} loaded by scripts), "
                            f"{staged['failed']} failed, {len(cl.absent)} absent from WaW")
+    return res
+
+
+def _stage_effects_native(report: StageReport, names: list[str], roots: list[Path], stock_waw, project_root: Path,
+                          stock_materials: Path, techset_dump: Path | None, bo2_root: Path, iwd_dirs,
+                          wavelets) -> EffectsResult:
+    """stage_effects natively (pipeline/effects_stage.cpp), served by the IWD recovery process."""
+    result = wavelets.operation('stage-effects', {
+        'names': list(names), 'roots': [str(r) for r in roots], 'project_root': str(project_root),
+        'stock_materials': str(stock_materials), 'techset_dump': str(techset_dump) if techset_dump else None,
+        'bo2_root': str(bo2_root), 'iwd_dirs': [str(d) for d in iwd_dirs],
+        'stock': {'waw_root': str(stock_waw.waw_root), 'unlinker': str(stock_waw.unlinker), 'work': str(stock_waw.work),
+                  'prepared': {zone: {'folder': str(folder), 'inputs': stock_waw.prepared_sources.get(zone, {})}
+                               for zone, folder in stock_waw.prepared.items()}}
+        if stock_waw is not None else None,
+        'layered_vertex_data': techsets.LAYERED_VERTEX_DATA, 'workers': parallel.worker_count(len(names) or 1)})
+    # the stock zone dumps the native step prepared: later Python lookups continue from them
+    for zone, entry in (result.get('stock_prepared') or {}).items():
+        stock_waw.prepared[zone] = Path(entry['folder'])
+        stock_waw.prepared_sources[zone] = entry['inputs']
+    report.warnings += result['warnings']
+    report.errors += result['errors']
+    report.materials += result['materials']
+    report.images += result['images']
+    res = EffectsResult()
+    res.table = result['table']
+    res.zone_fx = result['zone_fx']
+    res.models = set(result['models'])
+    res.sounds = set(result['sounds'])
+    res.extra_roots = [Path(r) for r in result['extra_roots']]
+    res.techsets = set(result['techsets'])
     return res
 
 

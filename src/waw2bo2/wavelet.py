@@ -364,6 +364,25 @@ class NativeIwdRecovery:
     def resolve(self, stem: str, source: Path | None) -> Path | None:
         return self._resolve(stem, source=str(source) if source is not None else None)
 
+    def operation(self, name: str, request: dict) -> dict:
+        """A native staging step served beside the recovery (the images it
+        decodes join ``recovered``)."""
+        with self._lock:
+            process = self._process
+            process.stdin.write(json.dumps({'op': name, 'request': request}) + '\n')
+            process.stdin.flush()
+            reply = process.stdout.readline()
+            if not reply:
+                process.wait()
+                raise native.NativeError(process.stderr.read().strip() or f'native IWD recovery ended with exit code {process.returncode}')
+            result = json.loads(reply)
+            if result.get('log'):
+                print(result['log'], end='' if result['log'].endswith('\n') else '\n', flush=True)
+            if 'error' in result:
+                raise native.NativeError(f'{name}: {result["error"]}')
+            self.recovered.update(result['result'].pop('recovered', {}))
+            return result['result']
+
     def recover(self, stem: str) -> Path | None:
         return self._resolve(stem)
 

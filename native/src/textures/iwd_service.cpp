@@ -1,11 +1,15 @@
 #include "textures/iwd_service.h"
 
+#include "core/encoding.h"
 #include "core/files.h"
 #include "core/pytext.h"
 #include "textures/dds.h"
 #include "textures/iwd_recovery.h"
 
+#include <cstdio>
+#include <io.h>
 #include <istream>
+#include <process.h>
 #include <ostream>
 
 namespace w2b::textures
@@ -38,7 +42,7 @@ namespace w2b::textures
         }
     }
 
-    void ServeIwdRecovery(std::istream& input, std::ostream& output)
+    void ServeIwdRecovery(std::istream& input, std::ostream& output, const std::map<std::string, RecoveryOperation>& operations)
     {
         std::string line;
         if (!std::getline(input, line))
@@ -57,6 +61,46 @@ namespace w2b::textures
         while (std::getline(input, line))
         {
             const auto request = Json::parse(line);
+            if (request.contains("op"))
+            {
+                // {"op", "request"}: {"result"} or {"error", "kind": "operation"}
+                // the operation's own progress output must not reach the reply
+                // stream: it goes to a file and returns with the reply
+                Json reply;
+                std::string log;
+                {
+                    std::fflush(stdout);
+                    output.flush();
+                    const auto logPath = files::fs::temp_directory_path() / ("w2b_operation_" + std::to_string(_getpid()) + ".log");
+                    const int saved = _dup(1);
+                    FILE* sink = _wfopen(logPath.c_str(), L"wb");
+                    if (saved >= 0 && sink)
+                        _dup2(_fileno(sink), 1);
+                    try
+                    {
+                        const auto& operation = operations.at(request.at("op").get<std::string>());
+                        reply = {{"result", operation(request.at("request"), recovery)}};
+                    }
+                    catch (const std::exception& error)
+                    {
+                        reply = {{"error", error.what()}, {"kind", "operation"}};
+                    }
+                    std::fflush(stdout);
+                    if (saved >= 0)
+                    {
+                        _dup2(saved, 1);
+                        _close(saved);
+                    }
+                    if (sink)
+                        std::fclose(sink);
+                    files::ReadBytes(logPath, log);
+                    std::error_code e;
+                    files::fs::remove(logPath, e);
+                }
+                reply["log"] = encoding::Utf8Replace(log);
+                send(reply);
+                continue;
+            }
             const auto stem = request.at("stem").get<std::string>();
             try
             {
