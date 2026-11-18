@@ -2,6 +2,7 @@
 
 #include "core/pytext.h"
 #include "materials/techsets.h"
+#include "materials/waw_material.h"
 
 #include <filesystem>
 #include <map>
@@ -26,6 +27,6 @@ namespace w2b::materials
     };
 
     // t6bridge._choose_waw_material: donor selection and material preparation
-    py::Json SelectMaterial(const py::Json& input, bool programs, bool layered, Donors& donors);
+    py::Json SelectMaterial(const WawMaterial& input, bool programs, bool layered, Donors& donors);
     void PrepareMaterials(const std::filesystem::path& request);
 }

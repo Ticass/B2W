@@ -49,12 +49,12 @@ set(OAT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../vendor/OpenAssetTools" CACHE PATH "O
 set(OAT_LIB_DIR "${OAT_DIR}/build/lib/Release_x64")
 set(OAT_LIBS Unlinking ZoneLoading ObjWriting ObjLoading ObjImage ZoneCommon Cryptography ObjCommon Common Parser XMemCompress Utils
     minilzo salsa20 lzx minizip zlib libtomcrypt libtommath lz4)
-add_library(w2b_oat STATIC src/oat/run_unlinker.cpp)
+add_library(w2b_oat STATIC src/oat/run_unlinker.cpp src/oat/loaded_zones.cpp src/oat/zone_dumper.cpp src/oat/waw_assets.cpp)
 set_target_properties(w2b_oat PROPERTIES CXX_STANDARD 23)
 target_include_directories(w2b_oat PUBLIC src)
 target_include_directories(w2b_oat SYSTEM PRIVATE
     "${OAT_DIR}/build/premake" "${OAT_DIR}/src/Unlinking" "${OAT_DIR}/src/ZoneCommon" "${OAT_DIR}/src/Utils" "${OAT_DIR}/src/Common"
-    "${OAT_DIR}/src/ObjCommon" "${OAT_DIR}/build/src/ObjCommon" "${OAT_DIR}/src/ObjWriting" "${OAT_DIR}/src/ObjLoading" "${OAT_DIR}/src/ObjImage"
+    "${OAT_DIR}/src/ObjCommon" "${OAT_DIR}/build/src/ObjCommon" "${OAT_DIR}/src/ObjWriting" "${OAT_DIR}/build/src/ObjWriting" "${OAT_DIR}/src/ObjLoading" "${OAT_DIR}/src/ObjImage"
     "${OAT_DIR}/src/ZoneLoading" "${OAT_DIR}/src/ZoneCode" "${OAT_DIR}/build/src/ZoneCode" "${OAT_DIR}/src/Parser" "${OAT_DIR}/src/Cryptography"
     "${OAT_DIR}/src/XMemCompress" "${OAT_DIR}/thirdparty/json/single_include" "${OAT_DIR}/thirdparty/zlib")
 target_compile_definitions(w2b_oat PRIVATE ARCH_x64 __STDC_LIB_EXT1__ __STDC_WANT_LIB_EXT1__=1 JSON_DIAGNOSTICS=1 HAS_NLOHMANN_JSON ZLIB_CONST)
@@ -103,7 +103,7 @@ add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/pillow_decode.
 target_link_libraries(w2b_textures PUBLIC w2b_core)
 
 add_library(w2b_materials STATIC src/materials/techset_name.cpp src/materials/techset_match.cpp src/materials/fxmaterials.cpp
-    src/materials/material.cpp src/materials/prepare.cpp src/materials/donor_index.cpp)
+    src/materials/material.cpp src/materials/prepare.cpp src/materials/donor_index.cpp src/materials/waw_material.cpp)
 target_link_libraries(w2b_materials PUBLIC w2b_core)
 
 add_library(w2b_effects STATIC src/effects/element.cpp src/effects/effect.cpp src/effects/overlay.cpp src/effects/stage.cpp)

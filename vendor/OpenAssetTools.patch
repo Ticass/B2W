@@ -143,6 +143,81 @@ index 124fd59e..ff4228ad 100644
 +        physCollmapGeoms
      );
  } // namespace GAME
+diff --git a/src/ObjWriting/Dumping/AbstractAssetDumper.h b/src/ObjWriting/Dumping/AbstractAssetDumper.h
+index a2e493b1..fe3079dc 100644
+--- a/src/ObjWriting/Dumping/AbstractAssetDumper.h
++++ b/src/ObjWriting/Dumping/AbstractAssetDumper.h
+@@ -26,7 +26,7 @@ public:
+ 
+         for (const auto* assetInfo : context.m_zone.m_pools.PoolAssets<Asset_t>())
+         {
+-            if (assetInfo->IsReference() || !ShouldDump(*assetInfo))
++            if (assetInfo->IsReference() || !context.ShouldDumpAsset(Asset_t::EnumEntry, assetInfo->m_name) || !ShouldDump(*assetInfo))
+             {
+                 context.IncrementProgress();
+                 continue;
+diff --git a/src/ObjWriting/Dumping/AssetDumpingContext.cpp b/src/ObjWriting/Dumping/AssetDumpingContext.cpp
+index 77e59fe0..c1041205 100644
+--- a/src/ObjWriting/Dumping/AssetDumpingContext.cpp
++++ b/src/ObjWriting/Dumping/AssetDumpingContext.cpp
+@@ -1,5 +1,7 @@
+ #include "AssetDumpingContext.h"
+ 
++#include <algorithm>
++#include <cctype>
+ #include <filesystem>
+ 
+ AssetDumpingContext::AssetDumpingContext(const Zone& zone,
+@@ -41,3 +43,18 @@ bool AssetDumpingContext::ShouldTrackProgress() const
+ {
+     return static_cast<bool>(m_progress_callback);
+ }
++
++void AssetDumpingContext::SetAssetNameFilter(std::unordered_map<asset_type_t, std::unordered_set<std::string>> filter)
++{
++    m_asset_name_filter = std::move(filter);
++}
++
++bool AssetDumpingContext::ShouldDumpAsset(const asset_type_t type, const std::string& name) const
++{
++    const auto names = m_asset_name_filter.find(type);
++    if (names == m_asset_name_filter.end())
++        return true;
++    auto lower = name;
++    std::ranges::transform(lower, lower.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
++    return names->second.contains(lower);
++}
+diff --git a/src/ObjWriting/Dumping/AssetDumpingContext.h b/src/ObjWriting/Dumping/AssetDumpingContext.h
+index 4d6c86b3..b00789c8 100644
+--- a/src/ObjWriting/Dumping/AssetDumpingContext.h
++++ b/src/ObjWriting/Dumping/AssetDumpingContext.h
+@@ -11,6 +11,8 @@
+ #include <ostream>
+ #include <string>
+ #include <typeindex>
++#include <unordered_map>
++#include <unordered_set>
+ 
+ class AssetDumpingContext
+ {
+@@ -27,6 +29,11 @@ public:
+     void SetTotalProgress(size_t value);
+     [[nodiscard]] bool ShouldTrackProgress() const;
+ 
++    // B2W: with a name filter set, a type it lists dumps only the named
++    // assets (lower-case names); unlisted types dump everything
++    void SetAssetNameFilter(std::unordered_map<asset_type_t, std::unordered_set<std::string>> filter);
++    [[nodiscard]] bool ShouldDumpAsset(asset_type_t type, const std::string& name) const;
++
+     template<typename T> T* GetZoneAssetDumperState()
+     {
+         static_assert(std::is_base_of_v<IZoneAssetDumperState, T>, "T must inherit IZoneAssetDumperState");
+@@ -54,4 +61,5 @@ private:
+     std::unique_ptr<ProgressCallback> m_progress_callback;
+     size_t m_current_progress;
+     size_t m_total_progress;
++    std::unordered_map<asset_type_t, std::unordered_set<std::string>> m_asset_name_filter;
+ };
 diff --git a/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp b/src/ObjWriting/Game/T4/Fx/FxJsonDumperT4.cpp
 new file mode 100644
 index 00000000..1d86b29c
@@ -392,6 +467,24 @@ index 00000000..c04a7086
 +        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::FxEffectDef>& asset) override;
 +    };
 +} // namespace fx
+diff --git a/src/ObjWriting/Game/T4/Localize/LocalizeDumperT4.cpp b/src/ObjWriting/Game/T4/Localize/LocalizeDumperT4.cpp
+index 32087c18..3947c57f 100644
+--- a/src/ObjWriting/Game/T4/Localize/LocalizeDumperT4.cpp
++++ b/src/ObjWriting/Game/T4/Localize/LocalizeDumperT4.cpp
+@@ -27,8 +27,12 @@ namespace localize
+             stringFileDumper.SetConfigFile(R"(G:\CoD5\cod\cod5\bin\StringEd.cfg)");
+             stringFileDumper.SetNotes("");
+ 
+-            for (const auto* localizeEntry : localizeAssets)
++            // in zone order: the pool's hash order differs between 32-bit and 64-bit builds
++            for (const auto* asset : context.m_zone.m_pools)
+             {
++                if (asset->m_type != AssetLocalize::EnumEntry)
++                    continue;
++                const auto* localizeEntry = reinterpret_cast<const XAssetInfo<LocalizeEntry>*>(asset);
+                 stringFileDumper.WriteLocalizeEntry(localizeEntry->m_name, localizeEntry->Asset()->value);
+             }
+ 
 diff --git a/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp b/src/ObjWriting/Game/T4/Maps/WorldConverterDumperT4.cpp
 new file mode 100644
 index 00000000..d2d2e948
@@ -1437,12 +1530,14 @@ index 00000000..64ce35b2
 +    };
 +}
 diff --git a/src/ObjWriting/Material/MaterialJsonDumper.cpp.template b/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
-index 592e20e3..b19e818d 100644
+index 592e20e3..f885853e 100644
 --- a/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
 +++ b/src/ObjWriting/Material/MaterialJsonDumper.cpp.template
-@@ -49,6 +49,9 @@
+@@ -48,7 +48,11 @@
+ 
  #include <cassert>
  #include <iomanip>
++#include <sstream>
  #include <nlohmann/json.hpp>
 +#if defined(FEATURE_T4)
 +#include "Game/T4/Material/SourceTechniqueSetDumperT4.h"
@@ -1450,7 +1545,43 @@ index 592e20e3..b19e818d 100644
  
  using namespace nlohmann;
  using namespace GAME;
-@@ -381,6 +384,9 @@ namespace material
+@@ -66,11 +70,17 @@ namespace
+         {
+         }
+ 
+-        void Dump(const Material& material) const
++        // B2W: the material as an object, for callers that read it in process
++        [[nodiscard]] JsonMaterial Create(const Material& material) const
+         {
+             JsonMaterial jsonMaterial;
+             CreateJsonMaterial(jsonMaterial, material);
+-            json jRoot = jsonMaterial;
++            return jsonMaterial;
++        }
++
++        void Dump(const Material& material) const
++        {
++            json jRoot = Create(material);
+ 
+             jRoot["$schema"] = "http://openassettools.dev/schema/material.v1.json";
+             jRoot["_type"] = "material";
+@@ -373,6 +383,15 @@ namespace material
+         AbstractAssetDumper::Dump(context);
+     }
+ 
++    JsonMaterial CLASS_NAME::Create(AssetDumpingContext& context, const Material& material)
++    {
++        auto* materialConstantState = context.GetZoneAssetDumperState<MaterialConstantZoneState>();
++        materialConstantState->EnsureInitialized();
++
++        std::ostringstream unused;
++        return JsonDumperImpl(context, unused).Create(material);
++    }
++
+     void CLASS_NAME::DumpAsset(AssetDumpingContext& context, const XAssetInfo<AssetMaterial::Type>& asset)
+     {
+         const auto assetFile = context.OpenAssetFile(GetFileNameForAssetName(asset.m_name));
+@@ -381,6 +400,9 @@ namespace material
              return;
  
          const auto* material = asset.Asset();
@@ -1460,6 +1591,31 @@ index 592e20e3..b19e818d 100644
  #if defined(FEATURE_T5)
          assert(material->info.gameFlags < 0x400);
          assert(material->maxStreamedMips == 0);
+diff --git a/src/ObjWriting/Material/MaterialJsonDumper.h.template b/src/ObjWriting/Material/MaterialJsonDumper.h.template
+index 5c7275f7..cdb3ac0b 100644
+--- a/src/ObjWriting/Material/MaterialJsonDumper.h.template
++++ b/src/ObjWriting/Material/MaterialJsonDumper.h.template
+@@ -12,6 +12,8 @@
+ #include "Dumping/AssetDumpingContext.h"
+ #set GAME_HEADER "\"Game/" + GAME + "/" + GAME + ".h\""
+ #include GAME_HEADER
++#set JSON_HEADER "\"Game/" + GAME + "/Material/JsonMaterial" + GAME + ".h\""
++#include JSON_HEADER
+ 
+ #set CLASS_NAME "JsonDumper" + GAME
+ 
+@@ -21,7 +23,10 @@ namespace material
+     {
+     public:
+         void Dump(AssetDumpingContext& context) override;
+-        
++
++        // B2W: what Dump writes for one material, as the object it serializes
++        static GAME::JsonMaterial Create(AssetDumpingContext& context, const GAME::Material& material);
++
+     protected:
+         void DumpAsset(AssetDumpingContext& context, const XAssetInfo<GAME::AssetMaterial::Type>& asset) override;
+     };
 diff --git a/src/ObjWriting/XModel/XModelDumper.cpp.template b/src/ObjWriting/XModel/XModelDumper.cpp.template
 index 9398f998..fb91a168 100644
 --- a/src/ObjWriting/XModel/XModelDumper.cpp.template

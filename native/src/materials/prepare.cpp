@@ -4,6 +4,7 @@
 #include "core/parallel.h"
 #include "materials/material.h"
 #include "materials/techsets.h"
+#include "materials/waw_material_json.h"
 
 #include <algorithm>
 #include <map>
@@ -33,9 +34,9 @@ namespace w2b::materials
                 return it->second;
             }
 
-    Json SelectMaterial(const Json& input, bool programs, bool layered, Donors& donors)
+    Json SelectMaterial(const WawMaterial& input, bool programs, bool layered, Donors& donors)
         {
-            const auto original = input.value("techniqueSet", std::string{});
+            const auto& original = input.techniqueSet;
             auto source = SourceTechnique(input);
             const auto alternatives = LastResort(source);
             auto alternative = alternatives.begin();
@@ -106,8 +107,8 @@ namespace w2b::materials
             const auto& source = sourcePaths[index];
             if (source.is_null())
                 return;
-            const auto input = Json::parse(files::ReadText(files::FromUtf8(source.get<std::string>())));
-            const auto pass = files::FromUtf8(input.value("techniqueSet", std::string{}) + ".json");
+            const auto input = FromOatJson(Json::parse(files::ReadText(files::FromUtf8(source.get<std::string>()))));
+            const auto pass = files::FromUtf8(input.techniqueSet + ".json");
             const bool programs = checkPrograms && std::ranges::any_of(roots, [&](const path& root)
                 { return files::fs::exists(root / "waw_techniquesets" / pass); });
             const auto result = SelectMaterial(input, programs, layered, donors);

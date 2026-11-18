@@ -7,6 +7,7 @@
 #include "gsc/tokens.h"
 #include "materials/material.h"
 #include "materials/techsets.h"
+#include "materials/waw_material_json.h"
 
 #include <algorithm>
 #include <map>
@@ -244,7 +245,7 @@ namespace w2b::materials
 
     Json BuildEffectMaterial(const Json& t4, const EffectDonor& donor, std::vector<std::string>& notes)
     {
-        auto out = BuildMaterial(t4, donor.material, notes);
+        auto out = BuildMaterial(FromOatJson(t4), donor.material, notes);
         if (const auto* main = MainState(t4); main && out.contains("stateBits"))
             for (auto& state : out["stateBits"])
             {

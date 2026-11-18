@@ -64,6 +64,10 @@
 #include "visions/visions.h"
 #include "models/projectile_collision.h"
 #include "oat/run_unlinker.h"
+#include "oat/zone_dumper.h"
+#include "oat/waw_assets.h"
+#include "core/asset_paths.h"
+#include "materials/waw_material_json.h"
 #include "pipeline/bridge_stage.h"
 #include "pipeline/materials_stage.h"
 #include "pipeline/effects_stage.h"
@@ -714,6 +718,65 @@ namespace
         return run.exitCode;
     }
 
+    // oat-dump-assets <zone.ff> <output> <search;paths> <kind:name>...: named assets of one zone
+    int OatDumpAssetsCommand(const Arguments& args)
+    {
+        if (args.size() < 4)
+            return Usage();
+        std::vector<std::filesystem::path> search;
+        for (const auto part : w2b::py::Split(args[2], ";"))
+            if (!part.empty())
+                search.push_back(w2b::files::FromUtf8(std::string(part)));
+        std::vector<std::pair<std::string, std::string>> assets;
+        for (size_t i = 3; i < args.size(); i++)
+        {
+            const auto colon = args[i].find(':');
+            if (colon == std::string::npos)
+                return Usage();
+            assets.emplace_back(args[i].substr(0, colon), args[i].substr(colon + 1));
+        }
+        const auto run = w2b::oat::DumpAssets(w2b::files::FromUtf8(args[0]), search, assets, w2b::files::FromUtf8(args[1]));
+        std::fwrite(run.log.data(), 1, run.log.size(), stdout);
+        return run.ok ? 0 : 1;
+    }
+
+    // oat-check-materials <zone.ff> <dump root> [search path]...: every material of the zone read
+    // as an object must match the file the Unlinker dumped for it, both ways
+    int OatCheckMaterialsCommand(const Arguments& args)
+    {
+        if (args.size() < 2)
+            return Usage();
+        w2b::oat::WawZone zone{w2b::files::FromUtf8(args[0]), {}};
+        for (size_t i = 2; i < args.size(); i++)
+            zone.searchPaths.push_back(w2b::files::FromUtf8(args[i]));
+        const auto root = w2b::files::FromUtf8(args[1]);
+        size_t checked = 0, missing = 0, different = 0;
+        for (const auto& name : w2b::oat::MaterialNames(zone))
+        {
+            const auto file = root / w2b::assets::MaterialPath(name);
+            if (!std::filesystem::is_regular_file(file))
+            {
+                missing++;
+                continue;
+            }
+            const auto dumped = nlohmann::ordered_json::parse(w2b::files::ReadText(file));
+            const auto object = w2b::oat::ReadMaterial(zone, name);
+            checked++;
+            if (!object)
+            {
+                if (different++ < 5)
+                    std::printf("not read: %s\n", name.c_str());
+                continue;
+            }
+            const auto written = w2b::materials::ToOatJson(*object);
+            if (w2b::materials::FromOatJson(dumped) != *object || written != dumped)
+                if (different++ < 5)
+                    std::printf("differs: %s %s\n", name.c_str(), nlohmann::ordered_json::diff(dumped, written).dump().substr(0, 400).c_str());
+        }
+        std::printf("materials: %zu checked, %zu differ, %zu without a dump file\n", checked, different, missing);
+        return different ? 1 : 0;
+    }
+
     int StageBridgeCommand(const Arguments& args)
     {
         try
@@ -1034,6 +1097,8 @@ namespace
         {"package", PackageCommand}, {"compile-scripts", CompileScriptsCommand}, {"bridge-link", BridgeLinkCommand},
         {"stage-bridge", StageBridgeCommand},
         {"oat-unlink", OatUnlinkCommand},
+        {"oat-dump-assets", OatDumpAssetsCommand},
+        {"oat-check-materials", OatCheckMaterialsCommand},
         {"build-map", BuildMapCommand}, {"build-mod", BuildModCommand}, {"audit-zone", AuditZoneCommand}, {"all2raw", All2RawCommand}, {"extract-prepare", ExtractPrepareCommand},
         {"extract-sources", ExtractSourcesCommand}, {"audit-material-args", AuditMaterialArgsCommand},
         {"inspect", Inspect}, {"world-inspect", Inspect},

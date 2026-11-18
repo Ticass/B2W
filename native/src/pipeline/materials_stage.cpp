@@ -9,6 +9,7 @@
 #include "core/parallel.h"
 #include "extract/cache.h"
 #include "materials/prepare.h"
+#include "materials/waw_material_json.h"
 #include "modutil.h"
 #include "shaders/runtime.h"
 #include "textures/stage.h"
@@ -186,7 +187,7 @@ namespace w2b::pipeline
                 for (const auto& root : c.roots)
                     programs |= fs::exists(root / "waw_techniquesets" / files::FromUtf8(t4ts + ".json"), e);
             // the prepared form round-trips through JSON in the Python step
-            const auto prepared = [&] { const profile::Scope scope("materials: select donor"); return Json::parse(py::JsonDumps(materials::SelectMaterial(t4, programs, c.layered, donors), -1)); }();
+            const auto prepared = [&] { const profile::Scope scope("materials: select donor"); return Json::parse(py::JsonDumps(materials::SelectMaterial(materials::FromOatJson(t4), programs, c.layered, donors), -1)); }();
             if (prepared.contains("error"))
             {
                 result.errors.push_back("material " + name + " (" + t4ts + "): " + prepared["error"].get<std::string>());

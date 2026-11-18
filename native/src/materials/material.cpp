@@ -4,6 +4,7 @@
 
 #include <array>
 #include <map>
+#include <set>
 
 namespace w2b::materials
 {
@@ -31,38 +32,38 @@ namespace w2b::materials
             return value.is_string() ? value.get<std::string>() : value.dump();
         }
 
-        bool True(const Json& value)
+        // an enum-like state value as T6 material files hold it (empty: null)
+        Json StateValue(const std::string& value)
         {
-            if (value.is_boolean())
-                return value.get<bool>();
-            if (value.is_number())
-                return value.get<double>() != 0;
-            if (value.is_string())
-                return !value.get_ref<const std::string&>().empty();
-            return !value.empty();
+            return value.empty() ? Json() : Json(value);
+        }
+
+        bool ColorPass(const WawStateBits& state)
+        {
+            return state.colorWriteRgb && !state.polymodeLine;
         }
 
         bool ColorPass(const Json& state)
         {
-            return True(Get(state, "colorWriteRgb")) && !True(Get(state, "polymodeLine"));
+            const auto& rgb = Get(state, "colorWriteRgb");
+            const auto& line = Get(state, "polymodeLine");
+            return rgb.is_boolean() && rgb.get<bool>() && !(line.is_boolean() && line.get<bool>());
         }
 
-        const Json* UnlitState(const Json& source)
+        const WawStateBits* UnlitState(const WawMaterial& source)
         {
-            const auto& entries = Get(source, "stateBitsEntry");
-            const auto& states = Get(source, "stateBits");
-            const auto index = entries.size() > 4 ? entries[4].get<int>() : -1;
-            return index >= 0 && static_cast<std::size_t>(index) < states.size() ? &states[index] : nullptr;
+            return source.TechniqueState(WawMaterial::UNLIT_PASS);
         }
 
-        void ApplySourceCull(Json& material, const Json& source)
+        // a WaW material drawn double-sided stays double-sided
+        void ApplySourceCull(Json& material, const WawMaterial& source)
         {
             bool found = false;
-            for (const auto& state : Get(source, "stateBits"))
+            for (const auto& state : source.stateBits)
             {
                 if (!ColorPass(state))
                     continue;
-                if (Get(state, "cullFace") != "none")
+                if (state.cullFace != "none")
                     return;
                 found = true;
             }
@@ -72,51 +73,53 @@ namespace w2b::materials
                         state["cullFace"] = "none";
         }
 
-        void ApplyUnlitState(Json& material, const Json& source)
+        void ApplyUnlitState(Json& material, const WawMaterial& source)
         {
-            const auto technique = ParseTechnique(Text(source, "techniqueSet"));
+            const auto technique = ParseTechnique(source.techniqueSet);
             if (technique.family != Family::world ||
-                (technique.unlit != "unlit" && technique.unlit != "unlit_blend" &&
-                 technique.unlit != "unlit_distfalloff" && technique.unlit != "unlit_falloff_add"))
+                (technique.unlit != "unlit" && technique.unlit != "unlit_blend" && technique.unlit != "unlit_distfalloff" && technique.unlit != "unlit_falloff_add"))
                 return;
-            const auto main = UnlitState(source);
+            const auto* main = UnlitState(source);
             if (!main)
                 return;
-            constexpr std::array<std::string_view, 13> fields{"srcBlendRgb", "dstBlendRgb", "blendOpRgb",
-                "srcBlendAlpha", "dstBlendAlpha", "blendOpAlpha", "alphaTest", "depthWrite", "depthTest",
-                "cullFace", "polygonOffset", "colorWriteAlpha", "colorWriteRgb"};
+            const std::array<std::pair<const char*, Json>, 13> fields{{{"srcBlendRgb", main->srcBlendRgb},
+                                                                       {"dstBlendRgb", main->dstBlendRgb},
+                                                                       {"blendOpRgb", main->blendOpRgb},
+                                                                       {"srcBlendAlpha", main->srcBlendAlpha},
+                                                                       {"dstBlendAlpha", main->dstBlendAlpha},
+                                                                       {"blendOpAlpha", main->blendOpAlpha},
+                                                                       {"alphaTest", StateValue(main->alphaTest)},
+                                                                       {"depthWrite", main->depthWrite},
+                                                                       {"depthTest", StateValue(main->depthTest)},
+                                                                       {"cullFace", StateValue(main->cullFace)},
+                                                                       {"polygonOffset", main->polygonOffset},
+                                                                       {"colorWriteAlpha", main->colorWriteAlpha},
+                                                                       {"colorWriteRgb", main->colorWriteRgb}}};
             if (material.contains("stateBits"))
                 for (auto& state : material["stateBits"])
                     if (ColorPass(state))
-                        for (const auto field : fields)
-                            if (const auto it = main->find(field); it != main->end())
-                                state[field] = *it;
-            if (source.contains("sortKey"))
-                material["sortKey"] = source["sortKey"];
+                        for (const auto& [field, value] : fields)
+                            state[field] = value;
+            material["sortKey"] = source.sortKey;
         }
 
-        void ApplyFlags(Json& material, const Json& source)
+        void ApplyFlags(Json& material, const WawMaterial& source)
         {
             auto flags = Json::array();
             for (const auto& flag : Get(material, "gameFlags"))
                 if (flag != "4" && flag != "NO_MARKS")
                     flags.push_back(flag);
-            for (const auto& flag : Get(source, "gameFlags"))
-                if (flag == "4")
-                {
-                    flags.push_back("NO_MARKS");
-                    break;
-                }
+            if (source.gameFlags & WawMaterial::GAME_FLAG_NO_MARKS)
+                flags.push_back("NO_MARKS");
             material["gameFlags"] = std::move(flags);
         }
 
-        Json BindTextures(const Json& donor, const Json& source, std::vector<std::string>& notes)
+        Json BindTextures(const Json& donor, const WawMaterial& source, std::vector<std::string>& notes)
         {
-            const auto& sourceTextures = Get(source, "textures");
-            std::map<std::string, const Json*> byName;
-            for (const auto& texture : sourceTextures)
-                if (True(Get(texture, "name")) && True(Get(texture, "image")))
-                    byName[Text(texture, "name")] = &texture;
+            std::map<std::string, const WawTexture*> byName;
+            for (const auto& texture : source.textures)
+                if (texture.name && !texture.name->empty() && !texture.image.empty())
+                    byName[*texture.name] = &texture;
             auto textures = Json::array();
             std::set<std::string> used;
             for (const auto& slot : Get(donor, "textures"))
@@ -126,72 +129,70 @@ namespace w2b::materials
                 if (const auto found = byName.find(name); found != byName.end())
                 {
                     const auto& input = *found->second;
-                    auto image = Text(input, "image");
+                    auto image = input.image;
                     if (image.starts_with('$'))
                         image.insert(0, ",");
                     output["image"] = std::move(image);
-                    const auto& sampler = Get(input, "samplerState");
-                    for (const auto key : {"clampU", "clampV", "clampW", "filter", "mipMap"})
-                        if (sampler.contains(key))
-                            output["samplerState"][key] = sampler[key];
+                    auto& sampler = output["samplerState"];
+                    sampler["clampU"] = input.sampler.clampU;
+                    sampler["clampV"] = input.sampler.clampV;
+                    sampler["clampW"] = input.sampler.clampW;
+                    sampler["filter"] = input.sampler.filter;
+                    sampler["mipMap"] = input.sampler.mipMap;
                     used.insert(name);
                 }
                 else if (Get(slot, "semantic") == "normalMap")
                     output["image"] = ",$identitynormalmap";
                 else
-                    throw TechniqueError("donor slot '" + Describe(Get(slot, "name")) + "' (" +
-                                         Describe(Get(slot, "semantic")) + ") has no source texture");
+                    throw TechniqueError("donor slot '" + Describe(Get(slot, "name")) + "' (" + Describe(Get(slot, "semantic")) + ") has no source texture");
                 textures.push_back(std::move(output));
             }
             std::string dropped;
-            for (const auto& texture : sourceTextures)
+            for (const auto& texture : source.textures)
             {
-                const auto image = Text(texture, "image");
-                const auto name = Text(texture, "name");
-                if (image.empty() || used.contains(name) ||
-                    (image == "$identitynormalmap" && Get(texture, "semantic") == "normalMap"))
+                const auto name = texture.name.value_or("");
+                if (texture.image.empty() || used.contains(name) || (texture.image == "$identitynormalmap" && texture.semantic == "normalMap"))
                     continue;
                 if (!dropped.empty())
                     dropped += ", ";
-                dropped += (name.empty() ? Describe(Get(texture, "semantic")) : name) + ":" + image;
+                dropped += (name.empty() ? texture.semantic : name) + ":" + texture.image;
             }
             if (!dropped.empty())
                 notes.push_back("source textures without a T6 slot: " + dropped);
             return textures;
         }
 
-        Json BindConstants(const Json& donor, const Json& source)
+        Json BindConstants(const Json& donor, const WawMaterial& source)
         {
-            std::map<std::string, const Json*> literals;
-            for (const auto& constant : Get(source, "constants"))
-                if (True(Get(constant, "name")))
-                    literals[Text(constant, "name")] = &constant;
+            std::map<std::string, const WawConstant*> literals;
+            for (const auto& constant : source.constants)
+                if (constant.name && !constant.name->empty())
+                    literals[*constant.name] = &constant;
             auto out = Json::array();
             for (auto constant : Get(donor, "constants"))
             {
                 const auto name = Text(constant, "name");
                 if (const auto input = literals.find(name); input != literals.end())
-                    constant["literal"] = input->second->at("literal");
+                    constant["literal"] = input->second->literal;
                 else if (name.starts_with("colorTint") || name.starts_with("occlusionAmount") || name.starts_with("scaleRGB"))
                     constant["literal"] = {1.0, 1.0, 1.0, 1.0};
                 out.push_back(std::move(constant));
             }
             return out;
         }
-    }
+    } // namespace
 
-    std::string SourceTechnique(const py::Json& source)
+    std::string SourceTechnique(const WawMaterial& source)
     {
-        auto name = Text(source, "techniqueSet");
+        auto name = source.techniqueSet;
         const auto parsed = ParseTechnique(name);
         if ((parsed.family == Family::world || parsed.family == Family::model) && parsed.unlit == "unlit")
-            if (const auto state = UnlitState(source);
-                state && state->contains("blendOpRgb") && Get(*state, "blendOpRgb") != "disabled")
-                name += parsed.family == Family::model && Get(*state, "dstBlendRgb") == "one" ? "_add" : "_blend";
+            if (const auto* state = UnlitState(source); state && state->blendOpRgb != "disabled")
+                name += parsed.family == Family::model && state->dstBlendRgb == "one" ? "_add" : "_blend";
         return name;
     }
 
-    py::Json BuildMaterial(const py::Json& source, const py::Json& donor, std::vector<std::string>& notes)
+    py::Json BuildMaterial(const WawMaterial& source, const py::Json& donor, std::vector<std::string>& notes)
     {
         auto material = donor;
         material.erase("thermalMaterial");
@@ -204,4 +205,4 @@ namespace w2b::materials
         material["_type"] = "material";
         return material;
     }
-}
+} // namespace w2b::materials
