@@ -3223,7 +3223,9 @@ def _stage_weapon_runtime(report: StageReport, project: str, project_root: Path,
     report.warnings += visuals['warnings']
     viewmodels.stage_shadow_variants(content)
     from . import animnotes
-    animnotes.stage_weapon_events(content)
+    staged_natively = native.tool() is not None
+    if not staged_natively:
+        animnotes.stage_weapon_events(content)
     loaded: dict[str, set[str]] = {}
     reserved: set[str] = set()
     if bo2_root is not None:
@@ -3236,24 +3238,48 @@ def _stage_weapon_runtime(report: StageReport, project: str, project_root: Path,
         raw_weapons = bo2_root / "raw" / "weapons"
         if raw_weapons.is_dir():
             reserved |= {p.name for p in raw_weapons.rglob("*") if p.is_file()}
-    runtime = weapons.stage_runtime(content, f"{project}{WEAPON_IPAK_SUFFIX}", bo2equiv.Bo2Equivalents(bo2_root, loaded),
-                                    loaded, converted_fx, reserved)
+    if staged_natively:
+        # animnotes.stage_weapon_events + weapons.stage_runtime (pipeline/weapon_runtime.cpp)
+        with tempfile.TemporaryDirectory(prefix="waw2bo2_weapons_") as folder:
+            path = Path(folder) / "request.json"
+            path.write_text(json.dumps({"content": str(content), "ipak": f"{project}{WEAPON_IPAK_SUFFIX}",
+                                        "bo2_root": str(bo2_root) if bo2_root is not None else None,
+                                        "loaded": {k: sorted(v) for k, v in loaded.items()},
+                                        "converted_fx": sorted(converted_fx), "reserved": sorted(reserved)}),
+                            encoding="utf-8")
+            runtime = json.loads(native.run("stage-weapon-runtime", str(path)))
+    else:
+        runtime = weapons.stage_runtime(content, f"{project}{WEAPON_IPAK_SUFFIX}", bo2equiv.Bo2Equivalents(bo2_root, loaded),
+                                        loaded, converted_fx, reserved)
     with (project_root / MOD_EXTRA_ZONE).open("a", encoding="utf-8") as zone:
         zone.write("".join(f"{line}\n" for line in runtime["zone_lines"]))
     report.warnings += runtime["notes"]
     for name, reasons in sorted(runtime["excluded"].items()):
         report.warnings.append(f"UNSUPPORTED_WEAPON {name}: not carried in mod.ff: {'; '.join(reasons)}")
     (project_root / "maps" / "mp" / "waw").mkdir(parents=True, exist_ok=True)
-    tables = stage_map_tables(map_table_roots or [], project_root)
-    report.content["map_tables"] = sorted(tables)
-    (project_root / "maps" / "mp" / "waw" / "_waw2bo2_assets.gsc").write_text(
-        gscport.assets_source(report.fx_table, waw_map, runtime["table"],
-                             bolted_loop_effects(project_root, report.fx_table),
-                             # WaW loads <map>_patch.ff last: its table wins
-                             source_zombie_var_overrides(table_roots or roots), tables), encoding="utf-8")
-    entities_json = project_root / "BSP" / "entities.json"
-    if entities_json.exists():
-        report.warnings += entities.map_wall_buys(entities_json, runtime["table"])
+    if staged_natively:
+        # map tables, the assets script and the wall buys (pipeline/weapon_runtime.cpp)
+        with tempfile.TemporaryDirectory(prefix="waw2bo2_weapons_") as folder:
+            path = Path(folder) / "request.json"
+            path.write_text(json.dumps({"project_root": str(project_root), "fx_table": report.fx_table, "waw_map": waw_map,
+                                        "weapons": runtime["table"],
+                                        "map_table_roots": [str(r) for r in (map_table_roots or [])],
+                                        # WaW loads <map>_patch.ff last: its table wins
+                                        "table_roots": [str(r) for r in (table_roots or roots)]}), encoding="utf-8")
+            finished = json.loads(native.run("finish-weapon-runtime", str(path)))
+        report.content["map_tables"] = finished["map_tables"]
+        report.warnings += finished["wall_buy_notes"]
+    else:
+        tables = stage_map_tables(map_table_roots or [], project_root)
+        report.content["map_tables"] = sorted(tables)
+        (project_root / "maps" / "mp" / "waw" / "_waw2bo2_assets.gsc").write_text(
+            gscport.assets_source(report.fx_table, waw_map, runtime["table"],
+                                 bolted_loop_effects(project_root, report.fx_table),
+                                 # WaW loads <map>_patch.ff last: its table wins
+                                 source_zombie_var_overrides(table_roots or roots), tables), encoding="utf-8")
+        entities_json = project_root / "BSP" / "entities.json"
+        if entities_json.exists():
+            report.warnings += entities.map_wall_buys(entities_json, runtime["table"])
     report.content["weapons"].update(runtime=len(runtime["weapons"]), excluded=len(runtime["excluded"]),
                                      visual_errors=len(visuals["errors"]), runtime_report="content_source/weapons.runtime.json")
 
