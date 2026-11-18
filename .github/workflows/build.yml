@@ -60,7 +60,7 @@ jobs:
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $install = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $vsdev = Join-Path $install 'Common7/Tools/VsDevCmd.bat'
-          cmd.exe /d /c "`"$vsdev`" -arch=x64 -host_arch=x64 >nul && cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && python tools/lint_native.py native/build"
+          cmd.exe /d /c "`"$vsdev`" -arch=x64 -host_arch=x64 >nul && cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build native/build --target w2b_lint && native\build\w2b_lint.exe native/build"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run regression suite
         run: python -m unittest discover -s tests

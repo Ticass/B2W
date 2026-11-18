@@ -16,7 +16,8 @@ namespace w2b::process
 
     // subprocess.run(args, input=input, capture_output=True, timeout=seconds):
     // arguments quoted as subprocess.list2cmdline quotes them.
-    Result Run(const std::vector<std::string>& args, std::string_view input, double timeoutSeconds);
+    // A negative timeout waits for the process to finish.
+    Result Run(const std::vector<std::string>& args, std::string_view input, double timeoutSeconds = -1.0);
 
     // subprocess.run(args, cwd=cwd, stdout=PIPE, stderr=STDOUT): one merged output;
     // onLine (optional) sees each line as it arrives (verbose tool streaming)

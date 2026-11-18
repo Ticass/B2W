@@ -41,6 +41,10 @@ add_library(w2b_core STATIC
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
 target_link_libraries(w2b_core PUBLIC w2b_zlib)
 
+add_executable(w2b_lint src/cli/lint_main.cpp)
+target_link_libraries(w2b_lint PRIVATE w2b_core)
+target_compile_definitions(w2b_lint PRIVATE W2B_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
 add_library(w2b_shaders STATIC
     src/shaders/d3d.cpp
     src/shaders/registers.cpp

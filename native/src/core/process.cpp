@@ -126,7 +126,7 @@ namespace w2b::process
             });
         std::thread outReader([&] { Drain(outRead, result.out); });
         std::thread errReader([&] { Drain(errRead, result.err); });
-        const DWORD wait = WaitForSingleObject(info.hProcess, static_cast<DWORD>(timeoutSeconds * 1000));
+        const DWORD wait = WaitForSingleObject(info.hProcess, timeoutSeconds < 0 ? INFINITE : static_cast<DWORD>(timeoutSeconds * 1000));
         if (wait == WAIT_TIMEOUT)
         {
             result.timedOut = true;

@@ -11,7 +11,8 @@ the native build's CMake compilation database and third-party headers.
 python -m pip install -e '.[lint]'
 python -m ruff check .
 cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-python tools/lint_native.py native/build
+cmake --build native/build --target w2b_lint
+native/build/w2b_lint.exe native/build
 ```
 
 For the map compatibility page, use Node.js 24 and run `npm ci` followed by
