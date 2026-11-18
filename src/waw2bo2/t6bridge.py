@@ -3392,6 +3392,26 @@ def stage_owned_actor_tree(project_root: Path, bo2_root: Path, base: str, cfg: d
     zm_traverse substates the source scripts play ({state: WaW xanim}, the
     dog's traversals, traversals.py); their WaW xanims are staged under
     namespaced names. Returns (tree, atr)."""
+    if native.tool() is not None and (stock_waw is None or hasattr(stock_waw, 'waw_root')):
+        from . import traversals
+        stock = {'waw_root': str(stock_waw.waw_root), 'unlinker': str(stock_waw.unlinker),
+                 'work': str(stock_waw.work),
+                 'prepared': {zone: {'folder': str(folder), 'inputs': stock_waw.prepared_sources.get(zone, {})}
+                              for zone, folder in stock_waw.prepared.items()}} if stock_waw is not None and source_states else None
+        staged = _script_staging_request('stage-owned-actor-tree', {
+            'project_root': str(project_root), 'bo2_root': str(bo2_root), 'base': base,
+            'config': cfg, 'source_states': source_states or {}, 'roots': [str(root) for root in roots or []],
+            'stock_waw': stock,
+        })
+        if 'error' in staged:
+            error = traversals.TraversalError if staged['error_kind'] == 'TraversalError' else StageError
+            raise error(staged['error'])
+        for zone, entry in (staged.get('stock_prepared') or {}).items():
+            stock_waw.prepared[zone] = Path(entry['folder'])
+            stock_waw.prepared_sources[zone] = entry['inputs']
+        if report is not None:
+            report.errors.extend(staged['errors'])
+        return staged['name'], staged['tree']
     raw = bo2_root / 'raw'
     asd = (raw / 'animstatedefs' / f'{base}.asd').read_text(encoding='utf-8')
     atr = (raw / 'animtrees' / f'{base}.atr').read_text(encoding='utf-8')

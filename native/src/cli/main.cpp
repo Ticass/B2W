@@ -66,6 +66,7 @@
 #include "pipeline/materials_stage.h"
 #include "pipeline/effects_stage.h"
 #include "pipeline/scripts_stage.h"
+#include "pipeline/actor_trees.h"
 #include "pipeline/hooks_stage.h"
 #include "pipeline/sound_mix.h"
 #include "textures/pillow_decode.h"
@@ -915,6 +916,7 @@ namespace
         {"recover-projectile-collision", JsonRequest<w2b::models::RecoverProjectileCollision>},
         {"stage-materials", JsonRequest<w2b::pipeline::StageMaterials>},
         {"port-scripts", JsonRequest<w2b::pipeline::PortScripts>},
+        {"stage-owned-actor-tree", JsonRequest<w2b::pipeline::StageOwnedActorTreeRequest>},
         {"link-check", JsonRequest<w2b::pipeline::LinkCheckStep>},
         {"hook-map-scripts", JsonRequest<w2b::pipeline::HookMapScripts>},
         {"write-sound-bank", JsonRequest<w2b::sound::WriteT6BankRequest>},

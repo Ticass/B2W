@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from waw2bo2 import gsc, gscport, t6bridge, zombieappearance
 from waw2bo2.t6api import T6Api
@@ -167,6 +168,37 @@ class DogRoundTests(unittest.TestCase):
             actor = (root / "aitype/waw_zombie_dog.gsc").read_text()
             self.assertIn('#using_animtree("waw2bo2_dog_actor");', actor)
             self.assertIn("dummy_anim_ref = %zombie_dog_run_jump_window_40;", actor)
+
+    def test_native_owned_actor_tree_matches_source_traversal_staging(self):
+        if t6bridge.native.tool() is None:
+            self.skipTest("native converter not built")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bo2, source = root / 'bo2', root / 'source'
+
+            def write(base, name, text):
+                path = base / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding='utf-8')
+
+            write(bo2, 'raw/animtrees/base.atr', 'body\n{\n\tidle // stock\n}\n')
+            write(bo2, 'raw/animstatedefs/base.asd', 'zm_traverse : restart\n{\n\tstock idle\n}\n')
+            write(bo2, 'raw/animstatedefs/donor.asd', 'attack+ : restart\n{\n\tbite bite_anim\n}\n')
+            write(source, 'xanim/source_hop', 'staged WaW animation bytes')
+            config = {'owned_tree': 'owned', 'add_states': {'donor': ['attack+']}}
+            states = {'waw_hop': 'source_hop', 'missing_hop': 'missing'}
+
+            def stage(target):
+                write(target, 'aitype/nested/waw_dog.gsc', '#using_animtree("base");\n')
+                write(target, 'aitype/waw_dog.csc', 'main() { self.anim = "base.asd"; }\n')
+                report = t6bridge.StageReport('owned')
+                tree = t6bridge.stage_owned_actor_tree(target, bo2, 'base', config, states, report, [source])
+                files = {p.relative_to(target): p.read_bytes() for p in target.rglob('*') if p.is_file()}
+                return tree, files, report.errors
+
+            with patch.object(t6bridge.native, 'tool', return_value=None):
+                expected = stage(root / 'reference')
+            self.assertEqual(stage(root / 'native'), expected)
 
     def test_compat_dog_runtime(self):
         script = gsc.parse((gscport.COMPAT_DIR / "_waw2bo2_compat.gsc").read_text(), "compat")
