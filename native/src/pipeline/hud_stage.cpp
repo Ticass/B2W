@@ -7,6 +7,7 @@
 #include "extract/stockwaw.h"
 #include "menu_artwork.h"
 #include "modutil.h"
+#include "textures/iwd_recovery.h"
 #include "textures/iwi.h"
 #include "textures/pillow_decode.h"
 
@@ -14,6 +15,7 @@
 #include <bit>
 #include <cmath>
 #include <map>
+#include <set>
 
 namespace w2b::pipeline
 {
@@ -38,9 +40,12 @@ namespace w2b::pipeline
         class SourceFinder
         {
         public:
-            SourceFinder(std::vector<fs::path> roots, extract::StockWaw* stock) : roots_(std::move(roots)), stock_(stock)
+            SourceFinder(std::vector<fs::path> roots, extract::StockWaw* stock, textures::IwdRecovery* recovery = nullptr)
+                : roots_(std::move(roots)), stock_(stock), recovery_(recovery)
             {
             }
+
+            Json recovered = Json::object();
 
             std::optional<fs::path> Find(const std::string& kind, const std::string& name)
             {
@@ -76,7 +81,18 @@ namespace w2b::pipeline
                         const auto image = t.at("image");
                         if (!image.is_string() || image.get<std::string>().empty())
                             return std::nullopt;
-                        return Find("image", image.get<std::string>());
+                        const auto found = Find("image", image.get<std::string>());
+                        if (!recovery_)
+                            return found;
+                        const auto resolved = recovery_->Resolve(image.get<std::string>(), found ? *found : fs::path());
+                        if (!resolved.archive.empty())
+                        {
+                            Json metadata{{"archive", files::Utf8(resolved.archive)}, {"entry", resolved.entry}, {"iwi_format", resolved.iwiFormat}};
+                            if (resolved.decoderTables)
+                                metadata["decoder_tables"] = files::Utf8(*resolved.decoderTables);
+                            recovered[image.get<std::string>()] = metadata;
+                        }
+                        return resolved.path.empty() ? std::nullopt : std::optional(resolved.path);
                     }
                 return std::nullopt;
             }
@@ -108,6 +124,7 @@ namespace w2b::pipeline
 
             std::vector<fs::path> roots_;
             extract::StockWaw* stock_;
+            textures::IwdRecovery* recovery_;
             std::map<std::string, fs::path> stockRoots_;
         };
 
@@ -147,14 +164,14 @@ namespace w2b::pipeline
         class Stager
         {
         public:
-            explicit Stager(fs::path project) : project_(std::move(project))
+            Stager(fs::path project, std::string folder) : project_(std::move(project)), folder_(std::move(folder))
             {
             }
 
             // write_sprite: a lossless RGBA 2D material
             std::string Sprite(const std::string& shortName, const textures::RgbaImage& image)
             {
-                const auto name = "waw_hud/" + shortName;
+                const auto name = folder_ + "/" + shortName;
                 auto file = name;
                 std::replace(file.begin(), file.end(), '*', '_');
                 const auto target = project_ / "content_source" / "images" / files::FromUtf8(file + ".iwi");
@@ -169,10 +186,12 @@ namespace w2b::pipeline
 
         private:
             fs::path project_;
+            std::string folder_;
         };
 
         // font_glyphs: glyph table rows of a source font
-        std::vector<std::vector<std::string>> FontGlyphs(SourceFinder& source, const std::string& fontName, const std::string& role, Stager& stager)
+        std::vector<std::vector<std::string>> FontGlyphs(SourceFinder& source, const std::string& fontName, const std::string& role, Stager& stager,
+                                                         const std::set<char32_t>* chars = nullptr)
         {
             const auto path = source.Font(fontName);
             if (!path)
@@ -198,6 +217,8 @@ namespace w2b::pipeline
                     code = unicode::Decode(letter.get<std::string>())[0];
                 else
                     throw StepError("ValueError", "Invalid source font glyph in " + mod::Str(*path));
+                if (chars && !chars->count(code))
+                    continue;
                 const auto w = glyph.at("pixelWidth").get<long long>(), h = glyph.at("pixelHeight").get<long long>();
                 std::string name;
                 long long pw = 0, ph = 0;
@@ -227,7 +248,7 @@ namespace w2b::pipeline
             roots.push_back(files::FromUtf8(r.get<std::string>()));
         auto stock = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
         SourceFinder source(roots, stock ? &*stock : nullptr);
-        Stager stager(project);
+        Stager stager(project, "waw_hud");
         std::vector<std::string> missing;
         for (const auto& name : ASSETS)
         {
@@ -268,5 +289,102 @@ namespace w2b::pipeline
         const Json result{{"materials", stager.materials}, {"fonts", fonts}, {"glyphs", glyphRows.size()}};
         files::WriteText(project / "content_source/waw_hud.json", py::JsonDumps(result, 2) + "\n");
         return Json{{"result", result}, {"stock_prepared", stock ? stock->PreparedJson() : Json()}};
+    }
+
+    namespace
+    {
+        // wawmenu.FONT_ROLES / FONT_FILES
+        const std::map<long long, std::vector<std::string>> FONT_ROLES{
+            {0, {"small", "extrabig", "big", "normal"}}, {1, {"normal"}}, {3, {"small"}}, {4, {"small", "bold", "normal"}}, {5, {"console"}}, {6, {"objective"}}};
+        const std::map<std::string, std::string> FONT_FILES{{"small", "fonts/smallFont"},   {"normal", "fonts/normalFont"}, {"big", "fonts/bigFont"},
+                                                            {"extrabig", "fonts/extraBigFont"}, {"bold", "fonts/boldFont"},   {"console", "fonts/consoleFont"},
+                                                            {"objective", "fonts/objectiveFont"}};
+
+        const std::vector<std::string>& FontRoles(const long long font)
+        {
+            const auto it = FONT_ROLES.find(font);
+            return it == FONT_ROLES.end() ? FONT_ROLES.at(0) : it->second;
+        }
+
+        // wawmenu.glyph_sets: the characters each font role must carry
+        std::map<std::string, std::set<char32_t>> GlyphSets(const Json& required, const Json& localized)
+        {
+            std::map<std::string, std::set<char32_t>> out;
+            for (const auto& [key, enums] : required.at("strings").items())
+            {
+                auto value = localized.contains(key) ? localized[key].get<std::string>() : key;
+                std::string stripped;
+                for (size_t i = 0; i < value.size(); i++)
+                {
+                    if (value[i] == '^' && i + 1 < value.size() && value[i + 1] >= '0' && value[i + 1] <= '9')
+                    {
+                        i++;
+                        continue;
+                    }
+                    stripped += value[i];
+                }
+                const auto points = unicode::Decode(stripped);
+                for (const auto& font : enums)
+                    for (const auto& role : FontRoles(font.get<long long>()))
+                        out[role].insert(points.begin(), points.end());
+            }
+            for (const auto& [font, chars] : required.at("literal_text").items())
+            {
+                const auto points = unicode::Decode(chars.get<std::string>());
+                for (const auto& role : FontRoles(std::stoll(font)))
+                    out[role].insert(points.begin(), points.end());
+            }
+            for (auto& [_, chars] : out)
+            {
+                chars.insert(U'?'); // an unknown glyph draws as '?'
+                chars.erase(U'\n');
+            }
+            return out;
+        }
+    } // namespace
+
+    Json StageWawMenuArt(const Json& request, textures::IwdRecovery& recovery)
+    {
+        const auto project = files::FromUtf8(request.at("project_root").get<std::string>());
+        std::vector<fs::path> roots;
+        for (const auto& r : request.at("roots"))
+            roots.push_back(files::FromUtf8(r.get<std::string>()));
+        auto stock = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
+        const auto manifestPath = project / "content_source/waw_menu.json";
+        auto manifest = mod::Json(manifestPath);
+        SourceFinder source(roots, stock ? &*stock : nullptr, &recovery);
+        Stager stager(project, "waw_menu");
+        Json missing = Json::array();
+        for (const auto& item : manifest.at("materials"))
+        {
+            const auto name = item.get<std::string>();
+            const auto path = source.MaterialImage(name);
+            if (!path)
+            {
+                missing.push_back(name);
+                continue;
+            }
+            stager.Sprite(name, textures::DecodeDdsPillow(mod::Bytes(*path)));
+        }
+        std::vector<std::vector<std::string>> rows;
+        for (const auto& [role, chars] : GlyphSets(manifest, request.at("localized")))
+        {
+            try
+            {
+                auto found = FontGlyphs(source, FONT_FILES.at(role), role, stager, &chars);
+                rows.insert(rows.end(), found.begin(), found.end());
+            }
+            catch (const Missing& error)
+            {
+                missing.push_back(error.what());
+            }
+        }
+        files::WriteText(project / "zm/waw_menu_glyphs.csv", CsvText(rows, "\n"));
+        manifest["staged_materials"] = stager.materials;
+        manifest["missing"] = missing;
+        manifest["glyphs"] = rows.size();
+        files::WriteText(manifestPath, py::JsonDumps(manifest, 2) + "\n");
+        return Json{{"menus", manifest.at("menus").size()}, {"materials", stager.materials.size()}, {"glyphs", rows.size()}, {"missing", missing},
+                    {"recovered", source.recovered}, {"stock_prepared", stock ? stock->PreparedJson() : Json()}};
     }
 } // namespace w2b::pipeline

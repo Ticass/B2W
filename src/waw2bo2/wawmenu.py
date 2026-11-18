@@ -713,6 +713,17 @@ def requested_strings(project: Path) -> set[str]:
 
 def stage_assets(project: Path, roots: list[Path], stock, localized: dict[str, str], recovery=None) -> dict:
     """The menus' original materials and the glyphs their resolved text uses."""
+    if hasattr(recovery, 'operation') and (stock is None or getattr(stock, 'waw_root', None) is not None):
+        # pipeline/hud_stage.cpp, served by the native IWD recovery
+        result = recovery.operation('stage-waw-menu-art', {
+            'project_root': str(project), 'roots': [str(r) for r in roots], 'localized': localized,
+            'stock_waw': {'waw_root': str(stock.waw_root), 'unlinker': str(stock.unlinker), 'work': str(stock.work),
+                          'prepared': {zone: {'folder': str(folder), 'inputs': stock.prepared_sources.get(zone, {})}
+                                       for zone, folder in stock.prepared.items()}} if stock is not None else None})
+        for zone, entry in (result.pop('stock_prepared', None) or {}).items():
+            stock.prepared[zone] = Path(entry['folder'])
+            stock.prepared_sources[zone] = entry['inputs']
+        return result
     from PIL import Image
     from . import wawhud
     manifest = json.loads((project / MANIFEST).read_text(encoding='utf-8'))

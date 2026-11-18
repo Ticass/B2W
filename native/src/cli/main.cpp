@@ -929,7 +929,7 @@ namespace
         {
             if (!a.empty())
                 return Usage();
-            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}});
+            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}, {"stage-waw-menu-art", w2b::pipeline::StageWawMenuArt}});
             return 0;
         }},
         {"lightmaps", JsonRequest<w2b::textures::StageLightmaps>},
