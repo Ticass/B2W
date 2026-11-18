@@ -66,24 +66,6 @@ namespace w2b::models
             }
         }
 
-        void RewriteScripts(const Path& project, const ModelNames& renamed)
-        {
-            std::vector<Path> scripts;
-            for (const auto folder : {"maps", "clientscripts"})
-                for (const auto extension : {".gsc", ".csc"})
-                    for (auto& path : files::RGlob(project / folder, extension))
-                        if (path.extension() == extension)
-                            scripts.push_back(std::move(path));
-            parallel::For(scripts.size(), [&](std::size_t i)
-            {
-                const auto& path = scripts[i];
-                const auto source = files::ReadText(path);
-                const auto generated = RewriteModelLiterals(source, renamed);
-                if (source != generated)
-                    ReplaceStagedText(path, generated);
-            }, 4);
-        }
-
         std::string ModelTable(const ModelNames& renamed)
         {
             std::string script = "// Source model identities; engine assets keep their own names.\ntable()\n{\n    models = [];\n";
@@ -100,6 +82,24 @@ namespace w2b::models
         }
     }
 
+    void RewriteStagedScripts(const Path& project, const std::function<std::string(std::string_view)>& transform)
+    {
+        std::vector<Path> scripts;
+        for (const auto folder : {"maps", "clientscripts"})
+            for (const auto extension : {".gsc", ".csc"})
+                for (auto& path : files::RGlob(project / folder, extension))
+                    if (path.extension() == extension)
+                        scripts.push_back(std::move(path));
+        parallel::For(scripts.size(), [&](std::size_t i)
+        {
+            const auto& path = scripts[i];
+            const auto source = files::ReadText(path);
+            const auto generated = transform(source);
+            if (source != generated)
+                ReplaceStagedText(path, generated);
+        }, 4);
+    }
+
     Json IsolateModelNames(const Path& project)
     {
         auto result = CopyAliases(project / "xmodel");
@@ -107,7 +107,7 @@ namespace w2b::models
             return result;
         const auto names = result.get<ModelNames>();
         RewriteCollisionAndRender(project / "BSP", names);
-        RewriteScripts(project, names);
+        RewriteStagedScripts(project, [&](std::string_view source) { return RewriteModelLiterals(source, names); });
         for (const auto& path : files::RGlob(project / "fx", ".efx"))
         {
             auto text = files::ReadText(path);

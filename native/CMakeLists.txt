@@ -88,7 +88,7 @@ target_link_libraries(w2b_weapons PUBLIC w2b_core PRIVATE w2b_base64)
 
 add_library(w2b_models STATIC src/models/bounds.cpp src/models/geometry.cpp src/models/stage.cpp src/models/effect_assets.cpp
     src/models/vertex_colours.cpp src/models/surface_sort.cpp src/models/surface_stage.cpp
-    src/models/identity_scripts.cpp src/models/identities.cpp
+    src/models/identity_scripts.cpp src/models/identities.cpp src/models/material_identity.cpp
     src/models/projectile_collision.cpp)
 target_link_libraries(w2b_models PUBLIC w2b_weapons w2b_world w2b_materials PRIVATE w2b_base64 w2b_gscport)
 
@@ -194,6 +194,7 @@ add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp s
     src/pipeline/lobby.cpp src/pipeline/shaderbind.cpp src/pipeline/buildmod.cpp
     src/pipeline/menu_song.cpp src/pipeline/menu_stage.cpp src/pipeline/menu_runtime.cpp
     src/pipeline/menu_artwork.cpp src/pipeline/menu_pixels.cpp src/pipeline/menu_media.cpp
+    src/pipeline/rumbles.cpp
     src/pipeline/materials_stage.cpp)
 target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")

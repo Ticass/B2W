@@ -2,11 +2,26 @@
 import json
 import shutil
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from . import gsc, techsets
+from . import gsc, native, techsets
 
 
 def stage(report, project: Path, stock: Path):
+    if native.tool() is not None:
+        fields = {'project': str(project), 'stock': str(stock),
+                  'materials': [{k: entry[k] for k in ('name', 'file')} for entry in report.materials],
+                  'hud': (getattr(report, 'scripts', None) or {}).get('hud_materials', [])}
+        with TemporaryDirectory(prefix='waw2bo2_material_names_') as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps(fields), encoding='utf-8')
+            result = json.loads(native.run('isolate-material-names', str(request)))
+        for update in result['updates']:
+            report.materials[update.pop('index')].update(update)
+        renamed = result['renamed']
+        if renamed:
+            report.warnings.append(f'MATERIAL_IDENTITIES_ISOLATED {len(renamed)} converted materials shared stock BO2 names')
+        return renamed
     renamed = {}
     for entry in report.materials:
         name = entry['name']
@@ -49,6 +64,8 @@ def stage(report, project: Path, stock: Path):
                 material['name'] = renamed[material['name']]
                 changed = True
         if changed:
+            # A staged LOD can share its source through a cache hard link.
+            path.unlink()
             path.write_text(json.dumps(data), encoding='utf-8')
     for path in (project / 'BSP').glob('*.fbx'):
         if path.name != 'map_gfx.fbx':

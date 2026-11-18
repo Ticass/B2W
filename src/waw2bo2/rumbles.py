@@ -2,11 +2,22 @@
 import json
 from pathlib import Path
 import shutil
+from tempfile import TemporaryDirectory
 
-from . import gsc, weapons
+from . import gsc, native, weapons
 
 
 def stage(project: Path, roots: list[Path], native_raw: Path | None = None) -> dict:
+    if native.tool() is not None:
+        fields = {'project': str(project), 'roots': list(map(str, roots)),
+                  'nativeRaw': str(native_raw) if native_raw is not None else ''}
+        with TemporaryDirectory(prefix='waw2bo2_rumbles_') as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps(fields), encoding='utf-8')
+            result = json.loads(native.run('stage-rumbles', str(request)))
+        if 'invalid' in result:
+            raise ValueError(result['invalid'])
+        return result
     names = set()
     runtime = project / 'content_source/weapons.runtime.json'
     if runtime.exists():
@@ -24,14 +35,14 @@ def stage(project: Path, roots: list[Path], native_raw: Path | None = None) -> d
         for i, token in enumerate(tokens[:-2]):
             if token.low in calls and tokens[i + 1].text == '(' and tokens[i + 2].kind == gsc.STRING:
                 names.add(tokens[i + 2].text[1:-1])
-    files, missing, native = {}, [], []
+    files, missing, native_profiles = {}, [], []
     for name in sorted(names):
         weapons.output_name('rumble', name)
         relative = Path('rumble') / name
         source = next((r / relative for r in roots if (r / relative).is_file()), None)
         if source is None and native_raw is not None and (native_raw / relative).is_file():
             source = native_raw / relative
-            native.append(name)  # BO2 framework's own precaches, not donor replacements
+            native_profiles.append(name)  # BO2 framework's own precaches, not donor replacements
         if source is None:
             missing.append(relative.as_posix())
             continue
@@ -58,4 +69,4 @@ def stage(project: Path, roots: list[Path], native_raw: Path | None = None) -> d
         target.parent.mkdir(parents=True, exist_ok=True)
         if source.resolve() != target.resolve():
             shutil.copy2(source, target)
-    return {'files': sorted(files), 'missing': sorted(set(missing)), 'native_profiles': native}
+    return {'files': sorted(files), 'missing': sorted(set(missing)), 'native_profiles': native_profiles}

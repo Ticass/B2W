@@ -64,7 +64,9 @@ class MaterialIsolationTests(unittest.TestCase):
             (stock / relative).write_text('{}')
             gltf = project / 'model_export/model.gltf'
             gltf.parent.mkdir()
-            gltf.write_text(json.dumps({'materials': [{'name': 'mc/shared'}]}))
+            cached = root / 'cached.gltf'
+            cached.write_text(json.dumps({'materials': [{'name': 'mc/shared'}]}))
+            gltf.hardlink_to(cached)
             fbx = project / 'BSP/map_gfx.fbx'
             fbx.parent.mkdir()
             fbx.write_text('Material::mc/shared" Material::mc/shared_extra"')
@@ -79,6 +81,7 @@ class MaterialIsolationTests(unittest.TestCase):
             self.assertEqual(mapping, {'mc/shared': 'waw_world/mc/shared'})
             self.assertEqual(json.loads((project / report.materials[0]['file']).read_text()), material)
             self.assertEqual(json.loads(gltf.read_text())['materials'][0]['name'], 'waw_world/mc/shared')
+            self.assertEqual(json.loads(cached.read_text())['materials'][0]['name'], 'mc/shared')
             self.assertEqual(fbx.read_text(), 'Material::waw_world/mc/shared" Material::mc/shared_extra"')
             self.assertIn('material="waw_world/mc/shared"', script.read_text())
             self.assertEqual(json.loads((project / 'BSP/lightmaps.json').read_text())['wawMaterials'],
