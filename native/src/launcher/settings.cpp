@@ -63,7 +63,7 @@ namespace w2b::launcher
         }
 
         // the bundled tool folders discover() fills and save() clears again
-        const std::pair<const char*, const char*> BUNDLED[] = {{"t4", "vendor/OpenAssetTools/build/bin/Release_x86"},
+        const std::pair<const char*, const char*> BUNDLED[] = {{"t4", "vendor/OpenAssetTools/build/bin/Release_x64"},
                                                                {"t6", "vendor/OpenAssetToolsT6/build/bin/Release_x86"},
                                                                {"decoder", "tools/bin/xaudio_wma_decoder.exe"}};
 

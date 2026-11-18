@@ -1,5 +1,6 @@
 // Localized UI text (see localization.h).
 #include "localization.h"
+#include "extract/unlinker.h"
 
 #include "core/encoding.h"
 #include "core/files.h"
@@ -133,7 +134,7 @@ namespace w2b::strings
             std::string joined;
             for (size_t i = 0; i < search.size(); i++)
                 joined += (i ? ";" : "") + Str(search[i]);
-            const auto result = process::RunMerged({Str(unlinker), "--no-color", "--include-assets", "localize", "--search-path", joined, "--output-folder", Str(out), Str(ff)});
+            const auto result = extract::RunUnlinker({Str(unlinker), "--no-color", "--include-assets", "localize", "--search-path", joined, "--output-folder", Str(out), Str(ff)});
             files::WriteBytes(out / "extract.log", result.out);
             if (result.exitCode)
                 throw std::runtime_error("localization extraction failed: " + Str(ff) + "; see " + Str(out / "extract.log"));

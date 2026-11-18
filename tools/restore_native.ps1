@@ -63,12 +63,16 @@ if (Test-Empty "$t6\thirdparty\json") {
     }
 }
 
+# The T4 checkout is linked into the converter (native/src/oat), so it builds
+# 64-bit; its libraries come with the Unlinker. The T6 linker stays 32-bit.
 $tools = @(
-    @{ Folder = $t4; Premake = @('vs2022'); Targets = '/t:Tools\UnlinkerCli'; Exes = @('Unlinker.exe') },
-    @{ Folder = $t6; Premake = @('--oat-version=waw2bo2-v0.1.0', 'vs2022'); Targets = '/t:Tools\Linker;Tools\Unlinker'; Exes = @('Linker.exe', 'Unlinker.exe') }
+    @{ Folder = $t4; Premake = @('vs2022'); Platform = 'x64'; Bin = 'Release_x64'; Targets = '/t:Tools\UnlinkerCli'
+       Exes = @('Unlinker.exe', '..\..\lib\Release_x64\Unlinking.lib') },
+    @{ Folder = $t6; Premake = @('--oat-version=waw2bo2-v0.1.0', 'vs2022'); Platform = 'Win32'; Bin = 'Release_x86'; Targets = '/t:Tools\Linker;Tools\Unlinker'
+       Exes = @('Linker.exe', 'Unlinker.exe') }
 )
 foreach ($tool in $tools) {
-    $bin = Join-Path $tool.Folder 'build\bin\Release_x86'
+    $bin = Join-Path $tool.Folder "build\bin\$($tool.Bin)"
     if (-not $Rebuild -and -not ($tool.Exes | Where-Object { -not (Test-Path -LiteralPath (Join-Path $bin $_)) })) {
         Write-Output "up to date: $bin"
         continue
@@ -77,7 +81,7 @@ foreach ($tool in $tools) {
     try {
         if (-not (Test-Path -LiteralPath 'build\OpenAssetTools.sln')) { Invoke-Checked $premake $tool.Premake }
         Invoke-Checked $msbuild @('build\OpenAssetTools.sln', "/m:$Projects", '/nodeReuse:false', '/v:minimal',
-            '/p:Configuration=Release', '/p:Platform=Win32', '/p:PreferredToolArchitecture=x64',
+            '/p:Configuration=Release', "/p:Platform=$($tool.Platform)", '/p:PreferredToolArchitecture=x64',
             "/p:CL_MPCount=$Compilers", $tool.Targets)
     } finally { Pop-Location }
     foreach ($exe in $tool.Exes) {

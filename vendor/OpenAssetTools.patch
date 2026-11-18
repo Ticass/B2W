@@ -1292,10 +1292,10 @@ index de5cd741..fe2a3429 100644
  }
 diff --git a/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp
 new file mode 100644
-index 00000000..59edb7d1
+index 00000000..580b5738
 --- /dev/null
 +++ b/src/ObjWriting/Game/T4/Sound/SoundAliasJsonDumperT4.cpp
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,117 @@
 +#include "SoundAliasJsonDumperT4.h"
 +#include <format>
 +#include <iomanip>
@@ -1369,7 +1369,10 @@ index 00000000..59edb7d1
 +    // Layout verified against the official WaW linker sub_404D50. Previous
 +    // gap fields are team modulation, entity limits and cylindrical falloff;
 +    // moveTime is FLOAT, not unsigned milliseconds. Offsets/size are unchanged.
++    // The game's layout holds for the 32-bit structures; 64-bit builds widen the pointers.
++#ifdef ARCH_x86
 +    static_assert(sizeof(snd_alias_t) == 184 && offsetof(snd_alias_t, flags) == 132);
++#endif
 +    json out = {{"_type", "waw2bo2_sound"}, {"_game", "T4"}, {"_version", 2},
 +                {"name", Name(list->aliasName)}, {"aliases", json::array()}};
 +    for (int i = 0; i < list->count; ++i)

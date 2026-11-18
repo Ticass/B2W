@@ -63,6 +63,7 @@
 #include "strings/localization.h"
 #include "visions/visions.h"
 #include "models/projectile_collision.h"
+#include "oat/run_unlinker.h"
 #include "pipeline/bridge_stage.h"
 #include "pipeline/materials_stage.h"
 #include "pipeline/effects_stage.h"
@@ -522,6 +523,18 @@ namespace
         return parsed;
     }
 
+    // the launcher settings of --settings-json J, or of --settings-file F (the
+    // same JSON in a file, for shells that mangle quoted arguments); nullopt
+    // unless exactly one is given
+    std::optional<std::string> SettingsText(const Parsed& p)
+    {
+        const auto* json = p.Option("--settings-json");
+        const auto* file = p.Option("--settings-file");
+        if (!json == !file)
+            return std::nullopt;
+        return file ? w2b::files::ReadText(w2b::files::FromUtf8(*file)) : *json;
+    }
+
     // a build step: Python's "waw2bo2: error: <Kind>: <message>" on failure
     int Step(const std::function<int()>& run)
     {
@@ -628,17 +641,18 @@ namespace
         }
     }
 
-    // all2raw --settings-json J [--waw-cache-root R] [--bo2-cache-root R] [--refresh]: cli._extract_all
+    // all2raw --settings-json J | --settings-file F [--waw-cache-root R] [--bo2-cache-root R] [--refresh]: cli._extract_all
     int All2RawCommand(const Arguments& input)
     {
         auto args = input;
         const bool refresh = std::erase(args, std::string("--refresh")) > 0;
-        const auto p = Parse(args, {"--settings-json", "--waw-cache-root", "--bo2-cache-root"});
-        if (!p || !p->positional.empty() || !p->Option("--settings-json"))
+        const auto p = Parse(args, {"--settings-json", "--settings-file", "--waw-cache-root", "--bo2-cache-root"});
+        const auto text = p ? SettingsText(*p) : std::nullopt;
+        if (!text || !p->positional.empty())
             return Usage();
         return ExtractStep([&] {
             namespace l = w2b::launcher;
-            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(*p->Option("--settings-json")));
+            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(*text));
             _wputenv_s(L"WAW2BO2_VERBOSE", settings.verbose ? L"1" : L"0");
             auto caches = l::CachePaths::ForSettings(settings);
             if (const auto* r = p->Option("--waw-cache-root"))
@@ -692,6 +706,14 @@ namespace
 
     // build-map --settings-json J | --settings-file F [--redump] [--build-root R] [--waw-cache-root R] [--bo2-cache-root R]
     // stage-bridge <stage> <project> --gfx ... (cli.py stage-bridge)
+    // oat-unlink <Unlinker.exe arguments>: OpenAssetTools' Unlinker, linked into this program
+    int OatUnlinkCommand(const Arguments& args)
+    {
+        const auto run = w2b::oat::RunUnlinker(args);
+        std::fwrite(run.log.data(), 1, run.log.size(), stdout);
+        return run.exitCode;
+    }
+
     int StageBridgeCommand(const Arguments& args)
     {
         try
@@ -716,15 +738,13 @@ namespace
         auto args = input;
         const bool redump = std::erase(args, std::string("--redump")) > 0;
         const auto p = Parse(args, {"--settings-json", "--settings-file", "--build-root", "--waw-cache-root", "--bo2-cache-root"});
-        if (!p || !p->positional.empty() || (!p->Option("--settings-json") == !p->Option("--settings-file")))
+        const auto text = p ? SettingsText(*p) : std::nullopt;
+        if (!text || !p->positional.empty())
             return Usage();
         try
         {
             namespace l = w2b::launcher;
-            // --settings-file: the same JSON in a file (shells that mangle quoted arguments)
-            const auto* file = p->Option("--settings-file");
-            const auto text = file ? w2b::files::ReadText(w2b::files::FromUtf8(*file)) : *p->Option("--settings-json");
-            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(text));
+            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(*text));
             w2b::pipeline::BuildOptions options;
             options.redump = redump;
             if (const auto* r = p->Option("--build-root"))
@@ -1013,6 +1033,7 @@ namespace
         }},
         {"package", PackageCommand}, {"compile-scripts", CompileScriptsCommand}, {"bridge-link", BridgeLinkCommand},
         {"stage-bridge", StageBridgeCommand},
+        {"oat-unlink", OatUnlinkCommand},
         {"build-map", BuildMapCommand}, {"build-mod", BuildModCommand}, {"audit-zone", AuditZoneCommand}, {"all2raw", All2RawCommand}, {"extract-prepare", ExtractPrepareCommand},
         {"extract-sources", ExtractSourcesCommand}, {"audit-material-args", AuditMaterialArgsCommand},
         {"inspect", Inspect}, {"world-inspect", Inspect},

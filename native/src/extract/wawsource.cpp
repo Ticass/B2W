@@ -1,5 +1,6 @@
 // WaW assets compiled from the WaW Mod Tools sources (see wawsource.h).
 #include "extract/wawsource.h"
+#include "extract/unlinker.h"
 
 #include "core/asset_paths.h"
 #include "core/files.h"
@@ -254,7 +255,7 @@ namespace w2b::extract
             fs::remove_all(out);
         }
         const auto dumpLog = work_ / files::FromUtf8(zone + ".dump.log");
-        const auto dumped = process::RunMerged({Str(unlinker_), "--no-color", "--search-path", Str(wawRoot_ / "main"), "--image-format", "DDS", "--model-format",
+        const auto dumped = RunUnlinker({Str(unlinker_), "--no-color", "--search-path", Str(wawRoot_ / "main"), "--image-format", "DDS", "--model-format",
                                                 "GLTF", "--include-assets", DUMP_ASSETS, "--output-folder", Str(out), Str(fastfile)});
         files::WriteBytes(dumpLog, dumped.out);
         if (dumped.exitCode)

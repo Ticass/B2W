@@ -42,6 +42,33 @@ add_library(w2b_core STATIC
 target_include_directories(w2b_core PUBLIC src "${OAT_THIRDPARTY}/json/include")
 target_link_libraries(w2b_core PUBLIC w2b_zlib)
 
+# OpenAssetTools linked into the converter (vendor/OpenAssetTools, built as
+# Release x64 by tools/restore_native.ps1): zones load and dump in this process
+# instead of in Unlinker.exe. Only src/oat compiles against OAT's C++23 headers.
+set(OAT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../vendor/OpenAssetTools" CACHE PATH "OpenAssetTools checkout (WaW zones)")
+set(OAT_LIB_DIR "${OAT_DIR}/build/lib/Release_x64")
+set(OAT_LIBS Unlinking ZoneLoading ObjWriting ObjLoading ObjImage ZoneCommon Cryptography ObjCommon Common Parser XMemCompress Utils
+    minilzo salsa20 lzx minizip zlib libtomcrypt libtommath lz4)
+add_library(w2b_oat STATIC src/oat/run_unlinker.cpp)
+set_target_properties(w2b_oat PROPERTIES CXX_STANDARD 23)
+target_include_directories(w2b_oat PUBLIC src)
+target_include_directories(w2b_oat SYSTEM PRIVATE
+    "${OAT_DIR}/build/premake" "${OAT_DIR}/src/Unlinking" "${OAT_DIR}/src/ZoneCommon" "${OAT_DIR}/src/Utils" "${OAT_DIR}/src/Common"
+    "${OAT_DIR}/src/ObjCommon" "${OAT_DIR}/build/src/ObjCommon" "${OAT_DIR}/src/ObjWriting" "${OAT_DIR}/src/ObjLoading" "${OAT_DIR}/src/ObjImage"
+    "${OAT_DIR}/src/ZoneLoading" "${OAT_DIR}/src/ZoneCode" "${OAT_DIR}/build/src/ZoneCode" "${OAT_DIR}/src/Parser" "${OAT_DIR}/src/Cryptography"
+    "${OAT_DIR}/src/XMemCompress" "${OAT_DIR}/thirdparty/json/single_include" "${OAT_DIR}/thirdparty/zlib")
+target_compile_definitions(w2b_oat PRIVATE ARCH_x64 __STDC_LIB_EXT1__ __STDC_WANT_LIB_EXT1__=1 JSON_DIAGNOSTICS=1 HAS_NLOHMANN_JSON ZLIB_CONST)
+# the linked code's identity: the OAT commit and the converter's patch to it
+execute_process(COMMAND git -C "${OAT_DIR}" rev-parse --short=12 HEAD OUTPUT_VARIABLE OAT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+set(OAT_PATCH "${OAT_DIR}/../OpenAssetTools.patch")
+file(SHA256 "${OAT_PATCH}" OAT_PATCH_HASH)
+string(SUBSTRING "${OAT_PATCH_HASH}" 0 12 OAT_PATCH_HASH)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${OAT_PATCH}")
+target_compile_definitions(w2b_oat PRIVATE W2B_OAT_VERSION="oat-${OAT_COMMIT}+patch-${OAT_PATCH_HASH}")
+foreach(lib IN LISTS OAT_LIBS)
+    target_link_libraries(w2b_oat PRIVATE "${OAT_LIB_DIR}/${lib}.lib")
+endforeach()
+
 add_executable(w2b_lint src/cli/lint_main.cpp)
 target_link_libraries(w2b_lint PRIVATE w2b_core)
 target_compile_definitions(w2b_lint PRIVATE W2B_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -188,8 +215,8 @@ target_compile_definitions(w2b_imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 add_executable(B2W WIN32 src/app.manifest src/ui/main.cpp src/ui/app.cpp src/ui/views.cpp src/ui/theme.cpp src/ui/gpu.cpp src/ui/shell.cpp src/ui/previews.cpp)
 target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler dwmapi)
 
-add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp src/extract/stockwaw.cpp src/extract/wawsource.cpp)
-target_link_libraries(w2b_extract PUBLIC w2b_core)
+add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp src/extract/stockwaw.cpp src/extract/wawsource.cpp src/extract/unlinker.cpp)
+target_link_libraries(w2b_extract PUBLIC w2b_core PRIVATE w2b_oat)
 
 add_library(w2b_strings STATIC src/strings/localization.cpp)
 target_link_libraries(w2b_strings PUBLIC w2b_core w2b_gsc w2b_weapons w2b_extract)
@@ -212,7 +239,7 @@ target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_la
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
-target_link_libraries(waw2bo2n PRIVATE w2b_extract w2b_strings w2b_visions w2b_pipeline w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
+target_link_libraries(waw2bo2n PRIVATE w2b_oat w2b_extract w2b_strings w2b_visions w2b_pipeline w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
     w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents w2b_paths w2b_barricades w2b_models)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)

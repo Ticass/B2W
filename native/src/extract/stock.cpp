@@ -1,5 +1,6 @@
 // Game caches (see stock.h).
 #include "stock.h"
+#include "extract/unlinker.h"
 
 #include "core/asset_paths.h"
 #include "core/files.h"
@@ -309,12 +310,62 @@ namespace w2b::extract
         out["schema"] = SCHEMA;
         out["engine"] = engine;
         out["game"] = Str(Resolve(game));
-        out["tool"] = Digest(tool);
+        out["tool"] = UnlinkerIdentity(tool);
         out["archives"] = archives;
         out["derived"] = derived;
         out["zones"] = zones;
         return py::SortKeys(out);
     }
+
+    namespace
+    {
+        // Removes the zone extractions under <root>/dependencies and
+        // <root>/custom_maps that another unlinker made: their cache keys
+        // include the unlinker, so nothing finds them again.
+        void PruneOtherUnlinkerGenerations(const fs::path& root, const std::string& identity)
+        {
+            std::error_code e;
+            const auto prune = [&](const fs::path& zoneFolder)
+            {
+                std::vector<fs::path> entries;
+                for (fs::directory_iterator it(zoneFolder, e), end; !e && it != end; it.increment(e))
+                    entries.push_back(it->path());
+                for (const auto& generation : entries)
+                    try
+                    {
+                        if (IsFile(generation / "extraction.json") && ReadJson(generation / "extraction.json").at("inputs").at("tool") != identity)
+                            fs::remove_all(generation, e);
+                    }
+                    catch (const std::exception&)
+                    {
+                    }
+                // pointers (<key>.json) to generations that are gone
+                for (const auto& pointer : entries)
+                    try
+                    {
+                        if (Lower(files::Utf8(pointer.extension())) == ".json" &&
+                            !fs::is_directory(zoneFolder / files::FromUtf8(ReadJson(pointer).at("folder").get<std::string>()), e))
+                            fs::remove(pointer, e);
+                    }
+                    catch (const std::exception&)
+                    {
+                    }
+            };
+            const auto subfolders = [&](const fs::path& folder)
+            {
+                std::vector<fs::path> found;
+                for (fs::directory_iterator it(folder, e), end; !e && it != end; it.increment(e))
+                    if (it->is_directory(e))
+                        found.push_back(it->path());
+                return found;
+            };
+            for (const auto& zone : subfolders(root / "dependencies"))
+                prune(zone);
+            for (const auto& map : subfolders(root / "custom_maps"))
+                for (const auto& zone : subfolders(map))
+                    prune(zone);
+        }
+    } // namespace
 
     fs::path Ready(const fs::path& game, const fs::path& tool, const fs::path& root, const std::string& engine)
     {
@@ -395,6 +446,8 @@ namespace w2b::extract
             {
                 const auto raw = Ready(game, tool, root, engine);
                 Print("Extract All: reusing complete " + engine + " cache: " + Str(raw));
+                const CacheLock lock(root);
+                PruneOtherUnlinkerGenerations(root, UnlinkerIdentity(tool));
                 return raw;
             }
             catch (const Error&)
@@ -521,6 +574,7 @@ namespace w2b::extract
         for (const auto& v : views)
             if (fs::is_directory(v, e) && Resolve(v) != Resolve(raw))
                 fs::remove_all(v, e);
+        PruneOtherUnlinkerGenerations(root, UnlinkerIdentity(tool));
         Print("Extract All: " + engine + " cache ready (" + std::to_string(zones.size()) + " zones): " + Str(raw));
         return raw;
     }
@@ -555,7 +609,7 @@ namespace w2b::extract
         for (const auto& [_, ff] : selected)
             if (std::none_of(unique.begin(), unique.end(), [&](const fs::path& u) { return SamePath(u, ff); }))
                 unique.push_back(ff);
-        const auto toolHash = Digest(settings.t4Tool) + ":short-staging";
+        const auto toolHash = UnlinkerIdentity(settings.t4Tool) + ":short-staging";
         const auto outputs = ParallelZones(
             unique,
             [&](const fs::path& ff)

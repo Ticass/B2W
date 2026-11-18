@@ -84,7 +84,7 @@ Pop-Location
 ```
 
 Do not reapply the patch to an already patched checkout. Confirm that
-`vendor/OpenAssetTools/build/bin/Release_x86/Unlinker.exe` exists.
+`vendor/OpenAssetTools/build/bin/Release_x64/Unlinker.exe` exists.
 
 ### T6 bridge
 

@@ -1,5 +1,6 @@
 // Extraction caches (see cache.h).
 #include "cache.h"
+#include "extract/unlinker.h"
 
 #include "core/asset_paths.h"
 #include "core/encoding.h"
@@ -415,7 +416,7 @@ namespace w2b::extract
         const auto once = [&]
         {
             Print("[tool] " + files::Utf8(files::FromUtf8(command[0]).filename()) + "; log: " + Str(log));
-            const auto result = process::RunMerged(command, "", verbose ? +[](const std::string& line) { Print(line); } : nullptr);
+            const auto result = RunUnlinker(command, verbose ? +[](const std::string& line) { Print(line); } : nullptr);
             files::WriteBytes(log, result.out);
             return result;
         };
@@ -542,7 +543,7 @@ namespace w2b::extract
         inputs["schema"] = SCHEMA;
         inputs["file"] = Str(Resolve(r.ff));
         inputs["stamp"] = Stamp(r.ff);
-        inputs["tool"] = r.toolDigest ? *r.toolDigest : Digest(r.tool);
+        inputs["tool"] = r.toolDigest ? *r.toolDigest : UnlinkerIdentity(r.tool);
         inputs["dependencies"] = r.dependencies;
         inputs["assets"] = r.assets ? py::Json(*r.assets) : py::Json();
         inputs["images"] = r.imageFormat;

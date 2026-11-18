@@ -1,5 +1,6 @@
 // Stock WaW zones (see stockwaw.h).
 #include "stockwaw.h"
+#include "extract/unlinker.h"
 
 #include "cache.h"
 #include "core/encoding.h"
@@ -122,7 +123,7 @@ namespace w2b::extract
         py::Json out = py::Json::object();
         for (const auto& ff : zones)
         {
-            const auto result = process::RunMerged({Str(unlinker), "--no-color", "--list", Str(ff)});
+            const auto result = RunUnlinker({Str(unlinker), "--no-color", "--list", Str(ff)});
             py::Json types = py::Json::object();
             const auto listing = encoding::Utf8Replace(result.out);
             for (const auto line : py::SplitLines(listing))
@@ -195,7 +196,7 @@ namespace w2b::extract
         if (!fs::exists(out / DUMP_MARKER))
         {
             const auto log = work / files::FromUtf8(zone + ".log");
-            const auto result = process::RunMerged({Str(unlinker), "--no-color", "--search-path", Str(wawRoot / "main"), "--image-format", "DDS", "--model-format", "GLTF",
+            const auto result = RunUnlinker({Str(unlinker), "--no-color", "--search-path", Str(wawRoot / "main"), "--image-format", "DDS", "--model-format", "GLTF",
                                                     "--include-assets", DUMP_ASSETS, "--output-folder", Str(out), Str(ZoneDir() / files::FromUtf8(zone + ".ff"))});
             fs::create_directories(log.parent_path());
             files::WriteBytes(log, result.out);
