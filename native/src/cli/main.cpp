@@ -68,9 +68,11 @@
 #include "pipeline/scripts_stage.h"
 #include "pipeline/hooks_stage.h"
 #include "pipeline/sound_mix.h"
+#include "textures/pillow_decode.h"
 #include "pipeline/amb_stage.h"
 #include "pipeline/sound_refs.h"
 #include "pipeline/coverage_stage.h"
+#include "pipeline/hud_stage.h"
 #include "sound/bank.h"
 #include "pipeline/modzone.h"
 #include "pipeline/audit.h"
@@ -524,6 +526,22 @@ namespace
         }
     }
 
+    // decode-dds-pillow <in.dds> <out.rgba>: Image.open(dds).convert("RGBA") bytes (parity checks)
+    int DecodeDdsPillowCommand(const Arguments& args)
+    {
+        if (args.size() != 2)
+            return Usage();
+        return Step([&] {
+            std::string data;
+            if (!w2b::files::ReadBytes(w2b::files::FromUtf8(args[0]), data))
+                throw std::runtime_error("cannot read " + args[0]);
+            const auto image = w2b::textures::DecodeDdsPillow(data);
+            w2b::files::WriteBytes(w2b::files::FromUtf8(args[1]), image.pixels);
+            std::printf("%u %u\n", image.width, image.height);
+            return 0;
+        });
+    }
+
     int PackageCommand(const Arguments& args)
     {
         const auto p = Parse(args, {"--bo2", "--work", "--dest"});
@@ -878,10 +896,12 @@ namespace
         {"port-scripts", JsonRequest<w2b::pipeline::PortScripts>},
         {"hook-map-scripts", JsonRequest<w2b::pipeline::HookMapScripts>},
         {"write-sound-bank", JsonRequest<w2b::sound::WriteT6Bank>},
+        {"decode-dds-pillow", DecodeDdsPillowCommand},
         {"sound-mix", JsonRequest<w2b::pipeline::SoundMix>},
         {"write-amb-csc", JsonRequest<w2b::pipeline::WriteAmbCsc>},
         {"discover-sounds", JsonRequest<w2b::pipeline::DiscoverSounds>},
         {"framework-coverage", JsonRequest<w2b::pipeline::FrameworkCoverage>},
+        {"stage-waw-hud", JsonRequest<w2b::pipeline::StageWawHud>},
         {"stage-map-models", JsonRequest<w2b::models::Stage>},
         {"fix-model-surfaces", JsonRequest<w2b::models::StageSurfaceFixesRequest>},
         {"isolate-model-names", JsonRequest<w2b::models::IsolateModelNamesRequest>},

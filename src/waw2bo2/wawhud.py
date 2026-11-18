@@ -144,6 +144,22 @@ def font_glyphs(source: SourceFinder, font_name: str, role: str, sprite, chars=N
 
 def stage_assets(project: Path, roots: list[Path], stock=None) -> dict:
     """Resolve the map's overrides first, then the original WaW stock zones."""
+    from . import native
+    if native.tool() is not None and (stock is None or getattr(stock, 'waw_root', None) is not None):
+        # pipeline/hud_stage.cpp (Pillow-exact DDS decoding in C++)
+        import tempfile
+        request = {'project_root': str(project), 'roots': [str(r) for r in roots],
+                   'stock_waw': {'waw_root': str(stock.waw_root), 'unlinker': str(stock.unlinker), 'work': str(stock.work),
+                                 'prepared': {zone: {'folder': str(folder), 'inputs': stock.prepared_sources.get(zone, {})}
+                                              for zone, folder in stock.prepared.items()}} if stock is not None else None}
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_hud_') as folder:
+            path = Path(folder) / 'request.json'
+            path.write_text(json.dumps(request), encoding='utf-8')
+            staged = json.loads(native.run('stage-waw-hud', str(path)))
+        for zone, entry in (staged.get('stock_prepared') or {}).items():
+            stock.prepared[zone] = Path(entry['folder'])
+            stock.prepared_sources[zone] = entry['inputs']
+        return staged['result']
     source = SourceFinder(roots, stock)
     materials = []
 

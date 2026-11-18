@@ -188,6 +188,11 @@ namespace w2b::pipeline
         }
     }
 
+    Json MenuMaterial(const std::string& image)
+    {
+        return Material(image);
+    }
+
     std::optional<MenuArtwork> LoadMenuArtwork(const launcher::Settings& settings, const fs::path& decoder)
     {
         const auto count = !settings.menu_blit.empty() + !settings.menu_large.empty() + !settings.menu_blur.empty();

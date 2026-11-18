@@ -63,7 +63,7 @@ add_library(w2b_sound STATIC
     src/sound/curve_driver.cpp src/sound/curve_match.cpp src/sound/curve_binding.cpp src/sound/bank.cpp)
 target_link_libraries(w2b_sound PUBLIC w2b_core PRIVATE w2b_audio)
 
-add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/iwi.cpp src/textures/stage.cpp src/textures/block_compress.cpp
+add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/pillow_decode.cpp src/textures/iwi.cpp src/textures/stage.cpp src/textures/block_compress.cpp
     src/textures/lightmap.cpp src/textures/lightmap_stage.cpp src/textures/iwi6.cpp
     src/textures/wavelet.cpp src/textures/wavelet_tables.cpp src/textures/iwd_recovery.cpp src/textures/iwd_service.cpp)
 target_link_libraries(w2b_textures PUBLIC w2b_core)
@@ -197,7 +197,7 @@ add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp s
     src/pipeline/menu_artwork.cpp src/pipeline/menu_pixels.cpp src/pipeline/menu_media.cpp
     src/pipeline/rumbles.cpp
     src/pipeline/materials_stage.cpp src/pipeline/effects_stage.cpp
-    src/pipeline/scripts_stage.cpp src/pipeline/hooks_stage.cpp src/pipeline/sound_mix.cpp src/pipeline/amb_stage.cpp src/pipeline/sound_refs.cpp src/pipeline/coverage_stage.cpp)
+    src/pipeline/scripts_stage.cpp src/pipeline/hooks_stage.cpp src/pipeline/sound_mix.cpp src/pipeline/amb_stage.cpp src/pipeline/sound_refs.cpp src/pipeline/coverage_stage.cpp src/pipeline/hud_stage.cpp)
 target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials w2b_effects w2b_assets w2b_barricades)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 

@@ -14,6 +14,8 @@ namespace w2b::pipeline
         std::string warning;
     };
 
+    // menuart.material: a native T6 2D material (straight alpha, clamped, no mips)
+    py::Json MenuMaterial(const std::string& image);
     std::optional<MenuArtwork> LoadMenuArtwork(const launcher::Settings& settings, const std::filesystem::path& decoder);
     void StageMenuArtwork(const launcher::Settings& settings, const std::filesystem::path& root,
                           const std::filesystem::path& compat, const std::filesystem::path& decoder,
