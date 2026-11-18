@@ -64,14 +64,19 @@ namespace w2b::physics
         return report;
     }
 
+    Json LoadMapPhysics(const Path& dynentSource, const Path& constraintSource, const Path& project)
+    {
+        auto dynents = ReadDynents(dynentSource);
+        auto constraints = StageConstraints(constraintSource, project, dynents.size());
+        return {{"dynents", std::move(dynents)}, {"constraints", std::move(constraints)}};
+    }
+
     Json Run(const Path& file)
     {
         using Operation = Json (*)(const Json&);
         static const std::map<std::string_view, Operation, std::less<>> operations{
             {"load-map", [](const Json& request) {
-                auto dynents = ReadDynents(ReadPath(request, "dynents"));
-                auto constraints = StageConstraints(ReadPath(request, "constraints"), ReadPath(request, "project"), dynents.size());
-                return Json{{"dynents", std::move(dynents)}, {"constraints", std::move(constraints)}};
+                return LoadMapPhysics(ReadPath(request, "dynents"), ReadPath(request, "constraints"), ReadPath(request, "project"));
             }},
             {"read-dynents", [](const Json& request) { return ReadDynents(ReadPath(request, "source")); }},
             {"write-dynents", [](const Json& request) {

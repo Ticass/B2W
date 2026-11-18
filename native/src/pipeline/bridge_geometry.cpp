@@ -2,9 +2,11 @@
 
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
+#include "physics/physics.h"
 #include "pipeline/bridge_support.h"
 #include "pipeline/finish.h"
 #include "pipeline/geometry_materials.h"
+#include "weapons/stage.h"
 #include "world/bsp_visibility.h"
 #include "world/collision_stage.h"
 #include "world/collision_world.h"
@@ -222,9 +224,16 @@ namespace w2b::pipeline
     Json StageBridgeGeometry(const Json& request)
     {
         const auto path = [&](const char* key) { return FromUtf8(request.at(key).get_ref<const std::string&>()); };
-        const GeometryOutput output(path("project_root") / "BSP");
+        const auto project = path("project_root");
+        const GeometryOutput output(project / "BSP");
         auto render = world::ReadRenderWorld(path("gfx"), request.at("compensated").get<bool>());
         const auto clip = world::ReadCollisionWorld(path("clip"));
+        auto physicsReport = physics::LoadMapPhysics(path("dynents"), path("constraints"), project);
+        const bool hasWater = std::ranges::any_of(clip.brushes, [](const auto& brush) { return (brush.contents & world::waterContents) != 0; });
+        std::set<std::string> clipModels;
+        for (const auto& model : clip.staticModels)
+            if (model.contents && !model.surfaces.empty())
+                clipModels.insert(model.name);
         const auto roots = bridge::PathList(request.at("roots"));
         std::optional<extract::StockWaw> stock;
         if (!render.layerData.empty() && std::ranges::any_of(render.surfaces, [](const auto& surface) { return surface.layerFormat == 0xff; }))
@@ -253,7 +262,8 @@ namespace w2b::pipeline
         return {{"content", std::move(content)}, {"collision", std::move(collision)}, {"warnings", std::move(warnings)}, {"errors", std::move(errors)},
                 {"visibility_warning", meshes.at("visibility_warning")}, {"world", std::move(metadata)}, {"probes", std::move(probes)},
                 {"sky", materials.skyImage ? Json(*materials.skyImage) : Json()},
-                {"layered", !render.layerData.empty()}, {"stock_prepared", stock ? stock->PreparedJson() : Json()}};
+                {"layered", !render.layerData.empty()}, {"stock_prepared", stock ? stock->PreparedJson() : Json()},
+                {"physics", std::move(physicsReport)}, {"has_water", hasWater}, {"clip_models", std::move(clipModels)}};
     }
 
     Json StageBridgeGeometryRequest(const fs::path& path)
@@ -265,6 +275,18 @@ namespace w2b::pipeline
         catch (const StepError& error)
         {
             return {{"stage_error", error.what()}};
+        }
+        catch (const weapons::WeaponError& error)
+        {
+            return {{"weapon_error", error.what()}};
+        }
+        catch (const std::invalid_argument& error)
+        {
+            return {{"invalid", error.what()}};
+        }
+        catch (const Json::exception& error)
+        {
+            return {{"invalid", error.what()}};
         }
     }
 }

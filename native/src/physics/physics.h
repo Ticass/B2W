@@ -18,6 +18,7 @@ namespace w2b::physics
     Json StageDynents(const Path& project, const Json& entries, const std::vector<Path>& roots,
                       const PresetLookup& stock, std::string_view effectPrefix);
     Json StageConstraints(const Path& source, const Path& project, std::size_t dynentCount);
+    Json LoadMapPhysics(const Path& dynentSource, const Path& constraintSource, const Path& project);
     Json StageRopeEntities(const Path& project);
     Json StageSuspensions(const Path& project);
     Json StageRopeRuntime(const Path& project);

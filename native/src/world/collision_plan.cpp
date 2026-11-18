@@ -10,7 +10,6 @@ namespace w2b::world
 {
     CollisionPlan PlanCollision(const CollisionWorld& world, std::optional<std::size_t> triangleLimit)
     {
-        constexpr std::uint32_t water = 0x20;
         const auto total = world.indices.size() / 3;
         const auto count = std::min(total, triangleLimit.value_or(total));
         const auto owners = TerrainOwners(world);
@@ -33,7 +32,7 @@ namespace w2b::world
             const auto contents = material == 0xffff ? 0 : world.materials.at(material).contentFlags;
             const auto owner = owners.at(index);
             const bool nonColliding = !contents;
-            const bool worldWater = !owner && (contents & ~nonCollidingContents) == water;
+            const bool worldWater = !owner && (contents & ~nonCollidingContents) == waterContents;
             const bool removedSheet = oneWay != plan.oneWayTriangles.end() && *oneWay == index;
             if (removedSheet)
                 ++oneWay;

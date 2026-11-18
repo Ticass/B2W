@@ -1534,9 +1534,10 @@ def stage_scripts(report: StageReport, project: str, project_root: Path,
 
 
 def stage_water_bullets(report: StageReport, clip, roots: list[Path], project_root: Path,
-                        weapon_table: dict[str, str]) -> None:
+                        weapon_table: dict[str, str], *, has_water: bool | None = None) -> None:
     """Continue player bullets through WaW water (waterbullets: T6 drops their damage)."""
-    has_water = waterbullets.has_water(clip)
+    if has_water is None:
+        has_water = waterbullets.has_water(clip)
     if native.tool() is not None:
         with tempfile.TemporaryDirectory(prefix='waw2bo2_water_bullets_') as folder:
             request = Path(folder) / 'request.json'
@@ -1959,8 +1960,19 @@ class _BridgeWorld:
     shadow_lights: bool
 
 
+@dataclass(slots=True)
+class _BridgeGeometry:
+    world: _BridgeWorld
+    sky: str | None
+    probe_count: int
+    map_dynents: list[dict]
+    clip_models: set[str]
+    has_water: bool
+
+
 @progress.phase('Convert world geometry')
-def _stage_native_geometry(report, gfx, clip, roots, project, stock, probe_source, visibility_source, constraints):
+def _stage_native_geometry(report, gfx, clip, roots, project, stock, probe_source, visibility_source,
+                           dynent_source, constraint_source):
     stock_request = None
     if stock is not None:
         stock_request = {'waw_root': str(stock.waw_root), 'unlinker': str(stock.unlinker), 'work': str(stock.work),
@@ -1971,9 +1983,14 @@ def _stage_native_geometry(report, gfx, clip, roots, project, stock, probe_sourc
         'stock_waw': stock_request, 'compensated': sys.version_info >= (3, 12),
         'probe_source': str(probe_source), 'visibility_source': str(visibility_source),
         'image_roots': [str(root / 'images') for root in roots],
+        'dynents': str(dynent_source), 'constraints': str(constraint_source),
     })
     if 'stage_error' in staged:
         raise StageError(staged['stage_error'])
+    if 'weapon_error' in staged:
+        raise weapons.WeaponError(staged['weapon_error'])
+    if 'invalid' in staged:
+        raise ValueError(staged['invalid'])
     for zone, entry in (staged.get('stock_prepared') or {}).items():
         stock.prepared[zone] = Path(entry['folder'])
         stock.prepared_sources[zone] = entry['inputs']
@@ -1985,7 +2002,7 @@ def _stage_native_geometry(report, gfx, clip, roots, project, stock, probe_sourc
         report.content['reflection_probes'] = probe_result['content']
     warning_index = len(report.warnings)
     report.content['visibility'] = None
-    report.content['physics_constraints'] = constraints
+    report.content['physics_constraints'] = staged['physics']['constraints']
     techsets.LAYERED_VERTEX_DATA = staged['layered']
     report.content.update(staged['content'])
     if report.content['visibility'] is None:
@@ -1998,7 +2015,8 @@ def _stage_native_geometry(report, gfx, clip, roots, project, stock, probe_sourc
     metadata = staged['world']
     world = _BridgeWorld([_BridgeSurface(*surface) for surface in metadata['surfaces']],
                          [StaticModel(*model) for model in metadata['static_models']], metadata['shadow_lights'])
-    return world, staged['sky'], len(probe_result.get('kept', ()))
+    return _BridgeGeometry(world, staged['sky'], len(probe_result.get('kept', ())), staged['physics']['dynents'],
+                           set(staged['clip_models']), staged['has_water'])
 
 
 def _xwma_helper(explicit: Path | None) -> str | None:
@@ -2064,18 +2082,25 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         probe_plan = probes.stage(report, world, source_probes, [r / 'images' for r in roots], project_root)
         visibility.assign(report, world, visibility.read(visibility_source), source_probes, probe_plan)
         probe_count = len(probe_plan.kept) if probe_plan is not None else 0
-    clip = progress.timed('Read map collision', read_collision, clip_bin)
-    from . import constraints
     clip_stem = clip_bin.name.removesuffix('.clip.bin')
-    map_dynents, map_constraints = constraints.load_map_physics(
-        clip_bin.with_name(clip_stem + '.dynents.json'), clip_bin.with_name(clip_stem + '.constraints.json'), project_root)
+    dynent_source = clip_bin.with_name(clip_stem + '.dynents.json')
+    constraint_source = clip_bin.with_name(clip_stem + '.constraints.json')
     if native_geometry:
-        world, sky_image, probe_count = _stage_native_geometry(report, gfx_bin, clip_bin, roots, project_root, stock_waw,
-                                                               probe_source, visibility_source, map_constraints)
+        geometry = _stage_native_geometry(report, gfx_bin, clip_bin, roots, project_root, stock_waw,
+                                          probe_source, visibility_source, dynent_source, constraint_source)
+        world, sky_image, probe_count = geometry.world, geometry.sky, geometry.probe_count
+        map_dynents, clip_models, has_water = geometry.map_dynents, geometry.clip_models, geometry.has_water
+        clip = None  # remaining native steps use the packed clip file
     else:
+        from . import constraints
+        clip = progress.timed('Read map collision', read_collision, clip_bin)
+        map_dynents, map_constraints = constraints.load_map_physics(dynent_source, constraint_source, project_root)
         report.content['physics_constraints'] = map_constraints
         sky_image = stage_geometry(report, world, clip, roots, project_root, stock_waw,
                                    gfx_source=gfx_bin, clip_source=clip_bin)
+        clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
+        has_water = waterbullets.has_water(clip)
+    map_constraints = report.content['physics_constraints']
     ents_file = source_entities(gfx_bin, stage, roots)
     # The map is king: every model its own zones ship converts, referenced or
     # not (Industrial Estate's zombie-hero viewhands are picked through arrays
@@ -2220,8 +2245,6 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                         atr = (bo2_root / 'raw/animtrees' / f'{tree}.atr').read_text(encoding='utf-8')
                     zone.write(f"rawfile,animtrees/{tree}.atr\nrawfile,animstatedefs/{tree}.asd\n")
                     zone.write("".join(f"xanim,{n}\n" for n in native_tree_xanims(atr)))
-    # clipmap static models reference their xmodel (collSurfs) in the map zone
-    clip_models = {m.name for m in clip.static_models if m.contents and m.surfaces}
     # the clipmap's dynents reference their xmodel in the map zone too
     clip_models |= {e['xModel'] for e in map_dynents}
     # Entity placements need the same complete lookup as script-only models.
@@ -2335,7 +2358,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                                           *([waw_map_script.parent.parent] if waw_map_script else []),
                                                           *(waw_script_roots or []), *roots,
                                                           *([waw_stock_scripts] if waw_stock_scripts else [])]]},
-            'client': {'has_water': waterbullets.has_water(clip)},
+            'client': {'has_water': has_water},
             'sounds': {'map_stem': waw_map_script.stem if waw_map_script is not None else None,
                        'amb_roots': [str(r) for r in [*(waw_patch_script_roots or []), waw_map_script.parent.parent,
                                                       *(waw_script_roots or []), *roots]] if waw_map_script is not None else [],
@@ -2513,7 +2536,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     client_sound_names = zone_sound_names | compiled_sound_names | ({n for kinds in stock_waw.index.values()
         for n in kinds.get('sound', [])} if stock_waw else set())
     if native.tool() is not None:
-        stage_water_bullets(report, clip, roots, project_root, weapon_table)
+        stage_water_bullets(report, clip, roots, project_root, weapon_table, has_water=has_water)
         # the environment script and the client mains (pipeline/client_stage.cpp)
         with tempfile.TemporaryDirectory(prefix='waw2bo2_client_') as folder:
             path = Path(folder) / 'request.json'
@@ -2535,7 +2558,7 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
         environment = flame_environment_source(environment, project_root / 'content_source')
         weapon_runtime = project_root / 'content_source/weapons.runtime.json'
         weapon_table = json.loads(weapon_runtime.read_text())['table'] if weapon_runtime.is_file() else {}
-        stage_water_bullets(report, clip, roots, project_root, weapon_table)
+        stage_water_bullets(report, clip, roots, project_root, weapon_table, has_water=has_water)
         client_sound_names = zone_sound_names | compiled_sound_names | ({n for kinds in stock_waw.index.values()
             for n in kinds.get('sound', [])} if stock_waw else set())
         tesla_client = clientport.stage_tesla(roots, project_root, report.fx_table, weapon_table, client_sound_names)

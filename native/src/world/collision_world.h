@@ -11,6 +11,7 @@ namespace w2b::world
 {
     // CONTENTS_DETAIL, CONTENTS_STRUCTURAL and CONTENTS_TRANSPARENT.
     inline constexpr std::uint32_t nonCollidingContents = 0x08000000 | 0x10000000 | 0x20000000;
+    inline constexpr std::uint32_t waterContents = 0x20;
 
     using ClipPoint = std::array<float, 3>;
 
