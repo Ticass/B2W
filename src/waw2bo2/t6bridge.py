@@ -1881,8 +1881,9 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                                                                      clip_source=clip_bin)
             if bo2_root is not None:
                 from . import barriers
-                report.entities['barrier_alignment'] = barriers.align_native_boards(project_root / 'BSP', bo2_root, clip)
-                report.entities['barrier_chunks'] = barriers.drop_replaced_chunks(project_root / 'BSP')
+                alignment, chunks = barriers.stage_native_boards(project_root / 'BSP', bo2_root, clip, clip_bin)
+                report.entities['barrier_alignment'] = alignment
+                report.entities['barrier_chunks'] = chunks
         except ValueError as exc:
             raise StageError(f"map entities: {exc}") from exc
         synthesized = report.entities.get("synthesized_zones")
@@ -3375,13 +3376,14 @@ def port_scripts(report: StageReport, stage: Path, project_root: Path, waw_map_s
     # the map's window rebuild motion (replace_chunk), played by the native
     # boards' repair animations (stage_bridge, barriers.stage_waw_repair_animations)
     from . import barriers
+    repair_sources = []
     for script in barriers.REPLACE_CHUNK_SCRIPTS:
         key = gscport.norm(script) + '.gsc'
         text = sources.text.get(key, sources.stock.get(key))
-        timing = barriers.replace_chunk_timing(text) if text else None
-        if timing:
-            report.scripts['window_repair_timing'] = {'script': script, **timing}
-            break
+        if text:
+            repair_sources.append((script, text))
+    if repair_sources and (timing := barriers.find_repair_timing(repair_sources)):
+        report.scripts['window_repair_timing'] = timing
     report.scripts["staged_animtrees"] = sorted(gscport.animation_tree_name(t) for t in core_trees)
     report.errors += [f"scripts: {e}" for e in port.errors]
     # empty converted-asset table for the link check; stage_fx writes the real

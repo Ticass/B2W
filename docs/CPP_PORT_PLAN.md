@@ -82,6 +82,7 @@ The remaining small modules move with the area that uses them.
 | Convert map entities, synthesize zones, and stage spawns | yes | Cheese Cube Unlimited matched entity and spawn manifests and the report for 1,145 entities. A fixture also matched synthesized submodels, door flags, and wall-buy pairing. | 0.037 s / 0.008 s (including native process startup and clip read) |
 | Stage AI paths and traversal scripts | yes | Cheese Cube Unlimited matched 654 nodes and 8,862 links. Fixtures matched the source dog library and traversal scripts for all 13 stock walking/crawling state pairs. Equal measured distances select the lower height. | 0.097 s / 0.030 s (including native process startup) |
 | Link window traversals and extend path visibility | yes | Cheese Cube Unlimited matched both staged files. A 3,073-node fixture matched all 19 new endpoints, the packed visibility data, and two unsupported-window diagnostics. | 0.061 s / 0.050 s (fixture, including native process startup) |
+| Align barricades, remove replaced chunks, and retime board repairs | yes | Cheese Cube Unlimited matched its entity stage and six retimed BO2 repair files. A fixture on its collision data matched floor alignment and removal of two source brushes. | 0.024 s / 0.008 s (entities), 0.036 s / 0.004 s (timing plus repairs) |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
 run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.

@@ -4,11 +4,29 @@ import math
 import re
 import struct
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from . import native
 
 # Tear animation whose root height fixes the barrier origin above the floor.
 TEAR_ANIM = 'ai_zombie_boardtear_aligned_m_1_grab'
 # Search window for the floor below the WaW goal (goals sit 8-27 above it).
 FLOOR_ABOVE_GOAL, FLOOR_BELOW_GOAL = 8.0, 64.0
+
+
+def _run_native(operation: str, **fields):
+    with TemporaryDirectory(prefix='waw2bo2_barricades_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps({'operation': operation, **fields}), encoding='utf-8')
+        response = json.loads(native.run('stage-barricades', str(request)))
+    if 'invalid' in response:
+        raise ValueError(response['invalid'])
+    return response['result']
+
+
+def _alignment_report(report: dict) -> dict:
+    report['repair_poses'] = {name: tuple(pose) for name, pose in report['repair_poses'].items()}
+    return report
 
 
 def repaired_translation(path: Path) -> tuple[float, float, float]:
@@ -18,6 +36,12 @@ def repaired_translation(path: Path) -> tuple[float, float, float]:
     translation. Reject other contracts instead of guessing a fixed offset.
     See OAT's CompiledXAnimLoader::LoadDeltaTransTrack.
     """
+    if native.tool() is not None:
+        return tuple(_run_native('translation', source=str(path)))
+    return _repaired_translation_python(path)
+
+
+def _repaired_translation_python(path: Path) -> tuple[float, float, float]:
     data = path.read_bytes()
     version, frames, bones, flags, kind, fps = struct.unpack_from('<3H2BH', data)
     if version != 19 or flags != 2 or not bones or not fps:
@@ -110,7 +134,7 @@ def tear_root_height(bo2: Path) -> float:
     return -repaired_translation(bo2 / 'raw/xanim' / TEAR_ANIM)[2]
 
 
-def align_native_boards(bsp: Path, bo2: Path, clip=None) -> dict:
+def align_native_boards(bsp: Path, bo2: Path, clip=None, *, clip_source: Path | None = None) -> dict:
     """Keep attack slots outside while matching the source boards' depth.
 
     T6 places its attack slots at the zbarrier origin, but its repair animation
@@ -122,12 +146,19 @@ def align_native_boards(bsp: Path, bo2: Path, clip=None) -> dict:
     root height above the floor; WaW goals sit 8-27 units above it, which sank
     zombies into the floor while tearing and after climbing in.
     """
+    if native.tool() is not None and (clip is None or clip_source is not None):
+        geometry = {'clip': str(clip_source)} if clip_source is not None else {}
+        return _alignment_report(_run_native('align', bsp=str(bsp), bo2=str(bo2), **geometry))
+    return _align_python(bsp, bo2, clip)
+
+
+def _align_python(bsp: Path, bo2: Path, clip=None) -> dict:
     path = bsp / 'entities.json'
     data = json.loads(path.read_text())
     es = data['entities']
     poses, aligned, warnings = {}, [], []
     floor = Floor(clip) if clip is not None else None
-    height = tear_root_height(bo2) if floor is not None else None
+    height = -_repaired_translation_python(bo2 / 'raw/xanim' / TEAR_ANIM)[2] if floor is not None else None
     for goal in es:
         if goal.get('targetname') != 'exterior_goal' or not goal.get('target'):
             continue
@@ -145,7 +176,7 @@ def align_native_boards(bsp: Path, bo2: Path, clip=None) -> dict:
         names = [native[0][f'zbarrierboardanim{i}'] for i in range(1, int(native[0]['zbarriernumboards']) + 1)]
         for name in names:
             if name not in poses:
-                poses[name] = repaired_translation(bo2 / 'raw/xanim' / name)
+                poses[name] = _repaired_translation_python(bo2 / 'raw/xanim' / name)
         source_depth = sum(depths) / len(depths)
         native_depth = sum(poses[name][0] for name in names) / len(names)
         shift = source_depth - native_depth
@@ -178,6 +209,12 @@ def drop_replaced_chunks(bsp: Path) -> dict:
     frame). Stock BO2 windows (zm_prison) carry no such brushes. Run after
     align_native_boards, which measures the source planks.
     """
+    if native.tool() is not None:
+        return _run_native('drop', bsp=str(bsp))
+    return _drop_python(bsp)
+
+
+def _drop_python(bsp: Path) -> dict:
     path = bsp / 'entities.json'
     data = json.loads(path.read_text())
     es = data['entities']
@@ -194,6 +231,13 @@ def drop_replaced_chunks(bsp: Path) -> dict:
         data['entities'] = kept
         path.write_text(json.dumps(data, indent=1) + '\n', encoding='utf-8')
     return {'windows': len(replaced), 'dropped_brushes': dropped}
+
+
+def stage_native_boards(bsp: Path, bo2: Path, clip, clip_source: Path) -> tuple[dict, dict]:
+    if native.tool() is not None:
+        result = _run_native('boards', bsp=str(bsp), bo2=str(bo2), clip=str(clip_source))
+        return _alignment_report(result['alignment']), result['chunks']
+    return _align_python(bsp, bo2, clip), _drop_python(bsp)
 
 
 # ---- WaW window rebuild motion on the native boards ----
@@ -216,6 +260,23 @@ def replace_chunk_timing(text: str) -> dict | None:
     """The map's replace_chunk timings (seconds) without the fast-reload perk:
     lift (MoveTo only_z), turn (RotateTo), hold (wait after the turn) and
     push (MoveTo og_origin). None when the function does not have that shape."""
+    result = find_repair_timing([('', text)])
+    if result is not None:
+        result.pop('script')
+    return result
+
+
+def find_repair_timing(scripts: list[tuple[str, str]]) -> dict | None:
+    if native.tool() is not None:
+        return _run_native('timing', scripts=scripts)
+    for name, source in scripts:
+        timing = _replace_chunk_timing_python(source)
+        if timing is not None:
+            return {'script': name, **timing}
+    return None
+
+
+def _replace_chunk_timing_python(text: str) -> dict | None:
     start = re.search(r'^replace_chunk\s*\(', text, re.M | re.I)
     if start is None:
         return None
@@ -338,6 +399,16 @@ def _pack_trans(values) -> bytes:
 def waw_repair_animation(raw: bytes, timing: dict) -> bytes:
     """The board's stock repair animation retimed as WaW's replace_chunk:
     lift to the rest height while turning upright, hold, push into place."""
+    if native.tool() is not None:
+        with TemporaryDirectory(prefix='waw2bo2_repair_') as folder:
+            source, destination = Path(folder) / 'source.xanim', Path(folder) / 'repair.xanim'
+            source.write_bytes(raw)
+            _run_native('repair', source=str(source), destination=str(destination), timing=timing)
+            return destination.read_bytes()
+    return _retime_python(raw, timing)
+
+
+def _retime_python(raw: bytes, timing: dict) -> bytes:
     stock = _decode_repair(raw)
     (start, rest), (q0, q1), (o0, o1) = stock['root'], stock['rotation'], stock['offset']
     settle = max(timing['lift'], timing['turn']) + timing['hold']
@@ -377,10 +448,12 @@ def stage_waw_repair_animations(barrier_asset: str, bo2: Path, timing: dict, des
     """Write each board's WaW-timed repair animation to destination/xanim
     under its stock name (the mod link puts this layer before the stock raw
     folder, so the stock barrier asset plays it)."""
+    if native.tool() is not None:
+        return _run_native('stage-repairs', asset=barrier_asset, bo2=str(bo2), timing=timing, destination=str(destination))
     written = {}
     for name in board_repair_animations(barrier_asset):
         target = destination / 'xanim' / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(waw_repair_animation((bo2 / 'raw/xanim' / name).read_bytes(), timing))
+        target.write_bytes(_retime_python((bo2 / 'raw/xanim' / name).read_bytes(), timing))
         written[name] = round(max(timing['lift'], timing['turn']) + timing['hold'] + timing['push'], 3)
     return written

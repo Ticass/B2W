@@ -40,6 +40,7 @@ class BarrierTests(unittest.TestCase):
             self.assertAlmostEqual(origin[1] + 30, 66)
             self.assertLess(origin[1], 66)  # native attack slots stay outside
             self.assertEqual(result['aligned'][0]['root_advance'], 16)
+            self.assertEqual(result['repair_poses']['repair'], (30, 0, 40))
             barriers.align_native_boards(root, root)
             self.assertEqual(json.loads(path.read_text())['entities'], es)
 
@@ -70,11 +71,22 @@ class BarrierTests(unittest.TestCase):
             clip = CollisionWorld(CollisionSummary('m', 0, 4, 2, 1),
                                   [(-500, -500, -568), (500, -500, -568), (500, 500, -568), (-500, 500, -568)],
                                   [0, 1, 2, 0, 2, 3], brushes=[sill], submodels=[SubModel((0, 0, 0), (0, 0, 0), [])])
-            result = barriers.align_native_boards(root, root, clip)
+            clip_file = root / 'fixture.clip.bin'
+            clip_data = struct.pack('<8sII', b'W2BSP001', 2, 1) + b'm'
+            clip_data += struct.pack('<II', 0, len(clip.vertices))
+            clip_data += b''.join(struct.pack('<3f', *vertex) for vertex in clip.vertices)
+            clip_data += struct.pack('<I6H', 2, *clip.indices)
+            clip_data += struct.pack('<I6fII', 1, *sill.mins, *sill.maxs, sill.contents, len(sill.planes))
+            clip_data += b''.join(struct.pack('<4fI', *normal, distance, material) for normal, distance, material in sill.planes)
+            clip_file.write_bytes(clip_data + struct.pack('<I', 0))
+            result = barriers.align_native_boards(root, root, clip, clip_source=clip_file)
             es = json.loads(path.read_text())['entities']
             origin = [float(x) for x in es[4]['origin'].split()]
             self.assertAlmostEqual(origin[0], 20)  # boards (not the clip brush) at 50 - native 30
             self.assertAlmostEqual(origin[2], -568 + 31)
             self.assertAlmostEqual(result['aligned'][0]['lift'], 15)
-            barriers.align_native_boards(root, root, clip)
+            barriers.align_native_boards(root, root, clip, clip_source=clip_file)
             self.assertEqual(json.loads(path.read_text())['entities'], es)
+            _, chunks = barriers.stage_native_boards(root, root, clip, clip_file)
+            self.assertEqual(chunks, {'windows': 1, 'dropped_brushes': 3})
+            self.assertEqual(json.loads(path.read_text())['entities'], [es[0], es[-1]])
