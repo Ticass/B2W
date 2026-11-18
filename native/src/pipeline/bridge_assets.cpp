@@ -7,6 +7,7 @@
 #include "core/asset_paths.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
+#include "extract/wawsource.h"
 #include "finish.h"
 #include "materials/donor_index.h"
 #include "materials_stage.h"
@@ -79,6 +80,19 @@ namespace w2b::pipeline::bridge
             catch (const weapons::WeaponError& error)
             {
                 throw StepError("WeaponError", error.what());
+            }
+        }
+
+        // WawSource::Compile; a failed compile fails the stage like the Python step
+        std::optional<fs::path> CompileSource(extract::WawSource& source, const std::string& kind, const std::string& name)
+        {
+            try
+            {
+                return source.Compile(kind, name);
+            }
+            catch (const extract::WawSourceError& error)
+            {
+                throw StepError("WawSourceError", error.what());
             }
         }
 
@@ -217,12 +231,14 @@ namespace w2b::pipeline::bridge
         });
     }
 
-    Names RecoverScriptModels(Json& report, const Names& wanted, std::vector<fs::path>& roots, extract::StockWaw* stock)
+    Names RecoverScriptModels(Json& scripts, Json& warnings, const Names& wanted, std::vector<fs::path>& roots, extract::StockWaw* stock,
+                              extract::WawSource* source)
     {
         // a setModel-only asset need not occur in the map's entity/model table:
         // those requests go through the complete WaW lookup, without BO2 substitution
         const auto sourceRoots = roots;
         std::vector<std::pair<std::string, fs::path>> stockRoots;
+        std::vector<fs::path> compiledRoots;
         const auto find = [&](const std::string& name) -> std::optional<fs::path>
         {
             const auto relative = assets::SourcePath({"xmodel", name});
@@ -247,35 +263,47 @@ namespace w2b::pipeline::bridge
         Json dependencies = Json::array();
         for (const auto& name : wanted)
         {
-            const auto path = find(name);
+            auto path = find(name);
+            std::string provenance = "compiled_waw";
+            if (!path && source)
+                if (const auto recovered = CompileSource(*source, "xmodel", name))
+                {
+                    compiledRoots.push_back(*recovered);
+                    path = *recovered / assets::SourcePath({"xmodel", name});
+                    provenance = "WAW_SOURCE_ASSET";
+                    warnings.push_back("WAW_SOURCE_ASSET xmodel " + name + ": compiled from WaW Mod Tools");
+                }
             Json node{{"name", name}, {"status", path ? "resolved" : "missing_waw_source"}};
             if (path)
             {
                 models.insert(name);
                 node["source"] = Str(*path);
-                node["provenance"] = "compiled_waw";
+                node["provenance"] = provenance;
             }
             dependencies.push_back(std::move(node));
         }
         std::ranges::stable_sort(stockRoots, {}, [](const auto& hit) { return std::pair{ZoneRank(hit.first), std::string_view(hit.first)}; });
         std::vector<fs::path> widened;
+        std::set<std::string> seen;
         const auto add = [&](const fs::path& root)
         {
-            if (std::ranges::find(widened, root) == widened.end())
+            if (seen.insert(Str(root)).second)
                 widened.push_back(root);
         };
         for (const auto& root : sourceRoots)
             add(root);
         for (const auto& [_, root] : stockRoots)
             add(root);
+        for (const auto& root : compiledRoots)
+            add(root);
         roots = std::move(widened);
-        report["scripts"]["requested_models"] = SortedNames(wanted);
-        report["scripts"]["model_sources"] = std::move(dependencies);
+        scripts["requested_models"] = SortedNames(wanted);
+        scripts["model_sources"] = std::move(dependencies);
         return models;
     }
 
     std::map<std::string, fs::path> RecoverMaterialSources(Json& report, const Names& names, std::vector<fs::path>& roots, extract::StockWaw* stock,
-                                                           const fs::path& stockMaterials, const std::optional<fs::path>& bo2Root)
+                                                           extract::WawSource* source, const fs::path& stockMaterials, const std::optional<fs::path>& bo2Root)
     {
         // compiled WaW definitions win; BO2 equivalents must be explicit or
         // exact-name matches, and keep their native image payloads
@@ -297,6 +325,17 @@ namespace w2b::pipeline::bridge
         {
             if (Find(roots, assets::MaterialPath(name)))
                 continue;
+            if (source)
+                if (const auto recovered = CompileSource(*source, "material", name))
+                {
+                    roots.push_back(*recovered);
+                    report["warnings"].push_back("WAW_SOURCE_ASSET material " + name + ": compiled from WaW Mod Tools");
+                    auto& node = closure["nodes"][nodeIndex.at(name)];
+                    node["status"] = "resolved";
+                    node["provenance"] = "WAW_SOURCE_ASSET";
+                    node["source"] = Str(*recovered / assets::MaterialPath(name));
+                    continue;
+                }
             // "*a_b_c" names are generated per compiled map from its own blend
             // components; BO2's generated/_a_b_c is another map's blend that
             // only shares the numbering

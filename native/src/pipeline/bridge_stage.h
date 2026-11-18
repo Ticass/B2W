@@ -27,9 +27,6 @@ namespace w2b::pipeline
 
         // throws StepError("ArgumentError") for an unknown or incomplete argument
         static BridgeStageOptions Parse(const std::vector<std::string>& args);
-        // the opt-in staging that still runs only in Python (--waw-source-fx);
-        // empty when this port covers it
-        std::string PythonOnlyOption() const;
     };
 
     // stages the map and prints the stage-bridge summary; returns 1 when the

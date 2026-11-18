@@ -1,5 +1,6 @@
 // Extraction caches (extract/cache.cpp) with a scripted unlinker.
 #include "extract/cache.h"
+#include "extract/wawsource.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -93,4 +94,13 @@ TEST_CASE("asset listings keep definitions, references only on request")
     CHECK(own == w2b::py::Json::parse(R"({"material": ["mc/foo"], "xmodel": ["body"]})"));
     const auto all = ListingJson(text, true);
     CHECK(all["image"] == w2b::py::Json::array({"shared"}));
+}
+
+TEST_CASE("Mod Tools source zones are named like wawsource.source_zone_name")
+{
+    CHECK(SourceZoneName("fx", "env/weather/fx_snow_blizzard_intense") == "w2bsrc_fx_env_weather_fx_snow_blizzard_intense");
+    CHECK(SourceZoneName("material", "mc/$default3d") == "w2bsrc_material_mc__default3d");
+    // linker_pc truncates zone names to 63 characters: long names end in a digest
+    CHECK(SourceZoneName("fx", "maps/zombie/some_really_long_effect_name_that_goes_past_the_limit_crack_blend_noscorch") ==
+          "w2bsrc_fx_maps_zombie_some_really_long_effect_name_t_3507a03c6c");
 }

@@ -18,6 +18,7 @@
 namespace w2b::extract
 {
     class StockWaw;
+    class WawSource;
 }
 
 namespace w2b::textures
@@ -36,15 +37,18 @@ namespace w2b::pipeline::bridge
     std::optional<py::Json> StageWeapons(py::Json& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& weapons,
                                          const Names& scriptModels, extract::StockWaw* stock, Names& sounds);
 
-    // recover_script_models: the wanted models some WaW zone defines;
-    // `roots` widens to the stock dumps that hold them
-    Names RecoverScriptModels(py::Json& report, const Names& wanted, std::vector<fs::path>& roots, extract::StockWaw* stock);
+    // recover_script_models: the wanted models some WaW zone (or, with
+    // `source`, a WaW Mod Tools source) defines; `roots` widens to the dumps
+    // that hold them, `scripts` gains requested_models and model_sources
+    Names RecoverScriptModels(py::Json& scripts, py::Json& warnings, const Names& wanted, std::vector<fs::path>& roots, extract::StockWaw* stock,
+                              extract::WawSource* source);
 
     // recover_material_sources: one lookup for world, HUD and weapon
     // materials; returns the BO2 equivalents used for materials no WaW source
     // defines (`roots` widens to the resolved roots)
     std::map<std::string, fs::path> RecoverMaterialSources(py::Json& report, const Names& names, std::vector<fs::path>& roots, extract::StockWaw* stock,
-                                                           const fs::path& stockMaterials, const std::optional<fs::path>& bo2Root);
+                                                           extract::WawSource* source, const fs::path& stockMaterials,
+                                                           const std::optional<fs::path>& bo2Root);
 
     struct MaterialOptions
     {

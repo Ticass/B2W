@@ -187,7 +187,7 @@ target_compile_definitions(w2b_imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 add_executable(B2W WIN32 src/app.manifest src/ui/main.cpp src/ui/app.cpp src/ui/views.cpp src/ui/theme.cpp src/ui/gpu.cpp src/ui/shell.cpp src/ui/previews.cpp)
 target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler dwmapi)
 
-add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp src/extract/stockwaw.cpp)
+add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp src/extract/stockwaw.cpp src/extract/wawsource.cpp)
 target_link_libraries(w2b_extract PUBLIC w2b_core)
 
 add_library(w2b_strings STATIC src/strings/localization.cpp)

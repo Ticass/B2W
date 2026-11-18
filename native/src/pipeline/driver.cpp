@@ -90,15 +90,14 @@ namespace w2b::pipeline
             currentStep = step;
         }
 
-        // stage-bridge in this process; the Python conversion worker stages
-        // only the opt-ins this port lacks, and WAW2BO2_NATIVE=0 selects the
-        // Python reference
+        // stage-bridge in this process; WAW2BO2_NATIVE=0 selects the Python
+        // reference (the conversion worker)
         void StageBridgeStep(const std::vector<std::string>& args)
         {
-            const auto options = BridgeStageOptions::Parse({args.begin() + 1, args.end()});
             const wchar_t* native = _wgetenv(L"WAW2BO2_NATIVE");
-            if (!options.PythonOnlyOption().empty() || (native && std::wstring(native) == L"0"))
+            if (native && std::wstring(native) == L"0")
                 return RunCli(args);
+            const auto options = BridgeStageOptions::Parse({args.begin() + 1, args.end()});
             SetStep("stage-bridge");
             if (const int code = StageBridge(options))
                 throw StepError("RuntimeError", "stage-bridge failed (" + std::to_string(code) + ")");

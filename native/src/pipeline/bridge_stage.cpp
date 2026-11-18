@@ -14,6 +14,7 @@
 #include "effects_stage.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
+#include "extract/wawsource.h"
 #include "finish.h"
 #include "gsc/port/api.h"
 #include "gsc/port/generators.h"
@@ -252,6 +253,7 @@ namespace w2b::pipeline
         private:
             void OpenSources();
             void StageGeometry();
+            void OpenModToolsSources();
             void PortScripts();
             void StageEffects(const std::vector<std::string>& names);
             void WriteEffectTable(const std::vector<std::string>& names);
@@ -280,6 +282,7 @@ namespace w2b::pipeline
             Json report_;
             std::vector<fs::path> roots_, imageIwds_;
             std::optional<extract::StockWaw> stock_;
+            std::optional<extract::WawSource> source_; // --waw-source-fx: WaW Mod Tools sources
             std::unique_ptr<textures::IwdRecovery> recovery_;
             Json recovered_ = Json::object(); // IWD images decoded so far (wavelet.recovered)
 
@@ -410,6 +413,20 @@ namespace w2b::pipeline
                 entityBoxModels_ = scriptModels_; // map-placed script_models: WaW collides each one
         }
 
+        // --waw-source-fx: assets in no compiled WaW zone compile from the Mod Tools sources
+        void BridgeStage::OpenModToolsSources()
+        {
+            if (!o_.wawSourceFx || !o_.wawRoot || !o_.t4Unlinker)
+                return;
+            const auto modTools = extract::WawSource::Locate(o_.wawModTools, o_.wawRoot, extract::ResourceRoot());
+            source_.emplace(*modTools, *o_.wawRoot, *o_.t4Unlinker, o_.wawSourceDumps.value_or(o_.stage / "waw_source_dumps"));
+            if (const auto problems = source_->Check(); !problems.empty())
+            {
+                report_["errors"].push_back("WaW Mod Tools sources unusable: " + mod::Join(problems, "; "));
+                source_.reset();
+            }
+        }
+
         void BridgeStage::PortScripts()
         {
             Timed("Port map scripts and animation dependencies", [&]
@@ -431,7 +448,7 @@ namespace w2b::pipeline
                                          Json{{"stage", Str(o_.stage)}, {"project_root", Str(projectRoot_)}, {"waw_map_script", Str(*o_.wawMapScript)},
                                               {"bo2_root", Str(*o_.bo2)}, {"roots", scriptRoots}, {"iwd_dirs", Paths(o_.iwdDirs.value_or(std::vector<fs::path>{}))},
                                               {"stock", Str(*o_.wawStockScripts)}, {"model_roots", Paths(roots_)},
-                                              {"stock_waw", bridge::StockRequest(stock_ ? &*stock_ : nullptr)}, {"source_waw", false},
+                                              {"stock_waw", bridge::StockRequest(stock_ ? &*stock_ : nullptr)}, {"source_waw", source_ ? source_->ToJson() : Json()},
                                               {"bo2_stock_perks", o_.bo2StockPerks}, {"waw_stock_map", o_.wawStockMap},
                                               {"stock_variant_roots", Paths(variantRoots)}});
                 if (Truthy(result["scripts"]))
@@ -454,6 +471,7 @@ namespace w2b::pipeline
                                                 {"stock_materials", Str(o_.stockMaterials)}, {"techset_dump", PathOrNull(o_.techsetDump)},
                                                 {"bo2_root", Str(*o_.bo2)}, {"iwd_dirs", Paths(iwdDirs)},
                                                 {"stock", bridge::StockRequest(stock_ ? &*stock_ : nullptr)},
+                                                {"source_waw", source_ ? source_->ToJson() : Json()},
                                                 {"layered_vertex_data", layeredVertexData_}, {"workers", bridge::WorkerCount(names.empty() ? 1 : names.size())}},
                                            *recovery_);
             bridge::AdoptPrepared(stock_ ? &*stock_ : nullptr, result);
@@ -656,7 +674,8 @@ namespace w2b::pipeline
                 weaponMaterials = Union(weaponMaterials, NameSet((*weaponReport_)["dependencies"].value("material", Json::array())));
             }
             auto* stock = stock_ ? &*stock_ : nullptr;
-            nativeFallbacks_ = bridge::RecoverMaterialSources(report_, Union(names, weaponMaterials), roots_, stock, o_.stockMaterials, o_.bo2);
+            nativeFallbacks_ = bridge::RecoverMaterialSources(report_, Union(names, weaponMaterials), roots_, stock, source_ ? &*source_ : nullptr,
+                                                              o_.stockMaterials, o_.bo2);
             if (o_.techsetDump)
                 report_["content"]["source_impact_materials"] =
                     bridge::StageImpactMaterials(projectRoot_, roots_, *o_.techsetDump, stock, *recovery_, recovered_, layeredVertexData_);
@@ -831,6 +850,7 @@ namespace w2b::pipeline
             StageGeometry();
             if (!o_.wawMapScript || !o_.bo2)
                 throw StepError("StageError", "the native bridge stage needs --waw-map-script and --bo2");
+            OpenModToolsSources();
             PortScripts();
             const auto listened = NameSet(Script(report_, "client_listener_strings"));
             const auto entitiesJson = projectRoot_ / "BSP/entities.json";
@@ -872,7 +892,8 @@ namespace w2b::pipeline
             for (const auto& model : staticModels_)
                 worldModels.insert(model[0].get<std::string>());
             // entity placements need the same complete lookup as script-only models
-            resolved_ = bridge::RecoverScriptModels(report_, Union(Union(Union(scriptModels_, shipped_), clipModels_), worldModels), roots_, stock);
+            resolved_ = bridge::RecoverScriptModels(report_["scripts"], report_["warnings"], Union(Union(Union(scriptModels_, shipped_), clipModels_), worldModels),
+                                                    roots_, stock, source_ ? &*source_ : nullptr);
             if (mod::IsFile(entitiesJson))
             {
                 // an entity naming a model no WaW zone or source has: WaW loads
@@ -1003,15 +1024,10 @@ namespace w2b::pipeline
         return o;
     }
 
-    std::string BridgeStageOptions::PythonOnlyOption() const
-    {
-        return wawSourceFx ? "--waw-source-fx" : std::string();
-    }
-
     int StageBridge(const BridgeStageOptions& options)
     {
-        if (const auto option = options.PythonOnlyOption(); !option.empty())
-            throw StepError("NotImplementedError", option + " is staged by the Python conversion worker");
+        if (options.wawSourceFx && !extract::WawSource::Locate(options.wawModTools, options.wawRoot, extract::ResourceRoot()))
+            throw StepError("ArgumentError", "--waw-source-fx needs the WaW Mod Tools (--waw-mod-tools; none found automatically)");
         const timeline::Span span("cli stage-bridge");
         gsc::port::SetCompatDir(extract::ResourceRoot() / "src/waw2bo2/compat");
         BridgeStage stage(options);

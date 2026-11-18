@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -145,7 +146,7 @@ namespace w2b::process
         CloseHandle(errRead);
         return result;
     }
-    Result RunMerged(const std::vector<std::string>& args, const std::string& cwd, void (*onLine)(const std::string&))
+    Result RunMerged(const std::vector<std::string>& args, const std::string& cwd, void (*onLine)(const std::string&), const double timeoutSeconds)
     {
         SECURITY_ATTRIBUTES inherit{sizeof(inherit), nullptr, TRUE};
         HANDLE outRead{}, outWrite{};
@@ -176,6 +177,19 @@ namespace w2b::process
             throw std::runtime_error("cannot start " + (args.empty() ? std::string() : args[0]));
         }
         Result result;
+        // the watchdog ends a process that outlives its timeout; its closed
+        // pipe then ends the read loop
+        std::atomic<bool> timedOut{false};
+        std::thread watchdog;
+        if (timeoutSeconds >= 0)
+            watchdog = std::thread([&]
+            {
+                if (WaitForSingleObject(info.hProcess, static_cast<DWORD>(timeoutSeconds * 1000)) == WAIT_TIMEOUT)
+                {
+                    timedOut = true;
+                    TerminateProcess(info.hProcess, 1);
+                }
+            });
         char buffer[65536];
         DWORD read = 0;
         size_t lineStart = 0;
@@ -197,11 +211,14 @@ namespace w2b::process
             onLine(result.out.substr(lineStart));
         CloseHandle(outRead);
         WaitForSingleObject(info.hProcess, INFINITE);
+        if (watchdog.joinable())
+            watchdog.join();
         DWORD code = 0;
         GetExitCodeProcess(info.hProcess, &code);
         CloseHandle(info.hProcess);
         CloseHandle(info.hThread);
         result.exitCode = static_cast<int>(code);
+        result.timedOut = timedOut;
         return result;
     }
     int RunInherited(const std::vector<std::string>& args, const std::vector<std::wstring>& env, void (*onExit)(void*, void*), void* context)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/timeline.h"
 #include "pipeline/modutil.h"
 
 #include <chrono>
@@ -10,9 +11,10 @@ namespace w2b::pipeline::bridge
     using mod::Str;
     using py::Json;
 
-    // progress.timed's lines
+    // progress.timed's lines, and the step's span in the build timeline
     template <typename F> auto Timed(const std::string& label, F&& f)
     {
+        const timeline::Span span(label);
         mod::Print("[staging] " + label + "...");
         const auto started = std::chrono::steady_clock::now();
         auto result = f();

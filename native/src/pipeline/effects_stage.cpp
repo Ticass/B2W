@@ -5,6 +5,7 @@
 #include "core/zip.h"
 #include "effects/stage.h"
 #include "extract/stockwaw.h"
+#include "extract/wawsource.h"
 #include "materials/donor_index.h"
 #include "materials/fxmaterials.h"
 #include "materials/techsets.h"
@@ -160,8 +161,6 @@ namespace w2b::pipeline
 
     Json StageEffectsStep(const Json& request, textures::IwdRecovery& recovery)
     {
-        if (request.value("source_waw", false))
-            throw StepError("NotImplementedError", "effects compiled from WaW Mod Tools sources are staged by the Python step");
         const auto names = request["names"];
         auto roots = Paths(request["roots"]);
         const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
@@ -170,6 +169,7 @@ namespace w2b::pipeline
         const auto bo2Root = files::FromUtf8(request["bo2_root"].get<std::string>());
         IwdFormats formats(Paths(request["iwd_dirs"]));
         auto stock = extract::StockWaw::FromJson(request.value("stock", Json()));
+        auto modToolsSource = extract::WawSource::FromJson(request.value("source_waw", Json()));
         Json warnings = Json::array(), errors = Json::array(), materialsReport = Json::array(), images = Json::array(), recovered = Json::object();
         std::vector<fs::path> extraRoots;
         std::set<std::string> techsets;
@@ -204,6 +204,29 @@ namespace w2b::pipeline
                 extraRoots.push_back(hit->second);
             return hit->second / rel;
         };
+        // GUIDELINES 27 source 4: only asked for effects no WaW zone defines;
+        // effect compiled from Mod Tools source -> its linker warnings
+        std::map<std::string, std::vector<std::string>> sourceUsed;
+        const auto fromSource = [&](const std::string& name) -> std::optional<fs::path>
+        {
+            const auto rel = fs::path("fx") / files::FromUtf8(name + ".w2bfx.json");
+            std::optional<fs::path> root;
+            try
+            {
+                root = modToolsSource->Compile("fx", name);
+            }
+            catch (const extract::WawSourceError& error)
+            {
+                errors.push_back("fx " + name + ": " + error.what());
+                return std::nullopt;
+            }
+            if (!root || !fs::exists(*root / rel, e))
+                return std::nullopt;
+            sourceUsed[name] = modToolsSource->LinkWarnings("fx", name);
+            if (std::find(extraRoots.begin(), extraRoots.end(), *root) == extraRoots.end())
+                extraRoots.push_back(*root);
+            return *root / rel;
+        };
         // fx.closure: every script effect plus everything those effects reference
         std::map<std::string, fs::path> effects;
         std::map<std::string, std::string> absent;
@@ -230,6 +253,8 @@ namespace w2b::pipeline
                     }
                 if (!src)
                     src = fromStock("fx", fs::path("fx") / files::FromUtf8(name + ".w2bfx.json"));
+                if (!src && modToolsSource)
+                    src = fromSource(name);
                 if (!src)
                 {
                     absent[name] = parent;
@@ -245,8 +270,15 @@ namespace w2b::pipeline
                     stack.emplace_back(x, name);
             }
         }
+        const std::string where = modToolsSource ? "no zone of the WaW install and no WaW Mod Tools source" : "no zone of the WaW install";
         for (const auto& [name, parent] : absent)
-            warnings.push_back("WAW_FX_ABSENT " + name + " (loaded by " + parent + "): no zone of the WaW install defines it, so WaW plays nothing either; skipped");
+            warnings.push_back("WAW_FX_ABSENT " + name + " (loaded by " + parent + "): " + where + " defines it, so WaW plays nothing either; skipped");
+        for (const auto& [name, missing] : sourceUsed)
+        {
+            warnings.push_back("WAW_SOURCE_ASSET fx " + name + ": in no compiled WaW zone; compiled from WaW Mod Tools raw/fx with the WaW linker");
+            for (const auto& line : missing)
+                warnings.push_back("fx " + name + ": WaW linker: " + line);
+        }
         // the materials the effects draw with
         const auto allRoots = [&]
         {

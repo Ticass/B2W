@@ -19,9 +19,12 @@ namespace w2b::process
     // A negative timeout waits for the process to finish.
     Result Run(const std::vector<std::string>& args, std::string_view input, double timeoutSeconds = -1.0);
 
-    // subprocess.run(args, cwd=cwd, stdout=PIPE, stderr=STDOUT): one merged output;
-    // onLine (optional) sees each line as it arrives (verbose tool streaming)
-    Result RunMerged(const std::vector<std::string>& args, const std::string& cwd = "", void (*onLine)(const std::string&) = nullptr);
+    // subprocess.run(args, cwd=cwd, stdin=DEVNULL, stdout=PIPE, stderr=STDOUT):
+    // one merged output; onLine (optional) sees each line as it arrives
+    // (verbose tool streaming). A non-negative timeout terminates the process
+    // after that many seconds and sets timedOut.
+    Result RunMerged(const std::vector<std::string>& args, const std::string& cwd = "", void (*onLine)(const std::string&) = nullptr,
+                     double timeoutSeconds = -1.0);
 
     // subprocess.run(args) with this console: the child writes straight to our
     // stdout/stderr. env: extra NAME=value entries; handle receives the

@@ -8,6 +8,8 @@
 #include "core/pyre.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
+#include "extract/wawsource.h"
+#include "bridge_assets.h"
 #include "gsc/port/api.h"
 #include "gsc/port/clientport.h"
 #include "gsc/port/generators.h"
@@ -205,8 +207,6 @@ namespace w2b::pipeline
     Json PortScripts(const fs::path& requestPath)
     {
         const auto request = ReadJson(requestPath);
-        if (!request["source_waw"].is_null() && request["source_waw"].get<bool>())
-            throw StepError("NotImplementedError", "WaW Mod Tools sources are recovered by the Python step");
         const auto stage = files::FromUtf8(request["stage"].get<std::string>());
         const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
         const auto mapScript = files::FromUtf8(request["waw_map_script"].get<std::string>());
@@ -214,6 +214,7 @@ namespace w2b::pipeline
         auto modelRoots = Paths(request["model_roots"]);
         const bool stockPerks = request.value("bo2_stock_perks", false), stockMap = request.value("waw_stock_map", false);
         auto stock = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
+        auto modToolsSource = extract::WawSource::FromJson(request.value("source_waw", Json()));
         const auto mapName = files::Utf8(mapScript.stem());
         Json warnings = Json::array(), errors = Json::array(), scripts = Json::object();
         const auto finish = [&](const std::set<std::string>& models)
@@ -503,26 +504,7 @@ namespace w2b::pipeline
             }
         }
         // recover_script_models: runtime model dependencies through the complete WaW lookup
-        std::set<std::string> models;
-        {
-            Resolver resolver(modelRoots, stock ? &*stock : nullptr);
-            Json dependencies = Json::array();
-            for (const auto& name : wanted)
-            {
-                const auto path = resolver.Find("xmodel", name);
-                Json node{{"name", name}, {"status", path ? "resolved" : "missing_waw_source"}};
-                if (path)
-                {
-                    models.insert(name);
-                    node["source"] = Str(*path);
-                    node["provenance"] = "compiled_waw";
-                }
-                dependencies.push_back(node);
-            }
-            modelRoots = Dedupe(resolver.Roots());
-            scripts["requested_models"] = std::vector<std::string>(wanted.begin(), wanted.end());
-            scripts["model_sources"] = dependencies;
-        }
+        const auto models = bridge::RecoverScriptModels(scripts, warnings, wanted, modelRoots, stock ? &*stock : nullptr, modToolsSource ? &*modToolsSource : nullptr);
         std::set<std::string> missing;
         for (const auto& name : wanted)
             if (!models.count(name) && !stockModels.count(Lower(name)))
