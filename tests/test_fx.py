@@ -128,9 +128,11 @@ class ElementTranslation(unittest.TestCase):
             with patch.dict(os.environ, {'WAW2BO2_NATIVE': '0'}):
                 [reference_name] = t6bridge.stage_model_overlay_fx(report, root)
             reference = fx.fx_file(root, reference_name).read_bytes()
+            reference_script = assets.read_bytes()
             names = t6bridge.stage_model_overlay_fx(report, root)
             self.assertEqual(names, [reference_name])
             self.assertEqual(fx.fx_file(root, names[0]).read_bytes(), reference)
+            self.assertEqual(assets.read_bytes(), reference_script)
             text = assets.read_text()
             self.assertEqual(t6bridge.stage_model_overlay_fx(report, root), names)
             self.assertEqual(assets.read_text(), text)

@@ -1,9 +1,11 @@
 #include "effects/stage.h"
 
 #include "core/files.h"
+#include "core/parallel.h"
 #include "effects/effect.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
 
@@ -12,6 +14,12 @@ namespace w2b::effects
     namespace
     {
         using py::Json;
+
+        struct Overlay
+        {
+            Json entry;
+            std::string bytes;
+        };
 
         bool Zero(const Json& value)
         {
@@ -55,7 +63,7 @@ namespace w2b::effects
             return name.starts_with(modelPrefix) ? name.substr(modelPrefix.size()) : std::string{};
         }
 
-        Json StageVariants(const files::fs::path& root, const std::string& source, Json effect)
+        std::vector<Overlay> StageVariants(const std::string& source, const Json& effect)
         {
             const auto first = effect.at("elemDefCountLooping").get<std::size_t>();
             const auto end = first + effect.at("elemDefCountOneShot").get<std::size_t>();
@@ -65,7 +73,7 @@ namespace w2b::effects
                 if (auto name = StationaryModel(elements.at(i)); !name.empty())
                     models[std::move(name)].push_back(i);
 
-            auto entries = Json::array();
+            std::vector<Overlay> entries;
             for (const auto& [name, removed] : models)
             {
                 auto variant = effect;
@@ -80,28 +88,116 @@ namespace w2b::effects
                     variant["flags"] = effect.at("flags").get<unsigned>() & ~0x20u;
                 variant["elemDefs"] = std::move(kept);
                 variant["totalSize"] = AllocationSize(variant);
-                files::WriteText(root / files::FromUtf8(variantName + ".w2bfx.json"), py::JsonDumps(variant, 1) + "\n");
-                entries.push_back({{"source", source}, {"model", name}, {"variant", variantName}});
+                entries.push_back({{{"source", source}, {"model", name}, {"variant", variantName}},
+                                   py::JsonDumps(variant, 1) + "\n"});
             }
             return entries;
+        }
+
+        Json StageOverlays(const files::fs::path& root, const Json& effects)
+        {
+            const auto table = effects.get<std::map<std::string, std::string>>();
+            const std::vector<std::pair<std::string, std::string>> inputs(table.begin(), table.end());
+            auto variants = Json::array();
+            const auto read = [&](const auto& input) -> std::vector<Overlay>
+            {
+                const auto& [source, name] = input;
+                const auto path = root / files::FromUtf8(name + ".w2bfx.json");
+                std::string bytes;
+                if (!files::ReadBytes(path, bytes))
+                {
+                    if (!files::fs::exists(path))
+                        return {};
+                    throw std::runtime_error("cannot read " + files::Utf8(path));
+                }
+                return StageVariants(source, Json::parse(bytes));
+            };
+            const auto write = [&](std::vector<Overlay>&& entries)
+            {
+                for (auto& [entry, bytes] : entries)
+                {
+                    const auto& name = entry.at("variant").get_ref<const std::string&>();
+                    files::WriteText(root / files::FromUtf8(name + ".w2bfx.json"), bytes);
+                    variants.push_back(std::move(entry));
+                }
+            };
+
+            // A generated variant can also be an input. Preserve source order
+            // in that case so the reader sees any variant already written.
+            const bool mayReadOutput = std::ranges::any_of(inputs, [](const auto& input)
+            {
+                auto name = input.second;
+                std::ranges::transform(name, name.begin(), [](unsigned char c)
+                {
+                    return static_cast<char>(std::tolower(c));
+                });
+                const auto leaf = std::string_view(name).substr(name.find_last_of("/\\") + 1);
+                return leaf.starts_with("reuse_model_");
+            });
+            if (mayReadOutput)
+            {
+                for (const auto& input : inputs)
+                    write(read(input));
+            }
+            else
+            {
+                std::vector<std::vector<Overlay>> prepared(inputs.size());
+                parallel::For(inputs.size(), [&](std::size_t i) { prepared[i] = read(inputs[i]); }, 4);
+                for (auto& entries : prepared)
+                    write(std::move(entries));
+            }
+            return variants;
         }
     }
 
     py::Json StageOverlayEffects(const files::fs::path& requestPath)
     {
         const auto request = Json::parse(files::ReadText(requestPath));
-        const auto root = files::FromUtf8(request.at("project").get<std::string>()) / "fx";
-        const auto table = request.at("effects").get<std::map<std::string, std::string>>();
-        auto variants = Json::array();
-        for (const auto& [source, name] : table)
+        return StageOverlays(files::FromUtf8(request.at("project").get<std::string>()) / "fx", request.at("effects"));
+    }
+
+    py::Json StageModelOverlayRuntime(const files::fs::path& root, const py::Json& effects)
+    {
+        auto entries = StageOverlays(root / "fx", effects);
+        const auto assets = root / "maps/mp/waw/_waw2bo2_assets.gsc";
+        if (!files::fs::exists(assets))
+            return entries;
+
+        auto text = files::ReadText(assets);
+        constexpr std::string_view beginMarker = "\n    // BEGIN MODEL OVERLAY FX";
+        constexpr std::string_view endMarker = "    // END MODEL OVERLAY FX\n";
+        std::size_t cursor = 0;
+        while ((cursor = text.find(beginMarker, cursor)) != text.npos)
         {
-            const auto path = root / files::FromUtf8(name + ".w2bfx.json");
-            if (!files::fs::exists(path))
-                continue;
-            auto entries = StageVariants(root, source, Json::parse(files::ReadText(path)));
-            for (auto& entry : entries)
-                variants.push_back(std::move(entry));
+            const auto end = text.find(endMarker, cursor + beginMarker.size());
+            if (end == text.npos)
+                break;
+            text.erase(cursor, end + endMarker.size() - cursor);
         }
-        return variants;
+        constexpr std::string_view init = "init()\n{";
+        if (const auto start = text.find(init); start != text.npos)
+        {
+            const std::string table = "    level.waw2bo2_model_overlay_fx";
+            std::string block(beginMarker);
+            block += "\n" + table + " = [];\n";
+            std::set<std::string> sources;
+            for (const auto& entry : entries)
+                sources.insert(entry.at("source").get<std::string>());
+            for (const auto& source : sources)
+                block += table + "[" + py::JsonDumpsDefault(source) + "] = [];\n";
+            for (const auto& entry : entries)
+                block += table + "[" + py::JsonDumpsDefault(entry.at("source")) + "][" +
+                         py::JsonDumpsDefault(entry.at("model")) + "] = " + py::JsonDumpsDefault(entry.at("variant")) + ";\n";
+            block += endMarker;
+            text.insert(start + init.size(), block);
+        }
+        files::WriteText(assets, text);
+        return entries;
+    }
+
+    py::Json StageModelOverlayRuntimeRequest(const files::fs::path& requestPath)
+    {
+        const auto request = Json::parse(files::ReadText(requestPath));
+        return StageModelOverlayRuntime(files::FromUtf8(request.at("project").get<std::string>()), request.at("effects"));
     }
 }

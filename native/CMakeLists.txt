@@ -77,10 +77,11 @@ target_compile_definitions(w2b_base64 PRIVATE ARGTYPE=4)
 
 add_library(w2b_weapons STATIC src/weapons/infostring.cpp src/weapons/convert.cpp src/weapons/defaults.cpp
     src/weapons/sources.cpp src/weapons/plan.cpp src/weapons/flame_table.cpp src/weapons/stage.cpp
-    src/weapons/models.cpp src/weapons/skeleton.cpp src/weapons/rebind.cpp src/weapons/viewmodels.cpp src/weapons/physics_preset.cpp)
+    src/weapons/models.cpp src/weapons/skeleton.cpp src/weapons/rebind.cpp src/weapons/viewmodels.cpp
+    src/weapons/physics_preset.cpp src/weapons/water_bullets.cpp)
 target_link_libraries(w2b_weapons PUBLIC w2b_core PRIVATE w2b_base64)
 
-add_library(w2b_models STATIC src/models/bounds.cpp src/models/geometry.cpp src/models/stage.cpp)
+add_library(w2b_models STATIC src/models/bounds.cpp src/models/geometry.cpp src/models/stage.cpp src/models/effect_assets.cpp)
 target_link_libraries(w2b_models PUBLIC w2b_weapons)
 
 add_library(w2b_assets STATIC src/assets/paths.cpp src/assets/dependencies.cpp src/assets/resolver.cpp)

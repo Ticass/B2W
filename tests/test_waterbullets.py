@@ -1,9 +1,11 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from waw2bo2 import waterbullets
+from waw2bo2 import t6bridge, waterbullets
 
 WAW_TABLE = ("BULLET_PEN_TABLE\\small_wood\\72\\small_water\\96\\medium_water\\128\\large_water\\128"
              "\\large_wood\\192")
@@ -53,6 +55,33 @@ class WaterBulletsTest(unittest.TestCase):
         source = waterbullets.water_bullets_source({})
         self.assertIn("init()\n{\n}", source)
         self.assertNotIn("weapon_fired", source)
+
+    def test_stage_water_bullets_matches_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            table_path = root / waterbullets.PENETRATION_TABLE
+            table_path.parent.mkdir()
+            table_path.write_text(WAW_TABLE, encoding="utf-8")
+            weapons = root / "content_source/weapons"
+            weapons.mkdir(parents=True)
+            _weapon(weapons, "shotgun", weaponType="bullet", penetrateType="medium", shotCount=8.5,
+                    hipSpreadStandMin="bad", hipSpreadMax="1.345678", adsSpread="0.00001234")
+            _weapon(weapons, "rocket", weaponType="projectile", penetrateType="medium")
+            script = root / "maps/mp/waw/_waw2bo2_water_bullets.gsc"
+            script.parent.mkdir(parents=True)
+            names = {"source_gun": "shotgun", "duplicate": "shotgun", "source_rocket": "rocket"}
+            for contents, roots in ((0x20, [root]), (0x20, []), (0x1, [root])):
+                with self.subTest(contents=contents, roots=roots):
+                    clip = SimpleNamespace(brushes=[SimpleNamespace(contents=contents)])
+                    expected = t6bridge.StageReport(project="test")
+                    with patch.dict(os.environ, {"WAW2BO2_NATIVE": "0"}):
+                        t6bridge.stage_water_bullets(expected, clip, roots, root, names)
+                    expected_script = script.read_bytes()
+                    report = t6bridge.StageReport(project="test")
+                    t6bridge.stage_water_bullets(report, clip, roots, root, names)
+                    self.assertEqual(script.read_bytes(), expected_script)
+                    self.assertEqual(report.content, expected.content)
+                    self.assertEqual(report.warnings, expected.warnings)
 
 
 if __name__ == "__main__":

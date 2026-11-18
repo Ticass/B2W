@@ -84,6 +84,7 @@ The remaining small modules move with the area that uses them.
 | Link window traversals and extend path visibility | yes | Cheese Cube Unlimited matched both staged files. A 3,073-node fixture matched all 19 new endpoints, the packed visibility data, and two unsupported-window diagnostics. | 0.061 s / 0.050 s (fixture, including native process startup) |
 | Align barricades, remove replaced chunks, and retime board repairs | yes | Cheese Cube Unlimited matched its entity stage and six retimed BO2 repair files. A fixture on its collision data matched floor alignment and removal of two source brushes. | 0.024 s / 0.008 s (entities), 0.036 s / 0.004 s (timing plus repairs) |
 | Stage map models, collision boxes, and model lighting origins | yes | Cheese Cube Unlimited matched 341 staged files, 161 placements, 39 generated collision boxes, 202 materials, and reports. Models that share an output file retain source order. | 0.186 s / 0.382 s (cached dumps) |
+| Stage effect models, model overlay scripts, and water bullet runtime | yes | Cheese Cube Unlimited matched 21 files, including 18 effect models and one overlay variant, plus report entries. A separate water fixture matched weapon spread formatting, the dry script, and missing-table diagnostics. | 0.124 s / 0.102 s (three stages through the Python driver), 0.063 s / 0.083 s (overlays alone) |
 
 `waw2bo2n inspect <gfx> <clip>` and `waw2bo2n world-fbx <gfx> <output.fbx>`
 run directly, as does `waw2bo2n dds2iwi <source> <output>` for files or directories.

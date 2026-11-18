@@ -19,6 +19,7 @@
 #include "materials/donor_index.h"
 #include "materials/prepare.h"
 #include "weapons/stage.h"
+#include "weapons/water_bullets.h"
 #include "physics/physics.h"
 #include "mapents/entities.h"
 #include "paths/paths.h"
@@ -568,6 +569,7 @@ namespace
         {"index-donors", JsonRequest<w2b::materials::IndexDonors>},
         {"convert-effects", JsonRequest<w2b::effects::StageEffects>},
         {"stage-weapon-files", JsonRequest<w2b::weapons::StageWeapons>},
+        {"stage-water-bullets", JsonRequest<w2b::weapons::StageWaterBulletsRequest>},
         {"stage-weapon-models", JsonRequest<w2b::weapons::StageModels>},
         {"stage-viewmodel-shadows", JsonRequest<w2b::weapons::StageShadowVariants>},
         {"resolve-assets", ResolveAssets},
@@ -579,6 +581,8 @@ namespace
         {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatch>},
         {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
         {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},
+        {"stage-model-overlay-runtime", JsonRequest<w2b::effects::StageModelOverlayRuntimeRequest>},
+        {"stage-effect-models", JsonRequest<w2b::models::StageEffectAssetsRequest>},
         {"prepare-materials", [](const Arguments& a)
         {
             if (a.size() != 1)

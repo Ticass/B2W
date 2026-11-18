@@ -1148,6 +1148,14 @@ def stage_fx_models(report: StageReport, project_root: Path, names: set[str]) ->
     Geometry and materials are the already staged WaW sources. The independent
     asset name prevents an FX dependency from resolving to a preloaded BO2 model.
     """
+    if names and native.tool() is not None:
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_fx_models_') as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps({'project': str(project_root), 'names': sorted(names)}), encoding='utf-8')
+            result = json.loads(native.run('stage-effect-models', str(request)))
+        report.errors.extend(result['errors'])
+        report.content['fx_model_assets'] = result['entries']
+        return {entry['name'] for entry in result['entries']}
     staged = set()
     entries = []
     for name in sorted(names):
@@ -1173,6 +1181,13 @@ def stage_fx_models(report: StageReport, project_root: Path, names: set[str]) ->
 
 
 def stage_model_overlay_fx(report: StageReport, project_root: Path) -> list[str]:
+    if native.tool() is not None:
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_fx_overlays_') as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps({'project': str(project_root), 'effects': report.fx_table}), encoding='utf-8')
+            entries = json.loads(native.run('stage-model-overlay-runtime', str(request)))
+        report.content['model_overlay_fx'] = entries
+        return [entry['variant'] for entry in entries]
     entries = fx.stage_model_overlays(project_root, report.fx_table)
     assets = project_root / 'maps/mp/waw/_waw2bo2_assets.gsc'
     if assets.exists():
@@ -1429,8 +1444,20 @@ def stage_scripts(report: StageReport, project: str, project_root: Path,
 def stage_water_bullets(report: StageReport, clip, roots: list[Path], project_root: Path,
                         weapon_table: dict[str, str]) -> None:
     """Continue player bullets through WaW water (waterbullets: T6 drops their damage)."""
+    has_water = waterbullets.has_water(clip)
+    if native.tool() is not None:
+        with tempfile.TemporaryDirectory(prefix='waw2bo2_water_bullets_') as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps({'project': str(project_root), 'hasWater': has_water,
+                                           'roots': list(map(str, roots)), 'weapons': weapon_table}), encoding='utf-8')
+            result = json.loads(native.run('stage-water-bullets', str(request)))
+        if 'warning' in result:
+            report.warnings.append(result['warning'])
+        if 'content' in result:
+            report.content['water_bullets'] = result['content']
+        return
     rows = {}
-    if waterbullets.has_water(clip):
+    if has_water:
         table = _find(roots, waterbullets.PENETRATION_TABLE)
         if table is None:
             report.warnings.append(f"WATER_BULLETS_NO_TABLE {waterbullets.PENETRATION_TABLE.as_posix()} in no "

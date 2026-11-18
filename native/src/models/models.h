@@ -30,4 +30,6 @@ namespace w2b::models
     Json StageModels(const Path& project, const Path& partCsv, std::vector<Path> roots, Json placements,
                      std::set<std::string, std::less<>> extraModels, std::set<std::string, std::less<>> boxModels);
     Json Stage(const Path& request);
+    Json StageEffectAssets(const Path& project, const std::set<std::string>& names);
+    Json StageEffectAssetsRequest(const Path& request);
 }
