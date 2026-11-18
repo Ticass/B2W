@@ -21,6 +21,9 @@ import re
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from . import native
 
 # WaW nodeType -> T6 nodeType
 T4_WIDE_RIGHT, T4_WIDE_LEFT, T4_CONCEALMENT_STAND = 8, 9, 10
@@ -83,7 +86,7 @@ def traverse_substates(asd_text: str) -> set[str]:
 
 def _heights(substates: set[str], prefix: str) -> dict[int, str]:
     found = {}
-    for alias in substates:
+    for alias in sorted(substates):
         match = re.fullmatch(prefix + r"(\d+)", alias)
         if match:
             found[int(match.group(1))] = alias
@@ -116,9 +119,9 @@ def traverse_alias_measured(animscript: str, height: float | None, substates: se
         return None
     downs, ups = _heights(substates, "jump_down_"), _heights(substates, "jump_up_")
     if height < 0 and downs:
-        return downs[_nearest(-height, tuple(downs))]
+        return downs[_nearest(-height, tuple(sorted(downs)))]
     if height >= 0 and ups:
-        best = _nearest(height, tuple(ups))
+        best = _nearest(height, tuple(sorted(ups)))
         if abs(best - height) > 24 and "jump_up_2_climb" in substates:
             return "jump_up_2_climb"
         return ups[best]
@@ -179,6 +182,33 @@ def animscripts(waw: dict) -> set[str]:
 
 
 def convert_paths(waw: dict, substates: set[str] | None = None,
+                  dog_calls: dict[str, list[str]] | None = None) -> tuple[dict, dict[str, str], PathSummary]:
+    if native.tool() is not None:
+        result = _run_native(graph=waw, substates=sorted(substates) if substates is not None else None,
+                             dogCalls=dog_calls or {})
+        return result['manifest'], result['renamed'], _path_summary(result['summary'])
+    return _convert_python(waw, substates, dog_calls)
+
+
+def _run_native(**fields) -> dict:
+    with TemporaryDirectory(prefix='waw2bo2_paths_') as folder:
+        request = Path(folder) / 'request.json'
+        request.write_text(json.dumps(fields), encoding='utf-8')
+        result = json.loads(native.run('stage-ai-paths', str(request)))
+    if 'pathError' in result:
+        raise PathError(result['pathError'])
+    if 'syntaxError' in result:
+        from .gsc import GscSyntaxError
+        raise GscSyntaxError(result['syntaxError'])
+    return result
+
+
+def _path_summary(fields: dict) -> PathSummary:
+    fields['generated'] = {key: tuple(value) for key, value in fields['generated'].items()}
+    return PathSummary(**fields)
+
+
+def _convert_python(waw: dict, substates: set[str] | None = None,
                   dog_calls: dict[str, list[str]] | None = None) -> tuple[dict, dict[str, str], PathSummary]:
     """Returns (T6 paths json, {WaW animscript: T6 animscript}, summary).
     ``substates``: the zombie's zm_traverse aliases (traverse_substates); a
@@ -370,6 +400,10 @@ def stage_paths(paths_file: Path, bsp_dir: Path, project_root: Path,
     scripts give the dog branches (traversals.py).
     Returns (summary, renamed, traversals.DogTraversals)."""
     from . import traversals
+    if native.tool() is not None:
+        result = _run_native(source=str(paths_file), bsp=str(bsp_dir), project=str(project_root),
+                             asd=str(asd) if asd is not None else None, roots=list(map(str, script_roots or [])))
+        return _path_summary(result['summary']), result['renamed'], traversals.DogTraversals(**result['dogs'])
     waw = json.loads(paths_file.read_text(encoding="utf-8"))
     dogs = traversals.source_dog_traversals(script_roots or [], animscripts(waw)) if script_roots         else traversals.DogTraversals()
     substates = None
@@ -377,7 +411,7 @@ def stage_paths(paths_file: Path, bsp_dir: Path, project_root: Path,
         substates = traverse_substates(asd.read_text(encoding="utf-8", errors="replace"))
         if not substates:
             raise PathError(f"{asd}: no zm_traverse substates with _crawl twins")
-    t6, renamed, summary = convert_paths(waw, substates, dogs.calls)
+    t6, renamed, summary = _convert_python(waw, substates, dogs.calls)
     bsp_dir.mkdir(parents=True, exist_ok=True)
     (bsp_dir / "paths.json").write_text(json.dumps(t6, separators=(",", ":")) + "\n", encoding="utf-8")
     folder = project_root / "maps" / "mp" / "animscripts" / "traverse"

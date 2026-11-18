@@ -91,6 +91,9 @@ add_library(w2b_mapents STATIC src/mapents/parse.cpp src/mapents/convert.cpp src
     src/mapents/write.cpp src/mapents/zones.cpp)
 target_link_libraries(w2b_mapents PUBLIC w2b_world)
 
+add_library(w2b_paths STATIC src/paths/aliases.cpp src/paths/convert.cpp src/paths/dogs.cpp src/paths/stage.cpp)
+target_link_libraries(w2b_paths PUBLIC w2b_gsc)
+
 add_library(w2b_world STATIC
     src/world/vertices.cpp
     src/world/bsp_visibility.cpp
@@ -158,7 +161,7 @@ target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler 
 
 add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
 target_link_libraries(waw2bo2n PRIVATE w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
-    w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents)
+    w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents w2b_paths)
 if(MSVC)
     target_link_options(waw2bo2n PRIVATE /ENTRY:wmainCRTStartup)
 endif()

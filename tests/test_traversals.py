@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -132,6 +133,30 @@ class TraversalTests(unittest.TestCase):
         self.assertIn("jump_down_127", asd)
         self.assertIn("\twaw_anim_zombie_dog_traverse_down_40\n", atr)
         self.assertEqual(added, ["waw_anim_zombie_dog_traverse_down_40"])
+
+    def test_staged_traversal_keeps_dog_source_and_breaks_height_ties_consistently(self):
+        node = dict(type=paths.T4_NEGOTIATION_BEGIN, animscript="zombie_custom_down", targetname="a", target="b",
+                    origin=[0, 0, 84], links=[], spawnflags=0, script_linkname="", script_noteworthy="",
+                    animscriptfunc="", angle=0, forward=[1, 0, 0], radius=0, minUseDistSq=0, overlap=0)
+        end = dict(node, type=paths.T4_NEGOTIATION_END, animscript="", targetname="b", target="", origin=[0, 0, 0])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "paths.json"
+            source.write_text(json.dumps(dict(nodeCount=2, nodes=[node, end])))
+            asd = root / "zombie.asd"
+            asd.write_text("zm_traverse:\n{\n jump_down_72\n jump_down_96\n}\n"
+                           "zm_traverse_crawl:\n{\n jump_down_72_crawl\n jump_down_96_crawl\n}\n")
+            roots = _roots(root / "sources")
+            traverse = roots[0] / "animscripts/traverse"
+            (traverse / "zombie_jump_down_96.gsc").rename(traverse / "zombie_custom_down.gsc")
+            project = root / "project"
+            summary, renamed, dogs = paths.stage_paths(source, project / "BSP", project, asd, roots)
+            alias, _ = summary.generated[renamed["#0"]]
+            self.assertEqual(alias, "jump_down_72")
+            self.assertEqual(dogs.calls["zombie_custom_down"], ["dog_jump_down( 96, 7 );"])
+            body = (project / summary.scripts[0]).read_text()
+            self.assertIn("waw2bo2_dog_shared::dog_jump_down( 96, 7 );", body)
+            self.assertIn('dosimpletraverse( "jump_down_72" );', body)
 
 
 if __name__ == "__main__":
