@@ -185,6 +185,7 @@ namespace w2b::extract
             std::fprintf(stderr, "Extracting referenced WaW stock zone: %s (%s)\n", files::Utf8(ff.filename()).c_str(), assets.c_str());
             ZoneRequest request{ff, unlinker, root, SearchPaths({ff.parent_path(), wawRoot / "main", wawRoot}), assets, "DDS"};
             request.dependencies = inputs.value("dependencies", py::Json());
+            request.base = prepared[zone];
             const auto extraction = ExtractZone(request);
             prepared[zone] = extraction.folder;
             preparedSources[zone] = extraction.data["inputs"];

@@ -71,6 +71,9 @@ namespace w2b::extract
         std::optional<std::string> toolDigest;
         py::Json dependencies; // null or an object
         bool refresh = false, list = true;
+        // an earlier generation of this zone with a subset of `assets`: only
+        // the kinds it lacks are extracted, its files and listing are reused
+        std::optional<fs::path> base;
     };
     Extraction ExtractZone(const ZoneRequest& request);
 

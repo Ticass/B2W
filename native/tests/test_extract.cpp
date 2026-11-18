@@ -52,6 +52,33 @@ TEST_CASE("an extracted zone is published once and reused from its receipt")
     CHECK(refreshed.folder != first.folder); // a new generation; readers of the old keep theirs
 }
 
+TEST_CASE("a zone extracted again for more kinds extracts only the new ones")
+{
+    const auto root = Fresh("incremental");
+    const auto zone = root / "game" / "zone" / "english" / "ber1.ff";
+    fs::create_directories(zone.parent_path());
+    std::ofstream(zone) << "zone bytes";
+    ZoneRequest request{zone, FAKE_UNLINKER, root / "dependencies" / "z", SearchPaths({zone.parent_path()}), std::string("material"), "DDS"};
+    const auto first = ExtractZone(request);
+    CHECK(Runs(zone) == 2); // the dump and its asset listing
+    CHECK(first.data["files"] == w2b::py::Json::array({"materials/mc/foo.json"}));
+
+    request.assets = "image,material";
+    request.base = first.folder;
+    const auto second = ExtractZone(request);
+    CHECK(Runs(zone) == 3); // only the image kind is dumped; the listing is reused
+    CHECK(second.folder != first.folder);
+    CHECK(second.data["files"] == w2b::py::Json::array({"images/bar.iwi", "materials/mc/foo.json"}));
+    CHECK(w2b::py::SortKeys(second.data["index"]) == w2b::py::SortKeys(first.data["index"]));
+    CHECK(second.data["inputs"]["assets"] == "image,material");
+    std::ifstream kinds(zone.wstring() + L".kinds");
+    std::string firstKinds, secondKinds;
+    kinds >> firstKinds >> secondKinds;
+    CHECK(firstKinds == "material");
+    CHECK(secondKinds == "image");
+    CHECK(fs::is_regular_file(first.folder / "materials/mc/foo.json")); // the earlier generation stays readable
+}
+
 TEST_CASE("cache keys hash sorted JSON like all2raw.key")
 {
     // all2raw.key({"b": 1, "a": [1, "x"]}) in Python

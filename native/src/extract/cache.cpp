@@ -472,6 +472,69 @@ namespace w2b::extract
         return assets;
     }
 
+    namespace
+    {
+        // an earlier generation of the same zone that the extraction extends:
+        // its receipt, and the asset kinds still to extract
+        struct BaseGeneration
+        {
+            fs::path folder;
+            py::Json receipt;
+            std::string missingKinds;
+        };
+
+        // Kinds dump independently: a dump of A+B is byte for byte the dump of A
+        // merged with the dump of B (measured on sound, model, material, image,
+        // technique set, font and light def zones), so a zone extracted again
+        // for more kinds extracts only the new ones.
+        std::optional<BaseGeneration> ExtendableBase(const ZoneRequest& r, const py::Json& inputs)
+        {
+            if (!r.base || !r.assets)
+                return std::nullopt;
+            try
+            {
+                auto receipt = ReadJson(*r.base / "extraction.json");
+                const auto& old = receipt.at("inputs");
+                if (old.at("assets").is_null() || WithoutKeys(old, {"schema", "assets"}) != WithoutKeys(inputs, {"schema", "assets"}) ||
+                    !Complete(*r.base, *r.base / "extraction.json", receipt.at("files")))
+                    return std::nullopt;
+                const auto had = SplitSet(old["assets"].get<std::string>());
+                const auto wanted = SplitSet(*r.assets);
+                if (!std::includes(wanted.begin(), wanted.end(), had.begin(), had.end()))
+                    return std::nullopt;
+                std::string missing;
+                for (const auto& kind : wanted)
+                    if (!had.count(kind))
+                        missing += (missing.empty() ? "" : ",") + kind;
+                if (missing.empty())
+                    return std::nullopt;
+                return BaseGeneration{*r.base, std::move(receipt), std::move(missing)};
+            }
+            catch (const std::exception&)
+            {
+                return std::nullopt;
+            }
+        }
+
+        // the earlier generation's files the new kinds did not write, hard
+        // linked (generations are immutable) or copied across volumes
+        void AdoptBaseFiles(const BaseGeneration& base, const fs::path& temporary)
+        {
+            for (const auto& entry : base.receipt.at("files"))
+            {
+                const auto relative = files::FromUtf8(entry.get<std::string>());
+                const auto target = temporary / relative;
+                std::error_code e;
+                if (fs::exists(target, e))
+                    continue;
+                fs::create_directories(target.parent_path(), e);
+                fs::create_hard_link(base.folder / relative, target, e);
+                if (e)
+                    fs::copy_file(base.folder / relative, target, fs::copy_options::overwrite_existing);
+            }
+        }
+    } // namespace
+
     Extraction ExtractZone(const ZoneRequest& r)
     {
         py::Json inputs = py::Json::object();
@@ -523,10 +586,13 @@ namespace w2b::extract
                 WriteJson(r.root / files::FromUtf8(key + ".json"), py::Json{{"folder", files::Utf8(folder.filename())}});
                 return {folder, *migrated};
             }
+        const auto base = r.refresh ? std::nullopt : ExtendableBase(r, inputs);
         const auto log = r.root / files::FromUtf8(files::Utf8(r.ff.stem()) + ".log");
         std::vector<std::string> command{Str(r.tool), "--no-color", "--search-path", r.search, "--image-format", r.imageFormat, "--model-format", "GLTF",
                                          "--output-folder", Str(temporary)};
-        if (r.assets)
+        if (base)
+            command.insert(command.end(), {"--include-assets", base->missingKinds});
+        else if (r.assets)
             command.insert(command.end(), {"--include-assets", *r.assets});
         command.push_back(Str(r.ff));
         py::Json index = py::Json::object(), loadedIndex = py::Json::object();
@@ -550,7 +616,15 @@ namespace w2b::extract
             if (!unwritten.empty())
                 Print("Extract All: warning: " + files::Utf8(r.ff.filename()) + ": " + std::to_string(unwritten.size()) + " file(s) could not be written, e.g. " + unwritten[0]
                       + "; see " + Str(log));
-            if (r.list)
+            if (base)
+                AdoptBaseFiles(*base, temporary);
+            if (r.list && base && base->receipt.at("inputs").value("list", false))
+            {
+                // the zone's listing does not depend on the kinds extracted
+                index = base->receipt.at("index");
+                loadedIndex = base->receipt.at("loaded_index");
+            }
+            else if (r.list)
             {
                 const auto listLog = r.root / files::FromUtf8(files::Utf8(r.ff.stem()) + ".assets.log");
                 RunTool({Str(r.tool), "--no-color", "--list", "--search-path", r.search, Str(r.ff)}, listLog);
