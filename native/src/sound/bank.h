@@ -5,6 +5,7 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <string>
 
 namespace w2b::sound
 {
@@ -13,4 +14,6 @@ namespace w2b::sound
     py::Json WriteT6Bank(const std::filesystem::path& request);
     // sounds.default_reverb_mix(content_source)
     py::Json DefaultReverbMixOf(const std::filesystem::path& project);
+    // animnotes.notification_offset: where a raw v17 xanim's note count sits
+    size_t NotificationOffsetOf(const std::string& raw);
 } // namespace w2b::sound

@@ -2398,42 +2398,71 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
                 raise ValueError(f'{client_main.name}: no waitforclient( 0 ) to start the map client before')
             client_text = client_text.replace(marker, client_hook + marker, 1)
     client_main.write_text(client_text, encoding='utf-8')
-    sound_resolver = assetresolve.Resolver(roots, stock_waw)
-    defined_sounds = zone_sound_names | compiled_sound_names | ({n for kinds in stock_waw.index.values()
-        for n in kinds.get('sound', [])} if stock_waw else set())
-    script_sounds = sounds.script_aliases(project_root, defined_sounds, zone_sound_names)
     source_amb = None
     if waw_map_script is not None:
         source_amb = source_amb_script([*(waw_patch_script_roots or []), waw_map_script.parent.parent,
                                         *(waw_script_roots or []), *roots], waw_map_script.stem)
-    if source_amb is not None:
-        script_sounds |= sounds.ambient_aliases(wawtext.read(source_amb)) & defined_sounds
-    entity_sounds = sounds.entity_aliases(ents_file, defined_sounds)
-    # Every alias the map's own zones ship is the map's audio. Literal script
-    # references missed 1,399 in Shi No Numa: the announcer lines of the WaW
-    # power-up script BO2's replaces, runtime-built player quotes, mx_eggs and
-    # dog-wave music. The loaded-bank budget streams what does not fit.
-    compiled_sound_names.update(script_sounds, entity_sounds, zone_sound_names)
-    report.content['script_sound_dependencies'] = sorted(script_sounds)
-    report.content['entity_sound_dependencies'] = sorted(entity_sounds)
-    sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
-    sound_names = {n["name"] for n in sound_graph["nodes"] if n["kind"] == "sound"}
-    report.content['entity_sounds_bound'] = sounds.bind_entity_sounds(project_root / "BSP" / "entities.json", sound_names)
-    report.content['script_sound_comparisons_bound'] = sounds.bind_script_sound_comparisons(
-        project_root / "BSP" / "entities.json", project_root / "maps")
-    unreferenced = sorted(zone_sound_names - sound_names)
-    (project_root / "content_source").mkdir(parents=True, exist_ok=True)
-    (project_root / "content_source/sounds.unreferenced.json").write_text(
-        json.dumps(unreferenced, indent=2) + "\n", encoding="utf-8")
-    report.content['unreferenced_sound_aliases'] = {
-        'count': len(unreferenced), 'defined': len(zone_sound_names),
-        'report': 'content_source/sounds.unreferenced.json'}
+    sound_resolver = assetresolve.Resolver(roots, stock_waw)
+    actor_sounds = None
+    if native.tool() is not None:
+        # script and entity references, their graph and the bound names (pipeline/sound_refs.cpp)
+        request = {"project_root": str(project_root), "roots": [str(r) for r in roots],
+                   "stock_waw": {"waw_root": str(stock_waw.waw_root), "unlinker": str(stock_waw.unlinker),
+                                 "work": str(stock_waw.work),
+                                 "prepared": {zone: {"folder": str(folder), "inputs": stock_waw.prepared_sources.get(zone, {})}
+                                              for zone, folder in stock_waw.prepared.items()}}
+                   if stock_waw is not None and getattr(stock_waw, "waw_root", None) is not None else None,
+                   "zone_sounds": sorted(zone_sound_names), "compiled_sounds": sorted(compiled_sound_names),
+                   "ents": str(ents_file) if ents_file is not None else None,
+                   "source_amb": str(source_amb) if source_amb is not None else None}
+        with tempfile.TemporaryDirectory(prefix="waw2bo2_sounds_") as folder:
+            path = Path(folder) / "request.json"
+            path.write_text(json.dumps(request), encoding="utf-8")
+            found = json.loads(progress.timed('Resolve sound dependencies', native.run, "discover-sounds", str(path)))
+        for zone, entry in (found.get("stock_prepared") or {}).items():
+            stock_waw.prepared[zone] = Path(entry["folder"])
+            stock_waw.prepared_sources[zone] = entry["inputs"]
+        script_sounds, entity_sounds = set(found["script_sounds"]), set(found["entity_sounds"])
+        compiled_sound_names.update(found["compiled_sounds"])
+        sound_graph, sound_names = found["sound_graph"], set(found["sound_names"])
+        sound_resolver.nodes = {(node["kind"], node["name"]): node for node in sound_graph["nodes"]}
+        sound_resolver.edges = set(map(tuple, sound_graph["edges"]))
+        sound_resolver.stock_roots = {zone: Path(root) for zone, root in found["stock_roots"]}
+        report.content.update(found["content"])
+        actor_sounds = found["animation_sound_identities"]
+    else:
+        sound_resolver = assetresolve.Resolver(roots, stock_waw)
+        defined_sounds = zone_sound_names | compiled_sound_names | ({n for kinds in stock_waw.index.values()
+            for n in kinds.get('sound', [])} if stock_waw else set())
+        script_sounds = sounds.script_aliases(project_root, defined_sounds, zone_sound_names)
+        if source_amb is not None:
+            script_sounds |= sounds.ambient_aliases(wawtext.read(source_amb)) & defined_sounds
+        entity_sounds = sounds.entity_aliases(ents_file, defined_sounds)
+        # Every alias the map's own zones ship is the map's audio. Literal script
+        # references missed 1,399 in Shi No Numa: the announcer lines of the WaW
+        # power-up script BO2's replaces, runtime-built player quotes, mx_eggs and
+        # dog-wave music. The loaded-bank budget streams what does not fit.
+        compiled_sound_names.update(script_sounds, entity_sounds, zone_sound_names)
+        report.content['script_sound_dependencies'] = sorted(script_sounds)
+        report.content['entity_sound_dependencies'] = sorted(entity_sounds)
+        sound_graph = progress.timed('Resolve sound dependencies', sound_resolver.expand, {("sound", n) for n in compiled_sound_names})
+        sound_names = {n["name"] for n in sound_graph["nodes"] if n["kind"] == "sound"}
+        report.content['entity_sounds_bound'] = sounds.bind_entity_sounds(project_root / "BSP" / "entities.json", sound_names)
+        report.content['script_sound_comparisons_bound'] = sounds.bind_script_sound_comparisons(
+            project_root / "BSP" / "entities.json", project_root / "maps")
+        unreferenced = sorted(zone_sound_names - sound_names)
+        (project_root / "content_source").mkdir(parents=True, exist_ok=True)
+        (project_root / "content_source/sounds.unreferenced.json").write_text(
+            json.dumps(unreferenced, indent=2) + "\n", encoding="utf-8")
+        report.content['unreferenced_sound_aliases'] = {
+            'count': len(unreferenced), 'defined': len(zone_sound_names),
+            'report': 'content_source/sounds.unreferenced.json'}
     sound_report = progress.timed('Stage sound sources', sounds.stage, sound_resolver.roots, project_root / "content_source", image_iwds,
                                 stock_waw, sound_names)
     audio_report = progress.timed('Decode audio', audio.stage, project_root / "content_source", project_root / "content_source/pcm", audio_decoder, xwma_decoder)
     binding_report = sounds.bind_pcm(project_root / "content_source", project_root / "content_source/pcm")
     from . import animnotes
-    report.content['animation_sound_identities'] = animnotes.bind_actor_sounds(project_root, sound_names)
+    report.content['animation_sound_identities'] = actor_sounds if actor_sounds is not None else animnotes.bind_actor_sounds(project_root, sound_names)
     if t6_sound_driver is None and techset_dump is not None:
         t6_sound_driver = techset_dump / "sounddriverglobals/singleton.w2bsdg"
     curve_report = sounds.bind_curves(project_root / "content_source", t6_sound_driver, approximate_sound_curves)
@@ -2788,12 +2817,25 @@ def stage_bridge(stage: Path, project: str, gfx_bin: Path, clip_bin: Path, stock
     from . import framework_coverage
     coverage_roots = [*(waw_patch_script_roots or []), *([waw_map_script.parent.parent] if waw_map_script else []),
                       *(waw_script_roots or []), *([waw_stock_scripts] if waw_stock_scripts else [])]
-    coverage = framework_coverage.coverage(json.loads(report.to_json()), coverage_roots)
-    report.content["framework_coverage"] = framework_coverage.totals(coverage)
-    report.warnings += framework_coverage.undocumented_bo2(coverage, gscport.API)
-    (project_root / "framework_coverage.json").write_text(json.dumps(coverage, indent=1) + "\n", encoding="utf-8")
-    (project_root / "framework_coverage.md").write_text(framework_coverage.markdown(project, coverage), encoding="utf-8")
-    print(f"framework coverage: {framework_coverage.totals(coverage)} (framework_coverage.md)", flush=True)
+    if native.tool() is not None:
+        # pipeline/coverage_stage.cpp
+        with tempfile.TemporaryDirectory(prefix="waw2bo2_coverage_") as folder:
+            path = Path(folder) / "request.json"
+            path.write_text(json.dumps({"project": project, "project_root": str(project_root),
+                                        "roots": [str(r) for r in coverage_roots],
+                                        "scripts": json.loads(report.to_json()).get("scripts")}), encoding="utf-8")
+            covered = json.loads(native.run("framework-coverage", str(path)))
+        totals = covered["totals"]
+        report.content["framework_coverage"] = totals
+        report.warnings += covered["warnings"]
+    else:
+        coverage = framework_coverage.coverage(json.loads(report.to_json()), coverage_roots)
+        totals = framework_coverage.totals(coverage)
+        report.content["framework_coverage"] = totals
+        report.warnings += framework_coverage.undocumented_bo2(coverage, gscport.API)
+        (project_root / "framework_coverage.json").write_text(json.dumps(coverage, indent=1) + "\n", encoding="utf-8")
+        (project_root / "framework_coverage.md").write_text(framework_coverage.markdown(project, coverage), encoding="utf-8")
+    print(f"framework coverage: {totals} (framework_coverage.md)", flush=True)
 
     (project_root / "bridge_stage.report.json").write_text(report.to_json(), encoding="utf-8")
     wavelets.close()

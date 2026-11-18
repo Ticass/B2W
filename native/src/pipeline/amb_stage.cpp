@@ -423,6 +423,15 @@ namespace w2b::pipeline
         }
     } // namespace
 
+    std::set<std::string> AmbientAliases(const std::string& source)
+    {
+        std::set<std::string> out;
+        for (const auto& [name, args] : AmbientCalls(source, AMBIENT_CALLS))
+            if ((name == "addambientelement" || name == "setambientroomtone") && args.size() > 1 && IsStr(args, 1))
+                out.insert(S(args, 1));
+        return out;
+    }
+
     Json WriteAmbCsc(const fs::path& requestPath)
     {
         const auto request = mod::Json(requestPath);

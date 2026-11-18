@@ -6,9 +6,13 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <set>
+#include <string>
 
 namespace w2b::pipeline
 {
     // request {project, project_root, source_amb, ents}; returns {warnings, content}
     py::Json WriteAmbCsc(const std::filesystem::path& request);
+    // sounds.ambient_aliases: what the source ambient packages and room tones play
+    std::set<std::string> AmbientAliases(const std::string& source);
 } // namespace w2b::pipeline

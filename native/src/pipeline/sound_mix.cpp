@@ -11,6 +11,7 @@
 #include "gsc/port/api.h"
 #include "modutil.h"
 #include "sound/bank.h"
+#include "amb_stage.h"
 
 #include <windows.h>
 
@@ -743,58 +744,6 @@ namespace w2b::pipeline
             for (const auto& [alias, twins] : found)
                 if (twins.size() == 1)
                     out[alias] = *twins.begin();
-            return out;
-        }
-
-        // sounds.ambient_calls -> ambient_aliases of the source amb main()
-        std::set<std::string> AmbientAliases(const std::string& source)
-        {
-            std::set<std::string> out;
-            if (source.empty())
-                return out;
-            const auto script = gsc::Parse(source, "<source amb>");
-            const auto* main = script.Find("main");
-            if (!main)
-                return out;
-            const auto& tokens = script.tokens;
-            static const std::set<std::string> names{"declareambientpackage", "addambientelement", "declareambientroom", "setambientroomreverb",
-                                                     "setambientroomtone", "activateambientpackage", "activateambientroom"};
-            for (size_t i = main->bodyOpen; i < main->bodyClose; i++)
-            {
-                const auto& token = tokens[i];
-                if (!(token.kind == gsc::Kind::Ident && names.count(token.Low()) && tokens[i + 1].text == "(" && tokens[i - 1].text != "." && tokens[i - 1].text != "::"))
-                    continue;
-                std::vector<std::vector<const gsc::Token*>> args;
-                std::vector<const gsc::Token*> current;
-                int depth = 0;
-                size_t j = i + 2;
-                while (depth || tokens[j].text != ")")
-                {
-                    if (tokens[j].kind == gsc::Kind::Eof)
-                        throw StepError("SoundError", "line " + std::to_string(token.line) + ": unterminated " + token.text + " call");
-                    if (tokens[j].text == "(" || tokens[j].text == "[")
-                        depth++;
-                    else if (tokens[j].text == ")" || tokens[j].text == "]")
-                        depth--;
-                    if (!depth && tokens[j].text == ",")
-                    {
-                        args.push_back(current);
-                        current.clear();
-                    }
-                    else
-                        current.push_back(&tokens[j]);
-                    j++;
-                }
-                if (!current.empty())
-                    args.push_back(current);
-                const auto low = token.Low();
-                if ((low == "addambientelement" || low == "setambientroomtone") && args.size() > 1 && args[1].size() == 1 && args[1][0]->kind == gsc::Kind::String)
-                {
-                    const auto& t = args[1][0]->text;
-                    out.insert(t.substr(1, t.size() - 2));
-                }
-                i = j;
-            }
             return out;
         }
 

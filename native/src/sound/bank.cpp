@@ -1182,4 +1182,8 @@ namespace w2b::sound
     {
         return DefaultReverbMix(project);
     }
+    size_t NotificationOffsetOf(const std::string& raw)
+    {
+        return NotificationOffset(raw);
+    }
 } // namespace w2b::sound
