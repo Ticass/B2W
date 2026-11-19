@@ -7,14 +7,14 @@ on:
       - 'catalog/**'
       - 'eslint.config.mjs'
       - 'package*.json'
-      - 'tools/build_map_compatibility_site.py'
+      - 'tools/build_map_compatibility_site.ps1'
       - '.github/workflows/map-compatibility-pages.yml'
   pull_request:
     paths:
       - 'catalog/**'
       - 'eslint.config.mjs'
       - 'package*.json'
-      - 'tools/build_map_compatibility_site.py'
+      - 'tools/build_map_compatibility_site.ps1'
       - '.github/workflows/map-compatibility-pages.yml'
   schedule:
     - cron: '29 7 * * *'
@@ -38,9 +38,6 @@ jobs:
       issues: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -53,7 +50,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python tools/build_map_compatibility_site.py --output _site
+        run: pwsh -NoProfile -File tools/build_map_compatibility_site.ps1 -Output _site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

@@ -11,51 +11,29 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
-      PYTHONPATH: ${{ github.workspace }}/src
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      # Only the small frontend packages users install themselves (README).
-      # Wine (and its i386 packages) is not installed here: it took the whole
-      # job timeout to download on the runner and is not needed to assemble or
-      # check the frontend; the Windows worker is the already-tested Windows build.
-      - name: Install the frontend dependencies (README) and xvfb
-        timeout-minutes: 10
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3 python3-tk python3-pil python3-pil.imagetk xvfb
-      - name: Download the Windows conversion runtime
+      - name: Download the Windows release
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           mkdir -p work/windows
           gh release download "$RELEASE_TAG" --pattern WawConverter-Windows.zip --dir work/windows
           unzip -q work/windows/WawConverter-Windows.zip -d work/windows
-      - name: Test launcher and driver
-        run: |
-          python -m unittest discover -s tests -p test_all2raw.py
-          python -m unittest discover -s tests -p test_linuxruntime.py
-          python -m unittest discover -s tests -p test_builddriver.py
-          python -m unittest discover -s tests -p test_gsc_comments.py
       - name: Assemble the Linux release
-        run: python tools/build_linux.py --windows-bundle work/windows/WawConverter
-      - name: Smoke-test the GUI and CLI with the distribution's Python
-        env:
-          WAWCONVERTER_PYTHON: /usr/bin/python3
+        run: sh tools/package_linux.sh work/windows/WawConverter work/linux_dist
+      - name: Check the extracted package
         run: |
           mkdir -p work/extracted
           tar -xzf work/linux_dist/WawConverter-Linux-x86_64.tar.gz -C work/extracted
           cd work/extracted/WawConverter-Linux
-          xvfb-run -a ./WawConverter.CLI --self-test
-          ./WawConverter.CLI -m waw2bo2.cli --help
-          ./All2Raw --help
+          test -x WawConverter && test -x WawConverter.CLI
+          test -f B2W.exe && test -f waw2bo2n.exe
       - name: Upload Linux release assets
         env:
           RELEASE_TAG: ${{ inputs.tag }}

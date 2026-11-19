@@ -14,79 +14,66 @@ permissions:
 jobs:
   windows:
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 120
     defaults:
       run:
         shell: pwsh
-    env:
-      PYTHONPATH: ${{ github.workspace }}/src
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: microsoft/setup-msbuild@v2
-      - name: Install packaging dependencies
-        run: |
-          python -m pip install -e . pyinstaller==6.16.0 imageio-ffmpeg==0.6.0
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Restore matching native binaries and corresponding sources
+      # The OpenAssetTools builds (the T4 tree is linked into the converter,
+      # the T6 tools stay 32-bit) are restored when their sources are unchanged.
+      - name: Restore the native tool builds
         id: native-cache
         uses: actions/cache/restore@v4
         with:
           path: |
-            vendor/OpenAssetTools/build/bin/Release_x86
-            vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h
+            vendor/OpenAssetTools
+            !vendor/OpenAssetTools/build/obj
             vendor/OpenAssetToolsT6/build/bin/Release_x86
             vendor/OpenAssetToolsT6/thirdparty
             tools/bin/xaudio_wma_decoder.exe
-            work/native_source
-          key: windows-2022-native-v2-${{ hashFiles('vendor/OpenAssetTools.patch', 'vendor/OpenAssetToolsT6/src/**', 'vendor/OpenAssetToolsT6/tools/**', 'vendor/OpenAssetToolsT6/**/*.lua', 'vendor/OpenAssetToolsT6/raw/**', 'tools/ci_build_native.ps1', 'tools/build_audio_decoder.ps1', 'tools/xaudio_wma_decoder.cpp', 'tools/cache_native_sources.py', 'tools/build_desktop.py') }}
-      - name: Build patched T4, vendored T6 and audio decoder
-        if: steps.native-cache.outputs.cache-hit != 'true'
-        run: ./tools/ci_build_native.ps1
-      - name: Archive the corresponding native source snapshots
-        if: steps.native-cache.outputs.cache-hit != 'true'
-        run: python tools/cache_native_sources.py
-      - name: Lint converter source
-        run: |
-          python -m pip install -e '.[lint]'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m ruff check .
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-          $install = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          $vsdev = Join-Path $install 'Common7/Tools/VsDevCmd.bat'
-          cmd.exe /d /c "`"$vsdev`" -arch=x64 -host_arch=x64 >nul && cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build native/build --target w2b_lint && native\build\w2b_lint.exe native/build"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run regression suite
-        run: python -m unittest discover -s tests
-      - name: Package Windows
-        run: python tools/build_desktop.py --native-source-dir work/native_source
-      - name: Smoke-test packaged GUI and command interfaces
-        run: |
-          $bundle = 'work/desktop_dist/WawConverter'
-          & "$bundle/WawConverter.CLI.exe" --self-test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "$bundle/WawConverter.CLI.exe" -m waw2bo2.cli --help
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "$bundle/All2Raw.exe" --help
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Cache verified native binaries and corresponding sources
+          key: windows-2022-native-v3-${{ hashFiles('vendor/OpenAssetTools.patch', 'vendor/OpenAssetToolsT6/src/**', 'vendor/OpenAssetToolsT6/tools/**', 'vendor/OpenAssetToolsT6/**/*.lua', 'vendor/OpenAssetToolsT6/raw/**', 'tools/restore_native.ps1', 'tools/build_audio_decoder.ps1', 'tools/xaudio_wma_decoder.cpp') }}
+      - name: Build OpenAssetTools, the audio decoder and the converter
+        run: ./tools/restore_native.ps1 -Projects 4 -Compilers 4
+      - name: Cache the native tool builds
         if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
-            vendor/OpenAssetTools/build/bin/Release_x86
-            vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h
+            vendor/OpenAssetTools
+            !vendor/OpenAssetTools/build/obj
             vendor/OpenAssetToolsT6/build/bin/Release_x86
             vendor/OpenAssetToolsT6/thirdparty
             tools/bin/xaudio_wma_decoder.exe
-            work/native_source
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - name: Fetch pinned clang-tidy and FFmpeg
+        run: |
+          ./tools/fetch_wheel_binary.ps1 -Package clang-tidy -Version 22.1.7 -Member '*/bin/clang-tidy.exe' -Destination work/tools/clang-tidy.exe
+          ./tools/fetch_wheel_binary.ps1 -Package imageio-ffmpeg -Version 0.6.0 -Member 'imageio_ffmpeg/binaries/ffmpeg-*.exe' -Destination tools/bin/ffmpeg.exe
+      - name: Lint the converter
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $install = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vsdev = Join-Path $install 'Common7/Tools/VsDevCmd.bat'
+          cmd.exe /d /c "`"$vsdev`" -arch=x64 -host_arch=x64 >nul && cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build native/build --target w2b_lint && native\build\w2b_lint.exe native/build --clang-tidy work\tools\clang-tidy.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run the converter tests
+        run: |
+          native/build/w2b_tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package Windows
+        run: ./tools/package_windows.ps1
+      - name: Smoke-test the packaged converter
+        run: |
+          $bundle = 'work/desktop_dist/WawConverter'
+          & "$bundle/waw2bo2n.exe" 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 2) { throw "waw2bo2n usage exited $LASTEXITCODE" }
+          $ledger = New-Item -ItemType Directory -Force work/smoke_ledger
+          & "$bundle/waw2bo2n.exe" knowledge-report --ledger $ledger.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Record provenance and checksum
         env:
           SOURCE_SHA: ${{ inputs.ref }}
@@ -109,52 +96,34 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The same tested Windows programs, started through Wine by two launchers.
   linux:
     needs: windows
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      PYTHONPATH: ${{ github.workspace }}/src
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install frontend and test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-tk python3-pil python3-pil.imagetk xvfb xauth
-          python -m pip install -e . imageio-ffmpeg==0.6.0
       - uses: actions/download-artifact@v4
         with:
           name: windows-package
           path: work/windows
-      - name: Extract tested Windows worker
+      - name: Extract the tested Windows package
         run: |
           cd work/windows
           sha256sum --check WawConverter-Windows.zip.sha256
           unzip -q WawConverter-Windows.zip
-      - name: Test Linux frontend and driver
-        run: |
-          python -m unittest discover -s tests -p test_all2raw.py
-          python -m unittest discover -s tests -p test_linuxruntime.py
-          python -m unittest discover -s tests -p test_builddriver.py
-          python -m unittest discover -s tests -p test_gsc_comments.py
       - name: Package Linux
-        run: python tools/build_linux.py --windows-bundle work/windows/WawConverter
-      - name: Smoke-test extracted package with system Python
-        env:
-          WAWCONVERTER_PYTHON: /usr/bin/python3
+        run: sh tools/package_linux.sh work/windows/WawConverter work/linux_dist
+      - name: Check the extracted package
         run: |
           mkdir -p work/extracted
           tar -xzf work/linux_dist/WawConverter-Linux-x86_64.tar.gz -C work/extracted
           cd work/extracted/WawConverter-Linux
-          xvfb-run -a ./WawConverter.CLI --self-test
-          ./WawConverter.CLI -m waw2bo2.cli --help
-          ./All2Raw --help
+          test -x WawConverter && test -x WawConverter.CLI
+          test -f B2W.exe && test -f waw2bo2n.exe && test -f src/waw2bo2/compat/gsc_api.json
       - uses: actions/upload-artifact@v4
         with:
           name: linux-package

@@ -89,16 +89,16 @@ jobs:
             # Rerun: reuse the version already committed for this nightly.
             git fetch origin "$branch"
             git checkout --detach FETCH_HEAD
-            version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/waw2bo2/__init__.py)
+            version=$(tr -d '[:space:]' < VERSION)
           else
             latest=$(git tag --list 'v*' --sort=-v:refname | head -n1)
             if [[ -n "$latest" ]] && git merge-base --is-ancestor HEAD "$latest"; then
               echo "$NIGHTLY_TAG is already part of $latest; no stable release this week." >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            version=$(python3 tools/promote_stable.py next-version $(git tag --list 'v*'))
+            version=$(pwsh -NoProfile -File tools/promote_stable.ps1 next-version $(git tag --list 'v*'))
             git log --no-merges --format=%s ${latest:+"$latest..HEAD"} > "$RUNNER_TEMP/commits.txt"
-            python3 tools/promote_stable.py release "$version" --fallback-notes "$RUNNER_TEMP/commits.txt"
+            pwsh -NoProfile -File tools/promote_stable.ps1 release "$version" -FallbackNotes "$RUNNER_TEMP/commits.txt"
             git commit -am "Release v$version from $NIGHTLY_TAG"
             git push origin "HEAD:refs/heads/$branch"
           fi
@@ -157,7 +157,7 @@ jobs:
           {
             printf 'Weekly stable release promoted from [%s](https://github.com/%s/releases/tag/%s) (commit `%s`), built and tested from commit `%s`.\n\n' \
               "$NIGHTLY_TAG" "$GH_REPO" "$NIGHTLY_TAG" "$NIGHTLY_SHA" "$SOURCE_SHA"
-            python3 -c 'import sys; sys.path.insert(0, "tools"); import promote_stable as p; print("\n".join(p.released_entries(open("CHANGELOG.md", encoding="utf-8").read(), sys.argv[1])))' "$VERSION"
+            pwsh -NoProfile -File tools/promote_stable.ps1 released-entries "$VERSION" CHANGELOG.md
           } > notes.md
           existing=$(gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name')
           if ! grep -Fxq -- "$RELEASE_TAG" <<< "$existing"; then
@@ -191,7 +191,7 @@ jobs:
           set -euo pipefail
           branch="release/sync-v$VERSION"
           git show "$SOURCE_SHA:CHANGELOG.md" > "$RUNNER_TEMP/released-CHANGELOG.md"
-          python3 tools/promote_stable.py sync-main "$VERSION" "$RUNNER_TEMP/released-CHANGELOG.md"
+          pwsh -NoProfile -File tools/promote_stable.ps1 sync-main "$VERSION" "$RUNNER_TEMP/released-CHANGELOG.md"
           if git diff --quiet; then
             echo "main already records v$VERSION." >> "$GITHUB_STEP_SUMMARY"
             exit 0

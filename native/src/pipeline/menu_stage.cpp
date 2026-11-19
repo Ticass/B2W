@@ -58,8 +58,7 @@ namespace w2b::pipeline
         fs::path MenuCompatPath()
         {
             const auto resources = launcher::ResourceRoot();
-            for (const auto& path : {resources / "src/waw2bo2/compat", resources / "waw2bo2/compat",
-                                     resources / "_internal/waw2bo2/compat"})
+            for (const auto& path : {resources / "src/waw2bo2/compat", resources / "waw2bo2/compat"})
                 if (fs::is_regular_file(path / "menu_preview.luac"))
                     return path;
             throw std::runtime_error("The menu Lua wrappers are missing.");
@@ -102,22 +101,5 @@ namespace w2b::pipeline
             data["loading_song"] = std::move(song);
         files::WriteText(file, py::JsonDumps(data, 2) + "\n");
         return warning;
-    }
-
-    py::Json StageMenuSettingsRequest(const fs::path& path)
-    {
-        const auto request = Json::parse(files::ReadText(path));
-        try
-        {
-            const auto warning = StageMenuSettings(launcher::Settings::FromJson(request.at("settings")),
-                                                   files::FromUtf8(request.at("root").get<std::string>()),
-                                                   files::FromUtf8(request.value("decoder", std::string{})),
-                                                   files::FromUtf8(request.value("compat", std::string{})));
-            return {{"warning", warning}};
-        }
-        catch (const std::invalid_argument& error)
-        {
-            return {{"invalid", error.what()}};
-        }
     }
 }

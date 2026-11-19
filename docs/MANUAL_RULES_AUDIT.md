@@ -2,7 +2,7 @@
 
 User request, 2026-10-25: find everything that is "manually done", make it come from the
 map, and explain how it got into the tool. Rule: docs/CONVERT_THE_WHOLE_MAP.md.
-Measured with `tools/framework_coverage.py` on real builds (numbers below).
+Measured with the framework coverage report every build writes (numbers below).
 
 ## How the manual rules got in
 
@@ -33,8 +33,8 @@ patch was still recreated by hand instead of converted.
 
 ## Measured coverage
 
-`python tools/framework_coverage.py <stage>/zone_raw/<project> <map script dump>`
-(reads the build's own report). Shi No Numa, build of 2026-10-18:
+`<stage>/zone_raw/<project>/framework_coverage.md`, which every build writes
+(from the build's own report). Shi No Numa, build of 2026-10-18:
 
 | | functions |
 |---|---|
@@ -91,7 +91,7 @@ Legitimate runtime patches (engine differences, keep in compat): builtin wrapper
 2. Order by gameplay weight: round loop (`round_think`, `round_wait`, `round_spawning`,
    intermission) -> dogs (`_zombiemode_dogs`) -> spawner (zombie init/damage) -> power-ups ->
    score -> blockers -> last stand.
-3. After each step, re-run `tools/framework_coverage.py`; "not run" and "bo2" must shrink
+3. After each step, rebuild and read `framework_coverage.md`; "not run" and "bo2" must shrink
    and every remaining entry needs a reason (engine glue) in this file.
 4. Retire the `WAW_*` text patches and compat game-rule functions each step makes
    unnecessary.

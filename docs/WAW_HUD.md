@@ -47,8 +47,8 @@ spectating feed the same client HUD events.
 Rebuild bytecode after changing Lua:
 
 ```powershell
-python tools/compile_menu_layers.py work/menu_layer_fix/hksc/hksc.exe waw_hud
-python tools/compile_menu_layers.py work/menu_layer_fix/hksc/hksc.exe waw_hud_entry
+powershell -File tools/compile_menu_layers.ps1 work/menu_layer_fix/hksc/hksc.exe waw_hud
+powershell -File tools/compile_menu_layers.ps1 work/menu_layer_fix/hksc/hksc.exe waw_hud_entry
 ```
 
 `tests/waw_hud_runtime.lua` exercises map isolation, firing/reloading, heat-to-gun
@@ -123,5 +123,5 @@ but a custom map that ships modified compiled pause menus without sources gets
 the stock ones. Set `waw_menu_debug` 1 to log menu opens and ignored commands.
 
 ```powershell
-python tools/compile_menu_layers.py work/menu_layer_fix/hksc/hksc.exe waw_menu
+powershell -File tools/compile_menu_layers.ps1 work/menu_layer_fix/hksc/hksc.exe waw_menu
 ```

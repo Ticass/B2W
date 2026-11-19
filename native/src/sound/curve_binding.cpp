@@ -155,18 +155,4 @@ namespace w2b::sound
         files::WriteText(output, py::JsonDumps(report, 2) + "\n");
         return report;
     }
-
-    py::Json BindCurvesRequest(const fs::path& path)
-    {
-        const auto request = Json::parse(files::ReadText(path));
-        try
-        {
-            return BindCurves(files::FromUtf8(request.at("project").get_ref<const std::string&>()),
-                              files::FromUtf8(request.value("driver", std::string{})), request.value("approximate", false));
-        }
-        catch (const SoundError& error)
-        {
-            return {{"invalid", error.what()}};
-        }
-    }
 }

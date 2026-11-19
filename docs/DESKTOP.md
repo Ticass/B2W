@@ -7,9 +7,10 @@ from the [v0.2.12 release](https://github.com/Ticass/B2W/releases/tag/v0.2.12).
 Choose the portable ZIP asset rather than GitHub's source-code archives.
 
 1. Extract the entire portable Windows ZIP into a writable folder. Keep
-   `WawConverter.exe`, `WawConverter.CLI.exe`, and `_internal/` together.
-2. Double-click **WawConverter.exe**. Python and Visual Studio are not required
-   for the portable download; the converter and native tools are included.
+   `B2W.exe`, `waw2bo2n.exe` and the folders beside them together.
+2. Double-click **B2W.exe**. Visual Studio is not required for the portable
+   download; the converter, its native tools and the Visual C++ runtime are
+   included.
 3. Open **Setup**. Check the automatically detected WaW and BO2 folders. Browse
    to your installations if needed. BO2 Mod Tools must be installed with BO2.
 4. In **Mod Builder**, browse to your WaW map's original `.ff` file. Leave its
@@ -30,11 +31,10 @@ recovery is optional and disabled by default in the desktop app.
 
 ![B2W Setup tab showing game paths and prerequisite status](images/b2w-setup.png)
 
-The updated desktop build driver runs in bundled Python and needs no PowerShell.
-The original v0.2.0 release used PowerShell: Wine's built-in stub could return
-success without executing the build, leaving an empty `build.log` and no map
-files. The native Linux package replaces that driver. See `LINUX.md` for launch
-instructions and verification limits.
+The launcher (`B2W.exe`) and the converter (`waw2bo2n.exe`) are native
+programs; no Python or PowerShell is needed. The Linux package runs the same
+programs through Wine. See `LINUX.md` for launch instructions and verification
+limits.
 
 ## Familiar mod-tools workflow
 
@@ -85,32 +85,31 @@ last output every 15 seconds. These messages confirm the process is still
 running; they cannot establish whether it is making progress. Console activity
 is also written to the build or extraction log.
 
-Double-click `Launch Mod Tools.bat` with Python 3.11+ installed, including
-Tcl/Tk, or run from PowerShell:
+Build the native tools and the converter once (Visual Studio 2022 or newer
+with the C++ workload), then double-click `Launch Mod Tools.bat`, which starts
+`native/build/B2W.exe`:
 
 ```powershell
-python -m pip install -e .
-$env:PYTHONPATH = Join-Path (Get-Location) 'src'
-python -m waw2bo2.gui
+powershell -ExecutionPolicy Bypass -File tools\restore_native.ps1
 ```
 
-A source checkout needs built native tools. The portable package removes this
-setup requirement. See `USAGE.md` for native build instructions.
+See `USAGE.md` for what the build restores and the command-line interface.
 
 ## Build the portable package
 
-For maintainers, after building the native extractors/linker and audio decoder:
+For maintainers, after `tools/restore_native.ps1` and with FFmpeg in
+`tools/bin/ffmpeg.exe` (`tools/fetch_wheel_binary.ps1` fetches the pinned
+build the release uses):
 
 ```powershell
-python -m pip install pyinstaller imageio-ffmpeg
-python tools/build_desktop.py
+powershell -ExecutionPolicy Bypass -File tools\package_windows.ps1
 ```
 
-Outputs: `work/desktop_dist/WawConverter/WawConverter.exe` and
-`work/desktop_dist/WawConverter-Windows.zip`. The archive includes the Python
-runtime, native tools, shared schemas, compatibility data, licenses, and native
-corresponding source archives. It does not include extracted game assets or
-proprietary Mod Tools.
+Outputs: `work/desktop_dist/WawConverter/B2W.exe` and
+`work/desktop_dist/WawConverter-Windows.zip`. The archive includes the
+converter, native tools, compatibility data, the Visual C++ runtime, licenses,
+and native corresponding source archives. It does not include extracted game
+assets or proprietary Mod Tools.
 
 This remains a development preview. A successful build is followed by source
 comparison and playtesting; inspect Reports for unsupported map features.

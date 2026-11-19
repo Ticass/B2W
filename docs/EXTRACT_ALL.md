@@ -27,13 +27,14 @@ Independent fastfiles run concurrently using every logical CPU, up to the
 number of zones. Set `WAW2BO2_EXTRACT_WORKERS` to a positive worker count to limit
 CPU or RAM usage. Duplicate-asset priority stays deterministic.
 
-`All2Raw.exe` (Windows) or `All2Raw` (Linux) prepares the same cache using saved
-paths. Keep it beside the launcher and `_internal` folder. Source command:
-`python -m waw2bo2.all2raw_cli`. Enable **Verbose Console**, or `--verbose`, for
-native tool output. Per-zone logs and completed counts remain available.
+`waw2bo2n all2raw` prepares the same cache from the command line, with the
+launcher's saved settings (Windows: `waw2bo2n.exe`, Linux:
+`./WawConverter.CLI`). Add `--refresh` to extract again. Enable **Verbose
+Console** in the settings for native tool output. Per-zone logs and completed
+counts remain available.
 
 ```text
-All2Raw.exe --waw "C:\Games\WaW" --bo2 "C:\Games\BO2" --work "D:\WawConverter\builds"
+waw2bo2n.exe all2raw --settings-file "%LOCALAPPDATA%\WawConverter\settings.json"
 ```
 
 On Linux use the launcher's `WINEPREFIX` and `WAWCONVERTER_WINE` variables.

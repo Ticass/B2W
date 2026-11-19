@@ -546,9 +546,4 @@ namespace w2b::pipeline
         files::WriteText(dst, text);
         return Json{{"warnings", warnings}, {"content", out}};
     }
-
-    Json WriteAmbCscRequest(const fs::path& request)
-    {
-        return WriteAmbCsc(mod::Json(request));
-    }
 } // namespace w2b::pipeline

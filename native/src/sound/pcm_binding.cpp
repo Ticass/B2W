@@ -240,11 +240,4 @@ namespace w2b::sound
         files::WriteText(project / "sounds.bindings.json", py::JsonDumps(report, 2) + "\n");
         return report;
     }
-
-    py::Json BindPcmRequest(const fs::path& path)
-    {
-        const auto request = Json::parse(files::ReadText(path));
-        return BindPcm(files::FromUtf8(request.at("project").get_ref<const std::string&>()),
-                       files::FromUtf8(request.at("pcm").get_ref<const std::string&>()));
-    }
 }

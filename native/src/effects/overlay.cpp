@@ -150,12 +150,6 @@ namespace w2b::effects
         }
     }
 
-    py::Json StageOverlayEffects(const files::fs::path& requestPath)
-    {
-        const auto request = Json::parse(files::ReadText(requestPath));
-        return StageOverlays(files::FromUtf8(request.at("project").get<std::string>()) / "fx", request.at("effects"));
-    }
-
     py::Json StageModelOverlayRuntime(const files::fs::path& root, const py::Json& effects)
     {
         auto entries = StageOverlays(root / "fx", effects);

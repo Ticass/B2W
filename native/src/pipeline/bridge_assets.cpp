@@ -418,7 +418,8 @@ namespace w2b::pipeline::bridge
                                             recovery);
             if (result.contains("stage_error"))
                 throw StepError("StageError", result["stage_error"].get<std::string>());
-            for (const auto& [stem, metadata] : result.value("recovered", Json::object()).items())
+            const auto recoveredImages = result.value("recovered", Json::object());
+            for (const auto& [stem, metadata] : recoveredImages.items())
                 recovered[stem] = metadata;
             Extend(report, "images", result["images"]);
             Extend(report, "warnings", result["warnings"]);

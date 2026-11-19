@@ -26,19 +26,18 @@ releases are cut from `main` on a schedule.
 
 **Preview builds** (`ci.yml`) runs for every push to any branch except `main`.
 It can also be started by hand on a fix branch (the Discord investigation does
-this for its draft PR branches); a manual run on `main` does nothing. Native
-T4/T6 tools and the audio decoder are built from source on a cache miss.
+this for its draft PR branches); a manual run on `main` does nothing.
+`tools/restore_native.ps1` builds the T4/T6 OpenAssetTools and the audio
+decoder from source on a cache miss, and the converter itself on every run.
 Subsequent runs with identical native sources and build scripts reuse the
-verified binaries, the T4 weapon schema, and their corresponding source
-archives. Cache keys include the upstream patch, vendored T6 source/build
-definitions, and decoder/build/archive scripts; partial cache matches are not
-used. Python changes still run the regression suite and create fresh Windows
-and Linux packages. Native compilation uses the runner's CPU count with a
-shared compiler-process budget across concurrent projects;
-`WAW2BO2_BUILD_WORKERS` can limit this budget.
+OpenAssetTools builds. Cache keys include the upstream patch, vendored T6
+source/build definitions, and decoder/build scripts; partial cache matches are
+not used.
 
-Each run executes the Windows regression suite, packages Windows, and packages
-and checks the Linux frontend using that same Windows worker. Download
+Each run lints the converter (clang-tidy, pinned through
+`tools/fetch_wheel_binary.ps1`), runs its C++ tests, packages Windows
+(`tools/package_windows.ps1`), and packages the Linux release from that same
+Windows package (`tools/package_linux.sh`). Download
 `windows-package` and `linux-package` from the run's **Artifacts** section on
 the [Actions page](https://github.com/Ticass/B2W/actions). Artifacts remain
 available for 14 days; downloading them requires GitHub login. Each push gets
@@ -79,10 +78,10 @@ It promotes the newest published nightly dated Friday or earlier (a night
 without new commits publishes no nightly, so the latest one is Friday's state
 of `main`). The version is the highest `v*` tag with its patch number
 incremented. On top of the nightly's exact commit it commits the new version
-in `pyproject.toml` and `src/waw2bo2/__init__.py` and turns the `Unreleased`
+in `VERSION` and turns the `Unreleased`
 changelog section into the version's section; when that section is missing or
 empty, the commit subjects since the previous stable are used
-(`tools/promote_stable.py`). The commit is pushed to
+(`tools/promote_stable.ps1`). The commit is pushed to
 `release/stable/NIGHTLY_TAG` and tagged `vX.Y.Z`, then built by the same
 packaging pipeline and, after all checks pass, published as the latest stable
 release with that changelog section as its notes. Commits merged after
@@ -99,8 +98,8 @@ nightly is already part of the latest stable, that week is skipped. A rerun
 reuses the existing `release/stable/...` branch and version. **Run workflow**
 on `main` promotes by hand, optionally with a specific nightly tag.
 
-A stable release can still be cut by hand: update `pyproject.toml`,
-`src/waw2bo2/__init__.py` and `CHANGELOG.md` on `main`, then push a version tag
+A stable release can still be cut by hand: update `VERSION`
+and `CHANGELOG.md` on `main`, then push a version tag
 such as `v0.2.15`; **Nightly and version releases** publishes it. Nightlies
 retain the source version and are distinguished by their release tag and
 provenance.

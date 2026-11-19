@@ -1156,9 +1156,4 @@ namespace w2b::pipeline
         return Json{{"warnings", warnings}, {"content", content}, {"bank_report", bankReport}, {"budget", budget}, {"reverb_send", reverbSend},
                     {"stock_prepared", stockWaw ? stockWaw->PreparedJson() : Json()}};
     }
-
-    Json SoundMixRequest(const fs::path& request)
-    {
-        return SoundMix(mod::Json(request));
-    }
 } // namespace w2b::pipeline

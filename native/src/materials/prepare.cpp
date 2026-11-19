@@ -90,29 +90,4 @@ namespace w2b::materials
                 }
             }
         }
-
-    void PrepareMaterials(const files::fs::path& request)
-    {
-        const auto inputs = Json::parse(files::ReadText(request));
-        Donors donors(inputs.at("donors"));
-        const auto& sourcePaths = inputs.at("materials");
-        const auto output = request.parent_path();
-        std::vector<path> roots;
-        for (const auto& root : inputs.at("roots"))
-            roots.push_back(files::FromUtf8(root.get<std::string>()));
-        const bool checkPrograms = inputs.at("check_programs").get<bool>();
-        const bool layered = inputs.at("layered").get<bool>();
-        parallel::For(sourcePaths.size(), [&](std::size_t index)
-        {
-            const auto& source = sourcePaths[index];
-            if (source.is_null())
-                return;
-            const auto input = FromOatJson(Json::parse(files::ReadText(files::FromUtf8(source.get<std::string>()))));
-            const auto pass = files::FromUtf8(input.techniqueSet + ".json");
-            const bool programs = checkPrograms && std::ranges::any_of(roots, [&](const path& root)
-                { return files::fs::exists(root / "waw_techniquesets" / pass); });
-            const auto result = SelectMaterial(input, programs, layered, donors);
-            files::WriteBytes(output / (std::to_string(index) + ".json"), py::JsonDumps(result, -1));
-        }, inputs.at("workers").get<unsigned>());
-    }
 }

@@ -98,11 +98,4 @@ namespace w2b::audio
         parallel::For(tasks.size(), [&](std::size_t i) { results[i] = Encode(encoder, tasks[i]); }, workers);
         return results;
     }
-
-    py::Json EncodeFlacBatchRequest(const files::fs::path& request)
-    {
-        const auto input = py::Json::parse(files::ReadText(request));
-        return EncodeFlacBatch(input.at("encoder").get_ref<const std::string&>(), input.at("tasks"),
-                               input.at("workers").get<unsigned>());
-    }
 }

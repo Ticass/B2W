@@ -105,6 +105,6 @@ and FOV flashes, `settransported`) and the black-box vision swap.
 
 Each build writes one observation per map to `<build folder>/knowledge`:
 untranslated script features by kind, stage error kinds, reported fallbacks
-and the failed step. `tools/knowledge_report.py` ranks the gaps by how many
+and the failed step. `waw2bo2n knowledge-report` ranks the gaps by how many
 maps share them, also from failure bundles and stage reports. It is evidence
 for choosing the next generic fix; no conversion decision reads it.

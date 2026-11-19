@@ -282,22 +282,6 @@ namespace w2b::launcher
         return checks;
     }
 
-    std::vector<std::string> CliCommand(const std::vector<std::string>& args)
-    {
-        std::vector<std::string> command;
-        if (const auto worker = WideEnv(L"WAW2BO2_WORKER"); !worker.empty())
-            command.push_back(Utf8(fs::path(worker)));
-        else if (const auto portable = ResourceRoot() / "WawConverter.CLI.exe"; IsFile(portable))
-            command.push_back(Utf8(portable));
-        else
-        {
-            const auto python = WideEnv(L"W2B_PYTHON");
-            command = {python.empty() ? std::string("python") : Utf8(fs::path(python)), "-m", "waw2bo2.cli"};
-        }
-        command.insert(command.end(), args.begin(), args.end());
-        return command;
-    }
-
     std::vector<std::string> NativeCommand(const std::vector<std::string>& args)
     {
         wchar_t buffer[MAX_PATH * 4];
@@ -383,9 +367,6 @@ namespace w2b::launcher
             FreeEnvironmentStringsW(block);
         }
         const auto root = ResourceRoot();
-        variables[L"PYTHONPATH"] = (root / "src").wstring();
-        variables[L"PYTHONUNBUFFERED"] = L"1";
-        variables[L"PYTHONIOENCODING"] = L"utf-8";
         variables[L"WAW2BO2_VERBOSE"] = verbose ? L"1" : L"0";
         std::wstring environment;
         for (const auto& [k, v] : variables)

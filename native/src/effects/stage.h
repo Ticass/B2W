@@ -7,7 +7,6 @@
 namespace w2b::effects
 {
     py::Json StageEffects(const std::filesystem::path& request);
-    py::Json StageOverlayEffects(const std::filesystem::path& request);
     py::Json StageModelOverlayRuntime(const std::filesystem::path& project, const py::Json& effects);
     py::Json StageModelOverlayRuntimeRequest(const std::filesystem::path& request);
 }

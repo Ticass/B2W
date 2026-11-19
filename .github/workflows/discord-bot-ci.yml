@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - 'services/discord_support/**'
-      - 'tools/discord_agent_pipeline.py'
       - '.github/discord-agent-*'
       - '.github/workflows/discord-*.yml'
       - '.dockerignore'
@@ -14,7 +13,6 @@ on:
   pull_request:
     paths:
       - 'services/discord_support/**'
-      - 'tools/discord_agent_pipeline.py'
       - '.github/discord-agent-*'
       - '.github/workflows/discord-*.yml'
       - '.dockerignore'

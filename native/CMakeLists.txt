@@ -99,7 +99,7 @@ target_link_libraries(w2b_sound PUBLIC w2b_core PRIVATE w2b_audio)
 
 add_library(w2b_textures STATIC src/textures/dds.cpp src/textures/pillow_decode.cpp src/textures/iwi.cpp src/textures/stage.cpp src/textures/block_compress.cpp
     src/textures/lightmap.cpp src/textures/lightmap_stage.cpp src/textures/iwi6.cpp
-    src/textures/wavelet.cpp src/textures/wavelet_tables.cpp src/textures/iwd_recovery.cpp src/textures/iwd_service.cpp)
+    src/textures/wavelet.cpp src/textures/wavelet_tables.cpp src/textures/iwd_recovery.cpp)
 target_link_libraries(w2b_textures PUBLIC w2b_core)
 
 add_library(w2b_materials STATIC src/materials/techset_name.cpp src/materials/techset_match.cpp src/materials/fxmaterials.cpp
@@ -199,9 +199,9 @@ add_library(w2b_gscport STATIC
     src/gsc/port/clientport.cpp)
 target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
 
-# the converter version (the Python package's, until the package goes)
-file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../src/waw2bo2/__init__.py" W2B_VERSION_LINE REGEX "^__version__")
-string(REGEX REPLACE ".*\"([^\"]+)\".*" "\\1" W2B_VERSION "${W2B_VERSION_LINE}")
+# the converter version (VERSION at the repository root)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" W2B_VERSION LIMIT_COUNT 1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION")
 add_library(w2b_launcher STATIC src/launcher/settings.cpp src/launcher/images.cpp src/launcher/build.cpp src/launcher/diagnostics.cpp)
 target_link_libraries(w2b_launcher PUBLIC w2b_core)
 target_compile_definitions(w2b_launcher PRIVATE W2B_VERSION="${W2B_VERSION}")
@@ -239,7 +239,7 @@ add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp s
 target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials w2b_effects w2b_assets w2b_barricades w2b_paths)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 
-add_executable(waw2bo2n src/cli/main.cpp src/app.manifest)
+add_executable(waw2bo2n src/cli/main.cpp src/cli/dev_tools.cpp src/app.manifest)
 target_link_libraries(waw2bo2n PRIVATE w2b_oat w2b_extract w2b_strings w2b_visions w2b_pipeline w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
     w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents w2b_paths w2b_barricades w2b_models)
 if(MSVC)

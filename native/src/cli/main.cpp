@@ -1,103 +1,42 @@
-// waw2bo2n: the converter's native steps, one subcommand each.
+// waw2bo2n: the converter's command line: the build and its diagnostics.
+#include "cli/dev_tools.h"
+#include "core/asset_paths.h"
 #include "core/files.h"
-#include "core/share_files.h"
-#include "assets/resolver.h"
-#include "audio/stage.h"
-#include "audio/flac_batch.h"
-#include "shaders/stage.h"
-#include "sound/stage.h"
-#include "sound/bindings.h"
-#include "textures/iwd_service.h"
-#include "textures/stage.h"
-#include "core/parallel.h"
 #include "core/pytext.h"
-#include "effects/stage.h"
-#include "gsc/parse.h"
-#include "core/pyre.h"
-#include "gsc/port/api.h"
-#include "gsc/port/portmap.h"
-#include "gsc/port/rewrites.h"
-#include "gsc/port/staging.h"
-#include "gsc/port/zone_scripts.h"
-#include "materials/donor_index.h"
-#include "materials/prepare.h"
-#include "weapons/stage.h"
-#include "weapons/water_bullets.h"
-#include "physics/physics.h"
-#include "mapents/entities.h"
-#include "paths/paths.h"
-#include "barriers/barriers.h"
-#include "models/models.h"
-#include "models/identities.h"
-#include "models/material_identity.h"
-#include "models/surface_fixes.h"
+#include "extract/cache.h"
+#include "extract/stock.h"
+#include "launcher/build.h"
+#include "materials/waw_material_json.h"
+#include "oat/run_unlinker.h"
+#include "oat/waw_assets.h"
+#include "oat/zone_dumper.h"
+#include "pipeline/audit.h"
+#include "pipeline/bridge_stage.h"
+#include "pipeline/driver.h"
+#include "pipeline/finish.h"
+#include "pipeline/modzone.h"
+#include "textures/stage.h"
 #include "world/collision_stage.h"
 #include "world/fbx_stage.h"
-#include "world/grid_stage.h"
 #include "world/inspect.h"
-#include "world/primary_lights.h"
-#include "world/zone_manifest.h"
-#include "world/probe_stage.h"
 #include "world/vertices.h"
-
-#include <functional>
-#include <map>
-#include "gsc/tokens.h"
-
-#include <set>
 
 #include <windows.h>
 #include <fcntl.h>
 #include <io.h>
 
 #include <algorithm>
-#include <cstdio>
 #include <charconv>
+#include <cstdio>
 #include <cwctype>
 #include <exception>
 #include <fstream>
+#include <functional>
 #include <iostream>
-#include <stdexcept>
-#include "launcher/build.h"
-#include "extract/stock.h"
-#include "strings/localization.h"
-#include "visions/visions.h"
-#include "models/projectile_collision.h"
-#include "oat/run_unlinker.h"
-#include "oat/zone_dumper.h"
-#include "oat/waw_assets.h"
-#include "core/asset_paths.h"
-#include "materials/waw_material_json.h"
-#include "pipeline/bridge_stage.h"
-#include "pipeline/materials_stage.h"
-#include "pipeline/effects_stage.h"
-#include "pipeline/scripts_stage.h"
-#include "pipeline/actor_trees.h"
-#include "pipeline/hooks_stage.h"
-#include "pipeline/sound_mix.h"
-#include "textures/pillow_decode.h"
-#include "pipeline/amb_stage.h"
-#include "pipeline/sound_refs.h"
-#include "pipeline/coverage_stage.h"
-#include "pipeline/hud_stage.h"
-#include "pipeline/ingame_menus.h"
-#include "pipeline/weapon_runtime.h"
-#include "pipeline/weapon_visuals.h"
-#include "pipeline/skybox_stage.h"
-#include "pipeline/client_stage.h"
-#include "pipeline/lighting_tail.h"
-#include "pipeline/bridge_tail.h"
-#include "pipeline/bridge_geometry.h"
-#include "pipeline/bridge_images.h"
-#include "sound/bank.h"
-#include "pipeline/modzone.h"
-#include "pipeline/audit.h"
-#include "pipeline/driver.h"
-#include "pipeline/finish.h"
-#include "pipeline/menu_stage.h"
-#include "pipeline/menu_runtime.h"
-#include "pipeline/rumbles.h"
+#include <map>
 #include <optional>
+#include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -114,20 +53,29 @@ namespace
 
     int Usage()
     {
-        std::fputs("usage: waw2bo2n shaders-stage --dest <folder> <root>...\n"
+        std::fputs("usage: waw2bo2n build-map --settings-json <json> | --settings-file <file> [--redump] [--build-root <folder>]\n"
+                   "       waw2bo2n all2raw --settings-json <json> | --settings-file <file>\n"
+                   "       waw2bo2n package <stage> <project> --bo2 <folder> --work <folder> [--dest <folder>]\n"
+                   "       waw2bo2n launcher-build <settings.json>\n"
+                   "       waw2bo2n stage-bridge | build-mod | compile-scripts | bridge-link <arguments>\n"
+                   "diagnostics:\n"
+                   "       waw2bo2n oat-unlink <Unlinker arguments>\n"
+                   "       waw2bo2n oat-dump-assets <zone.ff> <output> <search;paths> <kind:name>...\n"
+                   "       waw2bo2n oat-check-materials <zone.ff> <dump root> [search paths...]\n"
+                   "       waw2bo2n audit-zone | audit-material-args <arguments>\n"
+                   "       waw2bo2n inspect | world-inspect <render-world> <clip-world>\n"
                    "       waw2bo2n world-vertices <world> <byte-offset> <count> <legacy|compensated>\n"
-                   "       waw2bo2n world-fbx <request.json>\n"
                    "       waw2bo2n world-fbx <render-world> <output.fbx> [--surface-limit <count>]\n"
                    "       waw2bo2n collision-fbx <clip-world> <output.fbx> [--triangle-limit <count>]\n"
                    "       waw2bo2n collision-mesh <clip-world> <output-folder> [--records]\n"
-                   "       waw2bo2n world-inspect <render-world> <clip-world>\n"
                    "       waw2bo2n static-models <render-world> <model-folder> <report.json>\n"
                    "       waw2bo2n dds2iwi <source.dds|folder> <output.iwi|folder>\n"
-                   "       waw2bo2n audio-stage --project <folder> --output <folder> [--decoder-text <s>] [--xwma <exe>] [--resampler <exe>]\n",
+                   "       waw2bo2n knowledge-report [--ledger <folder>]... [--bundle <zip>]... [--report <json>]... [--record] [--write <json>] [--top <n>]\n"
+                   "       waw2bo2n ipak-check <file.ipak>\n"
+                   "       waw2bo2n crash-summary <dump.dmp>...\n",
                    stderr);
         return 2;
     }
-
     int WorldVertices(const std::vector<std::string>& args)
     {
         if (args[3] != "legacy" && args[3] != "compensated")
@@ -217,284 +165,6 @@ namespace
         return result;
     }
 
-    int ShadersStage(const std::vector<std::string>& args)
-    {
-        std::string dest;
-        std::vector<std::string> roots;
-        for (size_t i = 0; i < args.size(); i++)
-        {
-            if (args[i] == "--dest" && i + 1 < args.size())
-                dest = args[++i];
-            else
-                roots.push_back(args[i]);
-        }
-        if (dest.empty())
-            return Usage();
-        const auto report = w2b::shaders::Stage(roots, w2b::files::FromUtf8(dest));
-        std::printf("shaders: %lld translated, %lld unsupported\n", report["translated"].get<long long>(), report["unsupported"].get<long long>());
-        return 0;
-    }
-
-    // gsc-tokens <list.txt> <out.jsonl>: tokenize each UTF-8 file of the list
-    // (as gsc.tokenize sees its text) and write one JSON line per file
-    int GscTokens(const std::string& listFile, const std::string& outFile)
-    {
-        std::string list;
-        if (!w2b::files::ReadBytes(w2b::files::FromUtf8(listFile), list))
-            return Usage();
-        std::vector<std::string> paths;
-        for (const auto line : w2b::py::SplitLines(list))
-            if (!line.empty())
-                paths.emplace_back(line);
-        std::vector<std::string> lines(paths.size());
-        w2b::parallel::For(paths.size(),
-                           [&](const size_t i)
-                           {
-                               std::string text;
-                               w2b::files::ReadBytes(w2b::files::FromUtf8(paths[i]), text);
-                               nlohmann::ordered_json row;
-                               row["path"] = paths[i];
-                               try
-                               {
-                                   nlohmann::ordered_json tokens = nlohmann::ordered_json::array();
-                                   for (const auto& t : w2b::gsc::Tokenize(text))
-                                       tokens.push_back({w2b::gsc::KindName(t.kind), t.text, t.pre, t.line});
-                                   row["tokens"] = std::move(tokens);
-                                   const auto repaired = w2b::gsc::RepairBlockComments(text);
-                                   row["repair"] = {repaired.first, repaired.second};
-                                   const auto script = w2b::gsc::Parse(text, "x");
-                                   row["includes"] = script.includes;
-                                   row["animtree"] = script.animtree ? nlohmann::ordered_json(*script.animtree) : nlohmann::ordered_json();
-                                   nlohmann::ordered_json functions = nlohmann::ordered_json::array();
-                                   for (const auto& [low, f] : script.functions)
-                                       functions.push_back({low, f.name, f.params, f.start, f.bodyOpen, f.bodyClose,
-                                                            f.animtree ? nlohmann::ordered_json(*f.animtree) : nlohmann::ordered_json()});
-                                   row["functions"] = std::move(functions);
-                                   nlohmann::ordered_json refs = nlohmann::ordered_json::array();
-                                   for (const auto& r : w2b::gsc::References(script.tokens))
-                                       refs.push_back({r.index, r.name, r.qualifier ? nlohmann::ordered_json(*r.qualifier) : nlohmann::ordered_json(),
-                                                       r.qualIndex ? nlohmann::ordered_json(*r.qualIndex) : nlohmann::ordered_json(), r.method, r.pointer});
-                                   row["refs"] = std::move(refs);
-                               }
-                               catch (const w2b::gsc::GscSyntaxError& error)
-                               {
-                                   row["error"] = error.what();
-                               }
-                               lines[i] = row.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
-                           });
-        std::string out;
-        for (const auto& line : lines)
-            out += line + "\n";
-        w2b::files::WriteBytes(w2b::files::FromUtf8(outFile), out);
-        return 0;
-    }
-
-    // gsc-rewrite <name> <list.txt> <out.jsonl>: apply one gscport rewrite to
-    // each file; one JSON line {"path", "count", "text"} or {"path", "error"}
-    int GscRewrite(const std::string& name, const std::string& listFile, const std::string& outFile)
-    {
-        namespace gp = w2b::gsc::port;
-        using Fn = std::function<int(gp::Tokens&)>;
-        const std::map<std::string, Fn> rewrites{
-            {"neutralize_animations", [](gp::Tokens& t) { gp::NeutralizeAnimations(t, "tree"); return 0; }},
-            {"bridge_contact_kill_attacks", [](gp::Tokens& t) { return gp::BridgeContactKillAttacks(t, w2b::gsc::Parse(w2b::gsc::Emit(t), "x")); }},
-            {"fix_syntax", gp::FixSyntax},
-            {"split_call_receivers", gp::SplitCallReceivers},
-            {"rename_level_fields", gp::RenameLevelFields},
-            {"bridge_poi_record_comparisons", gp::BridgePoiRecordComparisons},
-            {"bridge_revive_reads", gp::BridgeReviveReads},
-            {"bridge_drinking_flag", gp::BridgeDrinkingFlag},
-            {"bridge_score_writes", gp::BridgeScoreWrites},
-            {"bridge_player_stat_reads", gp::BridgePlayerStatReads},
-            {"bridge_dynamic_hud_materials", gp::BridgeDynamicHudMaterials},
-            {"mirror_team_zombie_vars", gp::MirrorTeamZombieVars},
-            {"bridge_font_scales", gp::BridgeFontScales},
-            {"keep_bo2_deathanims", gp::KeepBo2Deathanims},
-            {"bridge_intermission_camera", gp::BridgeIntermissionCamera},
-            {"bridge_launch_triggers", gp::BridgeLaunchTriggers},
-            {"lower_maxhealth_assignments", gp::LowerMaxhealthAssignments},
-            {"lower_health_assignments", gp::LowerHealthAssignments},
-            {"lower_hud_fields", gp::LowerHudFields},
-            {"lower_zombie_weapon_keys", gp::LowerZombieWeaponKeys},
-            {"lower_undefined_size_loops", gp::LowerUndefinedSizeLoops},
-            {"wrap_integer_literals", gp::WrapIntegerLiterals},
-            {"lower_stationary_fx_carriers", gp::LowerStationaryFxCarriers},
-        };
-        const auto fn = rewrites.find(name);
-        if (fn == rewrites.end())
-            return Usage();
-        std::string list;
-        w2b::files::ReadBytes(w2b::files::FromUtf8(listFile), list);
-        std::vector<std::string> paths;
-        for (const auto line : w2b::py::SplitLines(list))
-            if (!line.empty())
-                paths.emplace_back(line);
-        std::vector<std::string> lines(paths.size());
-        w2b::parallel::For(paths.size(),
-                           [&](const size_t i)
-                           {
-                               std::string text;
-                               w2b::files::ReadBytes(w2b::files::FromUtf8(paths[i]), text);
-                               nlohmann::ordered_json row;
-                               row["path"] = paths[i];
-                               try
-                               {
-                                   auto tokens = w2b::gsc::Tokenize(text);
-                                   row["count"] = fn->second(tokens);
-                                   row["text"] = w2b::gsc::Emit(tokens);
-                               }
-                               catch (const std::exception& error)
-                               {
-                                   row["error"] = error.what();
-                               }
-                               lines[i] = row.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
-                           });
-        std::string out;
-        for (const auto& line : lines)
-            out += line + "\n";
-        w2b::files::WriteBytes(w2b::files::FromUtf8(outFile), out);
-        return 0;
-    }
-
-    // regex-test <cases.jsonl> <out.jsonl>: {"pattern","flags","text","repl"}
-    // -> finditer spans/groups, sub, split, match, fullmatch (or the error)
-    int RegexTest(const std::string& casesFile, const std::string& outFile)
-    {
-        std::string text;
-        w2b::files::ReadBytes(w2b::files::FromUtf8(casesFile), text);
-        std::vector<std::string> cases;
-        for (const auto line : w2b::py::SplitLines(text))
-            if (!line.empty())
-                cases.emplace_back(line);
-        std::vector<std::string> lines(cases.size());
-        w2b::parallel::For(cases.size(),
-                           [&](const size_t i)
-                           {
-                               const auto c = nlohmann::ordered_json::parse(cases[i]);
-                               nlohmann::ordered_json row;
-                               try
-                               {
-                                   const w2b::pyre::Regex re(c["pattern"].get<std::string>(), c["flags"].get<unsigned>());
-                                   const auto subject = c["text"].get<std::string>();
-                                   nlohmann::ordered_json found = nlohmann::ordered_json::array();
-                                   for (const auto& m : re.FindIter(subject))
-                                   {
-                                       nlohmann::ordered_json spans = nlohmann::ordered_json::array();
-                                       for (size_t g = 0; g <= m.Groups(); g++)
-                                           spans.push_back({m.Start(g), m.End(g)});
-                                       found.push_back(spans);
-                                   }
-                                   row["finditer"] = found;
-                                   row["sub"] = re.Sub(c["repl"].get<std::string>(), subject);
-                                   row["split"] = re.Split(subject);
-                                   const auto m = re.MatchAt(subject);
-                                   row["match"] = m ? nlohmann::ordered_json({m->Start(), m->End()}) : nlohmann::ordered_json();
-                                   const auto f = re.FullMatch(subject);
-                                   row["fullmatch"] = f ? nlohmann::ordered_json({f->Start(), f->End()}) : nlohmann::ordered_json();
-                               }
-                               catch (const std::exception& error)
-                               {
-                                   row = nlohmann::ordered_json::object();
-                                   row["error"] = error.what();
-                               }
-                               lines[i] = row.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
-                           });
-        std::string out;
-        for (const auto& line : lines)
-            out += line + "\n";
-        w2b::files::WriteBytes(w2b::files::FromUtf8(outFile), out);
-        return 0;
-    }
-
-    // sounds-stage <args.json>: {"project", "roots", "iwd_dirs", "names" (list|null), "globals" (str|null)}
-    int SoundsStage(const std::string& argsFile)
-    {
-        std::string text;
-        if (!w2b::files::ReadBytes(w2b::files::FromUtf8(argsFile), text))
-            return Usage();
-        const auto args = nlohmann::ordered_json::parse(text);
-        w2b::sound::StageInput input;
-        input.project = w2b::files::FromUtf8(args["project"].get<std::string>());
-        input.roots = args["roots"].get<std::vector<std::string>>();
-        input.iwdDirs = args["iwd_dirs"].get<std::vector<std::string>>();
-        if (!args["names"].is_null())
-            input.names = args["names"].get<std::set<std::string>>();
-        if (!args["globals"].is_null())
-            input.globalsFile = args["globals"].get<std::string>();
-        const auto report = w2b::sound::Stage(input);
-        std::printf("sounds: %zu aliases, %zu audio files, %zu errors\n", report["aliases"].size(), report["audio"].size(), report["errors"].size());
-        return 0;
-    }
-
-    // port-map <args.json>: gscport.port_map. {"roots", "iwds", "stock", "variant_roots", "snapshot",
-    // "api_cache", "compat_dir", "map_name", "out_root", "animtrees", "core_animtrees", "bo2_stock_perks",
-    // "actor_types", "actor_template" (kind -> source | null), "stock_map", "client_ported", "bind" (bool),
-    // "report" (output JSON path)}
-    int PortMapCommand(const std::string& argsFile)
-    {
-        namespace port = w2b::gsc::port;
-        const auto args = nlohmann::ordered_json::parse(w2b::files::ReadText(w2b::files::FromUtf8(argsFile)));
-        const auto paths = [&](const char* key)
-        {
-            std::vector<std::filesystem::path> out;
-            if (args.contains(key) && !args[key].is_null())
-                for (const auto& p : args[key])
-                    out.push_back(w2b::files::FromUtf8(p.get<std::string>()));
-            return out;
-        };
-        port::SetCompatDir(w2b::files::FromUtf8(args["compat_dir"].get<std::string>()));
-        std::optional<std::filesystem::path> stock;
-        if (!args["stock"].is_null())
-            stock = w2b::files::FromUtf8(args["stock"].get<std::string>());
-        port::Sources sources(paths("roots"), paths("iwds"), stock, paths("variant_roots"));
-        const auto api = port::T6Api::Load(w2b::files::FromUtf8(args["snapshot"].get<std::string>()), w2b::files::FromUtf8(args["api_cache"].get<std::string>()));
-        const auto mapName = args["map_name"].get<std::string>();
-        if (args.value("bind", false))
-            sources.BindZombieFramework("maps/" + mapName);
-        port::PortMapOptions options;
-        if (args.contains("fx_table"))
-            options.fxTable = args["fx_table"].get<std::map<std::string, std::string>>();
-        options.animtrees = args["animtrees"].get<std::set<std::string>>();
-        for (const auto& [tree, names] : args["core_animtrees"].items())
-            options.coreAnimtrees[tree] = names.get<std::set<std::string>>();
-        options.bo2StockPerks = args["bo2_stock_perks"].get<bool>();
-        options.actorTypes = args["actor_types"].get<std::set<std::string>>();
-        if (!args["actor_template"].is_null())
-            options.actorTemplate = args["actor_template"].get<std::map<std::string, std::string>>();
-        options.stockMap = args["stock_map"].get<bool>();
-        options.clientPorted = args["client_ported"].get<bool>();
-        const auto report = port::PortMap(sources, api, mapName, w2b::files::FromUtf8(args["out_root"].get<std::string>()), options);
-        w2b::files::WriteBytes(w2b::files::FromUtf8(args["report"].get<std::string>()), report.ToJson().dump());
-        std::printf("port-map: %zu ported, %zu errors\n", report.ported.size(), report.errors.size());
-        return 0;
-    }
-
-    // audio-stage --project <content_source> --output <pcm> [--decoder-text <str>] [--xwma <exe>] [--resampler <exe>]
-    int AudioStage(const std::vector<std::string>& args)
-    {
-        std::string project, output, decoder;
-        w2b::audio::Tools tools;
-        for (size_t i = 0; i + 1 < args.size(); i += 2)
-        {
-            if (args[i] == "--project")
-                project = args[i + 1];
-            else if (args[i] == "--output")
-                output = args[i + 1];
-            else if (args[i] == "--decoder-text")
-                decoder = args[i + 1];
-            else if (args[i] == "--xwma")
-                tools.xwmaHelper = w2b::files::FromUtf8(args[i + 1]);
-            else if (args[i] == "--resampler")
-                tools.resampler = w2b::files::FromUtf8(args[i + 1]);
-            else
-                return Usage();
-        }
-        if (project.empty() || output.empty())
-            return Usage();
-        const auto report = w2b::audio::Stage(w2b::files::FromUtf8(project), w2b::files::FromUtf8(output), decoder, tools);
-        std::printf("audio: %zu decoded, %zu errors\n", report["audio"].size(), report["errors"].size());
-        return 0;
-    }
     using Arguments = std::vector<std::string>;
 
     // argparse-style: positionals in order, "--name value" options
@@ -552,22 +222,6 @@ namespace
             std::fprintf(stderr, "waw2bo2: error: %s: %s\n", error.kind.c_str(), error.what());
             return 1;
         }
-    }
-
-    // decode-dds-pillow <in.dds> <out.rgba>: Image.open(dds).convert("RGBA") bytes (parity checks)
-    int DecodeDdsPillowCommand(const Arguments& args)
-    {
-        if (args.size() != 2)
-            return Usage();
-        return Step([&] {
-            std::string data;
-            if (!w2b::files::ReadBytes(w2b::files::FromUtf8(args[0]), data))
-                throw std::runtime_error("cannot read " + args[0]);
-            const auto image = w2b::textures::DecodeDdsPillow(data);
-            w2b::files::WriteBytes(w2b::files::FromUtf8(args[1]), image.pixels);
-            std::printf("%u %u\n", image.width, image.height);
-            return 0;
-        });
     }
 
     int PackageCommand(const Arguments& args)
@@ -656,7 +310,8 @@ namespace
             return Usage();
         return ExtractStep([&] {
             namespace l = w2b::launcher;
-            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(*text));
+            // blank fields as the launcher fills them (the bundled tools, detected games)
+            const auto settings = l::Discover(l::Settings::FromJson(nlohmann::ordered_json::parse(*text)));
             _wputenv_s(L"WAW2BO2_VERBOSE", settings.verbose ? L"1" : L"0");
             auto caches = l::CachePaths::ForSettings(settings);
             if (const auto* r = p->Option("--waw-cache-root"))
@@ -669,41 +324,6 @@ namespace
             std::error_code ec;
             if (!settings.fastfile.empty() && std::filesystem::is_regular_file(f(settings.fastfile), ec))
                 w2b::extract::SourceDumps({f(settings.fastfile), f(settings.waw), f(settings.t4) / "Unlinker.exe"}, caches.waw, refresh);
-            return 0;
-        });
-    }
-
-    // extract-prepare <game> <unlinker> <cache root> T4|T6 --result <file> [--refresh]: all2raw.prepare
-    int ExtractPrepareCommand(const Arguments& input)
-    {
-        auto args = input;
-        const bool refresh = std::erase(args, std::string("--refresh")) > 0;
-        const auto p = Parse(args, {"--result"});
-        if (!p || p->positional.size() != 4 || !p->Option("--result"))
-            return Usage();
-        return ExtractStep([&] {
-            const auto f = [](const std::string& s) { return w2b::files::FromUtf8(s); };
-            const auto raw = w2b::extract::Prepare(f(p->positional[0]), f(p->positional[1]), f(p->positional[2]), p->positional[3], refresh);
-            w2b::files::WriteBytes(f(*p->Option("--result")), nlohmann::ordered_json(w2b::extract::Str(raw)).dump());
-            return 0;
-        });
-    }
-
-    // extract-sources <fastfile> <waw> <t4 unlinker> <waw cache root> --result <file> [--refresh]: all2raw.source_dumps
-    int ExtractSourcesCommand(const Arguments& input)
-    {
-        auto args = input;
-        const bool refresh = std::erase(args, std::string("--refresh")) > 0;
-        const auto p = Parse(args, {"--result"});
-        if (!p || p->positional.size() != 4 || !p->Option("--result"))
-            return Usage();
-        return ExtractStep([&] {
-            const auto f = [](const std::string& s) { return w2b::files::FromUtf8(s); };
-            const auto dumps = w2b::extract::SourceDumps({f(p->positional[0]), f(p->positional[1]), f(p->positional[2])}, f(p->positional[3]), refresh);
-            nlohmann::ordered_json out = nlohmann::ordered_json::object();
-            for (const auto& [role, folder] : dumps)
-                out[role] = w2b::extract::Str(folder);
-            w2b::files::WriteBytes(f(*p->Option("--result")), out.dump());
             return 0;
         });
     }
@@ -807,7 +427,8 @@ namespace
         try
         {
             namespace l = w2b::launcher;
-            const auto settings = l::Settings::FromJson(nlohmann::ordered_json::parse(*text));
+            // blank fields as the launcher fills them (the bundled tools, detected games)
+            const auto settings = l::Discover(l::Settings::FromJson(nlohmann::ordered_json::parse(*text)));
             w2b::pipeline::BuildOptions options;
             options.redump = redump;
             if (const auto* r = p->Option("--build-root"))
@@ -884,67 +505,6 @@ namespace
         return 0;
     }
 
-    template <auto Stage>
-    int JsonRequest(const Arguments& args)
-    {
-        return args.size() == 1 ? PrintReport(Stage(w2b::files::FromUtf8(args[0]))) : Usage();
-    }
-
-    int StageWawHudCommand(const Arguments& args)
-    {
-        try
-        {
-            return JsonRequest<w2b::pipeline::StageWawHud>(args);
-        }
-        catch (const w2b::pipeline::StepError& error)
-        {
-            if (error.kind != "ValueError")
-                throw;
-            return PrintReport(w2b::py::Json{{"value_error", error.what()}});
-        }
-    }
-
-    w2b::py::Json ReadResolverMessage()
-    {
-        std::string line;
-        if (!std::getline(std::cin, line))
-            throw std::runtime_error("asset resolver input closed");
-        return w2b::py::Json::parse(line);
-    }
-
-    int ResolveAssets(const Arguments& args)
-    {
-        if (!args.empty())
-            return Usage();
-        const auto request = ReadResolverMessage();
-        const auto query = [](const w2b::py::Json& message) {
-            PrintReport(message);
-            std::fflush(stdout);
-            return ReadResolverMessage();
-        };
-        w2b::assets::StockLookup lookup;
-        w2b::assets::StockSounds sounds;
-        if (request.at("hasStock").get<bool>())
-        {
-            lookup = [&](const w2b::assets::Asset& asset) -> std::optional<w2b::assets::StockRoot> {
-                const auto reply = query({{"lookup", asset}});
-                if (reply.is_null())
-                    return std::nullopt;
-                return w2b::assets::StockRoot{reply.at(0).get<std::string>(),
-                                              w2b::files::FromUtf8(reply.at(1).get_ref<const std::string&>())};
-            };
-            sounds = [&]() { return query({{"soundAliases", true}}).get<std::set<std::string>>(); };
-        }
-        try
-        {
-            return PrintReport({{"result", w2b::assets::Expand(request, std::move(lookup), std::move(sounds))}});
-        }
-        catch (const w2b::weapons::WeaponError& error)
-        {
-            return PrintReport({{"weaponError", error.what()}});
-        }
-    }
-
     int Inspect(const Arguments& args)
     {
         if (args.size() != 2)
@@ -1004,106 +564,10 @@ namespace
     };
 
     constexpr Command commands[]{
-        {"shaders-stage", ShadersStage}, {"audio-stage", AudioStage},
-        {"dds2iwi", [](const Arguments& a) { return a.size() == 2 ? DdsToIwi(a[0], a[1]) : Usage(); }},
-        {"dds-batch", JsonRequest<w2b::textures::ConvertBatch>},
-        {"bind-sound-pcm", JsonRequest<w2b::sound::BindPcmRequest>},
-        {"bind-sound-curves", JsonRequest<w2b::sound::BindCurvesRequest>},
-        {"index-donors", JsonRequest<w2b::materials::IndexDonors>},
-        {"convert-effects", JsonRequest<w2b::effects::StageEffects>},
-        {"stage-weapon-files", JsonRequest<w2b::weapons::StageWeapons>},
-        {"stage-water-bullets", JsonRequest<w2b::weapons::StageWaterBulletsRequest>},
-        {"stage-weapon-models", JsonRequest<w2b::weapons::StageModels>},
-        {"stage-viewmodel-shadows", JsonRequest<w2b::weapons::StageShadowVariants>},
-        {"resolve-assets", ResolveAssets},
-        {"map-physics", JsonRequest<w2b::physics::Run>},
-        {"convert-map-entities", JsonRequest<w2b::mapents::Run>},
-        {"stage-ai-paths", JsonRequest<w2b::paths::Run>},
-        {"stage-barricades", JsonRequest<w2b::barriers::Run>},
-        {"stage-localization", JsonRequest<w2b::strings::StageLocalization>},
-        {"stage-visions", JsonRequest<w2b::visions::StageVisions>},
-        {"recover-projectile-collision", JsonRequest<w2b::models::RecoverProjectileCollision>},
-        {"stage-materials", JsonRequest<w2b::pipeline::StageMaterials>},
-        {"port-scripts", JsonRequest<w2b::pipeline::PortScripts>},
-        {"stage-owned-actor-tree", JsonRequest<w2b::pipeline::StageOwnedActorTreeRequest>},
-        {"link-check", JsonRequest<w2b::pipeline::LinkCheckStep>},
-        {"hook-map-scripts", JsonRequest<w2b::pipeline::HookMapScripts>},
-        {"write-sound-bank", JsonRequest<w2b::sound::WriteT6BankRequest>},
-        {"decode-dds-pillow", DecodeDdsPillowCommand},
-        {"sound-mix", JsonRequest<w2b::pipeline::SoundMixRequest>},
-        {"write-amb-csc", JsonRequest<w2b::pipeline::WriteAmbCscRequest>},
-        {"discover-sounds", JsonRequest<w2b::pipeline::DiscoverSoundsRequest>},
-        {"framework-coverage", JsonRequest<w2b::pipeline::FrameworkCoverage>},
-        {"stage-waw-hud", StageWawHudCommand},
-        {"stage-waw-menus", JsonRequest<w2b::pipeline::StageWawMenus>},
-        {"stage-weapon-runtime", JsonRequest<w2b::pipeline::StageWeaponRuntime>},
-        {"finish-weapon-runtime", JsonRequest<w2b::pipeline::FinishWeaponRuntime>},
-        {"stage-source-skybox", JsonRequest<w2b::pipeline::StageSourceSkybox>},
-        {"finish-client-scripts", JsonRequest<w2b::pipeline::FinishClientScripts>},
-        {"stage-light-defs", JsonRequest<w2b::pipeline::StageLightDefs>},
-        {"stage-zbarrier", JsonRequest<w2b::pipeline::StageZbarrier>},
-        {"stage-map-models", JsonRequest<w2b::models::Stage>},
-        {"fix-model-surfaces", JsonRequest<w2b::models::StageSurfaceFixesRequest>},
-        {"isolate-model-names", JsonRequest<w2b::models::IsolateModelNamesRequest>},
-        {"isolate-material-names", JsonRequest<w2b::models::IsolateMaterialNamesRequest>},
-        {"stage-rumbles", JsonRequest<w2b::pipeline::StageRumblesRequest>},
-        {"stage-script-files", JsonRequest<w2b::gsc::port::StageScriptFilesRequest>},
-        {"list-map-scripts", JsonRequest<w2b::gsc::port::MapScriptsRequest>},
-        {"map-zone-scripts", JsonRequest<w2b::gsc::port::ZoneScriptsRequest>},
-        {"write-map-zone", JsonRequest<w2b::world::WriteMapZoneRequest>},
-        {"stage-menu-settings", JsonRequest<w2b::pipeline::StageMenuSettingsRequest>},
-        {"stage-menu-runtime", JsonRequest<w2b::pipeline::StageMenuRuntimeRequest>},
-        {"encode-streamed-flac", JsonRequest<w2b::audio::EncodeFlacBatchRequest>},
-        {"share-cache-files", JsonRequest<w2b::files::ShareIdenticalFiles>},
-        {"effect-overlays", JsonRequest<w2b::effects::StageOverlayEffects>},
-        {"stage-model-overlay-runtime", JsonRequest<w2b::effects::StageModelOverlayRuntimeRequest>},
-        {"stage-effect-models", JsonRequest<w2b::models::StageEffectAssetsRequest>},
-        {"prepare-materials", [](const Arguments& a)
-        {
-            if (a.size() != 1)
-                return Usage();
-            w2b::materials::PrepareMaterials(w2b::files::FromUtf8(a[0]));
-            return 0;
-        }},
-        {"iwd-recovery", [](const Arguments& a)
-        {
-            if (!a.empty())
-                return Usage();
-            w2b::textures::ServeIwdRecovery(std::cin, std::cout, {{"stage-effects", w2b::pipeline::StageEffectsStep}, {"stage-waw-menu-art", w2b::pipeline::StageWawMenuArt}, {"stage-weapon-visuals", w2b::pipeline::StageWeaponVisuals}, {"stage-bridge-images", w2b::pipeline::StageBridgeImages}, {"bridge-tail", w2b::pipeline::BridgeTail}});
-            return 0;
-        }},
-        {"lightmaps", JsonRequest<w2b::textures::StageLightmaps>},
-        {"light-grid", JsonRequest<w2b::world::StageGrid>},
-        {"primary-lights", [](const Arguments& a)
-        {
-            if (a.size() != 3 || (a[2] != "keep" && a[2] != "disable"))
-                return Usage();
-            return PrintReport(w2b::world::StagePrimaryLights(w2b::files::FromUtf8(a[0]),
-                        w2b::files::FromUtf8(a[1]), a[2] == "keep"));
-        }},
-        {"reflection-probes", JsonRequest<w2b::world::StageProbesRequest>},
-        {"port-map", [](const Arguments& a) { return a.size() == 1 ? PortMapCommand(a[0]) : Usage(); }},
-        {"world-vertices", [](const Arguments& a) { return a.size() == 4 ? WorldVertices(a) : Usage(); }},
-        {"world-fbx", WorldFbx},
-        {"stage-bridge-geometry", JsonRequest<w2b::pipeline::StageBridgeGeometryRequest>},
-        {"collision-fbx", CollisionFbx},
-        {"collision-mesh", [](const Arguments& a)
-        {
-            if (a.size() != 2 && (a.size() != 3 || a[2] != "--records"))
-                return Usage();
-            return PrintReport(w2b::world::StageCollisionMesh(w2b::files::FromUtf8(a[0]),
-                        w2b::files::FromUtf8(a[1]), a.size() == 3));
-        }},
-        {"package", PackageCommand}, {"compile-scripts", CompileScriptsCommand}, {"bridge-link", BridgeLinkCommand},
-        {"stage-bridge", StageBridgeCommand},
-        {"oat-unlink", OatUnlinkCommand},
-        {"oat-dump-assets", OatDumpAssetsCommand},
-        {"oat-check-materials", OatCheckMaterialsCommand},
-        {"build-map", BuildMapCommand}, {"build-mod", BuildModCommand}, {"audit-zone", AuditZoneCommand}, {"all2raw", All2RawCommand}, {"extract-prepare", ExtractPrepareCommand},
-        {"extract-sources", ExtractSourcesCommand}, {"audit-material-args", AuditMaterialArgsCommand},
-        {"inspect", Inspect}, {"world-inspect", Inspect},
-        {"static-models", StaticModels},
-        {"sounds-stage", [](const Arguments& a) { return a.size() == 1 ? SoundsStage(a[0]) : Usage(); }},
+        // the build, as the launcher runs it
+        {"build-map", BuildMapCommand},
+        {"all2raw", All2RawCommand},
+        {"package", PackageCommand},
         // launcher-build <settings.json>: the launcher's Build Map flow, console on stdout
         {"launcher-build", [](const Arguments& a)
         {
@@ -1116,48 +580,33 @@ namespace
             std::printf("launcher-build: exit %d\n", code);
             return code;
         }},
-        // launcher-check <settings.json>: the launcher rules for those settings, as JSON
-        {"launcher-check", [](const Arguments& a)
+        // single build steps
+        {"stage-bridge", StageBridgeCommand},
+        {"build-mod", BuildModCommand},
+        {"compile-scripts", CompileScriptsCommand},
+        {"bridge-link", BridgeLinkCommand},
+        // diagnostics
+        {"oat-unlink", OatUnlinkCommand},
+        {"oat-dump-assets", OatDumpAssetsCommand},
+        {"oat-check-materials", OatCheckMaterialsCommand},
+        {"audit-zone", AuditZoneCommand},
+        {"audit-material-args", AuditMaterialArgsCommand},
+        {"inspect", Inspect},
+        {"world-inspect", Inspect},
+        {"world-vertices", [](const Arguments& a) { return a.size() == 4 ? WorldVertices(a) : Usage(); }},
+        {"world-fbx", WorldFbx},
+        {"collision-fbx", CollisionFbx},
+        {"collision-mesh", [](const Arguments& a)
         {
-            if (a.size() != 1)
+            if (a.size() != 2 && (a.size() != 3 || a[2] != "--records"))
                 return Usage();
-            namespace l = w2b::launcher;
-            const auto settings = l::Discover(l::Settings::Load(w2b::files::FromUtf8(a[0])));
-            nlohmann::ordered_json out;
-            out["settings"] = settings.ToJson();
-            out["project_name"] = l::ProjectName(settings.fastfile);
-            out["map_zone"] = w2b::files::Utf8(l::MapZone(w2b::files::FromUtf8(settings.fastfile)));
-            const auto caches = l::CachePaths::ForSettings(settings);
-            out["cache"] = {w2b::files::Utf8(caches.waw), w2b::files::Utf8(caches.bo2)};
-            try
-            {
-                const auto paths = l::BuildPaths::ForSettings(settings);
-                out["paths"] = {w2b::files::Utf8(paths.root), w2b::files::Utf8(paths.stage), w2b::files::Utf8(paths.stock),
-                                w2b::files::Utf8(paths.wawDumps), w2b::files::Utf8(paths.mod), w2b::files::Utf8(paths.output)};
-                out["complete"] = paths.Complete(settings.project, &settings.bo2_stock_perks);
-                out["build_command"] = l::BuildCommand(settings);
-            }
-            catch (const std::exception& error)
-            {
-                out["paths"] = error.what();
-            }
-            out["checks"] = nlohmann::ordered_json::array();
-            for (const auto& c : l::Preflight(settings))
-                out["checks"].push_back({c.name, c.ready, c.detail, c.required});
-            out["installed"] = l::Installed(settings);
-            out["stamp"] = l::InputStamp(settings);
-            std::fwrite(w2b::py::JsonDumps(out, 1).data(), 1, w2b::py::JsonDumps(out, 1).size(), stdout);
-            return 0;
+            return PrintReport(w2b::world::StageCollisionMesh(w2b::files::FromUtf8(a[0]), w2b::files::FromUtf8(a[1]), a.size() == 3));
         }},
-        {"gsc-tokens", [](const Arguments& a) { return a.size() == 2 ? GscTokens(a[0], a[1]) : Usage(); }},
-        {"regex-test", [](const Arguments& a) { return a.size() == 2 ? RegexTest(a[0], a[1]) : Usage(); }},
-        {"gsc-rewrite", [](const Arguments& a)
-        {
-            if (a.size() != 4)
-                return Usage();
-            w2b::gsc::port::SetCompatDir(w2b::files::FromUtf8(a[3]));
-            return GscRewrite(a[0], a[1], a[2]);
-        }},
+        {"static-models", StaticModels},
+        {"dds2iwi", [](const Arguments& a) { return a.size() == 2 ? DdsToIwi(a[0], a[1]) : Usage(); }},
+        {"knowledge-report", w2b::cli::KnowledgeReport},
+        {"ipak-check", w2b::cli::IpakCheck},
+        {"crash-summary", w2b::cli::CrashSummary},
     };
 } // namespace
 

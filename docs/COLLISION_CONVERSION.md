@@ -91,7 +91,7 @@ every edge standable. T4 clip dump v6 carries WaW's bits;
 
 WaW and T6 use the same front face, `(v2 - v0) x (v1 - v0)`. The FBX writer
 and BSPCreator each reverse, which cancels; never "fix" one side alone.
-`tools/audit_collision_roundtrip.py` compares oriented triangles.
+The Python audit that compared oriented triangles (`audit_collision_roundtrip.py`) was removed with the Python tooling.
 
 ## 7. One-sided traversal collision is removed
 
@@ -190,12 +190,12 @@ is plantable. The box-trace branch in G_RunMissile's helper 0x42C950 tests
 plantable, so it is not evidence that ordinary frag grenades skip static models.
 Never change grenade physics based on the earlier misidentified field.
 
-1. `tools/audit_collision_roundtrip.py <clip.bin> <collision.json>`: every
+1. (Removed with the Python tooling: `audit_collision_roundtrip.py`.) Every
    triangle, winding and flag matches, and **no partition is non-convex**.
 2. Linker log: `Walkable edges ... N of N triangles matched`, `Collision tree:`
    counts, no `exceed` errors.
 3. Unlinker clipmap report: `brush tree position contract violations 0`.
-4. In game: `tools/bisect_round.ps1` + the debug GSC in
+4. In game: the debug GSC in
    `%LOCALAPPDATA%\Plutonium\storage\t6\scripts\zm\waw2bo2_viewpos.gsc`
    (HUD position, melee probe that logs hull/line traces, scripted movement
    tests). A standing player must pass the Nuketown yellow-house kitchen arch
@@ -217,9 +217,9 @@ indices/counts. No geometry, flags or source ownership are removed.
 Native validation preserves all 82,831 Empty Walls terrain triangles, including
 36 triangles across 18 moving models, and all 2,125 Cheese Cube triangles,
 including model 242's 32 water triangles. Winding/flag and owner audits pass.
-`tools/audit_terrain_ownership.py <clip.bin> <collision.json>` compares geometry
+`audit_terrain_ownership.py` (removed with the Python tooling) compared geometry
 at four decimal places, flags, reachability and distinct world/model ownership.
-It complements `audit_collision_roundtrip.py`'s winding check. Evidence is in
+It complemented the winding check. Evidence is in
 `work/empty_walls_20261013`.
 
 ## Debug aid

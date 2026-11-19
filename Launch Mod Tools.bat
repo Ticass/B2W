@@ -1,15 +1,15 @@
 @echo off
+rem Start the converter's launcher: the packaged one, else the checkout's build.
 cd /d "%~dp0"
-if exist "%~dp0work\desktop_dist\WawConverter\WawConverter.exe" (
-    start "" "%~dp0work\desktop_dist\WawConverter\WawConverter.exe"
+if exist "%~dp0work\desktop_dist\WawConverter\B2W.exe" (
+    start "" "%~dp0work\desktop_dist\WawConverter\B2W.exe"
     exit /b 0
 )
-set "PYTHONPATH=%~dp0src"
-where pythonw.exe >nul 2>nul
-if errorlevel 1 (
-    echo Python with Tkinter was not found. Use the portable Windows download,
-    echo or install Python 3.11 or newer from python.org, including Tcl/Tk.
-    pause
-    exit /b 1
+if exist "%~dp0native\build\B2W.exe" (
+    start "" "%~dp0native\build\B2W.exe"
+    exit /b 0
 )
-start "" pythonw.exe -m waw2bo2.gui
+echo The converter is not built yet. Use the portable Windows download, or build it with:
+echo     powershell -ExecutionPolicy Bypass -File tools\restore_native.ps1
+pause
+exit /b 1

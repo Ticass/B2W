@@ -228,7 +228,8 @@ namespace w2b::timeline
         record["pid"] = process ? GetProcessId(static_cast<HANDLE>(process)) : 0;
         record["wall"] = Round(Clock() - clock, 4);
         record["returncode"] = returncode;
-        for (const auto& [k, v] : Accounting(static_cast<HANDLE>(process)).items())
+        const auto accounting = Accounting(static_cast<HANDLE>(process));
+        for (const auto& [k, v] : accounting.items())
             record[k] = v;
         Emit(record);
     }

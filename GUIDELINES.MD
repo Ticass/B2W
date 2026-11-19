@@ -177,44 +177,44 @@ For example:
 
 Bad:
 
-```python
-if map_name == "nazi_zombie_nuketown":
-    fix_nuketown_fx()
+```cpp
+if (mapName == "nazi_zombie_nuketown")
+    FixNuketownFx();
 ```
 
 Better:
 
-```python
-if source_fx_uses_waw_format(asset):
-    convert_waw_fx_to_bo2(asset)
+```cpp
+if (SourceFxUsesWawFormat(asset))
+    ConvertWawFxToBo2(asset);
 ```
 
 Bad:
 
-```python
-if weapon_name == "nuketown_custom_raygun":
+```cpp
+if (weaponName == "nuketown_custom_raygun")
     ...
 ```
 
 Better:
 
-```python
-if weapon_definition.requires_waw_weapon_translation():
-    convert_weapon_definition(...)
+```cpp
+if (weaponDefinition.RequiresWawWeaponTranslation())
+    ConvertWeaponDefinition(...);
 ```
 
 Bad:
 
-```python
-if entity.targetname == "nuketown_power_switch":
+```cpp
+if (entity.targetname == "nuketown_power_switch")
     ...
 ```
 
 Better:
 
-```python
-if entity.classname == "script_model" and entity_has_waw_power_interaction(entity):
-    translate_interaction_entity(...)
+```cpp
+if (entity.classname == "script_model" && EntityHasWawPowerInteraction(entity))
+    TranslateInteractionEntity(...);
 ```
 
 A bug encountered on Nuketown should ideally result in support for an entire **class of WaW maps/assets**, not merely Nuketown.
@@ -563,7 +563,7 @@ parser is already a complete semantic compiler. A new standalone interpreter
 or a wholesale rewrite is not required.
 
 Keep engine/API knowledge in centralized, reviewable definitions. Extend the
-existing `src/waw2bo2/compat/gsc_api.json`, `t6api.py` metadata and compatibility
+existing `src/waw2bo2/compat/gsc_api.json`, `native/src/gsc/port/t6api.cpp` metadata and compatibility
 modules where appropriate; evolve their schema rather than adding competing
 tables. Definitions should describe, as relevant:
 
@@ -581,7 +581,7 @@ Definitions cover engine differences and reusable framework contracts.
 
 ## 14b. Migrate Incrementally and Preserve Existing Conversions
 
-Reuse `gsc.py`, `gscport.py`, the recursive dependency discovery, existing API
+Reuse `native/src/gsc` (parser), `native/src/gsc/port` (the port), the recursive dependency discovery, existing API
 definitions and runtime wrappers. Introduce structured parsing, symbol
 resolution and semantic passes in stages as real conversion cases require
 them. Move fragile text rewrites and scattered API decisions into those passes

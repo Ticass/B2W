@@ -461,9 +461,4 @@ namespace w2b::pipeline
                     {"content", content},
                     {"stock_prepared", stockWaw ? stockWaw->PreparedJson() : Json()}};
     }
-
-    Json DiscoverSoundsRequest(const fs::path& request)
-    {
-        return DiscoverSounds(mod::Json(request));
-    }
 } // namespace w2b::pipeline

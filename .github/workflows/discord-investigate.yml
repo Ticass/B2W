@@ -40,7 +40,7 @@ jobs:
           python-version: '3.12'
       - name: Copy trusted collection helper outside the agent workspace
         run: |
-          sudo install -D -m 0444 tools/discord_agent_pipeline.py /opt/discord-support-trusted/pipeline.py
+          sudo install -D -m 0444 services/discord_support/agent_pipeline.py /opt/discord-support-trusted/pipeline.py
           sudo install -D -m 0444 services/discord_support/core.py /opt/discord-support-trusted/core.py
       - name: Collect the report, its messages and attachments
         id: prepare
@@ -55,9 +55,9 @@ jobs:
           path: work/discord_attachments/
           if-no-files-found: error
           retention-days: 7
-      - name: Install investigation and bot test dependencies
+      - name: Install the bot test dependencies
         if: steps.prepare.outputs.skip != 'true'
-        run: python -m pip install -e . imageio-ffmpeg==0.6.0 -r services/discord_support/requirements.txt
+        run: python -m pip install -r services/discord_support/requirements.txt
       - name: Investigate and propose a regression-tested fix
         if: steps.prepare.outputs.skip != 'true'
         id: codex
@@ -106,18 +106,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: python tools/discord_agent_pipeline.py store-attachments --issue "$ISSUE_NUMBER"
+        run: python services/discord_support/agent_pipeline.py store-attachments --issue "$ISSUE_NUMBER"
 
+  # The converter builds on Windows only: apply the fix there, build it and run
+  # its C++ tests.
   verify:
     needs: investigate
     if: needs.investigate.outputs.skip == 'false'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
     outputs:
       changed: ${{ steps.patch.outputs.changed }}
     steps:
+      # the fix patch has LF line endings; a CRLF checkout would not take it
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.investigate.outputs.sha }}
@@ -132,7 +139,7 @@ jobs:
       # The patch may change tools/, so verification runs the unpatched helper.
       - name: Copy trusted verification helper outside the workspace
         run: |
-          install -D -m 0444 tools/discord_agent_pipeline.py "$RUNNER_TEMP/trusted/pipeline.py"
+          install -D -m 0444 services/discord_support/agent_pipeline.py "$RUNNER_TEMP/trusted/pipeline.py"
           install -D -m 0444 services/discord_support/core.py "$RUNNER_TEMP/trusted/core.py"
       - name: Validate patch boundaries
         id: patch
@@ -143,24 +150,30 @@ jobs:
           else
             echo 'changed=false' >> "$GITHUB_OUTPUT"
           fi
-      - name: Install test dependencies
+      - name: Restore the native tool builds
         if: steps.patch.outputs.changed == 'true'
-        run: python -m pip install Pillow imageio-ffmpeg==0.6.0
-      # Ubuntu has no Windows worker, d3dcompiler or native vendor outputs;
-      # tests needing them fail with or without the patch.
-      - name: Record tests that fail on this runner without the patch
-        if: steps.patch.outputs.changed == 'true'
-        env:
-          PYTHONPATH: ${{ github.workspace }}/src
-        run: python "$RUNNER_TEMP/trusted/pipeline.py" verify-tests --baseline-output "$RUNNER_TEMP/baseline.json"
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            vendor/OpenAssetTools
+            !vendor/OpenAssetTools/build/obj
+            vendor/OpenAssetToolsT6/build/bin/Release_x86
+            vendor/OpenAssetToolsT6/thirdparty
+            tools/bin/xaudio_wma_decoder.exe
+          key: windows-2022-native-v3-${{ hashFiles('vendor/OpenAssetTools.patch', 'vendor/OpenAssetToolsT6/src/**', 'vendor/OpenAssetToolsT6/tools/**', 'vendor/OpenAssetToolsT6/**/*.lua', 'vendor/OpenAssetToolsT6/raw/**', 'tools/restore_native.ps1', 'tools/build_audio_decoder.ps1', 'tools/xaudio_wma_decoder.cpp') }}
       - name: Apply proposed fix
         if: steps.patch.outputs.changed == 'true'
         run: git apply work/discord_result/fix.patch
-      - name: Verify proposed fix introduces no test failures
+      - name: Build the patched converter
         if: steps.patch.outputs.changed == 'true'
-        env:
-          PYTHONPATH: ${{ github.workspace }}/src
-        run: python "$RUNNER_TEMP/trusted/pipeline.py" verify-tests --baseline "$RUNNER_TEMP/baseline.json"
+        shell: pwsh
+        run: ./tools/restore_native.ps1 -Projects 4 -Compilers 4
+      - name: Verify the converter tests pass with the fix
+        if: steps.patch.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          native/build/w2b_tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   publish:
     needs: [investigate, verify, store]
@@ -190,7 +203,7 @@ jobs:
           name: discord-investigation
           path: work/discord_result
       - name: Revalidate immutable investigation artifact before publication
-        run: python tools/discord_agent_pipeline.py validate
+        run: python services/discord_support/agent_pipeline.py validate
       - name: Create draft PR and dispatch Windows/Linux CI
         if: needs.verify.outputs.changed == 'true'
         env:
@@ -200,7 +213,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$BRANCH"
-          git add src/waw2bo2 tests tools vendor/OpenAssetToolsT6/src vendor/OpenAssetTools.patch docs
+          git add native/src native/tests src/waw2bo2/compat tools vendor/OpenAssetToolsT6/src vendor/OpenAssetTools.patch docs
           git commit -m "Investigate Discord report #$ISSUE_NUMBER"
           remote_sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
           if test -n "$remote_sha"; then
@@ -210,7 +223,7 @@ jobs:
           else
             git push origin "HEAD:refs/heads/$BRANCH"
           fi
-          python -c 'import json, pathlib; d=json.loads(pathlib.Path("work/discord_result/result.json").read_text()); pathlib.Path("work/discord_result/pr-body.md").write_text(d["summary"] + "\n\nFixes #" + __import__("os").environ["ISSUE_NUMBER"] + "\n\nValidation: the patch introduced no new Python test failures on Ubuntu (tests needing Windows or native outputs are checked by the Windows CI). Windows/Linux packaging CI was requested separately.\n")'
+          python -c 'import json, pathlib; d=json.loads(pathlib.Path("work/discord_result/result.json").read_text()); pathlib.Path("work/discord_result/pr-body.md").write_text(d["summary"] + "\n\nFixes #" + __import__("os").environ["ISSUE_NUMBER"] + "\n\nValidation: with the patch the converter builds and its C++ tests pass on Windows. Windows/Linux packaging CI was requested separately.\n")'
           existing=$(gh pr list --head "$BRANCH" --state all --json url --jq '.[0].url // empty')
           if test -z "$existing"; then
             gh pr create --draft --base "$DEFAULT_BRANCH" --head "$BRANCH" --title "Fix Discord report #$ISSUE_NUMBER" --body-file work/discord_result/pr-body.md > work/discord_result/pr-url.txt
@@ -219,7 +232,7 @@ jobs:
           fi
           gh workflow run ci.yml --ref "$BRANCH"
       - name: Write the bug report and post findings or a follow-up question
-        run: python tools/discord_agent_pipeline.py publish --issue "$ISSUE_NUMBER" --seen "$SEEN_MESSAGE"
+        run: python services/discord_support/agent_pipeline.py publish --issue "$ISSUE_NUMBER" --seen "$SEEN_MESSAGE"
 
   failure_notice:
     needs: [investigate, verify, publish]

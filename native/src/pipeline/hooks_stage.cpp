@@ -48,9 +48,6 @@ namespace w2b::pipeline
                     warnings.push_back("EMULATED_PERKS " + mod::Join(perks["emulated"].get<std::vector<std::string>>(), ", ") +
                                        ": the map's perk names T6's perk table lacks; kept in a script-side table");
                 port::zombiebehavior::StageNativeSupport(projectRoot, *bo2Root, port::Api()["zombie_runtime"]);
-                // scorebehavior.stage_native: only with copied score rules, which port_scripts no longer writes
-                if (mod::IsFile(projectRoot / "maps/mp/waw/_waw2bo2_score_rules.gsc"))
-                    throw std::logic_error("source score rules need the Python score adapter");
                 if (stockPerks)
                     warnings.push_back("BO2_STOCK_PERKS: native BO2 perk machines, purchases, HUD and last stand; the WaW Pack-a-Punch stays");
                 port::HookBo2PerkServer(mainGsc);

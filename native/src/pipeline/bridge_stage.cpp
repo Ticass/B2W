@@ -475,7 +475,8 @@ namespace w2b::pipeline
                                                 {"layered_vertex_data", layeredVertexData_}, {"workers", bridge::WorkerCount(names.empty() ? 1 : names.size())}},
                                            *recovery_);
             bridge::AdoptPrepared(stock_ ? &*stock_ : nullptr, result);
-            for (const auto& [stem, metadata] : result.value("recovered", Json::object()).items())
+            const auto recoveredImages = result.value("recovered", Json::object());
+            for (const auto& [stem, metadata] : recoveredImages.items())
                 recovered_[stem] = metadata;
             Extend(report_, "warnings", result["warnings"]);
             Extend(report_, "errors", result["errors"]);

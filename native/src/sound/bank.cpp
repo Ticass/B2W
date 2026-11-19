@@ -1167,11 +1167,6 @@ namespace w2b::sound
         files::WriteText(project / "sounds.bank.json", py::JsonDumps(report, 2) + "\n");
         return Json{{"report", report}, {"budget", budget}};
     }
-
-    Json WriteT6BankRequest(const fs::path& path)
-    {
-        return WriteT6Bank(ReadJson(path));
-    }
     Json DefaultReverbMixOf(const fs::path& project)
     {
         return DefaultReverbMix(project);

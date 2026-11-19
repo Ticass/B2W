@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The converter is now entirely C++: the release ships the native launcher (`B2W.exe`) and converter (`waw2bo2n.exe`) instead of the Python application, and the Linux release runs those same programs through Wine (no Python, Tk or Pillow to install). The Python converter, its tests and tools are removed; the packaging, release and map catalog scripts are PowerShell.
+- The WaW Mod Tools chosen in Setup now also decode wavelet images when source FX recovery is off. Before, only a copy inside the converter's folder or the WaW install was found, so a packaged install with the Mod Tools elsewhere failed on maps with wavelet images.
 - Window boards rebuild with the map's own motion: the board lifts from where it lay, turns upright, waits and is pushed into the window, timed by the map's `replace_chunk`, instead of BO2's flip-and-bounce repair animation. Windows stay BO2 barriers (no extra entities).
 - Keep how far a sound carries as the map authored it. Moving reach by rank onto BO2's tables cut scripted sounds to a third of their reach and nothing was heard a room away; only ambient emitters still take BO2's reach. A sound played through `level.zombie_sounds` takes the placement of BO2's sound for the same ref (board breaks carry as in BO2).
 - Keep the whole `Secondary` chain of a weapon sound loaded. The Ray Gun's streamed layers took four of T6's ten streamed voices per shot and cut the player's quotes.

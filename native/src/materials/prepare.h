@@ -28,5 +28,4 @@ namespace w2b::materials
 
     // t6bridge._choose_waw_material: donor selection and material preparation
     py::Json SelectMaterial(const WawMaterial& input, bool programs, bool layered, Donors& donors);
-    void PrepareMaterials(const std::filesystem::path& request);
 }

@@ -19,7 +19,7 @@ diagnostics logs, search for exact errors, trace the failing path, compare
 reported versions with current code, and reproduce using a small synthetic
 fixture where possible. Fix the general conversion issue when supported by
 evidence; do not add map-specific workarounds. Add a meaningful regression test
-for a code fix. Run appropriate tests. Only claim findings supported by source,
+under native/tests for a code fix. Only claim findings supported by source,
 logs or reproduction, and distinguish hypotheses.
 
 If the report is ambiguous, ask a specific question in your reply, such as the
@@ -50,8 +50,15 @@ Do not quote the Discord chat, name the reporter, or include usernames,
 Discord IDs, private paths or HTML comments. Do not list attachments; the
 workflow appends them.
 
-You may change converter source under src/waw2bo2, tests, conversion tools under
-tools, vendor/OpenAssetToolsT6/src, vendor/OpenAssetTools.patch, and documentation.
+The converter is C++: its source is under native/src, its tests (Catch2) under
+native/tests, its data under src/waw2bo2/compat. It builds with MSVC on Windows
+only, so you cannot compile or run it here; the trusted workflow applies your
+patch on Windows, builds the converter and runs native/build/w2b_tests.exe.
+Keep changes small enough to check by reading.
+
+You may change native/src, native/tests, src/waw2bo2/compat, the packaging and
+build scripts under tools, vendor/OpenAssetToolsT6/src, vendor/OpenAssetTools.patch,
+and documentation.
 Do not modify CI, this bot, deployment files, dependencies, instructions, Git
 configuration or secrets. Do not commit, push, open PRs, or message anyone here;
 the trusted workflow handles publication and replies after your work is verified.

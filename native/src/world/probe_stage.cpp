@@ -161,9 +161,4 @@ namespace w2b::world
         report["cells"] = std::move(cells);
         return report;
     }
-
-    Json StageProbesRequest(const path& request)
-    {
-        return StageProbes(Json::parse(files::ReadText(request)), nullptr);
-    }
 }

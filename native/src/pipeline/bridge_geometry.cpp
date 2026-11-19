@@ -281,36 +281,4 @@ namespace w2b::pipeline
             result["stock_prepared"] = stock->PreparedJson();
         return result;
     }
-
-    Json StageBridgeGeometryRequest(const fs::path& path)
-    {
-        try
-        {
-            return StageBridgeGeometry(mod::Json(path));
-        }
-        catch (const StepError& error)
-        {
-            return {{"stage_error", error.what()}};
-        }
-        catch (const gsc::GscSyntaxError& error)
-        {
-            return {{"syntax_error", error.what()}};
-        }
-        catch (const paths::Error& error)
-        {
-            return {{"path_error", error.what()}};
-        }
-        catch (const weapons::WeaponError& error)
-        {
-            return {{"weapon_error", error.what()}};
-        }
-        catch (const std::invalid_argument& error)
-        {
-            return {{"invalid", error.what()}};
-        }
-        catch (const Json::exception& error)
-        {
-            return {{"invalid", error.what()}};
-        }
-    }
 }

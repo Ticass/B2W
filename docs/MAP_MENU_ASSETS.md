@@ -78,12 +78,12 @@ bytecode kept as `ui/t6/waw_mapinfoimage_base.lua`): for maps listed in
 whole 294 × 182 frame with the name drawn over it. Stock maps keep the stock
 layout. The preview image (`menu_preview`, else the completed art) is centre
 cropped to the frame's 294:182 shape. Rebuild its bytecode with
-`python tools/compile_menu_layers.py /path/to/hksc menu_preview`;
+`powershell -File tools/compile_menu_layers.ps1 /path/to/hksc menu_preview`;
 `tests/menu_preview_runtime.lua` checks the layout with a stub UI.
 
 The checked-in `compat/menu_layers.lua` and `.luac` have paired SHA-256 hashes;
 staging rejects stale bytecode or a mismatching VM header. Recompile changes with
-`python tools/compile_menu_layers.py /path/to/hksc`, using hksc configured with
+`powershell -File tools/compile_menu_layers.ps1 /path/to/hksc`, using hksc configured with
 `--game=t6 --multi-plat`, targeting Windows 32-bit. The compiler is a development
 tool only; users do not need it installed. `tests/menu_layers_runtime.lua` checks
 zoom and stock-map return with a stub UI.

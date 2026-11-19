@@ -1,207 +1,125 @@
 # Installation and usage
 
-For a simpler workflow, use the [desktop launcher](DESKTOP.md): select a map,
-click Build Map, then Install and Launch. Portable builds include Python and
-the native conversion tools. The instructions below cover source builds and
-advanced CLI usage.
+For the simple workflow, use the [desktop launcher](DESKTOP.md): select a map,
+click Build Map, then Install and Launch. The portable download includes the
+converter and its native tools. The instructions below cover building from
+source and the command line.
 
-These examples use Windows PowerShell and `C:\WawConverter`. The convenience
-driver locates `src` relative to itself, so other checkout locations work too.
+These examples use Windows PowerShell and `C:\WawConverter`; other checkout
+locations work too.
 
 ## 1. Requirements
 
-The Python interface and regression suite require Python 3.11 or newer and Git.
-Full conversion and playtesting additionally require:
+Building from source needs 64-bit Windows, Git, and Visual Studio 2022 or newer
+with Desktop development with C++ (MSVC x64 and x86 tools, the Windows SDK,
+CMake and Ninja). Converting and playtesting additionally need:
 
-- 64-bit Windows, Visual Studio 2022 with Desktop development with C++, MSVC
-  x86 tools, and the Windows SDK.
-- Premake 5 on PATH, version `5.0.0-beta8` or newer (required by the pinned T4 source).
 - Your WaW installation with `main/` IWD archives and `zone/english/` fastfiles.
 - The custom map folder: `<map>.ff`, `mod.ff`, its IWD archives, and
   `<map>_patch.ff` if provided. Keep these files together.
 - Your BO2 installation with BO2 Mod Tools: `bin/Linker.exe`, raw GSC/CSC
   sources, `raw/animtrees/fxanim_props.atr`, frontend CSVs under `raw/zm/`, and
   the `mods/zm_test` source template.
-- BO2 donor zones. The driver uses `zone/all/zm_nuked.ff`, `zm_prison.ff`, and
-  `code_post_gfx_zm.ff`. `-StockZone` changes the main donor, but does not remove
-  the separate `zm_prison.ff` requirement.
+- BO2 donor zones: `zone/all/zm_nuked.ff`, `zm_prison.ff` and
+  `code_post_gfx_zm.ff`.
 - Plutonium T6 configured to use your BO2 directory.
-- WaW Mod Tools for raw source recovery. The driver enables source FX recovery
-  unless `-NoWawSourceFx` is supplied.
+- WaW Mod Tools: they decode wavelet images and compile raw sources (source FX
+  recovery is optional).
 
-Game content and proprietary tools are not included. The Python interface does
-not replace the native extractors, compilers, or linkers.
+Game content and proprietary tools are not included.
 
-## 2. Obtain and check the tool
+## 2. Build the converter
 
 ```powershell
 git clone https://github.com/Ticass/B2W.git C:\WawConverter
 Set-Location C:\WawConverter
-
-# Optional: use the documented release instead of the latest main branch.
-git checkout v0.1.0
-
-$env:PYTHONPATH = Join-Path (Get-Location) 'src'
-python -m waw2bo2.cli --help
-python -m unittest discover -s tests
-```
-
-The converter uses Python's standard library; no pip installation is needed
-for this workflow. Keep the whole checkout because stages read native schemas
-and raw files from `vendor/`.
-
-## 3. Build the native tools
-
-Use Developer PowerShell for Visual Studio 2022 so `MSBuild.exe` is on PATH.
-Build x86 Release configurations: the driver expects `build/bin/Release_x86/`.
-
-To restore everything below in one step (fresh clone, or after the ignored
-`vendor/OpenAssetTools` or `vendor/OpenAssetToolsT6/build` folders are lost):
-
-```powershell
 powershell -ExecutionPolicy Bypass -File tools\restore_native.ps1
+native\build\w2b_tests.exe
 ```
 
-It skips whatever is already built and continues after a partial failure.
-The manual steps it automates follow.
+`restore_native.ps1` restores and builds everything the converter needs, and
+skips whatever is already built, so it continues after a partial failure:
 
-### T4 extractor
+- **T4 (WaW) OpenAssetTools:** upstream commit `7d027e8` with
+  `vendor/OpenAssetTools.patch` applied, built Release x64. The converter links
+  it in process to read WaW zones; do not reapply the patch to a patched checkout.
+- **T6 (BO2) OpenAssetTools:** the vendored fork in `vendor/OpenAssetToolsT6`
+  with the dependency checkouts of upstream snapshot `95b8c68`, built Release
+  x86 (`Linker.exe`, `Unlinker.exe`). The converter marks the linker
+  large-address aware.
+- **Audio decoder:** `tools/bin/xaudio_wma_decoder.exe` from
+  `tools/xaudio_wma_decoder.cpp`.
+- **The converter:** `native/build/waw2bo2n.exe` (command line) and
+  `native/build/B2W.exe` (the launcher), with CMake and Ninja.
 
-Use the supplied patch against its pinned upstream commit. In a fresh checkout:
+Shader translation uses Windows `d3dcompiler_47.dll`. Audio resampling uses
+FFmpeg: `ffmpeg.exe` on PATH, `W2B_FFMPEG`, or `tools/bin/ffmpeg.exe`
+(`tools/fetch_wheel_binary.ps1 -Package imageio-ffmpeg -Version 0.6.0 -Member
+'imageio_ffmpeg/binaries/ffmpeg-*.exe' -Destination tools/bin/ffmpeg.exe`
+fetches the build the release ships).
+
+Keep the whole checkout: the converter reads its data from
+`src/waw2bo2/compat/` and native schemas from `vendor/`.
+
+## 3. Convert a map
+
+Start `native\build\B2W.exe` (or `Launch Mod Tools.bat`) and follow the
+[desktop guide](DESKTOP.md), or build from the command line with a settings
+file: the launcher's own, `%LOCALAPPDATA%\WawConverter\settings.json`, or one
+written for the map.
 
 ```powershell
-Set-Location C:\WawConverter
-git clone https://github.com/Laupetin/OpenAssetTools.git vendor/OpenAssetTools
-git -C vendor/OpenAssetTools checkout 7d027e8f89118196713e955b0e11f8404149c54d
-git -C vendor/OpenAssetTools submodule update --init --recursive
-git -C vendor/OpenAssetTools apply --check ../OpenAssetTools.patch
-git -C vendor/OpenAssetTools apply ../OpenAssetTools.patch
-
-Push-Location vendor/OpenAssetTools
-premake5 vs2022
-MSBuild.exe build/OpenAssetTools.sln /m /p:Configuration=Release /p:Platform=x86
-Pop-Location
+native\build\waw2bo2n.exe build-map --settings-file "$env:LOCALAPPDATA\WawConverter\settings.json"
 ```
 
-Do not reapply the patch to an already patched checkout. Confirm that
-`vendor/OpenAssetTools/build/bin/Release_x64/Unlinker.exe` exists.
+The settings name the game folders (`waw`, `bo2`), the map (`fastfile`), the
+BO2 map name (`project`, a simple `zm_...` name without spaces) and the build
+folder (`work`); blank tool paths are filled with the bundled tools, as the
+launcher does. `--build-root <folder>` builds somewhere else, `--redump`
+extracts the map again.
 
-### T6 bridge
-
-The vendored fork is ordinary source inside B2W. Its external submodule
-checkouts are excluded; `git submodule update` at the B2W root cannot fetch
-them. Obtain dependencies from the upstream bridge snapshot and copy its
-dependency directories into the vendored fork:
-
-```powershell
-Set-Location C:\WawConverter
-New-Item -ItemType Directory -Force work | Out-Null
-git clone https://github.com/Laupetin/OpenAssetTools.git work/oat_t6_dependencies
-git -C work/oat_t6_dependencies checkout 95b8c68fbc464109c9289a833035763505ea57da
-git -C work/oat_t6_dependencies submodule update --init --recursive
-
-Get-ChildItem work/oat_t6_dependencies/thirdparty | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination vendor/OpenAssetToolsT6/thirdparty -Recurse -Force
-}
-
-Push-Location vendor/OpenAssetToolsT6
-premake5 --oat-version=waw2bo2-v0.1.0 vs2022
-MSBuild.exe build/OpenAssetTools.sln /m /p:Configuration=Release /p:Platform=x86
-Pop-Location
-```
-
-This preserves B2W's modified source and Premake files. Use the vendored fork's
-`Linker.exe` and `Unlinker.exe`. Copied dependency `.git` files do not form
-independent checkouts; update dependencies in the upstream checkout and recopy.
-
-The driver marks the T6 linker large-address-aware with `editbin.exe` before
-linking, allowing up to 4 GB of address space on 64-bit Windows.
-
-### Audio decoder
-
-```powershell
-Set-Location C:\WawConverter
-& ./tools/build_audio_decoder.ps1
-```
-
-This builds `tools/bin/xaudio_wma_decoder.exe` from the included C++ source.
-The driver builds it automatically when no `-XwmaDecoder` path is supplied.
-Shader translation uses Windows `d3dcompiler_47.dll`.
-
-## 4. Convert a map
-
-Replace paths and names with your own. `-MapZone` is the source fastfile stem
-without `.ff`; `-Project` is the new BO2 map/zone name. Use a simple `zm_...`
-name without spaces. Use separate stage, dump, and build folders for each map
-to avoid reusing another map's cached data.
-
-```powershell
-Set-Location C:\WawConverter
-$stage = 'C:\WawConverter\work\my_map_stage'
-New-Item -ItemType Directory -Force $stage | Out-Null
-
-& ./tools/run_bridge.ps1 `
-  -Waw 'D:\Games\Call of Duty World at War' `
-  -Bo2 'D:\Games\Call of Duty Black Ops II' `
-  -MapMod 'D:\WaWMaps\My Custom Map' `
-  -MapZone 'nazi_zombie_my_map' `
-  -Project 'zm_my_map_waw' `
-  -Stage $stage `
-  -Dump 'C:\WawConverter\work\my_map_stock_t6' `
-  -WawDumps 'C:\WawConverter\work\my_map_waw_dumps' `
-  -ModBuild 'C:\WawConverter\work\my_map_mod_build' `
-  -WawModTools 'D:\Tools\WaWModTools' `
-  -Redump
-```
-
-Create the stage directory first: initial native dump logs are written there.
-Omit `-Redump` on subsequent runs with unchanged companion/donor caches. Back
-up custom staged inputs before restaging.
-
-The driver extracts the map and companion zones, dumps BO2 donors, stages
-geometry and assets, builds gameplay/frontend zones, compiles map scripts with
-BO2 Mod Tools, links the map using the T6 bridge, installs it, and audits
-installed material arguments. It stops on failing native tool results.
+The build extracts the map and its companion zones, prepares the stock WaW and
+BO2 caches, stages geometry, assets and scripts, builds the gameplay and
+frontend zones, compiles the map scripts with BO2 Mod Tools, links the map with
+the T6 bridge and audits the result. It stops on failing native tool results.
+`waw2bo2n package` (below) installs it.
 
 Important behavior:
 
-- WaW's `main` search path supplies stock textures/sounds. Using only the map
-  folder produces missing-asset reports.
-- `-NoWawSourceFx` disables raw source FX compilation with WaW Mod Tools.
-- The driver enables `--approximate-sound-curves`. To require exact curve
-  matches, invoke `stage-bridge` without that option. See [sound conversion](SOUND_CONVERSION.md).
+- WaW's `main` search path supplies stock textures and sounds. Using only the
+  map folder produces missing-asset reports.
 - Ordinary WaW primary frags currently map to BO2's `frag_grenade_zm`;
   special/custom grenade equipment is handled separately.
-- The driver installs into Plutonium's mod folder. Close the game before
+- Installing writes into Plutonium's mod folder. Close the game before
   replacing changed files; packaging skips identical files.
 
-## 5. Output and packaging
+## 4. Output and packaging
 
-For the example above:
+A build's folder is `<work>/<map>_<id>/` (or `--build-root`):
 
 | Location | Contents |
 | --- | --- |
-| `work/my_map_stage/zone_raw/zm_my_map_waw/` | Staged assets, scripts, BSP inputs, and reports |
-| `work/my_map_stage/zone_source/zm_my_map_waw.zone` | Map asset declarations |
-| `work/my_map_stage/zone_out/zm_my_map_waw/` | Linked map `.ff` and `.ipak` |
-| `work/my_map_mod_build/out/` | `mod.ff`, `mod_load.ff`, mod image packs, and sound banks |
-| `%LOCALAPPDATA%/Plutonium/storage/t6/mods/zm_my_map_waw/` | Installed mod and `mod.json` |
+| `stage/zone_raw/<project>/` | Staged assets, scripts, BSP inputs, and reports |
+| `stage/zone_source/<project>.zone` | Map asset declarations |
+| `stage/zone_out/<project>/` | Linked map `.ff` and `.ipak` |
+| `mod_build/out/` | `mod.ff`, `mod_load.ff`, mod image packs, and sound banks |
+| `%LOCALAPPDATA%/Plutonium/storage/t6/mods/<project>/` | Installed mod and `mod.json` |
 
-After a successful build, assemble another package in a chosen directory:
+Install a successful build, or assemble its package in a chosen directory:
 
 ```powershell
-python -m waw2bo2.cli package `
-  'C:\WawConverter\work\my_map_stage' zm_my_map_waw `
+$build = "$env:LOCALAPPDATA\WawConverter\builds\nazi_zombie_my_map_1a2b3c4d"
+native\build\waw2bo2n.exe package "$build\stage" zm_my_map_waw `
   --bo2 'D:\Games\Call of Duty Black Ops II' `
-  --work 'C:\WawConverter\work\my_map_mod_build' `
+  --work "$build\mod_build" `
   --dest 'D:\ConvertedMaps\zm_my_map_waw'
 ```
 
-Copy the complete resulting folder into the target machine's Plutonium
-`storage/t6/mods/` directory, keeping fastfiles, image packs, banks, and metadata
-together.
+Without `--dest` it installs into Plutonium. Copy a package folder into the
+target machine's Plutonium `storage/t6/mods/` directory, keeping fastfiles,
+image packs, banks, and metadata together.
 
-## 6. Launch and playtest
+## 5. Launch and playtest
 
 Restart BO2 after installing updates. Select the mod through your normal
 Plutonium Zombies launcher flow, or open its lobby directly:
@@ -223,7 +141,7 @@ Compare movement and projectile collision, doors, perks, Pack-a-Punch, weapon
 animations, FX, audio, lighting, menus, and co-op behavior with the WaW source.
 A linked fastfile is only one part of verification.
 
-## 7. Optional custom menus
+## 6. Optional custom menus
 
 Place `menu.json`, authored material JSON, and T6 IWI textures under the staged
 project's `zone_raw/<project>/` before `build-mod`. After an initial driver run,
@@ -232,24 +150,23 @@ See [authored map menus](MAP_MENU_ASSETS.md) for names, streaming packs, and
 alignment requirements. The test map's local artwork and converted game data
 are not bundled with the release.
 
-## 8. CLI reference and troubleshooting
+## 7. Command line and troubleshooting
 
-Use `python -m waw2bo2.cli <command> --help` for exact arguments.
+`waw2bo2n.exe` without arguments lists every command and its arguments.
 
 | Command | Purpose |
 | --- | --- |
-| `extract` / `inspect` | Extract and inspect typed world dumps |
-| `convert` | Basic extraction/FBX staging; not the full gameplay pipeline |
-| `stage-bridge` | Translate assets, scripts, and geometry for the T6 bridge |
-| `build-mod` | Build gameplay `mod.ff` and frontend `mod_load.ff` |
-| `compile-scripts` | Compile map GSC/CSC with BO2 Mod Tools |
-| `bridge-link` | Link the map with the modified T6 linker |
-| `package` | Assemble/install the complete Plutonium folder |
-| `official-build` | Invoke the installed BO2 map compiler/linker path |
-| `stage-weapons` / `translate-shader` / `dds2iwi` | Individual asset stages |
+| `build-map` | The whole build, as the launcher runs it |
+| `all2raw` | Prepare the stock WaW and BO2 caches (Extract All) |
+| `package` | Assemble or install the complete Plutonium folder |
+| `stage-bridge` / `build-mod` / `compile-scripts` / `bridge-link` | One step of the build |
+| `launcher-build` | The launcher's Build Map flow on the console |
+| `inspect` / `world-*` / `collision-*` / `static-models` | Inspect and export WaW world dumps |
+| `oat-unlink` / `oat-dump-assets` / `oat-check-materials` | The linked-in WaW extractor |
+| `audit-zone` / `audit-material-args` | Check a linked zone |
+| `knowledge-report` | Rank untranslated features across every map built |
+| `ipak-check` / `crash-summary` | Check an image pack; summarize a Plutonium crash dump |
 
-- **`No module named waw2bo2`:** set `PYTHONPATH` to the checkout's `src`
-  directory in the same PowerShell session.
 - **Staging failure:** read `<stage>/zone_raw/<project>/bridge_stage.report.json`,
   including errors and warnings. Check companion zones, IWD search paths, and
   Mod Tools sources before changing translation rules.
@@ -262,7 +179,7 @@ Use `python -m waw2bo2.cli <command> --help` for exact arguments.
 - **File in use or old assets:** close the game, repeat packaging, and start
   a fresh session.
 - **Material load crash:** inspect the driver's `audit_*.log`. For an extracted
-  zone, run `python tools/audit_material_args.py <zone-folder> <stock-dump-folder>`.
+  zone, run `waw2bo2n audit-material-args <zone-folder> <stock-dump-folder>`.
 
 Map-dependent unsupported APIs/assets, incomplete visual/audio parity, minor
 projectile collision gaps in the test map, and unverified final custom frontend

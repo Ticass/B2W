@@ -11,7 +11,7 @@ from unittest.mock import patch
 import urllib.error
 
 ROOT = Path(__file__).resolve().parents[3]
-spec = importlib.util.spec_from_file_location('discord_agent_pipeline', ROOT / 'tools/discord_agent_pipeline.py')
+spec = importlib.util.spec_from_file_location('agent_pipeline', ROOT / 'services/discord_support/agent_pipeline.py')
 pipeline = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pipeline)
 from core import REPLY_MARKER, decode_messages, encode_messages  # noqa: E402  (path set by the pipeline)
@@ -19,16 +19,16 @@ from core import REPLY_MARKER, decode_messages, encode_messages  # noqa: E402  (
 
 class PatchBoundaryTests(unittest.TestCase):
     def test_rejects_binary_and_protected_files(self):
-        for stat in (b'-\t-\tsrc/waw2bo2/data.bin\0', b'1\t0\t.github/workflows/ci.yml\0',
-                     b'1\t0\tsrc/waw2bo2/AGENTS.md\0', b'1\t0\ttools/discord_agent_pipeline.py\0',
-                     b'1\t0\t../outside.py\0'):
+        for stat in (b'-\t-\tnative/src/data.bin\0', b'1\t0\t.github/workflows/ci.yml\0',
+                     b'1\t0\tnative/src/AGENTS.md\0', b'1\t0\tservices/discord_support/agent_pipeline.py\0',
+                     b'1\t0\tnative/src/script.py\0', b'1\t0\t../outside.cpp\0'):
             with self.subTest(stat=stat), patch.object(pipeline, 'git', return_value=stat):
                 with self.assertRaises(ValueError):
                     pipeline.validate_patch(b'diff --git a/file b/file\n')
 
     def test_rejects_symlinks(self):
         with self.assertRaises(ValueError):
-            pipeline.validate_patch(b'diff --git a/src/waw2bo2/a.py b/src/waw2bo2/a.py\nnew file mode 120000\n')
+            pipeline.validate_patch(b'diff --git a/native/src/a.cpp b/native/src/a.cpp\nnew file mode 120000\n')
 
     def test_validates_a_real_patch_against_a_clean_git_tree(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -39,7 +39,7 @@ class PatchBoundaryTests(unittest.TestCase):
             git('init')
             # Like the Actions checkout: no configured identity, and none guessed.
             git('config', 'user.useConfigOnly', 'true')
-            source = root / 'src/waw2bo2/example.py'
+            source = root / 'native/src/example.cpp'
             source.parent.mkdir(parents=True)
             source.write_text('value = 1\n')
             git('add', '.')
@@ -48,7 +48,7 @@ class PatchBoundaryTests(unittest.TestCase):
             fix = git('diff', 'HEAD')
             git('restore', '.')
             with patch.object(pipeline, 'git', side_effect=git):
-                self.assertEqual(pipeline.validate_patch(fix), ['src/waw2bo2/example.py'])
+                self.assertEqual(pipeline.validate_patch(fix), ['native/src/example.cpp'])
 
     def test_screenshot_fetch_rejects_non_discord_urls_before_network(self):
         for url in ('http://cdn.discordapp.com/attachments/1/a.png', 'https://127.0.0.1/a.png',
@@ -230,37 +230,6 @@ class AttachmentStorageTests(unittest.TestCase):
 
             self.assertEqual(git('log', '-1', '--format=%an', commit, cwd=root / 'remote.git').strip(),
                              'github-actions[bot]')
-
-
-class VerifyTestsTests(unittest.TestCase):
-    def run_suite(self, root: Path, body: str, **kwargs):
-        (root / 'tests').mkdir(exist_ok=True)
-        (root / 'tests/test_sample.py').write_text(
-            'import unittest\nclass T(unittest.TestCase):\n' + body)
-        cwd = os.getcwd()
-        os.chdir(root)
-        try:
-            # Each run stands for a different tree: import the suite afresh.
-            with patch.dict('sys.modules'), patch('sys.stderr'):
-                pipeline.verify_tests(**kwargs)
-        finally:
-            os.chdir(cwd)
-
-    def test_only_failures_absent_from_the_unpatched_baseline_fail_verification(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            baseline = root / 'baseline.json'
-            environment = '    def test_environment(self): raise OSError("no d3dcompiler")\n'
-            self.run_suite(root, environment + '    def test_ok(self): pass\n',
-                           output=baseline, baseline=None)
-            self.assertEqual(json.loads(baseline.read_text()), ['test_sample.T.test_environment'])
-            # The same environment-only failure passes verification...
-            self.run_suite(root, environment + '    def test_new(self): pass\n', output=None, baseline=baseline)
-            # ...a failure the patch introduced does not.
-            with self.assertRaises(SystemExit) as raised:
-                self.run_suite(root, environment + '    def test_ok(self): self.fail()\n',
-                               output=None, baseline=baseline)
-            self.assertIn('test_sample.T.test_ok', str(raised.exception))
 
 
 if __name__ == '__main__':

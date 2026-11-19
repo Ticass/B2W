@@ -38,9 +38,6 @@ namespace w2b::launcher
         bool Complete(const std::string& project, const bool* bo2StockPerks = nullptr) const;
     };
 
-    // the conversion worker: WAW2BO2_WORKER (a command line), the portable
-    // WawConverter.CLI.exe beside the launcher, else the checkout's Python CLI
-    std::vector<std::string> CliCommand(const std::vector<std::string>& args);
     std::vector<std::string> BuildCommand(const Settings& settings);
     // waw2bo2n.exe beside the launcher, else the checkout's native/build one
     std::vector<std::string> NativeCommand(const std::vector<std::string>& args);

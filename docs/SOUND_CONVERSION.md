@@ -139,7 +139,7 @@ dry/wet falloff curves in the converter's sound IR. BO2 rejects a second
 BO2 driver's `.w2bsdg` sidecar.
 
 Exact shape matches take precedence. With `--approximate-sound-curves` (enabled
-by `tools/run_bridge.ps1`), unmatched curves use the stock shape with the lowest
+by the build driver), unmatched curves use the stock shape with the lowest
 RMS loudness error over normalized distance. The comparison uses 256 midpoint
 samples and a -60 dB floor. If the source fades smoothly to silence, the
 approximation prefers curves that also fade smoothly rather than hold a

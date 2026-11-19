@@ -1,5 +1,10 @@
 # Plan: the converter in C++
 
+**Status (2026-11-18): done.** No project-owned Python remains outside the
+Discord support bot (`services/discord_support/`, which stays Python). The
+release, CI and maintenance scripts are PowerShell; the sections below record
+how the port was carried out.
+
 Move all project-owned Python to C++. This covers the converter, CLI,
 desktop UI, tests, verification tools, and build and release tooling.
 Preserve working map behavior and measure performance on representative

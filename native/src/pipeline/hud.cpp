@@ -43,7 +43,7 @@ namespace w2b::pipeline
             const auto hashes = py::Json::parse(files::ReadText(compat / files::FromUtf8(wrapper + ".json")));
             const auto luac = compat / files::FromUtf8(wrapper + ".luac");
             if (hash::Sha256Hex(Read(source)) != hashes["source_sha256"].get<std::string>() || hash::Sha256Hex(Read(luac)) != hashes["bytecode_sha256"].get<std::string>())
-                throw StepError("ValueError", "Recompile " + wrapper + " with tools/compile_menu_layers.py");
+                throw StepError("ValueError", "Recompile " + wrapper + " with tools/compile_menu_layers.ps1");
             return Read(luac);
         }
 

@@ -57,46 +57,14 @@ namespace w2b::pipeline
             return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
         }
 
-        void FinishProcess(void* handle, void* context)
-        {
-            DWORD code = 0;
-            GetExitCodeProcess(static_cast<HANDLE>(handle), &code);
-            static_cast<timeline::ProcessRecord*>(context)->Finish(handle, static_cast<int>(code));
-        }
-
-        // a step of the Python conversion worker, on this console (builddriver.run)
-        void RunCli(const std::vector<std::string>& args)
-        {
-            {
-                std::lock_guard lock(stepMutex);
-                currentStep = args.front();
-            }
-            const auto command = l::CliCommand(args);
-            timeline::ProcessRecord record(command);
-            std::vector<std::wstring> env;
-            if (const auto parent = record.ParentVariable(); !parent.empty())
-                env.push_back(parent);
-            if (!_wgetenv(L"PYTHONPATH"))
-                env.push_back(L"PYTHONPATH=" + (l::ResourceRoot() / "src").wstring());
-            std::fflush(stdout);
-            const int code = process::RunInherited(command, env, FinishProcess, &record);
-            if (code)
-                throw StepError("RuntimeError", files::Utf8(files::FromUtf8(command.front()).filename()) + " failed (" + std::to_string(static_cast<unsigned>(code)) + ")");
-        }
-
         void SetStep(const std::string& step)
         {
             std::lock_guard lock(stepMutex);
             currentStep = step;
         }
 
-        // stage-bridge in this process; WAW2BO2_NATIVE=0 selects the Python
-        // reference (the conversion worker)
         void StageBridgeStep(const std::vector<std::string>& args)
         {
-            const wchar_t* native = _wgetenv(L"WAW2BO2_NATIVE");
-            if (native && std::wstring(native) == L"0")
-                return RunCli(args);
             const auto options = BridgeStageOptions::Parse({args.begin() + 1, args.end()});
             SetStep("stage-bridge");
             if (const int code = StageBridge(options))
@@ -164,24 +132,27 @@ namespace w2b::pipeline
                              });
         }
 
-        // identity of the converter: a staged tree from another version is never resumed
+        // identity of the converter: this executable and the compat data it
+        // reads, so a staged tree from another build is never resumed
         std::string ConverterDigest()
         {
             std::string data = l::Version();
-            const auto package = l::ResourceRoot() / "src" / "waw2bo2";
+            wchar_t buffer[MAX_PATH * 4];
+            const auto length = GetModuleFileNameW(nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
+            std::string bytes;
+            files::ReadBytes(fs::path(std::wstring(buffer, length)), bytes);
+            data += hash::Sha256Hex(bytes);
+            const auto compat = l::ResourceRoot() / "src" / "waw2bo2" / "compat";
             std::vector<fs::path> paths;
             std::error_code e;
-            for (fs::recursive_directory_iterator it(package, e), end; !e && it != end; it.increment(e))
-                paths.push_back(it->path());
+            for (fs::recursive_directory_iterator it(compat, e), end; !e && it != end; it.increment(e))
+                if (IsFile(it->path()))
+                    paths.push_back(it->path());
             SortPaths(paths);
             for (const auto& p : paths)
             {
-                const auto ext = files::Utf8(p.extension());
-                if ((ext != ".py" && ext != ".json") || !IsFile(p) || files::Utf8(p).find("__pycache__") != std::string::npos)
-                    continue;
-                std::string bytes;
                 files::ReadBytes(p, bytes);
-                data += files::Utf8(p.lexically_relative(package).generic_wstring()) + std::string(1, '\0') + bytes;
+                data += files::Utf8(p.lexically_relative(compat).generic_wstring()) + std::string(1, '\0') + bytes;
             }
             return hash::Sha256Hex(data);
         }
@@ -344,8 +315,11 @@ namespace w2b::pipeline
                 if (!relative.empty() && *relative.begin() != "..")
                     args.push_back("--waw-stock-map");
             }
+            // the Mod Tools also decode wavelet images (AssetViewer), not only source effects
+            if (!settings.waw_tools.empty())
+                args.insert(args.end(), {"--waw-mod-tools", settings.waw_tools});
             if (settings.source_fx)
-                args.insert(args.end(), {"--waw-mod-tools", settings.waw_tools, "--waw-source-fx", "--waw-source-dumps", S(caches.waw / "source")});
+                args.insert(args.end(), {"--waw-source-fx", "--waw-source-dumps", S(caches.waw / "source")});
             const wchar_t* flac = _wgetenv(L"WAW2BO2_STREAM_FLAC");
             const auto fingerprint = hash::Sha256Hex(py::JsonDumpsDefault(py::Json::array({ConverterDigest(), args, flac && std::wstring(flac) == L"1"})));
             const auto receiptPath = stage / "stage_receipt.json";

@@ -418,8 +418,6 @@ namespace w2b::visions
             }
             if (!nativePass.contains("stableArgCount") || nativePass["stableArgCount"].is_null())
                 throw std::runtime_error("native HUD pass lacks argument counts");
-            if (std::getenv("WAW2BO2_DIAG_BLOOM_OVERRIDE"))
-                throw std::runtime_error("WAW2BO2_DIAG_BLOOM_OVERRIDE is a Python-only diagnostic (WAW2BO2_NATIVE=0)");
             return report;
         }
 

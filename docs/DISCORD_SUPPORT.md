@@ -8,10 +8,9 @@ diagnostic logs and available screenshots, tries to reproduce the failure,
 and either asks a specific question, explains its findings, or proposes a fix.
 Findings and questions are posted back into the original Discord thread.
 
-A proposed fix must pass patch validation and Python regression tests before
-the workflow creates a draft PR. The Ubuntu runner lacks the Windows worker,
-`d3dcompiler` and native vendor outputs, so the suite first runs without the
-patch. Verification fails only on tests the patch newly breaks. It explicitly dispatches the Windows/Linux
+A proposed fix must pass patch validation, and the converter must build and pass
+its C++ tests with the patch on a Windows runner, before the workflow creates
+a draft PR. It explicitly dispatches the Windows/Linux
 packaging workflow for that branch. Review and merge the PR before the change
 enters a nightly build. The bot does not merge changes or claim an unpublished
 fix is released. Further replies start a new investigation with the complete

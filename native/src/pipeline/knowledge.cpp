@@ -2,7 +2,9 @@
 #include "knowledge.h"
 
 #include "core/files.h"
+#include "core/encoding.h"
 #include "core/pyre.h"
+#include "core/zip.h"
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -10,6 +12,8 @@
 #include <algorithm>
 #include <ctime>
 #include <map>
+#include <set>
+#include <tuple>
 #include <vector>
 
 #pragma comment(lib, "bcrypt.lib")
@@ -169,7 +173,7 @@ namespace w2b::pipeline::knowledge
         char date[16];
         std::strftime(date, sizeof date, "%Y-%m-%d", &local);
         py::Json obs = py::Json::object();
-        obs["schema"] = 1;
+        obs["schema"] = SCHEMA;
         obs["map"] = MapKey(source);
         obs["source"] = files::Utf8(files::FromUtf8(source).filename());
         obs["project"] = !project.empty() ? project : report.value("project", std::string());
@@ -192,5 +196,138 @@ namespace w2b::pipeline::knowledge
         const auto path = ledger / files::FromUtf8(observation["map"].get<std::string>() + ".json");
         files::WriteText(path, py::JsonDumps(observation, 1) + "\n");
         return path;
+    }
+
+    std::optional<std::string> FailedStep(const std::string& log)
+    {
+        static const pyre::Regex banner(R"(^== (\d+[a-z]?)\. (.*)$)", pyre::MULTILINE);
+        const auto steps = banner.FindAll(log);
+        if (steps.empty())
+            return std::nullopt;
+        return steps.back()[0] + ". " + steps.back()[1];
+    }
+
+    std::vector<py::Json> Load(const std::vector<std::filesystem::path>& ledgers)
+    {
+        std::map<std::string, py::Json> found;
+        std::vector<std::string> order;
+        for (const auto& ledger : ledgers)
+        {
+            auto paths = files::GlobSuffix(ledger, ".json");
+            std::ranges::sort(paths);
+            for (const auto& path : paths)
+            {
+                py::Json obs;
+                try
+                {
+                    obs = py::Json::parse(files::ReadText(path));
+                }
+                catch (const std::exception&)
+                {
+                    continue;
+                }
+                if (obs.value("schema", 0) != SCHEMA)
+                    continue;
+                const auto map = obs.at("map").get<std::string>();
+                const auto old = found.find(map);
+                if (old == found.end())
+                    order.push_back(map);
+                if (old == found.end() || obs.value("recorded", std::string()) >= old->second.value("recorded", std::string()))
+                    found[map] = std::move(obs);
+            }
+        }
+        std::vector<py::Json> out;
+        for (const auto& map : order)
+            out.push_back(std::move(found[map]));
+        return out;
+    }
+
+    py::Json Aggregate(const std::vector<py::Json>& observations)
+    {
+        struct Gap
+        {
+            std::string kind, symbol;
+            std::vector<std::string> maps;
+            long long uses = 0;
+        };
+        std::map<std::pair<std::string, std::string>, Gap> gaps;
+        std::map<std::string, std::set<std::string>> errors, steps;
+        py::Json outcomes = py::Json::object();
+        for (const auto& obs : observations)
+        {
+            const auto source = obs.value("source", std::string());
+            const auto name = source.empty() ? obs.at("map").get<std::string>() : source;
+            const auto outcome = obs.value("outcome", std::string("unknown"));
+            outcomes[outcome] = outcomes.value(outcome, 0) + 1;
+            const auto gapKinds = obs.value("gaps", py::Json::object());
+            for (const auto& [kind, symbols] : gapKinds.items())
+                for (const auto& [symbol, uses] : symbols.items())
+                {
+                    auto& gap = gaps.try_emplace({kind, symbol}, Gap{kind, symbol}).first->second;
+                    gap.maps.push_back(name);
+                    gap.uses += uses.get<long long>();
+                }
+            const auto stageErrors = obs.value("stage_errors", py::Json::object());
+            for (const auto& [kind, _] : stageErrors.items())
+                errors[kind].insert(name);
+            if (const auto step = obs.value("failed_step", py::Json()); step.is_string() && !step.get<std::string>().empty())
+                steps[step.get<std::string>()].insert(name);
+        }
+        std::vector<Gap> ranked;
+        for (auto& [_, gap] : gaps)
+            ranked.push_back(std::move(gap));
+        std::ranges::sort(ranked, [](const Gap& a, const Gap& b)
+                          { return std::tuple(-static_cast<long long>(a.maps.size()), -a.uses, a.kind, a.symbol) <
+                                   std::tuple(-static_cast<long long>(b.maps.size()), -b.uses, b.kind, b.symbol); });
+        py::Json gapList = py::Json::array();
+        for (auto& gap : ranked)
+        {
+            std::ranges::sort(gap.maps);
+            gapList.push_back({{"kind", gap.kind}, {"symbol", gap.symbol}, {"maps", gap.maps}, {"uses", gap.uses}});
+        }
+        // by the number of maps, then by name
+        const auto byMaps = [](const std::map<std::string, std::set<std::string>>& groups)
+        {
+            std::vector<std::pair<std::string, std::set<std::string>>> items(groups.begin(), groups.end());
+            std::ranges::stable_sort(items, [](const auto& a, const auto& b) { return a.second.size() > b.second.size(); });
+            py::Json out = py::Json::object();
+            for (const auto& [key, maps] : items)
+                out[key] = std::vector<std::string>(maps.begin(), maps.end());
+            return out;
+        };
+        return {{"schema", SCHEMA},
+                {"maps", observations.size()},
+                {"outcomes", outcomes},
+                {"gaps", gapList},
+                {"stage_errors", byMaps(errors)},
+                {"failed_steps", byMaps(steps)}};
+    }
+
+    std::optional<py::Json> FromBundle(const std::filesystem::path& bundle)
+    {
+        zip::Archive archive(bundle);
+        py::Json summary = py::Json::object(), report;
+        std::string console;
+        bool haveReport = false;
+        for (const auto& entry : archive.Entries())
+        {
+            if (entry.name == "summary.json")
+                summary = py::Json::parse(archive.Read(entry));
+            else if (entry.name == "console.log")
+                console = encoding::Utf8Replace(archive.Read(entry));
+            else if (!haveReport && entry.name.ends_with(std::string("/") + REPORT_NAME))
+            {
+                report = py::Json::parse(archive.Read(entry));
+                haveReport = true;
+            }
+        }
+        const auto settings = summary.value("settings", py::Json::object());
+        auto source = settings.value("fastfile", std::string());
+        if (source.empty())
+            source = settings.value("project", std::string());
+        if (source.empty())
+            source = files::Utf8(bundle.stem());
+        return Observation(haveReport ? &report : nullptr, source, settings.value("project", std::string()), summary.value("version", std::string()), "failed",
+                           FailedStep(console), summary.value("error", std::string()));
     }
 } // namespace w2b::pipeline::knowledge

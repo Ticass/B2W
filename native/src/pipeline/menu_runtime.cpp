@@ -53,7 +53,7 @@ namespace w2b::pipeline
                 hash::Sha256Hex(source) != manifest.at("source_sha256").get_ref<const std::string&>())
             {
                 const auto label = name == layers.wrapper ? "Menu layer" : name;
-                throw std::invalid_argument(label + " source/bytecode mismatch; rebuild with tools/compile_menu_layers.py.");
+                throw std::invalid_argument(label + " source/bytecode mismatch; rebuild with tools/compile_menu_layers.ps1.");
             }
             if (compiled.size() < 16 || stock.size() < 16 || compiled.compare(0, 16, stock, 0, 16) != 0)
                 throw std::invalid_argument("Stock menu bytecode uses an unsupported T6 VM format.");
@@ -86,20 +86,5 @@ namespace w2b::pipeline
         result["preview_layout"] = "full";
         result["preview_rawfiles"] = {preview.original, preview.runtime};
         return result;
-    }
-
-    Json StageMenuRuntimeRequest(const fs::path& path)
-    {
-        const auto request = Json::parse(files::ReadText(path));
-        const auto readPath = [&](std::string_view field) { return files::FromUtf8(request.at(field).get<std::string>()); };
-        try
-        {
-            return StageMenuRuntime(readPath("bo2"), readPath("root"), request.at("project").get_ref<const std::string&>(),
-                                    readPath("compat"), request.at("aligned").get<bool>());
-        }
-        catch (const std::invalid_argument& error)
-        {
-            return {{"invalid", error.what()}};
-        }
     }
 }

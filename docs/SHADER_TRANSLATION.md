@@ -8,12 +8,8 @@ sampling, derivatives, discard, comparisons and bounded literal repeat loops.
 Unknown instructions, relative addressing and unsupported flow control fail
 explicitly. Partial-precision instructions are promoted to float32 and reported.
 
-Run from the project with `PYTHONPATH=src`:
-
-```powershell
-python -m waw2bo2.cli translate-shader original.cso translated/my_shader
-python -m waw2bo2.cli translate-shader original.cso translated/my_shader --bindings pass_bindings.json
-```
+The translation runs inside every build's shader stage; the stand-alone
+`translate-shader` command of the Python tool was not carried over.
 
 Outputs are `.hlsl`, `.cso` and a JSON report with source/output hashes,
 profiles, constants, sampler dimensions and binding status. Compiling without
@@ -59,7 +55,7 @@ sets. This retains the mod tools' material constants, texture names and image
 streaming data, and preserves the baseline ipak. Only materials with translated
 passes receive new technique references. The final fastfile is extracted again
 to check those references, unchanged texture bindings and DXBC programs before
-replacing `mod.ff`. `run_bridge.ps1` supplies both linkers and search paths.
+replacing `mod.ff`. The build driver supplies both linkers and search paths.
 
 ## Paired lit passes (Session 21)
 

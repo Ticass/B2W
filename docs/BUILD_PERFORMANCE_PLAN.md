@@ -280,7 +280,7 @@ caches warm, no converted-asset cache), isolated output folders, otherwise idle 
 build: every `progress.timed` phase, driver step, build-mod part and audit as a span;
 every native subprocess (OS CPU, peak working set, I/O bytes, return code); every
 spawned Python worker. Records nest by parent id across processes.
-`python -m waw2bo2.timeline <jsonl> [min s]` prints the tree.
+The driver prints the summary at the end of each build (`== build timeline`).
 
 **Baselines vs this pass** (wall seconds; the run was cut short at the user's request,
 so n is small and there is no p95):
