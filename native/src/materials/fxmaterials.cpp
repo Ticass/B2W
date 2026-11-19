@@ -119,12 +119,19 @@ namespace w2b::materials
             return nullptr;
         }
 
-        std::string BlendClass(const Json* state)
+        // the WaW material's first state drawing filled and depth tested
+        const WawStateBits* MainState(const WawMaterial& material)
         {
-            const auto get = [&](const char* k) { return state->contains(k) && (*state)[k].is_string() ? (*state)[k].get<std::string>() : std::string("None"); };
-            if (!state || state->empty() || get("blendOpRgb") == "disabled")
+            for (const auto& state : material.stateBits)
+                if (!state.polymodeLine && state.depthTest != "disabled")
+                    return &state;
+            return nullptr;
+        }
+
+        std::string BlendClass(const std::string& blendOp, const std::string& src, const std::string& dst)
+        {
+            if (blendOp == "disabled")
                 return "opaque";
-            const auto src = get("srcBlendRgb"), dst = get("dstBlendRgb");
             if (dst == "one")
                 return "add";
             if (dst == "invsrcalpha")
@@ -134,16 +141,37 @@ namespace w2b::materials
             return src + "/" + dst;
         }
 
-        std::set<std::string> Slots(const Json& material, const bool imagesOnly)
+        // a donor's (T6 material file) state
+        std::string BlendClass(const Json* state)
+        {
+            const auto get = [&](const char* k) { return state->contains(k) && (*state)[k].is_string() ? (*state)[k].get<std::string>() : std::string("None"); };
+            if (!state || state->empty())
+                return "opaque";
+            return BlendClass(get("blendOpRgb"), get("srcBlendRgb"), get("dstBlendRgb"));
+        }
+
+        std::string BlendClass(const WawStateBits* state)
+        {
+            return state ? BlendClass(state->blendOpRgb, state->srcBlendRgb, state->dstBlendRgb) : "opaque";
+        }
+
+        // a donor's texture slots
+        std::set<std::string> Slots(const Json& material)
         {
             std::set<std::string> out;
             if (material.contains("textures"))
                 for (const auto& t : material["textures"])
-                {
-                    if (imagesOnly && !(t.contains("image") && t["image"].is_string() && !t["image"].get<std::string>().empty()))
-                        continue;
                     out.insert(t.contains("name") && t["name"].is_string() ? t["name"].get<std::string>() : NONE);
-                }
+            return out;
+        }
+
+        // the WaW material's slots holding an image
+        std::set<std::string> ImageSlots(const WawMaterial& material)
+        {
+            std::set<std::string> out;
+            for (const auto& t : material.textures)
+                if (!t.image.empty())
+                    out.insert(t.name.value_or(NONE));
             return out;
         }
     } // namespace
@@ -191,12 +219,12 @@ namespace w2b::materials
         return donors;
     }
 
-    std::pair<const EffectDonor*, std::vector<std::string>> ChooseEffectDonor(const Json& t4, const std::vector<EffectDonor>& donors)
+    std::pair<const EffectDonor*, std::vector<std::string>> ChooseEffectDonor(const WawMaterial& t4, const std::vector<EffectDonor>& donors)
     {
-        const auto techset = t4.value("techniqueSet", std::string());
+        const auto& techset = t4.techniqueSet;
         const auto [feats, extra] = WawFeatures(techset);
         const auto wantBlend = BlendClass(MainState(t4));
-        auto slots = Slots(t4, true);
+        auto slots = ImageSlots(t4);
         slots.insert(NONE);
         std::vector<std::string> notes;
         for (const auto& f : extra)
@@ -219,7 +247,7 @@ namespace w2b::materials
                         shared.insert(f);
                 if (shared != withoutAdd(required))
                     continue;
-                const auto donorSlots = Slots(d.material, false);
+                const auto donorSlots = Slots(d.material);
                 if (!std::includes(slots.begin(), slots.end(), donorSlots.begin(), donorSlots.end()))
                     continue;
                 pool.push_back(&d);
@@ -243,20 +271,21 @@ namespace w2b::materials
         throw TechniqueError("no stock BO2 effect technique set with features " + ListRepr(feats) + " for '" + techset + "'");
     }
 
-    Json BuildEffectMaterial(const Json& t4, const EffectDonor& donor, std::vector<std::string>& notes)
+    Json BuildEffectMaterial(const WawMaterial& t4, const EffectDonor& donor, std::vector<std::string>& notes)
     {
-        auto out = BuildMaterial(FromOatJson(t4), donor.material, notes);
+        auto out = BuildMaterial(t4, donor.material, notes);
         if (const auto* main = MainState(t4); main && out.contains("stateBits"))
+        {
+            const auto blend = ToOatJson(*main);
             for (auto& state : out["stateBits"])
             {
                 if (state.contains("polymodeLine") && state["polymodeLine"].is_boolean() && state["polymodeLine"].get<bool>())
                     continue;
                 for (const auto& k : BLEND_FIELDS)
-                    if (main->contains(k))
-                        state[k] = (*main)[k];
+                    state[k] = blend.at(k);
             }
-        if (t4.contains("textureAtlas"))
-            out["textureAtlas"] = t4["textureAtlas"];
+        }
+        out["textureAtlas"] = Json{{"columns", t4.atlasColumns}, {"rows", t4.atlasRows}};
         return out;
     }
 } // namespace w2b::materials

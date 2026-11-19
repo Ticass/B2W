@@ -7,6 +7,7 @@
 #include "core/pyre.h"
 #include "d3d.h"
 #include "materials/techsets.h"
+#include "materials/waw_material_json.h"
 #include "runtime_analysis.h"
 #include "runtime_contracts.h"
 #include "translate.h"
@@ -123,19 +124,21 @@ namespace w2b::shaders
             return std::nullopt;
         }
 
-        Present StatePresent(const Json& material)
+        Present StatePresent(const materials::WawMaterial& material)
         {
-            const auto entries = material.value("stateBitsEntry", Json::array());
-            const auto count = material.value("stateBits", Json::array()).size();
-            return [entries, count](const int i) { return i < static_cast<int>(entries.size()) && I(entries[i]) >= 0 && I(entries[i]) < static_cast<long long>(count); };
+            return [&material](const int i) { return i >= 0 && material.TechniqueState(static_cast<size_t>(i)) != nullptr; };
         }
 
-        const Json* SourceState(const Json& sourceMaterial, const std::string& sourceName, const int slot)
+        const materials::WawStateBits* SourceState(const materials::WawMaterial& sourceMaterial, const std::string& sourceName, const int slot)
         {
             const auto index = SourceSlot(StatePresent(sourceMaterial), sourceName, slot);
-            if (!index)
-                return nullptr;
-            return &sourceMaterial["stateBits"][static_cast<size_t>(I(sourceMaterial["stateBitsEntry"][*index]))];
+            return index ? sourceMaterial.TechniqueState(static_cast<size_t>(*index)) : nullptr;
+        }
+
+        // a state value, `fallback` when the state is absent or the value invalid
+        std::string Get(const materials::WawStateBits* state, std::string materials::WawStateBits::*field, const char* fallback)
+        {
+            return state && !(state->*field).empty() ? state->*field : std::string(fallback);
         }
 
         std::string Get(const Json* state, const char* key, const char* fallback)
@@ -143,18 +146,19 @@ namespace w2b::shaders
             return state && state->contains(key) && (*state)[key].is_string() ? (*state)[key].get<std::string>() : std::string(fallback);
         }
 
-        bool ScalesOutput(const Json* state)
+        bool ScalesOutput(const materials::WawStateBits* state)
         {
-            if (!state || state->empty() || Get(state, "blendOpRgb", "disabled") == "disabled")
+            using S = materials::WawStateBits;
+            if (Get(state, &S::blendOpRgb, "disabled") == "disabled")
                 return true;
-            const auto src = Get(state, "srcBlendRgb", ""), dst = Get(state, "dstBlendRgb", "");
+            const auto src = state->srcBlendRgb, dst = state->dstBlendRgb;
             if (src == "invdestcolor" && dst == "one")
                 return true;
             return src != "destcolor" && src != "invdestcolor" && dst != "srccolor" && dst != "invsrccolor";
         }
 
         // _output_scale: halving a scene pass's colour (see DISPLAY_SCALE)
-        bool OutputScale(const Json& sourceMaterial, const std::string& sourceName, const int slot)
+        bool OutputScale(const materials::WawMaterial& sourceMaterial, const std::string& sourceName, const int slot)
         {
             const auto parsed = materials::ParseTechnique(sourceName);
             if (slot < 2 || (parsed.family == materials::Family::other && parsed.unlit == "2d"))
@@ -162,9 +166,9 @@ namespace w2b::shaders
             return ScalesOutput(SourceState(sourceMaterial, sourceName, slot));
         }
 
-        std::vector<std::string> AlphaTestLines(const Json& sourceMaterial, const std::string& sourceName, const int slot, const std::string& target)
+        std::vector<std::string> AlphaTestLines(const materials::WawMaterial& sourceMaterial, const std::string& sourceName, const int slot, const std::string& target)
         {
-            const auto rule = Get(SourceState(sourceMaterial, sourceName, slot), "alphaTest", "disabled");
+            const auto rule = Get(SourceState(sourceMaterial, sourceName, slot), &materials::WawStateBits::alphaTest, "disabled");
             const auto a = target + ".w";
             if (rule == "gt0")
                 return {"if (" + a + " <= 0.0) discard;"};
@@ -175,11 +179,12 @@ namespace w2b::shaders
             return {};
         }
 
-        bool AlphaTested(const Json& sourceMaterial)
+        bool AlphaTested(const materials::WawMaterial& sourceMaterial)
         {
-            const auto* state = SourceState(sourceMaterial, TechniqueSet(sourceMaterial), 4);
-            const auto rule = Get(state, "alphaTest", "disabled");
-            return (rule == "gt0" || rule == "ge128" || rule == "lt128") && Get(state, "blendOpRgb", "disabled") == "disabled";
+            using S = materials::WawStateBits;
+            const auto* state = SourceState(sourceMaterial, sourceMaterial.techniqueSet, 4);
+            const auto rule = Get(state, &S::alphaTest, "disabled");
+            return (rule == "gt0" || rule == "ge128" || rule == "lt128") && Get(state, &S::blendOpRgb, "disabled") == "disabled";
         }
 
         const Json* SourceTechnique(const Json& original, const std::string& sourceName, const int slot)
@@ -239,11 +244,12 @@ namespace w2b::shaders
                 result["face_on_falloff"] = true;
         }
 
-        Json BindMaterialCore(const Json& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, Output& output, const fs::path& nativeRoot,
-                              const std::optional<std::array<double, 4>>& falloffPlacement, const bool lightShadows, const bool trailGeometry)
+        Json BindMaterialCore(const materials::WawMaterial& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, Output& output,
+                              const fs::path& nativeRoot, const std::optional<std::array<double, 4>>& falloffPlacement, const bool lightShadows,
+                              const bool trailGeometry)
         {
             Json result{{"active", Json::array()}, {"unsupported", Json::array()}};
-            const auto sourceName = TechniqueSet(sourceMaterial);
+            const auto& sourceName = sourceMaterial.techniqueSet;
             const auto sourceFile = Find(roots, fs::path("waw_techniquesets") / files::FromUtf8(sourceName + ".json"));
             const auto nativeName = TechniqueSet(outputMaterial);
             result["native_techset"] = nativeName;
@@ -286,7 +292,7 @@ namespace w2b::shaders
                         auto vertexAssembly = EmbedLiterals(AssemblyOf(*vertexBinary), sourcePass, "vs");
                         bool normalizedDepth;
                         std::tie(vertexAssembly, normalizedDepth) = NormalizeSoftParticleDepth(vertexAssembly, AssemblyOf(*binary));
-                        auto vertexBinding = VertexContract(vertexAssembly, sourcePass, targetPass, nativeRoot, true, &sourceMaterial,
+                        auto vertexBinding = VertexContract(vertexAssembly, sourcePass, targetPass, nativeRoot, true, sourceMaterial,
                                                             Truthy(pristine.value("worldVertFormat", Json())), trailGeometry);
                         if (normalizedDepth)
                             vertexBinding["soft_particle_depth"] = "packed WaW depth to T6 camera depth";
@@ -299,14 +305,14 @@ namespace w2b::shaders
                             linked.push_back(Json{{"semantic", decl[0]}, {"width", decl[1]}});
                         auto assembly = EmbedLiterals(AssemblyOf(*binary), sourcePass, "ps");
                         Json pixelPass;
-                        std::tie(assembly, pixelPass) = BindLocalLightRamp(assembly, sourcePass, &sourceMaterial);
+                        std::tie(assembly, pixelPass) = BindLocalLightRamp(assembly, sourcePass, sourceMaterial);
                         std::optional<std::string> visibility;
                         if (vertexBinding.contains("lighting_visibility") && vertexBinding["lighting_visibility"].is_string())
                             visibility = vertexBinding["lighting_visibility"].get<std::string>();
                         auto contract = [&]
                         {
                             const profile::Scope scope("bind: pixel contract");
-                            return PairedPixelContract(assembly, pixelPass, targetPass, nativeRoot, linked, visibility, &sourceMaterial, falloffPlacement, &outputMaterial);
+                            return PairedPixelContract(assembly, pixelPass, targetPass, nativeRoot, linked, visibility, sourceMaterial, falloffPlacement, &outputMaterial);
                         }();
                         if (outputScale)
                             contract["output_rgb_scale"] = WAW_OUTPUT_SCALE;
@@ -353,7 +359,7 @@ namespace w2b::shaders
                 try
                 {
                     const auto assembly = EmbedLiterals(AssemblyOf(*binary), sourcePass, "ps");
-                    auto contract = PixelContract(assembly, sourcePass, targetPass, nativeRoot, &sourceMaterial);
+                    auto contract = PixelContract(assembly, sourcePass, targetPass, nativeRoot, sourceMaterial);
                     if (outputScale)
                         contract["output_rgb_scale"] = WAW_OUTPUT_SCALE;
                     const auto translation = Translate(assembly, &contract);
@@ -365,7 +371,7 @@ namespace w2b::shaders
                         try
                         {
                             const auto vertexAssembly = EmbedLiterals(AssemblyOf(*vertexBinary), sourcePass, "vs");
-                            auto vertexBinding = VertexContract(vertexAssembly, sourcePass, targetPass, nativeRoot, false, &sourceMaterial, false, trailGeometry);
+                            auto vertexBinding = VertexContract(vertexAssembly, sourcePass, targetPass, nativeRoot, false, sourceMaterial, false, trailGeometry);
                             AddVertex(vertexBinding, result);
                             const auto vertexTranslation = Translate(vertexAssembly, &vertexBinding);
                             const auto vertexHlsl = NativeFogAdapter(vertexTranslation.hlsl, vertexAssembly, vertexBinding, targetPass, nativeRoot);
@@ -571,7 +577,7 @@ namespace w2b::shaders
         return cache.emplace(key, std::move(text)).first->second;
     }
 
-    Json BindMaterial(const Json& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, Output& output, const fs::path& nativeRoot,
+    Json BindMaterial(const materials::WawMaterial& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, Output& output, const fs::path& nativeRoot,
                       const std::optional<std::array<double, 4>>& falloffPlacement, const bool lightShadows, const bool trailGeometry)
     {
         auto result = [&]
@@ -586,7 +592,7 @@ namespace w2b::shaders
         return result;
     }
 
-    std::vector<int> ApplySourcePassStates(const Json& sourceMaterial, Json& outputMaterial, const Json& runtime)
+    std::vector<int> ApplySourcePassStates(const materials::WawMaterial& sourceMaterial, Json& outputMaterial, const Json& runtime)
     {
         if (!outputMaterial.contains("stateBitsEntry") || !outputMaterial.contains("stateBits"))
             return {};
@@ -594,7 +600,7 @@ namespace w2b::shaders
         auto& states = outputMaterial["stateBits"];
         if (!entries.is_array() || !states.is_array())
             return {};
-        const auto name = TechniqueSet(sourceMaterial);
+        const auto& name = sourceMaterial.techniqueSet;
         const auto present = StatePresent(sourceMaterial);
         std::map<int, Json> active;
         for (const auto& a : runtime.value("active", Json::array()))
@@ -632,7 +638,7 @@ namespace w2b::shaders
             const auto index = SourceSlot(present, name, source);
             if (!index)
                 continue;
-            const auto& wanted = sourceMaterial["stateBits"][static_cast<size_t>(I(sourceMaterial["stateBitsEntry"][*index]))];
+            const auto wanted = materials::ToOatJson(*sourceMaterial.TechniqueState(static_cast<size_t>(*index)));
             const auto native = states[static_cast<size_t>(I(entries[slot]))];
             const auto additive = [](const Json& s) { return Get(&s, "blendOpRgb", "disabled") != "disabled" && Get(&s, "dstBlendRgb", "") == "one"; };
             if (!active.count(slot) && !(additive(wanted) && !additive(native)))

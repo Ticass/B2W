@@ -36,6 +36,12 @@ namespace w2b::materials
             return out;
         }
 
+        // the readers' key order is the file's, which is sorted
+        Json Ordered(const SortedJson& sorted)
+        {
+            return Json::parse(sorted.dump());
+        }
+
         SortedJson TextOrNull(const std::string& value)
         {
             return value.empty() ? SortedJson() : SortedJson(value);
@@ -260,7 +266,16 @@ namespace w2b::materials
                              {"textures", textures},
                              {"constants", constants},
                              {"stateBits", states}};
-        // the readers' key order is the file's, which is sorted
-        return Json::parse(out.dump());
+        return Ordered(out);
+    }
+
+    Json ToOatJson(const WawStateBits& state)
+    {
+        return Ordered(StateToJson(state));
+    }
+
+    Json ToOatJson(const WawTexture& texture)
+    {
+        return Ordered(TextureToJson(texture));
     }
 } // namespace w2b::materials

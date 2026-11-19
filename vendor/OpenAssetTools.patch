@@ -1237,6 +1237,66 @@ index 00000000..4d755f6e
 +        void DumpAsset(AssetDumpingContext& context, const XAssetInfo<T4::GameWorldSp>& asset) override;
 +    };
 +} // namespace world_converter
+diff --git a/src/ObjWriting/Game/T4/Material/MaterialConstantZoneStateT4.cpp b/src/ObjWriting/Game/T4/Material/MaterialConstantZoneStateT4.cpp
+index 6cfd20e6..e91a1914 100644
+--- a/src/ObjWriting/Game/T4/Material/MaterialConstantZoneStateT4.cpp
++++ b/src/ObjWriting/Game/T4/Material/MaterialConstantZoneStateT4.cpp
+@@ -200,19 +200,23 @@ namespace
+ 
+ namespace T4
+ {
++    void MaterialConstantZoneState::SetZone(const Zone& zone)
++    {
++        m_zone = &zone;
++    }
++
+     void MaterialConstantZoneState::ExtractNamesFromZoneInternal()
+     {
+-        for (const auto* zone : ZoneRegistry::GetRegistryForGame(GameId::T4)->Zones())
++        if (!m_zone)
++            return;
++        for (const auto* techniqueSetInfo : m_zone->m_pools.PoolAssets<AssetTechniqueSet>())
+         {
+-            for (const auto* techniqueSetInfo : zone->m_pools.PoolAssets<AssetTechniqueSet>())
+-            {
+-                const auto* techniqueSet = techniqueSetInfo->Asset();
++            const auto* techniqueSet = techniqueSetInfo->Asset();
+ 
+-                for (const auto* technique : techniqueSet->techniques)
+-                {
+-                    if (technique)
+-                        ExtractNamesFromTechnique(technique);
+-                }
++            for (const auto* technique : techniqueSet->techniques)
++            {
++                if (technique)
++                    ExtractNamesFromTechnique(technique);
+             }
+         }
+     }
+diff --git a/src/ObjWriting/Game/T4/Material/MaterialConstantZoneStateT4.h b/src/ObjWriting/Game/T4/Material/MaterialConstantZoneStateT4.h
+index 0106f665..3ad7fbea 100644
+--- a/src/ObjWriting/Game/T4/Material/MaterialConstantZoneStateT4.h
++++ b/src/ObjWriting/Game/T4/Material/MaterialConstantZoneStateT4.h
+@@ -9,10 +9,18 @@ namespace T4
+ {
+     class MaterialConstantZoneState final : public AbstractMaterialConstantZoneStateDx9
+     {
++    public:
++        // B2W: names come from the dumped zone only. Reading every registered
++        // zone made the result depend on which other zones a process had loaded.
++        void SetZone(const Zone& zone) override;
++
+     protected:
+         void ExtractNamesFromZoneInternal() override;
+         void ExtractNamesFromTechnique(const MaterialTechnique* technique);
+         void AddStaticKnownNames() override;
+         [[nodiscard]] unsigned HashString(const std::string& str) const override;
++
++    private:
++        const Zone* m_zone = nullptr;
+     };
+ } // namespace T4
 diff --git a/src/ObjWriting/Game/T4/Material/SourceTechniqueSetDumperT4.h b/src/ObjWriting/Game/T4/Material/SourceTechniqueSetDumperT4.h
 new file mode 100644
 index 00000000..2eb18335

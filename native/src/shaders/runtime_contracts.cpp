@@ -6,6 +6,7 @@
 #include "d3d.h"
 #include "gsc/tokens.h"
 #include "materials/techsets.h"
+#include "materials/waw_material_json.h"
 #include "runtime.h"
 #include "runtime_analysis.h"
 #include "translate.h"
@@ -101,11 +102,6 @@ namespace w2b::shaders::runtime
             return result;
         }
 
-        std::string TechniqueSet(const Json* material)
-        {
-            return material && material->contains("techniqueSet") && (*material)["techniqueSet"].is_string() ? (*material)["techniqueSet"].get<std::string>() : std::string();
-        }
-
         // shaders.translate(assembly): the unbound report
         Json Ir(const std::string& assembly)
         {
@@ -155,24 +151,17 @@ namespace w2b::shaders::runtime
             return nullptr;
         }
 
-        std::optional<std::vector<double>> MaterialLiteral(const Json* sourceMaterial, const long long hash)
+        std::optional<std::vector<double>> MaterialLiteral(const materials::WawMaterial& sourceMaterial, const long long hash)
         {
-            if (!sourceMaterial || !sourceMaterial->contains("constants"))
-                return std::nullopt;
-            for (const auto& constant : (*sourceMaterial)["constants"])
+            for (const auto& constant : sourceMaterial.constants)
             {
                 std::optional<long long> key;
-                if (constant.contains("nameHash") && !constant["nameHash"].is_null())
-                    key = I(constant["nameHash"]);
-                else if (constant.contains("name") && constant["name"].is_string() && !constant["name"].get<std::string>().empty())
-                    key = WawHash(constant["name"].get<std::string>());
-                if (key && *key == hash && constant.contains("literal") && constant["literal"].size() == 4)
-                {
-                    std::vector<double> out;
-                    for (const auto& v : constant["literal"])
-                        out.push_back(v.get<double>());
-                    return out;
-                }
+                if (constant.nameHash)
+                    key = *constant.nameHash;
+                else if (constant.name && !constant.name->empty())
+                    key = WawHash(*constant.name);
+                if (key && *key == hash)
+                    return std::vector<double>(constant.literal.begin(), constant.literal.end());
             }
             return std::nullopt;
         }
@@ -395,25 +384,19 @@ namespace w2b::shaders::runtime
         }
 
         // add_material_texture: a source texture the donor pass has no slot for
-        std::optional<Json> AddMaterialTexture(Json& nativePass, Json& outputMaterial, const Json* sourceMaterial, const long long hash, const std::string& nativePs)
+        std::optional<Json> AddMaterialTexture(Json& nativePass, Json& outputMaterial, const materials::WawMaterial& sourceMaterial, const long long hash, const std::string& nativePs)
         {
-            const Json* texture = nullptr;
-            if (sourceMaterial && sourceMaterial->contains("textures"))
-                for (const auto& t : (*sourceMaterial)["textures"])
+            const auto named = [](const materials::WawTexture& t) { return t.name && !t.name->empty(); };
+            const materials::WawTexture* texture = nullptr;
+            for (const auto& t : sourceMaterial.textures)
+                if (!t.image.empty() && (named(t) ? WawHash(*t.name) : t.nameHash ? static_cast<long long>(*t.nameHash) : -1) == hash)
                 {
-                    if (!t.contains("image") || !t["image"].is_string() || t["image"].get<std::string>().empty())
-                        continue;
-                    const bool named = t.contains("name") && t["name"].is_string() && !t["name"].get<std::string>().empty();
-                    const long long h = named ? WawHash(t["name"].get<std::string>()) : (t.contains("nameHash") ? I(t["nameHash"]) : -1);
-                    if (h == hash)
-                    {
-                        texture = &t;
-                        break;
-                    }
+                    texture = &t;
+                    break;
                 }
             if (!texture)
                 return std::nullopt;
-            if (texture->contains("name") && (*texture)["name"].is_string() && !(*texture)["name"].get<std::string>().empty() && T6Hash((*texture)["name"].get<std::string>()) != hash)
+            if (named(*texture) && T6Hash(*texture->name) != hash)
                 return std::nullopt;
             if (!outputMaterial.contains("textures"))
                 outputMaterial["textures"] = Json::array();
@@ -421,7 +404,8 @@ namespace w2b::shaders::runtime
             if (std::none_of(textures.begin(), textures.end(), [&](const Json& t) { return TextureHash(t) == hash; }))
             {
                 Json entry = Json::object();
-                for (const auto& [k, v] : texture->items())
+                const auto source = materials::ToOatJson(*texture);
+                for (const auto& [k, v] : source.items())
                     if (k == "image" || k == "isMatureContent" || k == "name" || k == "nameHash" || k == "nameStart" || k == "nameEnd" || k == "samplerState" || k == "semantic")
                         entry[k] = v;
                 textures.push_back(entry);
@@ -521,9 +505,9 @@ namespace w2b::shaders::runtime
         return value;
     }
 
-    bool IsScorchProgram(const Json* sourceMaterial)
+    bool IsScorchProgram(const materials::WawMaterial& sourceMaterial)
     {
-        return Contains(TechniqueSet(sourceMaterial), "_sco");
+        return Contains(sourceMaterial.techniqueSet, "_sco");
     }
 
     const std::string& NativeProgram(const fs::path& root, const std::string& stage, const Json& pass)
@@ -557,7 +541,7 @@ namespace w2b::shaders::runtime
         return assembly;
     }
 
-    Json PixelContract(const std::string& sourceAssembly, const Json& sourcePass, const Json& nativePass, const fs::path& nativeRoot, const Json* sourceMaterial)
+    Json PixelContract(const std::string& sourceAssembly, const Json& sourcePass, const Json& nativePass, const fs::path& nativeRoot, const materials::WawMaterial& sourceMaterial)
     {
         const auto ir = Ir(sourceAssembly);
         const auto& vs = NativeProgram(nativeRoot, "vs", nativePass);
@@ -649,7 +633,7 @@ namespace w2b::shaders::runtime
     }
 
     Json PairedPixelContract(const std::string& sourceAssembly, const Json& sourcePass, Json& nativePass, const fs::path& nativeRoot, const Json& linked,
-                             const std::optional<std::string>& visibility, const Json* sourceMaterial, const std::optional<std::array<double, 4>>& falloffPlacement,
+                             const std::optional<std::string>& visibility, const materials::WawMaterial& sourceMaterial, const std::optional<std::array<double, 4>>& falloffPlacement,
                              Json* outputMaterial)
     {
         const auto ir = Ir(sourceAssembly);
@@ -863,7 +847,7 @@ namespace w2b::shaders::runtime
                 arg = Json{{"type", 4}};
             }
             const auto* native = textureName(static_cast<int>(texture));
-            const bool sourceSky = I((*arg)["type"]) == 2 && StartsWith(TechniqueSet(sourceMaterial), "mc_sky");
+            const bool sourceSky = I((*arg)["type"]) == 2 && StartsWith(sourceMaterial.techniqueSet, "mc_sky");
             const std::string mapped = dim == "2d" ? "2d" : dim == "volume" ? "3d" : dim == "cube" ? "cube" : throw std::runtime_error("KeyError: " + gsc::Repr(dim));
             if (!sourceSky && (!native || mapped != native->dim))
                 throw ShaderError("texture dimension differs for " + reg + ": " + dim + " vs " + (native ? native->dim : "None"));
@@ -946,7 +930,7 @@ namespace w2b::shaders::runtime
         return contract;
     }
 
-    std::pair<std::string, Json> BindLocalLightRamp(std::string assembly, const Json& sourcePass, const Json* sourceMaterial)
+    std::pair<std::string, Json> BindLocalLightRamp(std::string assembly, const Json& sourcePass, const materials::WawMaterial& sourceMaterial)
     {
         // local_light_ramp: the sole secondary-lightmap read is a placed 1D lookup
         const auto& names = Registers(assembly);
@@ -1024,25 +1008,25 @@ namespace w2b::shaders::runtime
     }
 
     Json VertexContract(const std::string& sourceAssembly, const Json& sourcePass, Json& nativePass, const fs::path& nativeRoot, const bool paired,
-                        const Json* sourceMaterial, const bool layered, const bool trailGeometry)
+                        const materials::WawMaterial& sourceMaterial, const bool layered, const bool trailGeometry)
     {
         const auto ir = Ir(sourceAssembly);
         const auto& nativeVs = NativeProgram(nativeRoot, "vs", nativePass);
         auto incoming = Signature(nativeVs, "Input");
-        const auto techniqueSet = TechniqueSet(sourceMaterial);
+        const auto techniqueSet = sourceMaterial.techniqueSet;
         const bool sky = StartsWith(techniqueSet, "mc_sky");
-        if (paired && sourceMaterial && sky)
+        if (paired && sky)
         {
             incoming.try_emplace("COLOR0", 4, "float");
             incoming.try_emplace("TEXCOORD0", 2, "float");
         }
-        const bool falloffNormal = paired && sourceMaterial && materials::ParseTechnique(techniqueSet).unlit == "unlit_falloff_add";
+        const bool falloffNormal = paired && materials::ParseTechnique(techniqueSet).unlit == "unlit_falloff_add";
         if (falloffNormal)
             incoming.try_emplace("NORMAL0", 3, "float");
         const auto& fields = Buffers(nativeVs);
         const auto& names = Registers(sourceAssembly);
         Json contract{{"inputs", Json::object()}, {"outputs", Json::object()}, {"constants", Json::object()}, {"samplers", Json::object()}};
-        if (paired && sourceMaterial && sky)
+        if (paired && sky)
         {
             // source sky fog uses a normalized direction at a shader-defined distance
             const auto match = pyre::Regex("nrm (r\\d+)\\.xyz, v\\d+\\s*\\n\\s*mul \\1\\.xyz, \\1, (c\\d+)\\.([xyzw])").Search(sourceAssembly);
@@ -1162,7 +1146,7 @@ namespace w2b::shaders::runtime
                     break;
                 }
             const auto rowOf = [&] { return (arg->contains("firstRow") ? I((*arg)["firstRow"]) : 0) + number - I((*arg)["dest"]); };
-            if (arg && sourceName == "gameTime" && sourceMaterial && sky)
+            if (arg && sourceName == "gameTime" && sky)
             {
                 const Json binding{{"type", 3}, {"buffer", 2}, {"location", 240}, {"size", 16}, {"u", Json{{"value", 0x01000019}}}};
                 const auto& args = nativePass["args"];

@@ -8,8 +8,8 @@
 #include "core/hash.h"
 #include "core/parallel.h"
 #include "extract/cache.h"
+#include "extract/material_sources.h"
 #include "materials/prepare.h"
-#include "materials/waw_material_json.h"
 #include "modutil.h"
 #include "shaders/runtime.h"
 #include "textures/stage.h"
@@ -23,9 +23,7 @@ namespace w2b::pipeline
 {
     using mod::Bytes;
     using mod::Copy;
-    using mod::EndsWith;
     using mod::Generic;
-    using mod::IsDir;
     using mod::Lower;
     using mod::StartsWith;
     using mod::Str;
@@ -62,52 +60,41 @@ namespace w2b::pipeline
         }
 
         // dangling_substitute: a defined material for a reference no WaW zone defines
-        std::optional<std::pair<std::string, std::string>> DanglingSubstitute(const std::string& name, const std::vector<fs::path>& roots)
+        std::optional<std::pair<std::string, std::string>> DanglingSubstitute(const std::string& name, const extract::MaterialSources& sources)
         {
             if (StartsWith(name, "*"))
             {
                 const auto want = StarParts(name);
                 std::optional<std::pair<std::tuple<int, int, int, std::string>, std::string>> best;
-                for (const auto& root : roots)
+                for (const auto& generated : sources.GeneratedNames())
                 {
-                    std::error_code e;
-                    const auto folder = root / "materials" / "generated";
-                    if (!IsDir(folder))
-                        continue;
-                    for (const auto& entry : fs::directory_iterator(folder, e))
+                    const auto body = generated.substr(1), stem = "_" + body;
+                    std::vector<std::string> parts;
+                    for (const auto part : py::Split(body, "_"))
+                        parts.emplace_back(part);
+                    int common = 0;
+                    for (size_t i = 0; i < std::min(want.size(), parts.size()); i++)
                     {
-                        const auto file = files::Utf8(entry.path().filename());
-                        if (!StartsWith(file, "_") || !EndsWith(Lower(file), ".json"))
-                            continue;
-                        const auto stem = files::Utf8(entry.path().stem());
-                        std::vector<std::string> parts;
-                        const auto body = stem.substr(1);
-                        for (const auto part : py::Split(body, "_"))
-                            parts.emplace_back(part);
-                        int common = 0;
-                        for (size_t i = 0; i < std::min(want.size(), parts.size()); i++)
-                        {
-                            if (want[i] != parts[i])
-                                break;
-                            common++;
-                        }
-                        const std::set<std::string> a(want.begin(), want.end()), b(parts.begin(), parts.end());
-                        int shared = 0;
-                        for (const auto& x : a)
-                            shared += b.count(x) ? 1 : 0;
-                        if (!shared)
-                            continue;
-                        const auto key = std::tuple{common, shared, -std::abs(static_cast<int>(parts.size()) - static_cast<int>(want.size())), stem};
-                        if (!best || key > best->first)
-                            best = std::pair{key, "*" + stem.substr(1)};
+                        if (want[i] != parts[i])
+                            break;
+                        common++;
                     }
+                    const std::set<std::string> a(want.begin(), want.end()), b(parts.begin(), parts.end());
+                    int shared = 0;
+                    for (const auto& x : a)
+                        shared += b.count(x) ? 1 : 0;
+                    if (!shared)
+                        continue;
+                    const auto key = std::tuple{common, shared, -std::abs(static_cast<int>(parts.size()) - static_cast<int>(want.size())), stem};
+                    if (!best || key > best->first)
+                        best = std::pair{key, generated};
                 }
                 if (best)
                     return std::pair{best->second, "dangling reference " + name + ": WaW draws its default material; using blend " + best->second};
                 return std::nullopt;
             }
             const std::string fallback = "mc/mtl_default";
-            if (FindAny(roots, assets::MaterialPath(fallback)))
+            if (sources.Has(fallback))
                 return std::pair{fallback, "dangling reference " + name + ": WaW draws its default material; using " + fallback};
             return std::nullopt;
         }
@@ -123,6 +110,7 @@ namespace w2b::pipeline
         struct Context
         {
             std::vector<fs::path> roots;
+            std::optional<extract::MaterialSources> sources;
             fs::path stockMaterials, projectRoot;
             std::optional<fs::path> techsetRoot;
             std::map<std::string, std::string> rename;
@@ -155,11 +143,11 @@ namespace w2b::pipeline
             Result result;
             shaders::MemoryOutput output;
             const auto rel = assets::MaterialPath(name);
-            auto source = FindAny(c.roots, rel);
+            auto source = c.sources->Find(name);
             std::optional<std::pair<std::string, std::string>> substitute;
             if (!source)
-                if ((substitute = DanglingSubstitute(name, c.roots)))
-                    source = FindAny(c.roots, assets::MaterialPath(substitute->first));
+                if ((substitute = DanglingSubstitute(name, *c.sources)))
+                    source = c.sources->Find(substitute->first);
             const auto outRel = assets::MaterialPath(Renamed(c, name));
             Json entry{{"name", Renamed(c, name)}, {"file", Generic(outRel)}};
             if (c.rename.count(name))
@@ -176,18 +164,17 @@ namespace w2b::pipeline
                 notes.push_back(substitute->second);
                 result.warnings.push_back(substitute->second);
             }
-            const auto t4 = ReadJson(*source);
-            const auto t4ts = t4.value("techniqueSet", std::string());
+            const auto& t4 = *source;
+            const auto& t4ts = t4.techniqueSet;
             entry["t4_techset"] = t4ts;
-            if (t4.contains("sortKey"))
-                entry["t4_sort_key"] = t4["sortKey"];
+            entry["t4_sort_key"] = t4.sortKey;
             std::error_code e;
             bool programs = false;
             if (c.techsetRoot)
                 for (const auto& root : c.roots)
                     programs |= fs::exists(root / "waw_techniquesets" / files::FromUtf8(t4ts + ".json"), e);
             // the prepared form round-trips through JSON in the Python step
-            const auto prepared = [&] { const profile::Scope scope("materials: select donor"); return Json::parse(py::JsonDumps(materials::SelectMaterial(materials::FromOatJson(t4), programs, c.layered, donors), -1)); }();
+            const auto prepared = [&] { const profile::Scope scope("materials: select donor"); return Json::parse(py::JsonDumps(materials::SelectMaterial(t4, programs, c.layered, donors), -1)); }();
             if (prepared.contains("error"))
             {
                 result.errors.push_back("material " + name + " (" + t4ts + "): " + prepared["error"].get<std::string>());
@@ -367,14 +354,16 @@ namespace w2b::pipeline
             names.push_back(n.get<std::string>());
         std::sort(names.begin(), names.end());
         materials::Donors donors(c.donorPaths);
+        c.sources.emplace(c.roots);
+        {
+            const profile::Scope scope("materials: read WaW sources");
+            c.sources->Read(names);
+        }
         // WaW materials convert independently; native equivalents stay in order below
         std::vector<std::optional<Result>> results(names.size());
         std::vector<bool> nativeName(names.size());
         for (size_t i = 0; i < names.size(); i++)
-        {
-            const auto source = FindAny(c.roots, assets::MaterialPath(names[i]));
-            nativeName[i] = !source && c.fallbacks.count(names[i]);
-        }
+            nativeName[i] = !c.sources->Has(names[i]) && c.fallbacks.count(names[i]);
         parallel::For(names.size(), [&](const size_t i)
                       {
                           if (!nativeName[i])

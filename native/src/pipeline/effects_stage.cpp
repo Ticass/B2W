@@ -9,6 +9,7 @@
 #include "materials/donor_index.h"
 #include "materials/fxmaterials.h"
 #include "materials/techsets.h"
+#include "materials/waw_material_json.h"
 #include "materials_stage.h"
 #include "modutil.h"
 #include "shaders/runtime.h"
@@ -305,12 +306,12 @@ namespace w2b::pipeline
                 failedMaterials.insert(mat);
                 continue;
             }
-            const auto t4 = ReadJson(*src);
-            const auto ts = t4.value("techniqueSet", std::string());
+            const auto t4 = materials::FromOatJson(ReadJson(*src));
+            const auto& ts = t4.techniqueSet;
             std::vector<std::string> undecodable;
-            for (const auto& tex : t4.value("textures", Json::array()))
+            for (const auto& tex : t4.textures)
             {
-                const auto img = tex.value("image", std::string());
+                const auto& img = tex.image;
                 if (img.empty() || StartsWith(img, "$"))
                     continue;
                 auto stem = img;

@@ -3,6 +3,7 @@
 
 #include "core/asset_paths.h"
 #include "finish.h"
+#include "materials/waw_material_json.h"
 #include "modutil.h"
 #include "shaders/runtime.h"
 #include "weapons/weapon.h"
@@ -250,7 +251,7 @@ namespace w2b::pipeline
                                 if (state->contains(key))
                                     native[key] = (*state)[key];
                 shaders::FolderOutput output(projectRoot);
-                const auto runtime = shaders::BindMaterial(source, target, roots, output, nativeRoot);
+                const auto runtime = shaders::BindMaterial(materials::FromOatJson(source), target, roots, output, nativeRoot);
                 bool paired = false;
                 for (const auto& a : runtime.value("active", Json::array()))
                     if (mod::Truthy(a, "paired") && a.at("slot") == 2)

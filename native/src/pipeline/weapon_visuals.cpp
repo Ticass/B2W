@@ -2,6 +2,7 @@
 #include "weapon_visuals.h"
 
 #include "core/asset_paths.h"
+#include "extract/material_sources.h"
 #include "materials/donor_index.h"
 #include "materials/fxmaterials.h"
 #include "materials/techsets.h"
@@ -99,18 +100,12 @@ namespace w2b::pipeline
                 names.insert(n.get<std::string>());
         Report report;
         Json recovered = Json::object();
-        std::map<std::string, Json> effects;
-        for (const auto& name : names)
+        std::map<std::string, materials::WawMaterial> effects;
         {
-            const auto relative = assets::MaterialPath(name);
-            for (const auto& root : roots)
-                if (IsFile(root / relative))
-                {
-                    auto data = mod::Json(root / relative);
-                    if (materials::IsEffectTechset(data.value("techniqueSet", std::string())))
-                        effects[name] = data;
-                    break;
-                }
+            const extract::MaterialSources sources(roots);
+            for (const auto& name : names)
+                if (auto material = sources.Find(name); material && materials::IsEffectTechset(material->techniqueSet))
+                    effects.emplace(name, std::move(*material));
         }
         // t6bridge.stage_materials for the world/model technique sets
         std::set<std::string> used;
@@ -200,7 +195,7 @@ namespace w2b::pipeline
                 report.materials.push_back(Json{{"name", outName},
                                                 {"source", name},
                                                 {"file", Generic(relative)},
-                                                {"t4_techset", source["techniqueSet"]},
+                                                {"t4_techset", source.techniqueSet},
                                                 {"t6_techset", material["techniqueSet"]},
                                                 {"shader_runtime", runtime},
                                                 {"donor", Str(donor->path.lexically_relative(stockMaterials))},

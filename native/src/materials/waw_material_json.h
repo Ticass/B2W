@@ -11,4 +11,7 @@ namespace w2b::materials
     WawMaterial FromOatJson(const py::Json& data);
     // the file OpenAssetTools writes for the material
     py::Json ToOatJson(const WawMaterial& material);
+    // one render state / texture of it as that file holds it
+    py::Json ToOatJson(const WawStateBits& state);
+    py::Json ToOatJson(const WawTexture& texture);
 } // namespace w2b::materials
