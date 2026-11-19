@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <optional>
 #include <set>
 
 namespace w2b::mapents
@@ -23,58 +24,58 @@ namespace w2b::mapents
     {
         using Names = std::set<std::string, std::less<>>;
 
-        Json Placement(const Json& entity)
+        MapEntity Placement(const MapEntity& entity)
         {
-            return {{"origin", Field(entity, "origin", "0 0 0")}, {"angles", Field(entity, "angles", "0 0 0")}};
+            return {{"origin", std::string(Field(entity, "origin", "0 0 0"))}, {"angles", std::string(Field(entity, "angles", "0 0 0"))}};
         }
 
-        Json Worldspawn(const Json& entities, std::string_view project)
+        MapEntity Worldspawn(const MapEntities& entities, std::string_view project)
         {
             static constexpr std::array<std::string_view, 8> keys{
                 "classname", "skyboxmodel", "sundirection", "suncolor", "sunlight", "_color", "ambient", "diffusefraction"};
-            auto result = Json::object();
-            const auto world = std::ranges::find_if(entities, [](const Json& e) { return Field(e, "classname") == "worldspawn"; });
+            MapEntity result;
+            const auto world = std::ranges::find_if(entities, [](const MapEntity& e) { return Field(e, "classname") == "worldspawn"; });
             if (world != entities.end())
-                for (const auto& [key, value] : world->items())
+                for (const auto& [key, value] : world->fields)
                     if (std::ranges::find(keys, key) != keys.end())
-                        result[key] = value;
-            result["classname"] = "worldspawn";
-            result["skyboxmodel"] = "skybox_" + std::string(project);
+                        result.Set(key, value);
+            result.Set("classname", "worldspawn");
+            result.Set("skyboxmodel", "skybox_" + std::string(project));
             return result;
         }
 
-        void StructDefaults(Json& entity)
+        void StructDefaults(MapEntity& entity)
         {
-            if (!entity.contains("origin"))
-                entity["origin"] = "0 0 0";
-            if (entity.contains("angles"))
+            if (!entity.Has("origin"))
+                entity.Set("origin", "0 0 0");
+            if (entity.Has("angles"))
                 return;
-            const auto angle = Field(entity, "angle", "0");
+            const auto angle = std::string(Field(entity, "angle", "0"));
             if (angle == "-1")
-                entity["angles"] = "-90 0 0";
+                entity.Set("angles", "-90 0 0");
             else if (angle == "-2")
-                entity["angles"] = "90 0 0";
+                entity.Set("angles", "90 0 0");
             else
-                entity["angles"] = "0 " + std::string(angle) + " 0";
+                entity.Set("angles", "0 " + angle + " 0");
         }
 
-        Json ZombieMarker(const Json& source, std::string_view target, std::string_view noteworthy)
+        MapEntity ZombieMarker(const MapEntity& source, std::string_view target, std::string_view noteworthy)
         {
-            return {{"classname", "script_struct"}, {"targetname", target}, {"origin", Field(source, "origin", "0 0 0")},
-                    {"angles", Field(source, "angles", "0 0 0")}, {"script_noteworthy", noteworthy}};
+            return {{"classname", "script_struct"}, {"targetname", std::string(target)}, {"origin", std::string(Field(source, "origin", "0 0 0"))},
+                    {"angles", std::string(Field(source, "angles", "0 0 0"))}, {"script_noteworthy", std::string(noteworthy)}};
         }
 
-        Json Barrier(const Json& goal, std::string_view target)
+        MapEntity Barrier(const MapEntity& goal, std::string_view target)
         {
-            Json entity{{"classname", "zbarrier_zmcore_BasicWoodBarrier"}, {"type", "zmcore_BasicWoodBarrier"},
-                        {"targetname", target}, {"origin", Field(goal, "origin", "0 0 0")}, {"angles", Field(goal, "angles", "0 0 0")},
-                        {"zbarriernumboards", "6"}};
+            MapEntity entity{{"classname", "zbarrier_zmcore_BasicWoodBarrier"}, {"type", "zmcore_BasicWoodBarrier"},
+                             {"targetname", std::string(target)}, {"origin", std::string(Field(goal, "origin", "0 0 0"))},
+                             {"angles", std::string(Field(goal, "angles", "0 0 0"))}, {"zbarriernumboards", "6"}};
             for (int i = 1; i <= 6; ++i)
-                entity["zbarrierboardmodel" + std::to_string(i)] = "p6_anim_zm_barricade_board_0" + std::to_string(i);
+                entity.Set("zbarrierboardmodel" + std::to_string(i), "p6_anim_zm_barricade_board_0" + std::to_string(i));
             for (int i = 1; i <= 6; ++i)
-                entity["zbarrierboardanim" + std::to_string(i)] = "o_zombie_board_" + std::to_string(i) + "_repair";
+                entity.Set("zbarrierboardanim" + std::to_string(i), "o_zombie_board_" + std::to_string(i) + "_repair");
             for (int i = 1; i <= 6; ++i)
-                entity["zbarriertearanim" + std::to_string(i)] = "o_zombie_board_" + std::to_string(i) + "_pull";
+                entity.Set("zbarriertearanim" + std::to_string(i), "o_zombie_board_" + std::to_string(i) + "_pull");
             return entity;
         }
 
@@ -84,12 +85,11 @@ namespace w2b::mapents
             Converter(const Json& animscripts, std::string_view respawnExclusion)
                 : animscripts_(animscripts), respawnExclusion_(respawnExclusion) {}
 
-            Json Run(Json& entities, std::string_view project, const Names& zones)
+            Converted Run(MapEntities& entities, std::string_view project, const Names& zones)
             {
                 CollectTargets(entities, zones);
                 output_.push_back(Worldspawn(entities, project));
-                auto starts = Json::array();
-                auto fallback = Json::array();
+                MapEntities starts, fallback;
                 for (auto& entity : entities)
                 {
                     if (Field(entity, "targetname") == "initial_spawn_points")
@@ -104,32 +104,33 @@ namespace w2b::mapents
                 auto ffa = Json::array();
                 if (!starts.empty())
                 {
-                    ffa.push_back(starts.front());
+                    ffa.push_back(ToJson(starts.front()));
                     if (!intermission_)
                     {
-                        Json entity{{"classname", "mp_global_intermission"}};
-                        entity.update(starts.front());
+                        MapEntity entity{{"classname", "mp_global_intermission"}};
+                        for (const auto& [key, value] : starts.front().fields)
+                            entity.Set(key, value);
                         output_.push_back(std::move(entity));
                     }
                 }
                 Json report{{"entities", output_.size()}, {"dropped", std::move(dropped_)}, {"renamed", std::move(renamed_)},
                             {"spawn_points", starts.size()}};
-                return {{"entities", std::move(output_)}, {"spawns", {{"attackers", Json::array()}, {"defenders", Json::array()},
-                            {"FFA", std::move(ffa)}}}, {"summary", std::move(report)}};
+                Json spawns{{"attackers", Json::array()}, {"defenders", Json::array()}, {"FFA", std::move(ffa)}};
+                return {std::move(output_), std::move(spawns), std::move(report)};
             }
 
         private:
-            void CollectTargets(Json& entities, const Names& zones)
+            void CollectTargets(MapEntities& entities, const Names& zones)
             {
                 // Normalize zone volumes first, so actor and rise markers see the same targets.
                 for (auto& entity : entities)
                 {
                     const auto name = std::string(Field(entity, "targetname"));
                     const auto type = std::string(Field(entity, "classname"));
-                    if (type != "info_volume" && entity.contains("targetname") && zones.contains(name) && Field(entity, "model").starts_with('*'))
+                    if (type != "info_volume" && entity.Has("targetname") && zones.contains(name) && Field(entity, "model").starts_with('*'))
                     {
                         Increment(renamed_, "zone volume " + type + " -> info_volume");
-                        entity["classname"] = "info_volume";
+                        entity.Set("classname", "info_volume");
                     }
                     if (!name.empty())
                         barriers_[name] |= Field(entity, "classname").starts_with("zbarrier_");
@@ -139,7 +140,7 @@ namespace w2b::mapents
                 }
             }
 
-            bool PrepareStruct(Json& entity, std::string_view targetname)
+            bool PrepareStruct(MapEntity& entity, std::string_view targetname)
             {
                 StructDefaults(entity);
                 if (targetname == "exterior_goal")
@@ -158,30 +159,30 @@ namespace w2b::mapents
                 }
                 if (targetname == "player_respawn_point" && Field(entity, "script_noteworthy").empty() && Field(entity, "script_string").empty())
                 {
-                    entity["script_string"] = respawnExclusion_;
+                    entity.Set("script_string", std::string(respawnExclusion_));
                     Increment(renamed_, "WaW team respawn anchor -> source callback (native gametype exclusion)");
                 }
                 return true;
             }
 
-            Json PlayerVolume(Json& entity)
+            std::optional<MapEntity> PlayerVolume(MapEntity& entity)
             {
-                const auto tag = Field(entity, "script_noteworthy");
+                const auto tag = std::string(Field(entity, "script_noteworthy"));
                 if (tag == "player_volume")
-                    return nullptr;
+                    return std::nullopt;
                 if (tag.empty())
                 {
-                    entity["script_noteworthy"] = "player_volume";
+                    entity.Set("script_noteworthy", "player_volume");
                     Increment(renamed_, "info_volume without script_noteworthy -> player_volume");
-                    return nullptr;
+                    return std::nullopt;
                 }
                 auto twin = entity;
-                twin["script_noteworthy"] = "player_volume";
-                Increment(renamed_, "info_volume script_noteworthy " + std::string(tag) + " + player_volume twin");
+                twin.Set("script_noteworthy", "player_volume");
+                Increment(renamed_, "info_volume script_noteworthy " + tag + " + player_volume twin");
                 return twin;
             }
 
-            bool ConvertActor(Json& entity, const std::string& type, const std::string& name)
+            bool ConvertActor(MapEntity& entity, const std::string& type, const std::string& name)
             {
                 if (type.find("zombie") == type.npos && Field(entity, "script_noteworthy") != "zombie_spawner")
                 {
@@ -189,12 +190,12 @@ namespace w2b::mapents
                     return false;
                 }
                 Increment(renamed_, type + " -> " + std::string(ZombieActor));
-                entity["classname"] = ZombieActor;
-                entity["waw_actor_type"] = type.substr(6);
-                entity.erase("model");
+                entity.Set("classname", std::string(ZombieActor));
+                entity.Set("waw_actor_type", type.substr(6));
+                entity.Erase("model");
                 if (Field(entity, "script_forcespawn") != "1")
                 {
-                    entity["script_forcespawn"] = "1";
+                    entity.Set("script_forcespawn", "1");
                     Increment(renamed_, "WaW DoSpawn -> T6 spawnactor spawner flag");
                 }
                 if (Field(entity, "script_noteworthy") != "zombie_spawner" || name.empty())
@@ -212,7 +213,7 @@ namespace w2b::mapents
                 return true;
             }
 
-            void AppendZoneMarker(const Json& source, std::string_view targetname)
+            void AppendZoneMarker(const MapEntity& source, std::string_view targetname)
             {
                 const auto add = [&](std::string_view suffix, std::string_view role, std::string_view counter) {
                     if (!targetname.ends_with(suffix))
@@ -222,7 +223,7 @@ namespace w2b::mapents
                         return;
                     auto marker = ZombieMarker(source, group, role);
                     if (role == "riser_location" && Field(source, "script_noteworthy") == "find_flesh")
-                        marker["script_string"] = "find_flesh";
+                        marker.Set("script_string", "find_flesh");
                     output_.push_back(std::move(marker));
                     Increment(renamed_, counter);
                 };
@@ -230,26 +231,26 @@ namespace w2b::mapents
                 add("_dog", "dog_location", "WaW dog struct -> dog_location struct");
             }
 
-            void Append(Json entity)
+            void Append(MapEntity entity)
             {
                 const auto type = std::string(Field(entity, "classname"));
                 if (type == "worldspawn")
                     return;
                 if (type.starts_with("node_"))
                 {
-                    if (entity.contains("animscript"))
+                    if (entity.Has("animscript"))
                         if (const auto script = animscripts_.find(Field(entity, "animscript")); script != animscripts_.end())
-                            entity["animscript"] = *script;
+                            entity.Set("animscript", script->get<std::string>());
                     output_.push_back(std::move(entity));
                     return;
                 }
                 const auto name = std::string(Field(entity, "targetname"));
                 if (type == "script_struct" && !PrepareStruct(entity, name))
                     return;
-                auto twin = type == "info_volume" ? PlayerVolume(entity) : Json();
-                if (type == "trigger_multiple" && name == "playable_area" && !entity.contains("script_noteworthy"))
+                auto twin = type == "info_volume" ? PlayerVolume(entity) : std::nullopt;
+                if (type == "trigger_multiple" && name == "playable_area" && !entity.Has("script_noteworthy"))
                 {
-                    entity["script_noteworthy"] = "life_brush";
+                    entity.Set("script_noteworthy", "life_brush");
                     Increment(renamed_, "trigger_multiple playable_area -> life_brush");
                 }
                 if (type.starts_with("actor_") && !ConvertActor(entity, type, name))
@@ -258,8 +259,8 @@ namespace w2b::mapents
                     AppendZoneMarker(entity, name);
                 intermission_ |= type == "mp_global_intermission";
                 output_.push_back(std::move(entity));
-                if (!twin.is_null())
-                    output_.push_back(std::move(twin));
+                if (twin)
+                    output_.push_back(std::move(*twin));
             }
 
             const Json& animscripts_;
@@ -267,23 +268,23 @@ namespace w2b::mapents
             std::map<std::string, bool, std::less<>> barriers_;
             Names volumeTargets_;
             bool intermission_ = false;
-            Json output_ = Json::array();
+            MapEntities output_;
             Json dropped_ = Json::object();
             Json renamed_ = Json::object();
         };
     }
 
-    Json SpawnMarker(const Json& actor, std::string_view name)
+    MapEntity SpawnMarker(const MapEntity& actor, std::string_view name)
     {
         auto marker = ZombieMarker(actor, name, "spawn_location");
         if (Field(actor, "script_string") == "zombie_chaser")
-            marker["script_string"] = "find_flesh";
+            marker.Set("script_string", "find_flesh");
         if (const auto target = Field(actor, "target"); !target.empty())
-            marker["target"] = target;
+            marker.Set("target", std::string(target));
         return marker;
     }
 
-    Json Convert(Json entities, std::string_view project, const Json& animscripts, const Json& zoneNames,
+    Converted Convert(MapEntities entities, std::string_view project, const Json& animscripts, const Json& zoneNames,
                  std::string_view respawnExclusion)
     {
         return Converter(animscripts, respawnExclusion).Run(entities, project, zoneNames.get<Names>());

@@ -1,6 +1,7 @@
 // The sound mix measurements and the bank (see sound_mix.h).
 #include "sound_mix.h"
 
+#include "mapents/map_entity.h"
 #include "core/profile.h"
 #include "core/timeline.h"
 
@@ -1056,13 +1057,13 @@ namespace w2b::pipeline
             const auto entitiesJson = projectRoot / "BSP/entities.json";
             if (IsFile(entitiesJson))
             {
-                const auto data = mod::Json(entitiesJson);
-                for (const auto& entity : data["entities"])
+                for (const auto& entity : mapents::ReadMapEntities(entitiesJson))
                 {
-                    const auto label = entity.value("script_label", Json());
-                    if (label.is_string() && (label == "line_emitter" || label == "looper" || label == "random") && entity.contains("script_sound") && entity["script_sound"].is_string())
+                    const auto* label = entity.Find("script_label");
+                    const auto* sound = entity.Find("script_sound");
+                    if (label && (*label == "line_emitter" || *label == "looper" || *label == "random") && sound)
                     {
-                        auto low = Lower(entity["script_sound"].get<std::string>());
+                        auto low = Lower(*sound);
                         ambience.insert(StartsWith(low, "waw/") ? low.substr(4) : low);
                     }
                 }

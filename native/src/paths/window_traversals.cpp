@@ -45,7 +45,7 @@ namespace w2b::paths
             return candidates;
         }
 
-        double Yaw(const Json& goal)
+        double Yaw(const mapents::MapEntity& goal)
         {
             std::istringstream stream{std::string(Field(goal, "angles", "0 0 0"))};
             stream.imbue(std::locale::classic());
@@ -55,7 +55,7 @@ namespace w2b::paths
             return yaw * (std::numbers::pi / 180.0);
         }
 
-        Candidate* Closest(std::vector<Candidate>& candidates, const Json& goal)
+        Candidate* Closest(std::vector<Candidate>& candidates, const mapents::MapEntity& goal)
         {
             const auto origin = mapents::Origin(goal);
             const auto yaw = Yaw(goal);
@@ -76,7 +76,7 @@ namespace w2b::paths
             return best;
         }
 
-        bool SameOrigin(const Json& entity, const Json& pathOrigin)
+        bool SameOrigin(const mapents::MapEntity& entity, const Json& pathOrigin)
         {
             // Entity origins are decimal text, while the dump stores float32
             // positions, so compare each component with the source tolerance.
@@ -96,14 +96,14 @@ namespace w2b::paths
             return true;
         }
 
-        bool AssignBegin(Json& entities, Json& node, const std::string& window)
+        bool AssignBegin(mapents::MapEntities& entities, Json& node, const std::string& window)
         {
-            const auto old = Field(node, "targetname");
+            const auto old = std::string(Field(node, "targetname"));
             for (auto& ent : entities)
                 if (Field(ent, "classname") == "node_negotiation_begin" && Field(ent, "targetname") == old &&
                     SameOrigin(ent, node.at("origin")))
                 {
-                    ent["targetname"] = window;
+                    ent.Set("targetname", window);
                     node["targetname"] = window;
                     return true;
                 }
@@ -122,7 +122,7 @@ namespace w2b::paths
             return text + ']';
         }
 
-        std::vector<std::size_t> SelectWindows(Json& entities, Json& nodes, Json& notes)
+        std::vector<std::size_t> SelectWindows(mapents::MapEntities& entities, Json& nodes, Json& notes)
         {
             auto candidates = Negotiations(nodes);
             std::vector<std::size_t> begins;
@@ -151,18 +151,17 @@ namespace w2b::paths
             return begins;
         }
 
-        void CopyEndpoint(Json& entities, const Json& node, const WindowHubs& hubs, Json& notes)
+        void CopyEndpoint(mapents::MapEntities& entities, const Json& node, const WindowHubs& hubs, Json& notes)
         {
             const auto window = Field(node, "targetname"), name = Field(node, "target");
             const auto hub = hubs.find(name);
-            const Json* original = nullptr;
+            const mapents::MapEntity* original = nullptr;
             std::size_t count = 0;
             for (const auto& ent : entities)
             {
                 if (Field(ent, "classname") != "node_negotiation_end")
                     continue;
-                const auto target = ent.find("targetname");
-                if (hub == hubs.end() ? target == ent.end() || target->is_null() : Field(ent, "targetname") == hub->second)
+                if (hub == hubs.end() ? !ent.Has("targetname") : Field(ent, "targetname") == hub->second)
                 {
                     original = &ent;
                     ++count;
@@ -175,27 +174,26 @@ namespace w2b::paths
                 return;
             }
             auto end = *original;
-            end["targetname"] = name;
+            end.Set("targetname", std::string(name));
             entities.push_back(std::move(end));
             for (auto& ent : entities)
                 if (Field(ent, "classname") == "node_negotiation_begin" && Field(ent, "targetname") == window)
-                    ent["target"] = name;
+                    ent.Set("target", std::string(name));
         }
     }
 
     Json LinkWindowTraversals(const Path& bsp)
     {
         const auto entitiesFile = bsp / "entities.json", pathsFile = bsp / "paths.json";
-        auto entities = ReadManifest(entitiesFile), graph = ReadManifest(pathsFile);
+        auto entries = mapents::ReadMapEntities(entitiesFile);
+        auto graph = ReadManifest(pathsFile);
         auto notes = Json::array();
-        auto& entries = entities.at("entities");
         const auto begins = SelectWindows(entries, graph.at("nodes"), notes);
         const auto hubs = SplitWindowEnds(graph, begins);
         for (const auto begin : begins)
             CopyEndpoint(entries, graph.at("nodes").at(begin), hubs, notes);
-        const auto entityText = py::JsonDumps(entities, 1) + '\n';
         const auto graphText = py::JsonDumps(graph, -1) + '\n';
-        files::WriteText(entitiesFile, entityText);
+        mapents::WriteMapEntities(entitiesFile, entries);
         files::WriteText(pathsFile, graphText);
         return notes;
     }

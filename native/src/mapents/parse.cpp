@@ -32,9 +32,9 @@ namespace w2b::mapents
             return pos;
         }
 
-        Json ParseBlock(std::string_view text)
+        MapEntity ParseBlock(std::string_view text)
         {
-            auto entity = Json::object();
+            MapEntity entity;
             auto keyStart = text.find('"');
             while (keyStart != text.npos)
             {
@@ -50,16 +50,16 @@ namespace w2b::mapents
                 const auto valueEnd = text.find('"', valueStart + 1);
                 if (valueEnd == text.npos)
                     break;
-                entity[text.substr(keyStart + 1, keyEnd - keyStart - 1)] = text.substr(valueStart + 1, valueEnd - valueStart - 1);
+                entity.Set(text.substr(keyStart + 1, keyEnd - keyStart - 1), std::string(text.substr(valueStart + 1, valueEnd - valueStart - 1)));
                 keyStart = text.find('"', valueEnd + 1);
             }
             return entity;
         }
     }
 
-    Json Parse(std::string_view text)
+    MapEntities Parse(std::string_view text)
     {
-        auto entities = Json::array();
+        MapEntities entities;
         auto brace = text.find('{');
         while (brace != text.npos)
         {

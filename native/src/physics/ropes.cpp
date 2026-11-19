@@ -1,3 +1,4 @@
+#include "mapents/map_entity.h"
 #include "physics/constraints.h"
 
 #include "core/asset_paths.h"
@@ -64,14 +65,14 @@ namespace w2b::physics
             return result;
         }
 
-        const Json& FindEntity(const Json& entities, const std::string& name)
+        const mapents::MapEntity& FindEntity(const mapents::MapEntities& entities, const std::string& name)
         {
-            const Json* match = nullptr;
+            const mapents::MapEntity* match = nullptr;
             for (const auto& entity : entities)
             {
-                if (weapons::Field(entity, "targetname") != name)
+                if (entity.Get("targetname") != name)
                     continue;
-                const auto& type = weapons::Field(entity, "classname");
+                const auto type = entity.Get("classname");
                 if (type != "script_model" && type != "script_brushmodel")
                     continue;
                 if (match)
@@ -83,7 +84,7 @@ namespace w2b::physics
             return *match;
         }
 
-        Endpoint ResolveEndpoint(const Json& joint, int index, const Json& entities, const Json& dynents)
+        Endpoint ResolveEndpoint(const Json& joint, int index, const mapents::MapEntities& entities, const Json& dynents)
         {
             const auto point = JointPosition(joint, index).get<Vector>();
             const auto attachment = joint.at(JointField("attach_point_type", index)).get<int>();
@@ -104,8 +105,10 @@ namespace w2b::physics
             {
                 const auto& name = weapons::Field(joint, JointField("target_ent", index));
                 const auto& entity = FindEntity(entities, name);
-                return {Transform(point, ParseVector(entity.at("origin").get_ref<const std::string&>()),
-                                  EulerAxis(ParseVector(entity.value("angles", std::string("0 0 0"))))), name};
+                const auto* origin = entity.Find("origin");
+                if (!origin)
+                    throw std::invalid_argument("native rope attachment " + name + ": entity has no origin");
+                return {Transform(point, ParseVector(*origin), EulerAxis(ParseVector(std::string(entity.Get("angles", "0 0 0"))))), name};
             }
             default:
                 throw std::invalid_argument("native rope entity translation requires world or entity attachment");
@@ -181,13 +184,12 @@ namespace w2b::physics
         const auto dynentFile = project / "BSP/dynents.json";
         const auto dynents = std::filesystem::is_regular_file(dynentFile) ? weapons::ReadAssetJson(dynentFile).at("dynents") : Json::array();
         const auto path = project / "BSP/entities.json";
-        auto data = weapons::ReadAssetJson(path);
-        auto& entities = data.at("entities");
+        auto entities = mapents::ReadMapEntities(path);
         auto generated = Json::array();
         auto unsupported = Json::array();
         Names materials, names;
         for (const auto& entity : entities)
-            names.insert(weapons::Field(entity, "targetname"));
+            names.insert(std::string(entity.Get("targetname")));
         for (std::size_t i = 0; i < joints.size(); ++i)
         {
             const auto& joint = joints.at(i);
@@ -207,13 +209,10 @@ namespace w2b::physics
         }
         const auto ropes = joints.size() - unsupported.size();
         const auto endpointCount = generated.size() - ropes;
-        const auto removed = std::remove_if(entities.begin(), entities.end(), [](const Json& entity) {
-            return weapons::Field(entity, "classname") == "rope";
-        });
-        entities.erase(removed, entities.end());
-        for (auto& entity : generated)
-            entities.push_back(std::move(entity));
-        files::WriteText(path, py::JsonDumps(data, 1) + "\n");
+        std::erase_if(entities, [](const mapents::MapEntity& entity) { return entity.Get("classname") == "rope"; });
+        for (const auto& entity : generated)
+            entities.push_back(mapents::MapEntityFromJson(entity));
+        mapents::WriteMapEntities(path, entities);
         return {{"ropes", ropes}, {"endpoints", endpointCount}, {"materials", materials}, {"unsupported_joints", std::move(unsupported)}};
     }
 }

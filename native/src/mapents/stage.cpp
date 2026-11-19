@@ -9,7 +9,7 @@
 
 namespace w2b::mapents
 {
-    Json ConvertMapEntities(const MapEntityRequest& request)
+    MapEntityResult ConvertMapEntities(const MapEntityRequest& request)
     {
         Json graph;
         if (request.zoneScript)
@@ -21,8 +21,7 @@ namespace w2b::mapents
         auto output = Convert(std::move(entries), request.project, request.animscripts, graph.is_null() ? Json::array() : graph.at("names"),
                               request.respawnExclusion);
         auto written = Write(std::move(output), request.bsp, request.clip, graph.is_null() ? Json() : graph.at("initial"));
-        if (!graph.is_null())
-            written["zoneGraph"] = std::move(graph);
+        written.zoneGraph = std::move(graph);
         return written;
     }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/pytext.h"
+#include "mapents/map_entity.h"
 
 #include <array>
 #include <filesystem>
@@ -24,7 +25,7 @@ namespace w2b::barriers
     Json RepairTiming(std::string_view script);
     std::string RetimeRepair(std::string_view raw, const Json& timing);
     Json StageRepairs(std::string_view asset, const Path& bo2, const Json& timing, const Path& destination);
-    Json AlignBoards(Json& entities, const Path& bo2, const world::CollisionWorld* clip);
-    Json DropChunks(Json& entities);
+    Json AlignBoards(mapents::MapEntities& entities, const Path& bo2, const world::CollisionWorld* clip);
+    Json DropChunks(mapents::MapEntities& entities);
     Json StageBoards(const Path& bsp, const Path& bo2, const world::CollisionWorld* clip);
 }

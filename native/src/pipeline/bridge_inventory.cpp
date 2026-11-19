@@ -88,8 +88,7 @@ namespace w2b::pipeline
         Names NamedWeapons(const fs::path& entities, const std::vector<fs::path>& mapRoots)
         {
             Names names;
-            const auto data = mod::Json(entities);
-            for (const auto& entity : data.at("entities"))
+            for (const auto& entity : mapents::ReadMapEntities(entities))
             {
                 const auto cls = mapents::Field(entity, "classname");
                 if (cls.starts_with("weapon_") && cls.size() > 7)

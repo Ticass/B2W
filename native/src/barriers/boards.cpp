@@ -22,7 +22,7 @@ namespace w2b::barriers
         constexpr std::string_view NativeBoard = "zbarrier_zmcore_BasicWoodBarrier";
         constexpr std::string_view Tear = "ai_zombie_boardtear_aligned_m_1_grab";
 
-        bool IsGoal(const Json& entity)
+        bool IsGoal(const mapents::MapEntity& entity)
         {
             return Field(entity, "targetname") == "exterior_goal" && !Field(entity, "target").empty();
         }
@@ -45,9 +45,9 @@ namespace w2b::barriers
             return {std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), -std::sin(pitch)};
         }
 
-        double BoardDepth(const Json& board, const Vec3& origin, const Vec3& forward)
+        double BoardDepth(const mapents::MapEntity& board, const Vec3& origin, const Vec3& forward)
         {
-            if (!board.contains("origin"))
+            if (!board.Has("origin"))
                 throw Error("source barricade board has no origin");
             const auto point = mapents::Origin(board);
             Vec3 factors{};
@@ -56,7 +56,7 @@ namespace w2b::barriers
             return py::Sum(factors);
         }
 
-        double RepairDepth(const Json& native, const Path& bo2, Json& poses)
+        double RepairDepth(const mapents::MapEntity& native, const Path& bo2, Json& poses)
         {
             long long count{};
             bool overflow{};
@@ -65,7 +65,10 @@ namespace w2b::barriers
             std::vector<double> depths;
             for (long long i = 1; i <= count; ++i)
             {
-                const auto& name = native.at("zbarrierboardanim" + std::to_string(i)).get_ref<const std::string&>();
+                const auto* anim = native.Find("zbarrierboardanim" + std::to_string(i));
+                if (!anim)
+                    throw Error("barricade has no zbarrierboardanim" + std::to_string(i));
+                const auto& name = *anim;
                 if (!poses.contains(name))
                     poses[name] = RepairedTranslation(Animation(bo2, name));
                 depths.push_back(poses.at(name).at(0).get<double>());
@@ -79,7 +82,7 @@ namespace w2b::barriers
             std::vector<std::size_t> boards;
         };
 
-        std::map<std::string, Window, std::less<>> Windows(const Json& entities)
+        std::map<std::string, Window, std::less<>> Windows(const mapents::MapEntities& entities)
         {
             std::map<std::string, Window, std::less<>> result;
             for (std::size_t i = 0; i < entities.size(); ++i)
@@ -98,7 +101,7 @@ namespace w2b::barriers
         }
     }
 
-    Json AlignBoards(Json& entities, const Path& bo2, const world::CollisionWorld* clip)
+    Json AlignBoards(mapents::MapEntities& entities, const Path& bo2, const world::CollisionWorld* clip)
     {
         std::optional<Floor> floor;
         const auto height = clip ? -RepairedTranslation(Animation(bo2, Tear))[2] : 0;
@@ -142,14 +145,14 @@ namespace w2b::barriers
                     root[2] = *ground + height;
                 }
             }
-            native["origin"] = physics::FormatVector(root, " ");
-            native["angles"] = angles;
+            native.Set("origin", physics::FormatVector(root, " "));
+            native.Set("angles", angles);
             aligned.push_back(std::move(item));
         }
         return {{"aligned", std::move(aligned)}, {"repair_poses", std::move(poses)}, {"warnings", std::move(warnings)}};
     }
 
-    Json DropChunks(Json& entities)
+    Json DropChunks(mapents::MapEntities& entities)
     {
         std::map<std::string, std::size_t, std::less<>> natives;
         for (const auto& entity : entities)
@@ -168,7 +171,7 @@ namespace w2b::barriers
         if (replaced.empty())
             return {{"windows", 0}, {"dropped_brushes", 0}};
         const auto before = entities.size();
-        const auto last = std::remove_if(entities.begin(), entities.end(), [&](const Json& entity) {
+        const auto last = std::remove_if(entities.begin(), entities.end(), [&](const mapents::MapEntity& entity) {
             return Field(entity, "classname") == "script_brushmodel" && replaced.contains(Field(entity, "targetname"));
         });
         entities.erase(last, entities.end());

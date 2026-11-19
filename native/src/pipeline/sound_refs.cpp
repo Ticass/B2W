@@ -1,6 +1,7 @@
 // The sounds the map plays (see sound_refs.h).
 #include "sound_refs.h"
 
+#include "mapents/map_entity.h"
 #include "amb_stage.h"
 #include "assets/resolver.h"
 #include "core/encoding.h"
@@ -237,29 +238,30 @@ namespace w2b::pipeline
         {
             if (!IsFile(entitiesJson))
                 return 0;
-            auto data = mod::Json(entitiesJson);
+            auto entities = mapents::ReadMapEntities(entitiesJson);
             const auto names = ByLower(converted);
             long long count = 0;
-            for (auto& entity : data["entities"])
+            for (auto& entity : entities)
             {
                 std::vector<std::string> keys;
                 for (const auto& [field, values, ks] : CLIENT_AUDIO_ENTITIES)
-                    if (entity.contains(field) && entity[field].is_string() && std::find(values.begin(), values.end(), entity[field].get<std::string>()) != values.end())
+                    if (const auto* value = entity.Find(field); value && std::find(values.begin(), values.end(), *value) != values.end())
                         keys.insert(keys.end(), ks.begin(), ks.end());
                 for (const auto& key : keys)
                 {
-                    if (!entity.contains(key) || !entity[key].is_string())
+                    const auto* value = entity.Find(key);
+                    if (!value)
                         continue;
-                    const auto it = names.find(Lower(entity[key].get<std::string>()));
+                    const auto it = names.find(Lower(*value));
                     if (it != names.end())
                     {
-                        entity[key] = "waw/" + it->second;
+                        entity.Set(key, "waw/" + it->second);
                         count++;
                     }
                 }
             }
             if (count)
-                files::WriteText(entitiesJson, py::JsonDumps(data, 1) + "\n");
+                mapents::WriteMapEntities(entitiesJson, entities);
             return count;
         }
 
@@ -270,13 +272,12 @@ namespace w2b::pipeline
                 return 0;
             std::map<std::string, std::string> bound;
             Names raw;
-            const auto data = mod::Json(entitiesJson);
-            const auto entities = data["entities"];
-            for (const auto& entity : entities)
+            for (const auto& entity : mapents::ReadMapEntities(entitiesJson))
             {
-                if (!entity.contains("script_sound") || !entity["script_sound"].is_string())
+                const auto* sound = entity.Find("script_sound");
+                if (!sound)
                     continue;
-                const auto value = entity["script_sound"].get<std::string>();
+                const auto& value = *sound;
                 if (StartsWith(value, "waw/"))
                     bound[Lower(value.substr(4))] = value;
                 else

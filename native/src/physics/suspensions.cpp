@@ -1,3 +1,4 @@
+#include "mapents/map_entity.h"
 #include "physics/constraints.h"
 
 #include "core/files.h"
@@ -29,7 +30,7 @@ namespace w2b::physics
             return "(" + FormatVector(vector.get<Vector>(), ", ") + ")";
         }
 
-        std::string MakeBlock(const Json& joints, const Json& entities, Json& unsupported, std::size_t& count)
+        std::string MakeBlock(const Json& joints, const mapents::MapEntities& entities, Json& unsupported, std::size_t& count)
         {
             std::map<std::string, std::vector<const Json*>> owners;
             for (const auto& joint : joints)
@@ -44,8 +45,8 @@ namespace w2b::physics
                 const auto endpoint = weapons::Field(joint, "target_ent1") == name ? 1 : 2;
                 const auto opposite = 3 - endpoint;
                 const auto hasModel = [&] {
-                    return std::ranges::any_of(entities, [&name](const Json& entity) {
-                        return weapons::Field(entity, "targetname") == name && weapons::Field(entity, "classname") == "script_model";
+                    return std::ranges::any_of(entities, [&name](const mapents::MapEntity& entity) {
+                        return entity.Get("targetname") == name && entity.Get("classname") == "script_model";
                     });
                 };
                 if (!CanSuspend(joint, opposite, entries.size()) || !hasModel())
@@ -94,7 +95,7 @@ namespace w2b::physics
             return {{"suspensions", 0}, {"unsupported", std::move(unsupported)}};
         const auto manifest = project / ConstraintManifest;
         const auto joints = std::filesystem::is_regular_file(manifest) ? weapons::ReadAssetJson(manifest).at("constraints") : Json::array();
-        const auto entities = joints.empty() ? Json::array() : weapons::ReadAssetJson(project / "BSP/entities.json").at("entities");
+        const auto entities = joints.empty() ? mapents::MapEntities{} : mapents::ReadMapEntities(project / "BSP/entities.json");
         auto source = files::ReadText(assets);
         std::size_t count = 0;
         InstallBlock(source, MakeBlock(joints, entities, unsupported, count));

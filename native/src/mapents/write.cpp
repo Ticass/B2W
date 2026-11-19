@@ -19,22 +19,35 @@ namespace w2b::mapents
         return index;
     }
 
+    namespace
+    {
+        std::array<double, 3> ParseOrigin(std::string_view text, std::string_view authored)
+        {
+            std::istringstream input{std::string(text)};
+            input.imbue(std::locale::classic());
+            std::array<double, 3> result{};
+            std::string extra;
+            if (!(input >> result[0] >> result[1] >> result[2]) || input >> extra)
+                throw std::invalid_argument("invalid entity origin: " + std::string(authored));
+            return result;
+        }
+    }
+
+    std::array<double, 3> Origin(const MapEntity& entity)
+    {
+        return ParseOrigin(Field(entity, "origin", "0 0 0"), Field(entity, "origin"));
+    }
+
     std::array<double, 3> Origin(const Json& entity)
     {
-        std::istringstream input(std::string(Field(entity, "origin", "0 0 0")));
-        input.imbue(std::locale::classic());
-        std::array<double, 3> result{};
-        std::string extra;
-        if (!(input >> result[0] >> result[1] >> result[2]) || input >> extra)
-            throw std::invalid_argument("invalid entity origin: " + std::string(Field(entity, "origin")));
-        return result;
+        return ParseOrigin(Field(entity, "origin", "0 0 0"), Field(entity, "origin"));
     }
 
     namespace
     {
-        void MarkChasers(Json& entities, Json& summary)
+        void MarkChasers(MapEntities& entities, Json& summary)
         {
-            if (std::ranges::any_of(entities, [](const Json& ent) { return Field(ent, "targetname") == "exterior_goal"; }))
+            if (std::ranges::any_of(entities, [](const MapEntity& ent) { return Field(ent, "targetname") == "exterior_goal"; }))
                 return;
             unsigned count = 0;
             for (auto& ent : entities)
@@ -43,7 +56,7 @@ namespace w2b::mapents
                 if (Field(ent, "classname") == "script_struct" && (role == "spawn_location" || role == "riser_location") &&
                     Field(ent, "script_string").empty())
                 {
-                    ent["script_string"] = "find_flesh";
+                    ent.Set("script_string", "find_flesh");
                     ++count;
                 }
             }
@@ -51,7 +64,7 @@ namespace w2b::mapents
                 summary["renamed"]["no exterior_goal barricades: spawn -> find_flesh"] = count;
         }
 
-        bool InVolume(const std::array<double, 3>& point, const Json& entity, const world::CollisionWorld& clip)
+        bool InVolume(const std::array<double, 3>& point, const MapEntity& entity, const world::CollisionWorld& clip)
         {
             const auto model = Field(entity, "model");
             if (!model.starts_with('*'))
@@ -72,7 +85,7 @@ namespace w2b::mapents
             return false;
         }
 
-        void AddInitialSpawns(Json& entities, Json& spawns, Json& summary, const world::CollisionWorld* clip, const Json& startZones)
+        void AddInitialSpawns(MapEntities& entities, Json& spawns, Json& summary, const world::CollisionWorld* clip, const Json& startZones)
         {
             constexpr std::size_t CoopPlayers = 4;
             std::vector<std::size_t> starts, volumes;
@@ -103,12 +116,12 @@ namespace w2b::mapents
                     if (std::ranges::none_of(volumes, [&](auto volume) { return InVolume(point, entities.at(volume), *clip); }))
                         ++outside;
                 }
-                const auto origin = Field(entity, "origin", "0 0 0"), angles = Field(entity, "angles", "0 0 0");
+                const auto origin = std::string(Field(entity, "origin", "0 0 0")), angles = std::string(Field(entity, "angles", "0 0 0"));
                 if (i == 0)
                     ffa.push_back({{"origin", origin}, {"angles", angles}});
-                Json spawn{{"classname", "script_struct"}, {"targetname", "waw2bo2_initial_spawn"},
-                           {"script_noteworthy", "initial_spawn"}, {"script_string", "zclassic_classic_spawn"},
-                           {"origin", origin}, {"angles", angles}};
+                MapEntity spawn{{"classname", "script_struct"}, {"targetname", "waw2bo2_initial_spawn"},
+                                {"script_noteworthy", "initial_spawn"}, {"script_string", "zclassic_classic_spawn"},
+                                {"origin", origin}, {"angles", angles}};
                 entities.push_back(std::move(spawn));
             }
             summary["spawn_points"] = count;
@@ -118,11 +131,11 @@ namespace w2b::mapents
         }
     }
 
-    Json Write(Json converted, const Path& bsp, const world::CollisionWorld* clip, Json startZones)
+    MapEntityResult Write(Converted converted, const Path& bsp, const world::CollisionWorld* clip, Json startZones)
     {
-        auto& entities = converted.at("entities");
-        auto& spawns = converted.at("spawns");
-        auto& summary = converted.at("summary");
+        auto& entities = converted.entities;
+        auto& spawns = converted.spawns;
+        auto& summary = converted.summary;
         if (startZones.is_array() && startZones.empty() && clip && std::filesystem::exists(bsp / "submodels.json"))
             startZones = SynthesizeZones(entities, *clip, bsp, summary);
         MarkChasers(entities, summary);
@@ -134,8 +147,8 @@ namespace w2b::mapents
             if (!model.empty() && !model.starts_with('*') && Field(entity, "classname") == "script_model")
                 models.emplace(model);
         }
-        files::WriteText(bsp / "entities.json", py::JsonDumps({{"entities", std::move(entities)}}, 1) + "\n");
+        WriteMapEntities(bsp / "entities.json", entities);
         files::WriteText(bsp / "spawns.json", py::JsonDumps(spawns, 1) + "\n");
-        return {{"summary", std::move(summary)}, {"scriptModels", std::move(models)}};
+        return {std::move(summary), {models.begin(), models.end()}, Json()};
     }
 }

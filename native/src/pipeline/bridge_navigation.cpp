@@ -85,7 +85,7 @@ namespace w2b::pipeline
                                    "they stay inactive unless the map script enables them");
         }
 
-        void ReplacePerkMachines(const fs::path& bsp, const fs::path& bo2, const std::set<std::string>& machines, Json& models)
+        void ReplacePerkMachines(const fs::path& bsp, const fs::path& bo2, const std::set<std::string>& machines, std::vector<std::string>& models)
         {
             const auto path = bsp / "entities.json";
             try
@@ -97,15 +97,10 @@ namespace w2b::pipeline
                 throw StepError("StageError", "map entities: " + std::string(error.what()));
             }
             std::set<std::string, std::less<>> placed;
-            const auto data = mod::Json(path);
-            for (const auto& entity : data.at("entities"))
-                if (const auto model = mapents::Field(entity, "model"); !model.empty() && !model.starts_with('*') && !machines.contains(std::string(model)))
+            for (const auto& entity : mapents::ReadMapEntities(path))
+                if (const auto model = entity.Get("model"); !model.empty() && !model.starts_with('*') && !machines.contains(std::string(model)))
                     placed.emplace(model);
-            auto remaining = Json::array();
-            for (const auto& model : models)
-                if (placed.contains(model.get_ref<const std::string&>()))
-                    remaining.push_back(model);
-            models = std::move(remaining);
+            std::erase_if(models, [&](const std::string& model) { return !placed.contains(model); });
         }
     }
 
@@ -130,7 +125,7 @@ namespace w2b::pipeline
                                                     std::nullopt, request.respawnExclusion, &clip};
             if (request.wawMapScript && fs::exists(*request.wawMapScript))
                 entityRequest.zoneScript = request.wawMapScript;
-            Json entities;
+            mapents::MapEntityResult entities;
             try
             {
                 entities = mapents::ConvertMapEntities(entityRequest);
@@ -139,7 +134,7 @@ namespace w2b::pipeline
             {
                 throw StepError("StageError", "map entities: " + std::string(error.what()));
             }
-            auto& summary = entities.at("summary");
+            auto& summary = entities.summary;
             if (bo2)
             {
                 try
@@ -155,14 +150,14 @@ namespace w2b::pipeline
             }
             AppendSynthesizedZoneWarnings(summary, warnings);
             if (bo2 && !machines.empty())
-                ReplacePerkMachines(bsp, *bo2, machines, entities.at("scriptModels"));
+                ReplacePerkMachines(bsp, *bo2, machines, entities.scriptModels);
             if (fs::exists(bsp / "paths.json"))
                 for (const auto& note : paths::LinkWindowTraversals(bsp))
                     warnings.push_back(note);
             result["entities"] = std::move(summary);
             result["has_entities"] = true;
-            result["script_models"] = std::move(entities.at("scriptModels"));
-            result["zone_graph"] = entities.value("zoneGraph", Json());
+            result["script_models"] = std::move(entities.scriptModels);
+            result["zone_graph"] = std::move(entities.zoneGraph);
         }
         else
             errors.push_back("map entities " + files::Utf8(source.filename()) + " missing");

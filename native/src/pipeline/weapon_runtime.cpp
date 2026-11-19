@@ -1,6 +1,7 @@
 // The weapons mod.ff carries (see weapon_runtime.h).
 #include "weapon_runtime.h"
 
+#include "mapents/map_entity.h"
 #include "core/encoding.h"
 #include "core/hash.h"
 #include "core/pyre.h"
@@ -779,25 +780,22 @@ namespace w2b::pipeline
         const auto entitiesJson = projectRoot / "BSP" / "entities.json";
         if (fs::exists(entitiesJson))
         {
-            auto data = mod::Json(entitiesJson);
-            Json kept = Json::array();
-            for (auto& ent : data["entities"])
+            mapents::MapEntities kept;
+            for (auto& ent : mapents::ReadMapEntities(entitiesJson))
             {
-                if (ent.contains("targetname") && ent["targetname"] == "weapon_upgrade")
+                if (ent.Get("targetname") == "weapon_upgrade")
                 {
-                    const auto weapon = ent.contains("zombie_weapon_upgrade") && ent["zombie_weapon_upgrade"].is_string() ? std::optional(ent["zombie_weapon_upgrade"].get<std::string>()) : std::nullopt;
+                    const auto* weapon = ent.Find("zombie_weapon_upgrade");
                     if (weapon && weaponTable.count(*weapon) && weaponTable.at(*weapon).empty())
                     {
-                        const auto origin = ent.contains("origin") && ent["origin"].is_string() ? ent["origin"].get<std::string>() : std::string("None");
-                        notes.push_back("UNSUPPORTED_WALLBUY " + *weapon + " at " + origin + ": weapon not carried in mod.ff; trigger removed");
+                        notes.push_back("UNSUPPORTED_WALLBUY " + *weapon + " at " + std::string(ent.Get("origin", "None")) + ": weapon not carried in mod.ff; trigger removed");
                         continue;
                     }
-                    ent["targetname"] = "waw_weapon_upgrade";
+                    ent.Set("targetname", "waw_weapon_upgrade");
                 }
-                kept.push_back(ent);
+                kept.push_back(std::move(ent));
             }
-            data["entities"] = kept;
-            files::WriteText(entitiesJson, py::JsonDumps(data, 1) + "\n");
+            mapents::WriteMapEntities(entitiesJson, kept);
         }
         std::vector<std::string> tableKeys;
         for (const auto& [k, _] : tables)

@@ -6,6 +6,7 @@
 #include "core/files.h"
 #include "core/pyre.h"
 #include "gsc/parse.h"
+#include "mapents/map_entity.h"
 #include "util.h"
 
 #include <algorithm>
@@ -201,12 +202,11 @@ namespace w2b::gsc::port
             std::error_code error;
             if (!fs::exists(path, error))
                 return names;
-            const auto data = LoadJson(path);
-            for (const auto& ent : data["entities"])
+            for (const auto& ent : mapents::ReadMapEntities(path))
             {
-                if (ent.contains("waw_actor_type"))
-                    names.insert(ent["waw_actor_type"].get<std::string>());
-                else if (const auto classname = GetString(ent, "classname"); StartsWith(classname, "actor_waw_"))
+                if (const auto* type = ent.Find("waw_actor_type"))
+                    names.insert(*type);
+                else if (const auto classname = std::string(ent.Get("classname")); StartsWith(classname, "actor_waw_"))
                     names.insert(classname.substr(10));
             }
             return names;
@@ -215,18 +215,18 @@ namespace w2b::gsc::port
         void BindActorTypes(const fs::path& projectRoot, const std::set<std::string>& names)
         {
             const auto path = projectRoot / "BSP/entities.json";
-            auto data = LoadJson(path);
-            for (auto& ent : data["entities"])
+            auto entities = mapents::ReadMapEntities(path);
+            for (auto& ent : entities)
             {
-                const auto it = ent.find("waw_actor_type");
-                if (it == ent.end())
+                const auto* found = ent.Find("waw_actor_type");
+                if (!found)
                     continue;
-                const auto value = *it;
-                ent.erase(it);
-                if (value.is_string() && names.count(value.get<std::string>()))
-                    ent["classname"] = "actor_" + ActorName(value.get<std::string>());
+                const auto value = *found;
+                ent.Erase("waw_actor_type");
+                if (names.count(value))
+                    ent.Set("classname", "actor_" + ActorName(value));
             }
-            files::WriteText(path, py::JsonDumps(data, 1));
+            mapents::WriteMapEntities(path, entities);
         }
     } // namespace zombieappearance
 
@@ -353,19 +353,18 @@ namespace w2b::gsc::port
 
         void TranslateEntities(const fs::path& path, const fs::path* bo2Root)
         {
-            auto data = LoadJson(path);
+            auto entities = mapents::ReadMapEntities(path);
             std::map<std::string, std::string> machines;
-            for (auto& entity : data["entities"])
+            for (auto& entity : entities)
             {
-                for (auto& [key, value] : entity.items())
-                    if (value.is_string())
-                        value = TranslateValue(value.get<std::string>());
-                const auto targetname = GetString(entity, "targetname");
-                if (!Get(entity, "targetname") || !In(targetname, {"zombie_vending", "zombie_vending_upgrade"}))
+                for (auto& [key, value] : entity.fields)
+                    value = TranslateValue(value);
+                const auto targetname = std::string(entity.Get("targetname"));
+                if (!entity.Has("targetname") || !In(targetname, {"zombie_vending", "zombie_vending_upgrade"}))
                     continue;
-                const auto* perkValue = Get(entity, "script_noteworthy");
-                const auto perk = perkValue && perkValue->is_string() ? perkValue->get<std::string>() : std::string();
-                if (Truthy(perkValue))
+                const auto* perkValue = entity.Find("script_noteworthy");
+                const auto perk = perkValue ? *perkValue : std::string();
+                if (!perk.empty())
                 {
                     const auto base = EndsWith(perk, "_upgrade") ? perk.substr(0, perk.size() - 8) : perk;
                     if (!Supported(base))
@@ -373,19 +372,19 @@ namespace w2b::gsc::port
                                                  + "', which BO2 does not have (unsupported perk; turn \"Use BO2 stock perks\" off for this map)");
                 }
                 const auto* off = Lookup(OFF_MODELS, perk);
-                if (targetname == "zombie_vending" && perkValue && off && Truthy(Get(entity, "target")))
-                    machines[GetString(entity, "target")] = *off;
+                if (targetname == "zombie_vending" && perkValue && off && !entity.Get("target").empty())
+                    machines[std::string(entity.Get("target"))] = *off;
             }
             if (bo2Root)
-                for (auto& entity : data["entities"])
+                for (auto& entity : entities)
                 {
-                    if (!Get(entity, "targetname"))
+                    if (!entity.Has("targetname"))
                         continue;
-                    const auto model = machines.find(GetString(entity, "targetname"));
-                    if (model != machines.end() && !model->second.empty() && GetString(entity, "classname") == "script_model")
-                        entity["model"] = StockModel(model->second, *bo2Root);
+                    const auto model = machines.find(std::string(entity.Get("targetname")));
+                    if (model != machines.end() && !model->second.empty() && entity.Get("classname") == "script_model")
+                        entity.Set("model", StockModel(model->second, *bo2Root));
                 }
-            files::WriteText(path, py::JsonDumps(data, 1));
+            mapents::WriteMapEntities(path, entities);
         }
 
         std::string NativeSource(std::string source, const std::string& name, const fs::path& outRoot, const fs::path& bo2Root)
@@ -460,19 +459,19 @@ namespace w2b::gsc::port
         {
             const auto path = project / "BSP/entities.json";
             std::error_code error;
-            py::Json entities = py::Json::array();
+            mapents::MapEntities entities;
             if (fs::exists(path, error))
-                entities = LoadJson(path)["entities"];
-            std::map<std::string, std::vector<const py::Json*>> groups;
+                entities = mapents::ReadMapEntities(path);
+            std::map<std::string, std::vector<const mapents::MapEntity*>> groups;
             for (const auto& entity : entities)
-                if (GetString(entity, "classname") == "trigger_use" && Truthy(Get(entity, "targetname")))
-                    groups[GetString(entity, "targetname")].push_back(&entity);
+                if (entity.Get("classname") == "trigger_use" && !entity.Get("targetname").empty())
+                    groups[std::string(entity.Get("targetname"))].push_back(&entity);
             std::vector<std::string> names;
             for (const auto& [name, group] : groups)
             {
                 bool bare = true;
                 for (const auto* entity : group)
-                    bare = bare && !Truthy(Get(*entity, "hintstring")) && !Truthy(Get(*entity, "script_hint"));
+                    bare = bare && entity->Get("hintstring").empty() && entity->Get("script_hint").empty();
                 if (bare)
                     names.push_back(name);
             }

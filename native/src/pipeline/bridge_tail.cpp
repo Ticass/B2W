@@ -1,5 +1,6 @@
 // The end of the bridge stage (see bridge_tail.h).
 #include "bridge_tail.h"
+#include "mapents/map_entity.h"
 #include "bridge_sound.h"
 #include "bridge_support.h"
 
@@ -239,30 +240,28 @@ namespace w2b::pipeline
                 if (fs::is_directory(projectRoot / "content_source" / "weapons", e))
                     for (const auto& entry : fs::directory_iterator(projectRoot / "content_source" / "weapons", e))
                         staged.insert(files::Utf8(entry.path().filename()));
-                auto data = mod::Json(entitiesJson);
+                auto entities = mapents::ReadMapEntities(entitiesJson);
                 // entities.entity_weapon: a weapon_<name> item or a turret's weaponinfo
-                const auto weaponOf = [](const Json& ent) -> std::optional<std::string>
+                const auto weaponOf = [](const mapents::MapEntity& ent) -> std::optional<std::string>
                 {
-                    const auto cls = ent.contains("classname") && ent["classname"].is_string() ? ent["classname"].get<std::string>() : std::string();
+                    const auto cls = std::string(ent.Get("classname"));
                     if (StartsWith(cls, "weapon_"))
                         return cls.substr(7);
-                    if (cls == "misc_turret" && ent.contains("weaponinfo") && ent["weaponinfo"].is_string())
-                        return ent["weaponinfo"].get<std::string>();
+                    if (const auto* info = ent.Find("weaponinfo"); cls == "misc_turret" && info)
+                        return *info;
                     return std::nullopt;
                 };
                 std::set<std::string> absent;
-                for (const auto& ent : data["entities"])
+                for (const auto& ent : entities)
                     if (const auto w = weaponOf(ent); w && !w->empty() && !staged.count(*w))
                         absent.insert(*w);
                 if (!absent.empty())
                 {
-                    Json kept = Json::array();
-                    for (const auto& ent : data["entities"])
-                        if (const auto w = weaponOf(ent); !w || !absent.count(*w))
-                            kept.push_back(ent);
-                    const auto count = data["entities"].size() - kept.size();
-                    data["entities"] = kept;
-                    files::WriteText(entitiesJson, py::JsonDumps(data, 1) + "\n");
+                    const auto count = std::erase_if(entities, [&](const mapents::MapEntity& ent) {
+                        const auto w = weaponOf(ent);
+                        return w && absent.count(*w);
+                    });
+                    mapents::WriteMapEntities(entitiesJson, entities);
                     warnings.push_back("ENTITY_WEAPON_ABSENT " + mod::ListRepr(std::vector<std::string>(absent.begin(), absent.end())) +
                                        ": no WaW zone defines them; " + std::to_string(count) + " placed entities dropped");
                 }

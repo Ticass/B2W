@@ -18,7 +18,7 @@ namespace w2b::mapents
         constexpr std::string_view InitSpawners = "zombie_spawner_init";
         constexpr std::string_view FirstZone = "waw2bo2_zone";
 
-        Flags VolumeFlags(const Json& entities, const Json& submodels)
+        Flags VolumeFlags(const MapEntities& entities, const Json& submodels)
         {
             Names models;
             for (const auto& entity : entities)
@@ -64,13 +64,13 @@ namespace w2b::mapents
             return {point[0] + delta, point[1] + delta, point[2] + delta};
         }
 
-        bool IsDoor(const Json& entity)
+        bool IsDoor(const MapEntity& entity)
         {
             const auto name = Field(entity, "targetname");
             return name == "zombie_door" || name == "zombie_debris";
         }
 
-        bool ConnectDoors(Json& entities, std::string_view group, const std::string& zone)
+        bool ConnectDoors(MapEntities& entities, std::string_view group, const std::string& zone)
         {
             std::set<std::size_t> doors;
             std::multimap<std::string_view, std::size_t> referenced;
@@ -98,15 +98,15 @@ namespace w2b::mapents
             for (const auto index : doors)
             {
                 auto& door = entities.at(index);
-                const auto prior = Field(door, "script_flag");
+                const auto prior = std::string(Field(door, "script_flag"));
                 const auto flag = zone + "_open";
-                door["script_flag"] = prior.empty() ? flag : std::string(prior) + "," + flag;
+                door.Set("script_flag", prior.empty() ? flag : prior + "," + flag);
             }
             return !doors.empty();
         }
     }
 
-    Json SynthesizeZones(Json& entities, const world::CollisionWorld& clip, const Path& bsp, Json& summary)
+    Json SynthesizeZones(MapEntities& entities, const world::CollisionWorld& clip, const Path& bsp, Json& summary)
     {
         std::map<std::string, std::vector<std::size_t>, std::less<>> spawners;
         std::set<std::pair<std::string, std::string>> structs;
@@ -157,9 +157,11 @@ namespace w2b::mapents
                                 {"model", "*" + std::to_string(submodels.size())}, {"script_noteworthy", "player_volume"}});
             for (const auto index : spawners.at(group))
             {
-                const auto& actor = entities.at(index);
-                if (!structs.contains({group, std::string(Field(actor, "origin"))}))
-                    entities.push_back(SpawnMarker(actor, group));
+                if (!structs.contains({group, std::string(Field(entities.at(index), "origin"))}))
+                {
+                    auto marker = SpawnMarker(entities.at(index), group);
+                    entities.push_back(std::move(marker));
+                }
             }
         }
         files::WriteText(path, py::JsonDumps({{"submodels", std::move(submodels)}}, -1) + "\n");

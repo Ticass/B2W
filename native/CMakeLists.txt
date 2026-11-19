@@ -133,11 +133,13 @@ target_link_libraries(w2b_assets PUBLIC w2b_weapons w2b_effects)
 
 add_library(w2b_physics STATIC src/physics/dynents.cpp src/physics/constraints.cpp src/physics/ropes.cpp
     src/physics/suspensions.cpp src/physics/stage.cpp)
-target_link_libraries(w2b_physics PUBLIC w2b_weapons)
+target_link_libraries(w2b_physics PUBLIC w2b_weapons w2b_mapentity)
 
+add_library(w2b_mapentity STATIC src/mapents/map_entity.cpp)
+target_link_libraries(w2b_mapentity PUBLIC w2b_core)
 add_library(w2b_mapents STATIC src/mapents/parse.cpp src/mapents/convert.cpp src/mapents/wall_buys.cpp src/mapents/stage.cpp
     src/mapents/write.cpp src/mapents/zones.cpp)
-target_link_libraries(w2b_mapents PUBLIC w2b_world PRIVATE w2b_gscport)
+target_link_libraries(w2b_mapents PUBLIC w2b_world w2b_mapentity PRIVATE w2b_gscport)
 
 add_library(w2b_paths STATIC src/paths/aliases.cpp src/paths/convert.cpp src/paths/dogs.cpp src/paths/stage.cpp
     src/paths/window_ends.cpp src/paths/window_traversals.cpp)
@@ -198,7 +200,7 @@ add_library(w2b_gscport STATIC
     src/gsc/port/generators.cpp
     src/gsc/port/portmap.cpp
     src/gsc/port/clientport.cpp)
-target_link_libraries(w2b_gscport PUBLIC w2b_gsc)
+target_link_libraries(w2b_gscport PUBLIC w2b_gsc w2b_mapentity)
 
 # the converter version (VERSION at the repository root)
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" W2B_VERSION LIMIT_COUNT 1)

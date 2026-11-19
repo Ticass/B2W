@@ -13,7 +13,7 @@ namespace w2b::mapents
         using Indices = std::vector<std::size_t>;
         using Groups = std::map<std::string, Indices, std::less<>>;
 
-        void PairModels(Json& entities, std::string_view target, const Indices& triggers, Indices models, Groups& named, Json& renamed)
+        void PairModels(MapEntities& entities, std::string_view target, const Indices& triggers, Indices models, Groups& named, Json& renamed)
         {
             if (models.size() != triggers.size() || !std::ranges::all_of(models, [&](auto i) {
                     return Field(entities.at(i), "classname") == "script_model";
@@ -41,9 +41,9 @@ namespace w2b::mapents
                     }
                 }
                 const auto name = "waw2bo2_wallbuy_" + std::string(target) + "_" + std::to_string(i);
-                trigger["target"] = name;
+                trigger.Set("target", name);
                 const auto model = models[closest];
-                entities.at(model)["targetname"] = name;
+                entities.at(model).Set("targetname", name);
                 auto& paired = named[name];
                 paired.insert(std::ranges::lower_bound(paired, model), model);
                 models.erase(models.begin() + static_cast<Indices::difference_type>(closest));
@@ -53,7 +53,7 @@ namespace w2b::mapents
         }
     }
 
-    void NormalizeWallBuys(Json& entities, Json& renamed)
+    void NormalizeWallBuys(MapEntities& entities, Json& renamed)
     {
         Groups named, buys;
         for (std::size_t i = 0; i < entities.size(); ++i)
@@ -76,7 +76,7 @@ namespace w2b::mapents
                 auto name = "waw_wallbuy_without_model_" + std::to_string(i);
                 while (named.contains(name))
                     name += '_';
-                entity["target"] = name;
+                entity.Set("target", name);
                 Increment(renamed, "WaW wall buy without display model -> unmatched T6 target");
             }
         }

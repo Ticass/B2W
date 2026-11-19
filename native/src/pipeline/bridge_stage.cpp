@@ -161,8 +161,8 @@ namespace w2b::pipeline
             if (!mod::IsFile(entities))
                 return std::nullopt;
             for (const auto& entity : mapents::Parse(mod::Read(entities)))
-                if (entity.value("classname", std::string()) == "worldspawn")
-                    return entity.contains("skyboxmodel") ? std::optional(entity["skyboxmodel"].get<std::string>()) : std::nullopt;
+                if (entity.Get("classname") == "worldspawn")
+                    return entity.Has("skyboxmodel") ? std::optional(std::string(entity.Get("skyboxmodel"))) : std::nullopt;
             return std::nullopt;
         }
 
@@ -170,24 +170,23 @@ namespace w2b::pipeline
         Names PlacedModels(const fs::path& entitiesJson)
         {
             Names names;
-            const auto data = mod::Json(entitiesJson);
-            for (const auto& entity : data.at("entities"))
-                if (entity.contains("model") && Truthy(entity["model"]) && !entity["model"].get<std::string>().starts_with('*'))
-                    names.insert(entity["model"].get<std::string>());
+            for (const auto& entity : mapents::ReadMapEntities(entitiesJson))
+                if (const auto model = entity.Get("model"); !model.empty() && !model.starts_with('*'))
+                    names.insert(std::string(model));
             return names;
         }
 
         std::size_t StripModels(const fs::path& entitiesJson, const Names& names)
         {
-            auto data = mod::Json(entitiesJson);
+            auto entities = mapents::ReadMapEntities(entitiesJson);
             std::size_t count = 0;
-            for (auto& entity : data["entities"])
-                if (entity.contains("model") && entity["model"].is_string() && names.contains(entity["model"].get<std::string>()))
+            for (auto& entity : entities)
+                if (const auto* model = entity.Find("model"); model && names.contains(*model))
                 {
-                    entity.erase("model");
+                    entity.Erase("model");
                     ++count;
                 }
-            files::WriteText(entitiesJson, py::JsonDumps(data, 1) + "\n");
+            mapents::WriteMapEntities(entitiesJson, entities);
             return count;
         }
 
@@ -196,25 +195,24 @@ namespace w2b::pipeline
         std::vector<std::string> NetworkClientModels(const fs::path& entitiesJson, const Names& listened)
         {
             constexpr long long CLIENT_SIDE_MODEL = 2;
-            auto data = mod::Json(entitiesJson);
+            auto entities = mapents::ReadMapEntities(entitiesJson);
             std::map<std::string, int> changed;
-            for (auto& entity : data["entities"])
+            for (auto& entity : entities)
             {
                 long long flags = 0;
                 bool overflow = false;
-                const auto text = entity.value("spawnflags", std::string("0"));
+                const auto text = entity.Get("spawnflags", "0");
                 if (!text.empty())
                     py::ParseInt(text, flags, overflow);
-                const auto target = entity.value("targetname", std::string());
-                if (entity.value("classname", std::string()) == "script_model" && (flags & CLIENT_SIDE_MODEL) && entity.contains("targetname") &&
-                    listened.contains(target))
+                const auto target = std::string(entity.Get("targetname"));
+                if (entity.Get("classname") == "script_model" && (flags & CLIENT_SIDE_MODEL) && entity.Has("targetname") && listened.contains(target))
                 {
-                    entity["spawnflags"] = std::to_string(flags & ~CLIENT_SIDE_MODEL);
+                    entity.Set("spawnflags", std::to_string(flags & ~CLIENT_SIDE_MODEL));
                     ++changed[target];
                 }
             }
             if (!changed.empty())
-                files::WriteText(entitiesJson, py::JsonDumps(data, 1) + "\n");
+                mapents::WriteMapEntities(entitiesJson, entities);
             std::vector<std::string> lines;
             for (const auto& [name, count] : changed)
                 lines.push_back(name + " (" + std::to_string(count) + ")");
