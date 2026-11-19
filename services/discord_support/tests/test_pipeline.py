@@ -43,7 +43,8 @@ class PatchBoundaryTests(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_text('value = 1\n')
             git('add', '.')
-            git('commit', '-m', 'fixture')
+            # Only the fixture commit gets an identity; validate_patch must work without one.
+            git('-c', 'user.name=fixture', '-c', 'user.email=fixture@invalid', 'commit', '-m', 'fixture')
             source.write_text('value = 2\n')
             fix = git('diff', 'HEAD')
             git('restore', '.')
