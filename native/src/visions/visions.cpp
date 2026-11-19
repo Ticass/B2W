@@ -7,6 +7,8 @@
 #include "core/hash.h"
 #include "core/pyre.h"
 #include "core/zip.h"
+#include "materials/t6_material.h"
+#include "shaders/techsets.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
 #include "gsc/tokens.h"
@@ -301,7 +303,7 @@ namespace w2b::visions
         // glow.stage: one overlay material per vision (plus the identity vision)
         Json StageGlow(const fs::path& project, const Json& grading, const fs::path& techsetDump)
         {
-            Json base;
+            std::optional<shaders::T6TechniqueSet> base;
             {
                 std::vector<fs::path> found;
                 std::error_code e;
@@ -314,41 +316,38 @@ namespace w2b::visions
                     const auto parsed = materials::ParseTechnique(files::Utf8(p.stem()));
                     if (parsed.family != materials::Family::other || parsed.lit || parsed.unlit != "trivial")
                         continue;
-                    auto data = ReadJson(p);
-                    std::vector<const Json*> passes;
-                    for (const auto& t : data["techniques"])
-                        if (t.is_object() && !t.empty())
-                            passes.push_back(&t);
-                    if (passes.size() == 1 && (*passes[0])["passArray"].size() == 1)
+                    auto data = shaders::ReadT6TechniqueSet(p);
+                    const auto techniques = std::ranges::count_if(data.techniques, [](const auto& t) { return t.technique.has_value(); });
+                    const auto first = std::ranges::find_if(data.techniques, [](const auto& t) { return t.technique.has_value(); });
+                    if (techniques == 1 && first->technique->passes.size() == 1)
                     {
                         base = std::move(data);
                         break;
                     }
                 }
-                if (base.is_null())
+                if (!base)
                     throw std::runtime_error("no stock T6 trivial HUD technique set in the technique dump");
             }
-            Json donor;
+            std::optional<materials::T6Material> donor;
             {
                 auto found = files::RGlob(techsetDump / "materials", ".json");
                 SortPaths(found);
                 for (const auto& p : found)
                 {
-                    auto data = ReadJson(p);
-                    if (data.value("techniqueSet", std::string()) == base["name"].get<std::string>())
+                    const auto data = ReadJson(p);
+                    if (data.value("techniqueSet", std::string()) == base->name)
                     {
-                        donor = std::move(data);
+                        donor = materials::T6MaterialFromJson(data);
                         break;
                     }
                 }
-                if (donor.is_null())
-                    throw std::runtime_error("no stock material uses " + base["name"].get<std::string>());
+                if (!donor)
+                    throw std::runtime_error("no stock material uses " + base->name);
             }
             size_t slot = 0;
-            while (!(base["techniques"][slot].is_object() && !base["techniques"][slot].empty()))
+            while (!base->techniques[slot].technique)
                 slot++;
-            const auto nativePass = base["techniques"][slot]["passArray"][0];
-            Json report{{"overlays", Json::object()}, {"glow", Json::object()}, {"notes", Json::object()}, {"materials", Json::array()}, {"technique_donor", base["name"]}};
+            Json report{{"overlays", Json::object()}, {"glow", Json::object()}, {"notes", Json::object()}, {"materials", Json::array()}, {"technique_donor", base->name}};
             std::map<std::string, Json> visions{{"_identity", Json{{"r_filmenable", "0"}}}};
             for (const auto& [name, fields] : grading.items())
                 visions[name] = fields;
@@ -368,56 +367,47 @@ namespace w2b::visions
                 const auto target = project / "shader_bin" / files::FromUtf8("ps_" + shader + ".cso");
                 fs::create_directories(target.parent_path());
                 files::WriteBytes(target, code);
-                auto technique = base;
-                technique["name"] = shader;
-                auto& tech = technique["techniques"][slot];
-                tech["name"] = shader + "_" + std::to_string(slot);
-                auto& p = tech["passArray"][0];
-                p["pixelShader"] = Json{{"name", shader}};
+                auto technique = *base;
+                technique.name = shader;
+                auto& tech = *technique.techniques[slot].technique;
+                tech.name = shader + "_" + std::to_string(slot);
+                auto& p = tech.passes[0];
+                p.pixelShader = shader;
                 // the scene texture replaces the material colour map; it is a stable argument
-                Json others = Json::array();
-                for (const auto& a : p["args"])
-                    if (a["type"] != 2)
-                        others.push_back(a);
-                const auto removed = static_cast<long long>(p["args"].size() - others.size());
-                others.push_back(Json{{"buffer", 0}, {"location", 0}, {"size", 1}, {"type", 4}, {"u", Json{{"value", SCENE_CODE_TEXTURE}}}});
-                p["args"] = others;
-                p["stableArgCount"] = p["stableArgCount"].get<long long>() + 1 - removed;
+                const auto removed = static_cast<long long>(std::erase_if(p.args, [](const shaders::T6PassArg& a) { return a.type == 2; }));
+                p.args.push_back({0, 0, 1, 4, SCENE_CODE_TEXTURE});
+                p.stableArgCount = p.stableArgCount + 1 - removed;
                 const auto path = project / "techniquesets" / files::FromUtf8(shader + ".json");
                 fs::create_directories(path.parent_path());
-                files::WriteText(path, py::JsonDumps(technique, 2));
-                auto material = donor;
-                material["techniqueSet"] = shader;
-                if (material.contains("textures"))
-                    for (auto& texture : material["textures"])
-                    {
-                        auto image = texture.value("image", std::string());
-                        if (StartsWith(image, ","))
-                            image.erase(0, 1);
-                        texture["image"] = StartsWith(image, "$") ? "," + image : image;
-                    }
-                if (material.contains("stateBits"))
-                    for (auto& state : material["stateBits"])
-                    {
-                        state["alphaTest"] = "disabled";
-                        for (const auto& [k, v] : {std::pair<const char*, const char*>{"blendOpRgb", "add"}, {"srcBlendRgb", "one"}, {"dstBlendRgb", "srcalpha"},
-                                                   {"blendOpAlpha", "add"}, {"srcBlendAlpha", "zero"}, {"dstBlendAlpha", "one"}})
-                            state[k] = v;
-                    }
+                files::WriteText(path, py::JsonDumps(shaders::ToJson(technique), 2));
+                auto material = *donor;
+                material.techniqueSet = shader;
+                for (auto& texture : material.textures)
+                {
+                    auto image = texture.image;
+                    if (StartsWith(image, ","))
+                        image.erase(0, 1);
+                    texture.image = StartsWith(image, "$") ? "," + image : image;
+                }
+                for (auto& state : material.stateBits)
+                {
+                    state.alphaTest = "disabled";
+                    state.blendOpRgb = "add", state.srcBlendRgb = "one", state.dstBlendRgb = "srcalpha";
+                    state.blendOpAlpha = "add", state.srcBlendAlpha = "zero", state.dstBlendAlpha = "one";
+                }
                 auto name = vision;
                 std::replace(name.begin(), name.end(), '/', '_');
                 name = "waw/vision_overlay/" + name;
                 const auto out = project / assets::MaterialPath(name);
                 fs::create_directories(out.parent_path());
-                files::WriteText(out, py::JsonDumps(material, 2) + "\n");
+                files::WriteText(out, materials::T6MaterialText(material));
                 report["overlays"][vision] = name;
                 report["materials"].push_back(name);
                 report["glow"][vision] = nullptr;
                 if (!notes.empty())
                     report["notes"][vision] = notes;
             }
-            if (!nativePass.contains("stableArgCount") || nativePass["stableArgCount"].is_null())
-                throw std::runtime_error("native HUD pass lacks argument counts");
+
             return report;
         }
 
@@ -700,10 +690,10 @@ namespace w2b::visions
                 report["errors"].push_back("native T6 LUT material donor missing");
             else
             {
-                auto material = ReadJson(*donor);
-                material["textures"][0]["image"] = "waw_vision_lut";
+                auto material = materials::ReadT6Material(*donor);
+                material.textures.at(0).image = "waw_vision_lut";
                 fs::create_directories(project / "materials/waw");
-                files::WriteText(project / "materials/waw/vision_lut.json", py::JsonDumps(material, 2) + "\n");
+                files::WriteText(project / "materials/waw/vision_lut.json", materials::T6MaterialText(material));
                 fs::create_directories(project / "images");
                 fs::create_directories(project / "BSP");
                 files::WriteBytes(project / "images/waw_vision_lut.iwi", Atlas(grades));

@@ -215,10 +215,11 @@ namespace w2b::pipeline
         auto* stock = request.stock;
         auto* modToolsSource = request.source;
         const auto mapName = files::Utf8(mapScript.stem());
-        Json warnings = Json::array(), errors = Json::array(), scripts = Json::object();
+        std::vector<std::string> warnings, errors;
+        Json scripts = Json::object();
         const auto finish = [&](const std::set<std::string>& models)
         {
-            return ScriptPort{std::move(scripts), warnings.get<std::vector<std::string>>(), errors.get<std::vector<std::string>>(),
+            return ScriptPort{std::move(scripts), warnings, errors,
                               {models.begin(), models.end()}, std::move(modelRoots)};
         };
         // the map zone's own rawfiles first; nullopt marks the map zone's place

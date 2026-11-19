@@ -27,15 +27,13 @@ namespace w2b::pipeline
         {
             content.emplace_back(std::move(section), std::move(value));
         }
-        // appends this step's lists to report["warnings"/"errors"] and sets its content sections
-        void MergeInto(py::Json& report) const
+        // appends this step's lists to the report's warnings and errors and sets its content sections
+        template <typename Report> void MergeInto(Report& report) const
         {
-            for (const auto& warning : warnings)
-                report["warnings"].push_back(warning);
-            for (const auto& error : errors)
-                report["errors"].push_back(error);
+            report.warnings.insert(report.warnings.end(), warnings.begin(), warnings.end());
+            report.errors.insert(report.errors.end(), errors.begin(), errors.end());
             for (const auto& [section, value] : content)
-                report["content"][section] = value;
+                report.content[section] = value;
         }
     };
 } // namespace w2b::pipeline

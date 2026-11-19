@@ -3,6 +3,7 @@
 // effect materials, world-technique materials and the converted effects.
 
 #include "core/pytext.h"
+#include "pipeline/material_record.h"
 
 #include <filesystem>
 #include <map>
@@ -41,7 +42,8 @@ namespace w2b::pipeline
     struct EffectsStage
     {
         std::vector<std::string> warnings, errors;
-        py::Json materials, images;                // report records
+        std::vector<MaterialRecord> materials;
+        py::Json images;                           // report image records
         std::map<std::string, std::string> table;  // script-loaded WaW effect -> converted name
         std::vector<std::string> zoneFx;
         std::set<std::string> models, sounds;      // what the converted effects spawn and play

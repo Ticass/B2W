@@ -28,16 +28,16 @@ namespace w2b::sound
             return text;
         }
 
-        std::set<std::string> StreamSources(const std::vector<Json>& rows)
+        std::set<std::string> StreamSources(const std::vector<T6AliasRow>& rows)
         {
             std::set<std::string> loaded, streams;
             for (const auto& row : rows)
-                if (row.at("Storage") == "loaded")
-                    loaded.insert(Lower(row.at("FileSource").get<std::string>()));
+                if (row["Storage"] == "loaded")
+                    loaded.insert(Lower(row["FileSource"]));
             for (const auto& row : rows)
             {
-                const auto& path = row.at("FileSource").get_ref<const std::string&>();
-                if (row.at("Storage") == "streamed" && path.ends_with(".wav") && !loaded.contains(Lower(path)))
+                const auto& path = row["FileSource"];
+                if (row["Storage"] == "streamed" && path.ends_with(".wav") && !loaded.contains(Lower(path)))
                     streams.insert(path);
             }
             return streams;
@@ -103,7 +103,7 @@ namespace w2b::sound
         return enabled && std::string_view(enabled) == "1";
     }
 
-    Json PackStreamedAudio(std::vector<Json>& rows, const fs::path& pcmRoot, const fs::path& configuredEncoder)
+    Json PackStreamedAudio(std::vector<T6AliasRow>& rows, const fs::path& pcmRoot, const fs::path& configuredEncoder)
     {
         const auto sources = StreamSources(rows);
         if (sources.empty())
@@ -143,8 +143,8 @@ namespace w2b::sound
             ++i;
         }
         for (auto& row : rows)
-            if (row.at("Storage") == "streamed")
-                if (const auto changed = encoded.find(row.at("FileSource").get_ref<const std::string&>()); changed != encoded.end())
+            if (row["Storage"] == "streamed")
+                if (const auto changed = encoded.find(row["FileSource"]); changed != encoded.end())
                     row["FileSource"] = changed->second;
         return {{"files", encoded.size()}, {"original_bytes", originalBytes}, {"output_bytes", outputBytes}};
     }

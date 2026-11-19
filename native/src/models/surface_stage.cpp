@@ -46,13 +46,13 @@ namespace w2b::models
         return json;
     }
 
-    SurfaceFixes StageSurfaceFixes(const Path& project, const Json& materials, bool colors, bool sort)
+    SurfaceFixes StageSurfaceFixes(const Path& project, const std::vector<SurfaceMaterial>& materials, bool colors, bool sort)
     {
         MaterialNames additive;
         if (colors)
             for (const auto& material : materials)
-                if (material.value("t4_techset", std::string{}).starts_with("mc_unlit_add"))
-                    additive.insert(material.value("source", material.at("name").get<std::string>()));
+                if (material.t4Techset.starts_with("mc_unlit_add"))
+                    additive.insert(material.wawName);
         const bool inspectOrder = sort && HasModelSortMaterials(materials);
         SurfaceFixes fixes;
         if (!additive.empty() || inspectOrder)

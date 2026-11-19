@@ -69,15 +69,15 @@ namespace w2b::pipeline
 
     } // namespace
 
-    void StageBridgeSound(const TailInput& input, Json& report, extract::StockWaw* stock)
+    void StageBridgeSound(const TailInput& input, BridgeReport& report, extract::StockWaw* stock)
     {
         const auto& sounds = input.sounds;
         const auto& project = input.project;
         const auto& projectRoot = input.projectRoot;
         const auto& roots = input.roots;
         const auto content = projectRoot / "content_source";
-        auto& warnings = report["warnings"];
-        auto& out = report["content"];
+        auto& warnings = report.warnings;
+        auto& out = report.content;
         // source_amb_script: the WaW map's clientscripts/<map>_amb.csc
         std::optional<fs::path> sourceAmb;
         if (sounds.mapStem)

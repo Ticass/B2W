@@ -75,6 +75,7 @@ target_compile_definitions(w2b_lint PRIVATE W2B_NATIVE_SOURCE_DIR="${CMAKE_CURRE
 
 add_library(w2b_shaders STATIC
     src/shaders/d3d.cpp
+    src/shaders/techsets.cpp
     src/shaders/registers.cpp
     src/shaders/translate.cpp
     src/shaders/stage.cpp)
@@ -217,7 +218,7 @@ target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler 
 
 add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp src/extract/stockwaw.cpp src/extract/wawsource.cpp src/extract/unlinker.cpp
     src/extract/material_sources.cpp)
-target_link_libraries(w2b_extract PUBLIC w2b_core w2b_materials PRIVATE w2b_oat)
+target_link_libraries(w2b_extract PUBLIC w2b_core w2b_materials w2b_shaders PRIVATE w2b_oat)
 
 add_library(w2b_strings STATIC src/strings/localization.cpp)
 target_link_libraries(w2b_strings PUBLIC w2b_core w2b_gsc w2b_weapons w2b_extract)
@@ -235,7 +236,7 @@ add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp s
     src/pipeline/scripts_stage.cpp src/pipeline/hooks_stage.cpp src/pipeline/sound_mix.cpp src/pipeline/amb_stage.cpp src/pipeline/sound_refs.cpp src/pipeline/coverage_stage.cpp src/pipeline/hud_stage.cpp src/pipeline/ingame_menus.cpp src/pipeline/weapon_runtime.cpp src/pipeline/weapon_visuals.cpp src/pipeline/skybox_stage.cpp src/pipeline/client_stage.cpp src/pipeline/lighting_tail.cpp src/pipeline/bridge_tail.cpp
     src/pipeline/actor_trees.cpp src/pipeline/bridge_sound.cpp src/pipeline/bridge_geometry.cpp src/pipeline/geometry_materials.cpp
     src/pipeline/bridge_navigation.cpp src/pipeline/bridge_inventory.cpp src/pipeline/bridge_images.cpp
-    src/pipeline/bridge_assets.cpp src/pipeline/bridge_stage.cpp)
+    src/pipeline/bridge_assets.cpp src/pipeline/bridge_stage.cpp src/pipeline/bridge_report.cpp src/pipeline/material_record.cpp)
 target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials w2b_effects w2b_assets w2b_barricades w2b_paths)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 

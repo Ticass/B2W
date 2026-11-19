@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/timeline.h"
+#include "pipeline/bridge_report.h"
 #include "pipeline/finish.h"
 #include "pipeline/modutil.h"
 #include "weapons/weapon.h"
@@ -80,6 +81,23 @@ namespace w2b::pipeline::bridge
     {
         for (const auto& item : items)
             report[key].push_back(item);
+    }
+
+    // appends a step's warnings, errors, images or material records to the bridge report
+    inline void Extend(BridgeReport& report, const char* key, const Json& items)
+    {
+        const std::string_view list = key;
+        for (const auto& item : items)
+            if (list == "warnings")
+                report.Warn(item.get<std::string>());
+            else if (list == "errors")
+                report.Fail(item.get<std::string>());
+            else if (list == "images")
+                report.images.push_back(item);
+            else if (list == "materials")
+                report.materials.push_back(MaterialRecord::FromJson(item));
+            else
+                throw std::invalid_argument("not a bridge report list: " + std::string(list));
     }
 
     // runs a step, raising its weapon and value errors as the StepErrors the bridge reports

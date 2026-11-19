@@ -5,6 +5,7 @@
 #include "core/files.h"
 #include "core/hash.h"
 #include "core/profile.h"
+#include "shaders/techsets.h"
 #include "core/pyre.h"
 #include "d3d.h"
 #include "pipeline/finish.h"
@@ -234,7 +235,7 @@ namespace w2b::shaders
         // sets, probe slots per shader file and adapted programs
         struct ProbeCache
         {
-            std::map<std::string, py::Json> techniques;
+            std::map<std::string, T6TechniqueSet> techniques;
             std::map<std::string, std::pair<std::string, std::vector<long long>>> shaders;
             std::map<std::string, std::string> adapted;
         };
@@ -260,17 +261,17 @@ namespace w2b::shaders
             if (!cache.techniques.count(fileKey))
             {
                 const profile::Scope scope("probes: read technique set");
-                cache.techniques[fileKey] = file->second.empty() ? Json(stock / "techniquesets" / files::FromUtf8(name + ".json")) : py::Json::parse(file->second);
+                cache.techniques[fileKey] = file->second.empty() ? ReadT6TechniqueSet(stock / "techniquesets" / files::FromUtf8(name + ".json")) : T6TechniqueSetFromJson(py::Json::parse(file->second));
             }
             auto data = cache.techniques[fileKey];
             int count = 0;
-            for (auto& technique : data["techniques"])
+            for (auto& slot : data.techniques)
             {
-                if (!technique.is_object() || !technique.contains("passArray"))
+                if (!slot)
                     continue;
-                for (auto& p : technique["passArray"])
+                for (auto& p : slot.technique->passes)
                 {
-                    const auto shader = p.contains("pixelShader") ? p["pixelShader"].value("name", std::string()) : std::string();
+                    const auto shader = p.pixelShader;
                     if (StartsWith(shader, "waw/runtime_") || StartsWith(shader, "waw/native_probe_"))
                         continue;
                     const auto program = fs::path("shader_bin") / files::FromUtf8("ps_" + shader + ".cso");
@@ -304,22 +305,22 @@ namespace w2b::shaders
                     const auto& code = cache.adapted[adaptKey];
                     const auto adapted = "waw/native_probe_" + hash::Sha256Hex(code).substr(0, 20);
                     output.Write(fs::path("shader_bin") / files::FromUtf8("ps_" + adapted + ".cso"), code, false);
-                    p["pixelShader"] = py::Json{{"name", adapted}};
+                    p.pixelShader = adapted;
                     count++;
                 }
             }
             if (count)
             {
-                const auto identity = "waw/runtime_" + hash::Sha256Hex(py::JsonDumpsSorted(data)).substr(0, 16);
-                data["name"] = identity;
+                const auto identity = "waw/runtime_" + hash::Sha256Hex(py::JsonDumpsSorted(ToJson(data))).substr(0, 16);
+                data.name = identity;
                 size_t i = 0;
-                for (auto& t : data["techniques"])
+                for (auto& slot : data.techniques)
                 {
-                    if (t.is_object() && !t.empty())
-                        t["name"] = identity + "_" + std::to_string(i);
+                    if (slot)
+                        slot.technique->name = identity + "_" + std::to_string(i);
                     i++;
                 }
-                output.Write(fs::path("techniquesets") / files::FromUtf8(identity + ".json"), py::JsonDumpsDefault(data), true);
+                output.Write(fs::path("techniquesets") / files::FromUtf8(identity + ".json"), py::JsonDumpsDefault(ToJson(data)), true);
                 material.techniqueSet = identity;
             }
             return count;

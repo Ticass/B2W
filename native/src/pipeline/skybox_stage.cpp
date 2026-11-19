@@ -144,12 +144,12 @@ namespace w2b::pipeline
 
         // _sky_with_hdr_alpha: the WaW sky cube with the T6 HDR intensity in
         // alpha (uncompressed 32-bit DDS only); returns the image name to use
-        std::string SkyWithHdrAlpha(Json& report, const fs::path& projectRoot, const std::string& skyImage, const std::vector<fs::path>& imageRoots)
+        std::string SkyWithHdrAlpha(BridgeReport& report, const fs::path& projectRoot, const std::string& skyImage, const std::vector<fs::path>& imageRoots)
         {
             const auto source = Find(imageRoots, files::FromUtf8(skyImage + ".dds"));
             if (!source)
             {
-                report["errors"].push_back("skybox: " + skyImage + ".dds not found in the image roots");
+                report.Fail("skybox: " + skyImage + ".dds not found in the image roots");
                 return skyImage;
             }
             auto data = mod::Bytes(*source);
@@ -157,7 +157,7 @@ namespace w2b::pipeline
             const auto bits = GetU32(data, 88);
             if (fourcc != std::string(4, '\0') || bits != 32)
             {
-                report["warnings"].push_back("skybox: " + skyImage + " is " + BytearrayRepr(fourcc) + "/" + std::to_string(bits) +
+                report.Warn("skybox: " + skyImage + " is " + BytearrayRepr(fourcc) + "/" + std::to_string(bits) +
                                              "bpp; its alpha is not rewritten, the T6 sky may render dark");
                 return skyImage;
             }
@@ -173,7 +173,7 @@ namespace w2b::pipeline
                 data[i] = static_cast<char>(SKY_HDR_ALPHA);
             const auto name = skyImage + "_t6sky";
             files::WriteBytes(projectRoot / SKY_SOURCE_DIR / files::FromUtf8(name + ".dds"), data);
-            report["warnings"].push_back("skybox: " + skyImage + " alpha set to " + std::to_string(SKY_HDR_ALPHA) +
+            report.Warn("skybox: " + skyImage + " alpha set to " + std::to_string(SKY_HDR_ALPHA) +
                                          "/255 as the T6 HDR sky intensity (WaW sky cubes have none)");
             return name;
         }
@@ -232,7 +232,7 @@ namespace w2b::pipeline
                         CopyFile(original->parent_path() / files::FromUtf8(uri), destination.parent_path() / files::FromUtf8(uri));
                 }
             }
-            Json materials = Json::array();
+            std::vector<MaterialRecord> materials;
             for (const auto& name : materialNames)
             {
                 const auto materialFile = Find(roots, assets::MaterialPath(name));
@@ -283,7 +283,12 @@ namespace w2b::pipeline
                 }
                 const auto relative = assets::MaterialPath(name);
                 files::WriteText(projectRoot / relative, materials::T6MaterialText(target));
-                materials.push_back(Json{{"name", name}, {"file", mod::Generic(relative)}, {"t6_techset", target.techniqueSet}, {"shader_runtime", runtime}});
+                MaterialRecord record;
+                record.name = name;
+                record.file = mod::Generic(relative);
+                record.t6Techset = target.techniqueSet;
+                record.shaderRuntime = runtime;
+                materials.push_back(std::move(record));
             }
             model["_game"] = "t6";
             BridgeBoneBounds(model);
@@ -300,12 +305,12 @@ namespace w2b::pipeline
         }
     }
 
-    TemplateSky StageTemplateSkybox(Json& report, const std::string& project, const fs::path& projectRoot, const std::optional<fs::path>& bo2Root,
+    TemplateSky StageTemplateSkybox(BridgeReport& report, const std::string& project, const fs::path& projectRoot, const std::optional<fs::path>& bo2Root,
                                     std::optional<std::string> skyImage, const std::vector<fs::path>& imageRoots)
     {
         if (!bo2Root)
         {
-            report["errors"].push_back("skybox: needs --bo2");
+            report.Fail("skybox: needs --bo2");
             return {};
         }
         const bool synthesized = !skyImage;
@@ -315,14 +320,14 @@ namespace w2b::pipeline
             // draws nothing there (black). Keep T6's dome behind everything, black.
             skyImage = NO_SKY_IMAGE;
             files::WriteBytes(projectRoot / SKY_SOURCE_DIR / files::FromUtf8(*skyImage + ".dds"), BlackCubeDds(4, SKY_HDR_ALPHA));
-            report["warnings"].push_back("SKY_SYNTHESIZED the WaW map has no sky surface or skybox model; the T6 sky dome is black, as WaW draws it");
+            report.Warn("SKY_SYNTHESIZED the WaW map has no sky surface or skybox model; the T6 sky dome is black, as WaW draws it");
         }
         const auto raw = *bo2Root / "raw";
         const auto sourceModel = raw / "xmodel" / files::FromUtf8(SKYBOX_TEMPLATE + ".json");
         const auto sourceMaterial = raw / assets::MaterialPath(SKYBOX_MATERIAL);
         if (!IsFile(sourceModel) || !IsFile(sourceMaterial))
         {
-            report["errors"].push_back("skybox: " + mod::Str(sourceModel) + " or " + mod::Str(sourceMaterial) + " missing (run the mod tools All2Raw)");
+            report.Fail("skybox: " + mod::Str(sourceModel) + " or " + mod::Str(sourceMaterial) + " missing (run the mod tools All2Raw)");
             return {};
         }
         auto model = mod::Json(sourceModel);
@@ -339,7 +344,7 @@ namespace w2b::pipeline
             const auto file = files::FromUtf8(lod.at("file").get<std::string>());
             if (!IsFile(raw / file))
             {
-                report["errors"].push_back("skybox: " + mod::Str(raw / file) + " missing");
+                report.Fail("skybox: " + mod::Str(raw / file) + " missing");
                 return {};
             }
             CopyFile(raw / file, projectRoot / file);
@@ -352,7 +357,7 @@ namespace w2b::pipeline
             if (texture.value("name", std::string()) == "colorMap")
                 texture["image"] = *skyImage;
         files::WriteText(projectRoot / assets::MaterialPath(SKYBOX_MATERIAL), py::JsonDumps(material, 2) + "\n");
-        report["warnings"].push_back("skybox: BO2 " + SKYBOX_TEMPLATE + " dome with the WaW sky cube " + *skyImage);
+        report.Warn("skybox: BO2 " + SKYBOX_TEMPLATE + " dome with the WaW sky cube " + *skyImage);
         TemplateSky sky{std::nullopt, skyImage};
         if (material.contains("techniqueSet") && material["techniqueSet"].is_string())
             sky.techset = material["techniqueSet"].get<std::string>();

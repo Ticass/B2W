@@ -4,6 +4,7 @@
 #include "core/pyre.h"
 #include "core/timeline.h"
 #include "gsc/port/generators.h"
+#include "shaders/techsets.h"
 #include "hud.h"
 #include "modsupport.h"
 #include "modutil.h"
@@ -274,19 +275,13 @@ namespace w2b::pipeline
             const auto actual = Json(check / files::FromUtf8(relative));
             if (actual["techniqueSet"] != expected["techniqueSet"] || TextureRoutes(actual) != TextureRoutes(expected))
                 throw StepError("RuntimeError", "bound material or texture routing changed: " + relative);
-            const auto technique = Json(check / "techniquesets" / files::FromUtf8(actual["techniqueSet"].get<std::string>() + ".json"));
-            for (const auto& item : technique["techniques"])
-            {
-                if (!item.is_object() || item.empty() || !item.contains("passArray"))
-                    continue;
-                for (const auto& shaderPass : item["passArray"])
-                    for (const auto& [field, stage] : {std::pair<const char*, const char*>{"pixelShader", "ps"}, {"vertexShader", "vs"}})
-                    {
-                        const auto name = shaderPass.at(field).value("name", std::string());
-                        if (StartsWith(name, "waw/runtime_") && Bytes(check / "shader_bin" / files::FromUtf8(std::string(stage) + "_" + name + ".cso")).substr(0, 4) != "DXBC")
-                            throw StepError("RuntimeError", "linked translated shader is not DXBC: " + name);
-                    }
-            }
+            const auto technique = shaders::ReadT6TechniqueSet(check / "techniquesets" / files::FromUtf8(actual["techniqueSet"].get<std::string>() + ".json"));
+            for (const auto& slot : technique.techniques)
+                if (slot)
+                    for (const auto& shaderPass : slot.technique->passes)
+                        for (const auto& [name, stage] : {std::pair<const std::string&, const char*>{shaderPass.pixelShader, "ps"}, {shaderPass.vertexShader, "vs"}})
+                            if (StartsWith(name, "waw/runtime_") && Bytes(check / "shader_bin" / files::FromUtf8(std::string(stage) + "_" + name + ".cso")).substr(0, 4) != "DXBC")
+                                throw StepError("RuntimeError", "linked translated shader is not DXBC: " + name);
         }
         Copy(linked, ff);
         if (!impact.empty())

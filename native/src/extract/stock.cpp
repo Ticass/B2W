@@ -4,6 +4,7 @@
 
 #include "core/asset_paths.h"
 #include "core/files.h"
+#include "shaders/techsets.h"
 #include "core/pyre.h"
 
 #include <algorithm>
@@ -85,26 +86,6 @@ namespace w2b::extract
             return !relative.empty() && *relative.begin() != "..";
         }
 
-        // _techset_shaders
-        std::set<std::string> TechsetShaders(const py::Json& techset)
-        {
-            std::set<std::string> found;
-            for (const auto& tech : techset.value("techniques", py::Json::array()))
-            {
-                if (!tech.is_object())
-                    continue;
-                for (const auto& pass : tech.value("passArray", py::Json::array()))
-                {
-                    const auto ps = pass.value("pixelShader", py::Json::object()), vs = pass.value("vertexShader", py::Json::object());
-                    if (ps.is_object() && ps.contains("name") && ps["name"].is_string() && !ps["name"].get<std::string>().empty())
-                        found.insert("shader_bin/ps_" + ps["name"].get<std::string>() + ".cso");
-                    if (vs.is_object() && vs.contains("name") && vs["name"].is_string() && !vs["name"].get<std::string>().empty())
-                        found.insert("shader_bin/vs_" + vs["name"].get<std::string>() + ".cso");
-                }
-            }
-            return found;
-        }
-
         std::string LStripComma(const std::string& text)
         {
             const auto first = text.find_first_not_of(',');
@@ -183,7 +164,7 @@ namespace w2b::extract
                     if (IsFile(techniquePath))
                     {
                         keep.insert(Posix(techniquePath.lexically_relative(folder)));
-                        const auto shaders = TechsetShaders(ReadJson(techniquePath));
+                        const auto shaders = shaders::ProgramFiles(shaders::ReadT6TechniqueSet(techniquePath));
                         keep.insert(shaders.begin(), shaders.end());
                     }
                 }

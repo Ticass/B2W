@@ -9,6 +9,7 @@
 #include "materials_stage.h"
 #include "modutil.h"
 #include "shaders/runtime.h"
+#include "shaders/techsets.h"
 #include "textures/iwd_recovery.h"
 #include "textures/iwi.h"
 #include "weapons/weapon.h"
@@ -54,26 +55,6 @@ namespace w2b::pipeline
                 sizes.push_back(v);
             }
             return Json{{"format", i8(4)}, {"flags", i8(5)}, {"width", u16(6)}, {"height", u16(8)}, {"depth", u16(10)}, {"fileSizeForPicmip", sizes}};
-        }
-
-        std::set<std::string> TechsetShaders(const Json& techset)
-        {
-            std::set<std::string> files;
-            for (const auto& tech : techset.value("techniques", Json::array()))
-            {
-                if (tech.is_null() || (tech.is_object() && tech.empty()))
-                    continue;
-                for (const auto& p : tech.value("passArray", Json::array()))
-                {
-                    const auto ps = p.contains("pixelShader") && p["pixelShader"].is_object() ? p["pixelShader"] : Json::object();
-                    const auto vs = p.contains("vertexShader") && p["vertexShader"].is_object() ? p["vertexShader"] : Json::object();
-                    if (ps.contains("name") && ps["name"].is_string() && !ps["name"].get<std::string>().empty())
-                        files.insert("shader_bin/ps_" + ps["name"].get<std::string>() + ".cso");
-                    if (vs.contains("name") && vs["name"].is_string() && !vs["name"].get<std::string>().empty())
-                        files.insert("shader_bin/vs_" + vs["name"].get<std::string>() + ".cso");
-                }
-            }
-            return files;
         }
 
         std::string Generic(const fs::path& p)
@@ -134,9 +115,9 @@ namespace w2b::pipeline
                 if (!result.native)
                     for (const auto& x : result.errors)
                         report.errors.push_back(x);
-                if (result.native || !result.entry.is_null())
+                if (result.native || result.entry)
                 {
-                    report.materials.push_back(std::move(result.entry));
+                    report.materials.push_back(result.entry ? result.entry->ToJson() : Json());
                     used.insert(result.techset);
                 }
             }
@@ -337,7 +318,7 @@ namespace w2b::pipeline
                 continue;
             }
             std::set<std::string> destinations{Generic(relative)};
-            for (const auto& shader : TechsetShaders(mod::Json(source)))
+            for (const auto& shader : shaders::ProgramFiles(shaders::ReadT6TechniqueSet(source)))
                 destinations.insert(shader);
             for (const auto& rel : destinations)
             {

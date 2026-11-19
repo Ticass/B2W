@@ -1085,22 +1085,16 @@ namespace w2b::pipeline
         // the bank (sounds.write_t6_bank)
         Json bankReport;
         {
-            const Json bankRequest{{"project", Str(projectRoot / "content_source")},
-                                   {"bank", bank},
-                                   {"destination", Str(projectRoot / "soundbank")},
-                                   {"budget", budget},
-                                   {"reverb_send", reverbSend},
-                                   {"remaster", remaster},
-                                   {"flac_encoder", request.flacEncoder},
-                                   {"engine_names", templateCsv ? TemplateAliasNames(*templateCsv) : std::vector<std::string>{}}};
+            const sound::BankRequest bankRequest{projectRoot / "content_source", bank, projectRoot / "soundbank", budget, reverbSend, remaster,
+                                                 templateCsv ? TemplateAliasNames(*templateCsv) : std::vector<std::string>{}, request.flacEncoder, std::nullopt};
             const auto result = [&]
             {
                 const timeline::Span span("write the sound bank");
                 const profile::Scope scope("sound mix: write the bank");
                 return sound::WriteT6Bank(bankRequest);
             }();
-            bankReport = result["report"];
-            budget = result["budget"];
+            bankReport = result.report;
+            budget = result.budget;
         }
         if (bankReport.contains("engine_names") && !bankReport["engine_names"].is_null() && !bankReport["engine_names"].empty())
         {

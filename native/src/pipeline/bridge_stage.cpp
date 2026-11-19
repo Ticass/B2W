@@ -10,6 +10,7 @@
 #include "bridge_support.h"
 #include "bridge_tail.h"
 #include "core/pyre.h"
+#include "materials/t6_material.h"
 #include "core/timeline.h"
 #include "effects_stage.h"
 #include "extract/cache.h"
@@ -236,7 +237,7 @@ namespace w2b::pipeline
         public:
             explicit BridgeStage(const BridgeStageOptions& options) : o_(options) {}
 
-            Json Run();
+            const BridgeReport& Run();
 
         private:
             void OpenSources();
@@ -258,7 +259,7 @@ namespace w2b::pipeline
             StagedMaterials StageAllMaterials();
             void StageLightmaps(const Names& wawMaterials);
             std::vector<std::string> StageSkyAndImages(Names& used);
-            Json Tail(TailScripts scripts, std::vector<std::string> images, const Json& hudMaterials, const Names& zoneModels);
+            void Tail(TailScripts scripts, std::vector<std::string> images, const Json& hudMaterials, const Names& zoneModels);
 
             std::vector<fs::path> MapScriptFolder() const
             {
@@ -267,7 +268,7 @@ namespace w2b::pipeline
 
             const BridgeStageOptions& o_;
             fs::path projectRoot_;
-            Json report_;
+            BridgeReport report_;
             std::vector<fs::path> roots_, imageIwds_;
             std::optional<extract::StockWaw> stock_;
             std::optional<extract::WawSource> source_; // --waw-source-fx: WaW Mod Tools sources
@@ -298,9 +299,8 @@ namespace w2b::pipeline
         {
             projectRoot_ = o_.stage / "zone_raw" / files::FromUtf8(o_.project);
             fs::create_directories(projectRoot_);
-            report_ = Json{{"project", o_.project}, {"materials", Json::array()}, {"images", Json::array()}, {"techsets", Json::array()},
-                           {"collision", Json::object()}, {"entities", Json::object()}, {"scripts", Json::object()}, {"content", Json::object()},
-                           {"fx_table", Json::object()}, {"errors", Json::array()}, {"warnings", Json::array()}};
+            report_ = BridgeReport{};
+            report_.project = o_.project;
             roots_ = Concat({{o_.stage}, o_.extraRoots});
             if (o_.wawRoot && o_.t4Unlinker)
             {
@@ -350,10 +350,10 @@ namespace w2b::pipeline
             Extend(report_, "images", probes["images"]);
             Extend(report_, "warnings", probes["warnings"]);
             Extend(report_, "errors", probes["errors"]);
-            auto& content = report_["content"];
+            auto& content = report_.content;
             if (probes.contains("content"))
                 content["reflection_probes"] = probes["content"];
-            const auto warningIndex = report_["warnings"].size();
+            const auto warningIndex = report_.warnings.size();
             content["visibility"] = nullptr;
             content["physics_constraints"] = staged.constraints;
             layeredVertexData_ = staged.layered;
@@ -361,13 +361,13 @@ namespace w2b::pipeline
                 content[key] = value;
             if (content["visibility"].is_null())
                 content.erase("visibility");
-            report_["collision"] = std::move(staged.collision);
+            report_.collision = std::move(staged.collision);
             for (const auto& warning : staged.warnings)
-                report_["warnings"].push_back(warning);
+                report_.Warn(warning);
             if (staged.visibilityWarning)
-                report_["warnings"].insert(report_["warnings"].begin() + static_cast<std::ptrdiff_t>(warningIndex), *staged.visibilityWarning);
+                report_.warnings.insert(report_.warnings.begin() + static_cast<std::ptrdiff_t>(warningIndex), *staged.visibilityWarning);
             for (const auto& error : staged.errors)
-                report_["errors"].push_back(error);
+                report_.Fail(error);
             surfaces_ = std::move(staged.surfaces);
             staticModels_ = std::move(staged.staticModels);
             shadowLights_ = staged.shadowLights;
@@ -383,7 +383,7 @@ namespace w2b::pipeline
             zoneSounds_ = NameSet(inventory["zone_sounds"]);
             shipped_ = NameSet(inventory["shipped_models"]);
             entitiesSource_ = files::FromUtf8(navigation_["entity_source"].get<std::string>());
-            report_["entities"] = navigation_["entities"];
+            report_.entities = navigation_["entities"];
             Extend(report_, "warnings", navigation_["warnings"]);
             Extend(report_, "errors", navigation_["errors"]);
             scriptModels_ = NameSet(navigation_["script_models"]);
@@ -405,7 +405,7 @@ namespace w2b::pipeline
             source_.emplace(*modTools, *o_.wawRoot, *o_.t4Unlinker, o_.wawSourceDumps.value_or(o_.stage / "waw_source_dumps"));
             if (const auto problems = source_->Check(); !problems.empty())
             {
-                report_["errors"].push_back("WaW Mod Tools sources unusable: " + mod::Join(problems, "; "));
+                report_.Fail("WaW Mod Tools sources unusable: " + mod::Join(problems, "; "));
                 source_.reset();
             }
         }
@@ -416,7 +416,7 @@ namespace w2b::pipeline
             {
                 if (!o_.wawStockScripts || !fs::exists(*o_.wawStockScripts))
                 {
-                    report_["errors"].push_back("no stock WaW scripts (--waw-stock-scripts): cannot tell the map's scripts from the WaW framework");
+                    report_.Fail("no stock WaW scripts (--waw-stock-scripts): cannot tell the map's scripts from the WaW framework");
                     return 0;
                 }
                 // the patch zone loads after the map zone (nullopt marks its place) and replaces its scripts
@@ -429,11 +429,11 @@ namespace w2b::pipeline
                     request.stockVariantRoots.push_back(*o_.wawRoot / "raw");
                 auto result = pipeline::PortScripts(request);
                 if (Truthy(result.scripts))
-                    report_["scripts"] = std::move(result.scripts);
+                    report_.scripts = std::move(result.scripts);
                 for (const auto& warning : result.warnings)
-                    report_["warnings"].push_back(warning);
+                    report_.Warn(warning);
                 for (const auto& error : result.errors)
-                    report_["errors"].push_back(error);
+                    report_.Fail(error);
                 roots_ = std::move(result.modelRoots);
                 scriptModels_.insert(result.models.begin(), result.models.end());
                 return 0;
@@ -452,10 +452,10 @@ namespace w2b::pipeline
             for (const auto& [stem, metadata] : result.recovered.items())
                 recovered_[stem] = metadata;
             for (const auto& warning : result.warnings)
-                report_["warnings"].push_back(warning);
+                report_.Warn(warning);
             for (const auto& error : result.errors)
-                report_["errors"].push_back(error);
-            Extend(report_, "materials", result.materials);
+                report_.Fail(error);
+            report_.materials.insert(report_.materials.end(), result.materials.begin(), result.materials.end());
             Extend(report_, "images", result.images);
             effects_.table = std::move(result.table);
             effects_.zoneFx = std::move(result.zoneFx);
@@ -472,8 +472,8 @@ namespace w2b::pipeline
             const auto& table = effects_.table;
             for (const auto& name : names)
                 if (!effects_.table.contains(name))
-                    report_["warnings"].push_back("UNSUPPORTED_FX " + name + ": not converted (skipped at runtime)");
-            report_["fx_table"] = effects_.table;
+                    report_.Warn("UNSUPPORTED_FX " + name + ": not converted (skipped at runtime)");
+            report_.fxTable = effects_.table;
             files::WriteText(projectRoot_ / "maps/mp/waw/_waw2bo2_assets.gsc", gsc::port::AssetsSource(table, files::Utf8(o_.wawMapScript->stem())));
             files::WriteText(projectRoot_ / "mod_extra.zone", "");
         }
@@ -482,8 +482,8 @@ namespace w2b::pipeline
         // resolves #using_animtree through the animtree rawfile
         void BridgeStage::AddAnimationZones()
         {
-            const auto xanims = Script(report_, "staged_xanims");
-            const auto trees = Script(report_, "staged_animtrees");
+            const auto xanims = report_.Script("staged_xanims");
+            const auto trees = report_.Script("staged_animtrees");
             if (!xanims.empty())
             {
                 std::string lines;
@@ -493,14 +493,14 @@ namespace w2b::pipeline
                     lines += "xanim," + name.get<std::string>() + "\n";
                 AppendZone(projectRoot_, lines);
             }
-            const auto movement = Script(report_, "actor_movement", Json::object());
+            const auto movement = report_.Script("actor_movement", Json::object());
             if (Truthy(movement))
             {
                 const auto tree = movement["tree"].get<std::string>();
                 AppendZone(projectRoot_, "rawfile,animtrees/" + tree + ".atr\nrawfile,animstatedefs/" + tree + ".asd\n");
             }
             // native T6 trees of non-human source actors (WaW dogs on the T6 dog AI)
-            const auto nativeTrees = Script(report_, "native_actor_trees", Json::object());
+            const auto nativeTrees = report_.Script("native_actor_trees", Json::object());
             if (!Truthy(nativeTrees) || !o_.bo2)
                 return;
             std::map<std::string, std::string> sorted;
@@ -526,7 +526,7 @@ namespace w2b::pipeline
                     }
                     auto staged = StageOwnedActorTree(request);
                     for (const auto& error : staged.errors)
-                        report_["errors"].push_back(error);
+                        report_.Fail(error);
                     tree = std::move(staged.name);
                     atr = std::move(staged.tree);
                 }
@@ -557,10 +557,10 @@ namespace w2b::pipeline
                 Extend(report_, "warnings", result["warnings"]);
                 for (const auto& [name, entries] : result["content"].items())
                 {
-                    if (!report_["content"].contains(name))
-                        report_["content"][name] = Json::array();
+                    if (!report_.content.contains(name))
+                        report_.content[name] = Json::array();
                     for (const auto& entry : entries)
-                        report_["content"][name].push_back(entry);
+                        report_.content[name].push_back(entry);
                 }
                 modelMaterials_ = NameSet(result["materials"]);
                 return 0;
@@ -597,11 +597,11 @@ namespace w2b::pipeline
                     std::vector<std::string> resting;
                     for (const auto& name : summary["resting"])
                         resting.push_back(name.get<std::string>());
-                    report_["warnings"].push_back("DYNENT_SPAWN_BODY_DROPPED " + mod::Join(resting, ", ") +
+                    report_.Warn("DYNENT_SPAWN_BODY_DROPPED " + mod::Join(resting, ", ") +
                                                   ": WaW creates their physics body at spawn; the converted models carry no T6 physics geometry, "
                                                   "so they rest until hit (the client crashed creating it)");
                 }
-                report_["content"]["dynents"] = summary;
+                report_.content["dynents"] = summary;
                 return 0;
             });
         }
@@ -611,9 +611,9 @@ namespace w2b::pipeline
         {
             const auto result = models::RecoverProjectileCollision({o_.gfx, o_.clip, projectRoot_, roots_});
             for (const auto& warning : result.warnings)
-                report_["warnings"].push_back(warning);
+                report_.Warn(warning);
             if (result.entries)
-                report_["content"]["projectile_prop_collision"] = *result.entries;
+                report_.content["projectile_prop_collision"] = *result.entries;
             return {result.names.begin(), result.names.end()};
         }
 
@@ -622,13 +622,13 @@ namespace w2b::pipeline
         {
             if (effects_.models.empty())
             {
-                report_["content"]["fx_model_assets"] = Json::array();
+                report_.content["fx_model_assets"] = Json::array();
                 return {};
             }
             const auto result = models::StageEffectAssets(projectRoot_, {effects_.models.begin(), effects_.models.end()});
             for (const auto& error : result.errors)
-                report_["errors"].push_back(error);
-            report_["content"]["fx_model_assets"] = result.EntriesJson();
+                report_.Fail(error);
+            report_.content["fx_model_assets"] = result.EntriesJson();
             Names names;
             for (const auto& entry : result.entries)
                 names.insert(entry.name);
@@ -638,12 +638,12 @@ namespace w2b::pipeline
         // the world, model, HUD and weapon materials with their sources recovered first
         BridgeStage::StagedMaterials BridgeStage::StageAllMaterials()
         {
-            const auto hudList = Script(report_, "hud_materials");
+            const auto hudList = report_.Script("hud_materials");
             const auto hud = NameSet(hudList);
             Names names = Union(modelMaterials_, hud);
             for (const auto& surface : surfaces_)
                 names.insert(surface.material);
-            names = Union(names, NameSet(report_["content"]["physics_constraints"]["materials"]));
+            names = Union(names, NameSet(report_.content["physics_constraints"]["materials"]));
             Names weaponMaterials;
             if (weaponReport_)
             {
@@ -654,24 +654,24 @@ namespace w2b::pipeline
             nativeFallbacks_ = bridge::RecoverMaterialSources(report_, Union(names, weaponMaterials), roots_, stock, source_ ? &*source_ : nullptr,
                                                               o_.stockMaterials, o_.bo2);
             if (o_.techsetDump)
-                report_["content"]["source_impact_materials"] =
+                report_.content["source_impact_materials"] =
                     bridge::StageImpactMaterials(projectRoot_, roots_, *o_.techsetDump, stock, *recovery_, recovered_, layeredVertexData_);
             // primary lights keep their shadow maps only with the WaW shadow geometry
             const auto primaryLights = Sibling(o_.gfx, ".gfx.bin", ".primarylights.json");
             bridge::MaterialOptions options;
             options.falloffPlacement = bridge::LightFalloffPlacement(primaryLights, roots_);
-            report_["content"]["light_falloff_placement"] = options.falloffPlacement ? Json(*options.falloffPlacement) : Json();
+            report_.content["light_falloff_placement"] = options.falloffPlacement ? Json(*options.falloffPlacement) : Json();
             options.lightShadows = !fs::exists(primaryLights) || shadowLights_;
             options.layeredVertexData = layeredVertexData_;
             options.nativeFallbacks = nativeFallbacks_;
             auto used = bridge::StageMaterials(report_, names, roots_, o_.stockMaterials, projectRoot_, o_.techsetDump, options);
             used = Union(used, effects_.techsets);
             Names hudImages;
-            for (const auto& material : report_["materials"])
-                if (hud.contains(material["name"].get<std::string>()))
-                    for (const auto& texture : mod::Json(projectRoot_ / files::FromUtf8(material["file"].get<std::string>())).value("textures", Json::array()))
-                        if (Truthy(texture.value("image", Json())))
-                            hudImages.insert(texture["image"].get<std::string>());
+            for (const auto& material : report_.materials)
+                if (hud.contains(material.name))
+                    for (const auto& texture : materials::ReadT6Material(projectRoot_ / files::FromUtf8(material.file)).textures)
+                        if (!texture.image.empty())
+                            hudImages.insert(texture.image);
             if (!hudImages.empty())
                 bridge::WriteImageStreaming(projectRoot_, hudImages, true);
             return {hudList, std::move(used)};
@@ -698,11 +698,11 @@ namespace w2b::pipeline
                 return textures::StageLightmaps(request);
             });
             for (const auto& warning : result.warnings)
-                report_["warnings"].push_back(warning);
+                report_.Warn(warning);
             Json pages = Json::array();
             for (const auto& page : result.pages)
                 pages.push_back(page.ToJson());
-            report_["content"]["lightmaps"] = Json{{"pages", std::move(pages)}, {"waw_encoded_materials", wawMaterials.size()}};
+            report_.content["lightmaps"] = Json{{"pages", std::move(pages)}, {"waw_encoded_materials", wawMaterials.size()}};
         }
 
         // the sky (the map's own dome, else BO2's with the WaW sky cube), then every image
@@ -713,13 +713,13 @@ namespace w2b::pipeline
             if (sourceSky && o_.bo2 && o_.techsetDump)
             {
                 const auto sky = StageSourceSkybox({o_.project, projectRoot_, roots_, *sourceSky, *o_.techsetDump, *o_.bo2});
-                Extend(report_, "materials", sky.materials);
-                report_["content"]["sky"] = sky.sky.ToJson();
+                report_.materials.insert(report_.materials.end(), sky.materials.begin(), sky.materials.end());
+                report_.content["sky"] = sky.sky.ToJson();
                 const Names skyMaterials(sky.sky.materials.begin(), sky.sky.materials.end());
-                for (const auto& material : report_["materials"])
-                    if (skyMaterials.contains(material["name"].get<std::string>()))
+                for (const auto& material : report_.materials)
+                    if (skyMaterials.contains(material.name))
                     {
-                        skyTechset = material["t6_techset"].get<std::string>();
+                        skyTechset = material.t6Techset;
                         break;
                     }
                 skyImage.reset();
@@ -733,11 +733,11 @@ namespace w2b::pipeline
             if (skyTechset)
             {
                 used.insert(*skyTechset);
-                const auto& content = report_["content"];
+                const auto& content = report_.content;
                 const auto skyMaterials = content.contains("sky") ? NameSet(content["sky"].value("materials", Json::array())) : Names{};
-                for (const auto& material : report_["materials"])
-                    if (skyMaterials.contains(material["name"].get<std::string>()))
-                        used.insert(material["t6_techset"].get<std::string>());
+                for (const auto& material : report_.materials)
+                    if (skyMaterials.contains(material.name))
+                        used.insert(material.t6Techset);
             }
             const auto imageRoots = Concat({{projectRoot_ / SKY_SOURCE_DIR}, ImageFolders(roots_)});
             auto images = bridge::StageImages(report_, imageRoots, projectRoot_, imageIwds_, skyImage ? std::vector{*skyImage} : std::vector<std::string>{},
@@ -749,7 +749,7 @@ namespace w2b::pipeline
             return images;
         }
 
-        Json BridgeStage::Tail(TailScripts scripts, std::vector<std::string> images, const Json& hudMaterials, const Names& zoneModels)
+        void BridgeStage::Tail(TailScripts scripts, std::vector<std::string> images, const Json& hudMaterials, const Names& zoneModels)
         {
             const auto wawRoots = MapScriptFolder();
             std::optional<fs::path> xwma = o_.xwmaDecoder.value_or(extract::ResourceRoot() / "tools/bin/xaudio_wma_decoder.exe");
@@ -812,9 +812,8 @@ namespace w2b::pipeline
             sounds.approximateCurves = o_.approximateSoundCurves;
             input.lighting = {Sibling(o_.gfx, ".gfx.bin", ""), o_.clip, shadowLights_};
             BridgeTail(std::move(input), report_, stock_ ? &*stock_ : nullptr, *recovery_);
-            return report_;
         }
-        Json BridgeStage::Run()
+        const BridgeReport& BridgeStage::Run()
         {
             OpenSources();
             StageGeometry();
@@ -822,14 +821,14 @@ namespace w2b::pipeline
                 throw StepError("StageError", "the native bridge stage needs --waw-map-script and --bo2");
             OpenModToolsSources();
             PortScripts();
-            const auto listened = NameSet(Script(report_, "client_listener_strings"));
+            const auto listened = NameSet(report_.Script("client_listener_strings"));
             const auto entitiesJson = projectRoot_ / "BSP/entities.json";
             if (!listened.empty() && mod::IsFile(entitiesJson))
                 if (const auto networked = NetworkClientModels(entitiesJson, listened); !networked.empty())
-                    report_["warnings"].push_back("CLIENT_MODELS_NETWORKED " + mod::Join(networked, ", ") +
+                    report_.Warn("CLIENT_MODELS_NETWORKED " + mod::Join(networked, ", ") +
                                                   ": client-side script_models driven by WaW client listeners, which the port runs on the server");
             std::vector<std::string> fxNames;
-            for (const auto& name : Script(report_, "fx"))
+            for (const auto& name : report_.Script("fx"))
                 fxNames.push_back(name.get<std::string>());
             // the dynents' destroy effects convert with the map's own
             Names destroyFx;
@@ -847,7 +846,7 @@ namespace w2b::pipeline
                 for (const auto& name : Difference(NameSet((*weaponReport_)["dependencies"].value("fx", Json::array())), Names(fxNames.begin(), fxNames.end())))
                     effectNames.push_back(name);
             if (!stock_)
-                report_["warnings"].push_back("no --waw-root/--t4-unlinker: assets the map only references cannot be looked up in the stock WaW zones");
+                report_.Warn("no --waw-root/--t4-unlinker: assets the map only references cannot be looked up in the stock WaW zones");
             StageEffects(effectNames);
             compiledSounds_ = Union(compiledSounds_, effects_.sounds);
             roots_.insert(roots_.end(), effects_.extraRoots.begin(), effects_.extraRoots.end());
@@ -862,7 +861,7 @@ namespace w2b::pipeline
             for (const auto& model : staticModels_)
                 worldModels.insert(model.name);
             // entity placements need the same complete lookup as script-only models
-            resolved_ = bridge::RecoverScriptModels(report_["scripts"], report_["warnings"], Union(Union(Union(scriptModels_, shipped_), clipModels_), worldModels),
+            resolved_ = bridge::RecoverScriptModels(report_.scripts, report_.warnings, Union(Union(Union(scriptModels_, shipped_), clipModels_), worldModels),
                                                     roots_, stock, source_ ? &*source_ : nullptr);
             if (mod::IsFile(entitiesJson))
             {
@@ -874,7 +873,7 @@ namespace w2b::pipeline
                     const auto count = StripModels(entitiesJson, absent);
                     scriptModels_ = Difference(scriptModels_, absent);
                     entityBoxModels_ = Difference(entityBoxModels_, absent);
-                    report_["warnings"].push_back("ENTITY_MODEL_MISSING " + mod::ListRepr(std::vector<std::string>(absent.begin(), absent.end())) +
+                    report_.Warn("ENTITY_MODEL_MISSING " + mod::ListRepr(std::vector<std::string>(absent.begin(), absent.end())) +
                                                   ": in no WaW zone or source; " + std::to_string(count) +
                                                   " entities keep no model (WaW draws its default model)");
                 }
@@ -888,10 +887,9 @@ namespace w2b::pipeline
             // shared dual-encoding lightmap pages: native decals inherit the
             // receiving surface's page, so native and WaW readers share its image
             Names wawLightmapMaterials;
-            for (const auto& material : report_["materials"])
-                if (material.contains("shader_runtime") && material["shader_runtime"].is_object() &&
-                    material["shader_runtime"].value("lightmap", Json()) == "waw")
-                    wawLightmapMaterials.insert(material.value("source", material["name"]).get<std::string>());
+            for (const auto& material : report_.materials)
+                if (material.shaderRuntime.is_object() && material.shaderRuntime.value("lightmap", Json()) == "waw")
+                    wawLightmapMaterials.insert(material.WawName());
             StageLightmaps(wawLightmapMaterials);
             const auto images = StageSkyAndImages(used);
 
@@ -904,26 +902,24 @@ namespace w2b::pipeline
                 scripts.zoneGraph = gsc::port::ZoneGraph{zoneGraph_["initial"].get<std::vector<std::string>>(), zoneGraph_["adjacency"].get<std::vector<std::string>>()};
             }
             const auto zoneModels = Union(Union(Union(scriptModels_, Intersection(shipped_, resolved_)), fxModels), projectileModels);
-            return Tail(std::move(scripts), images, hudMaterials, zoneModels);
+            Tail(std::move(scripts), images, hudMaterials, zoneModels);
+            return report_;
         }
 
         // cli._stage_bridge's summary
-        int PrintSummary(const Json& report, const std::string& project)
+        int PrintSummary(const BridgeReport& report, const std::string& project)
         {
-            std::printf("collision: %s\n", py::JsonDumpsDefault(report["collision"]).c_str());
-            std::size_t degraded = 0;
-            for (const auto& material : report["materials"])
-                if (material.contains("notes") && Truthy(material["notes"]))
-                    ++degraded;
-            std::printf("materials: %zu written, %zu with degradations (see zone_raw/%s/bridge_stage.report.json)\n", report["materials"].size(), degraded,
-                        project.c_str());
-            std::printf("images: %zu IWI written; technique sets used: %zu\n", report["images"].size(), report["techsets"].size());
-            for (const auto& warning : report["warnings"])
-                std::printf("warning: %s\n", warning.get<std::string>().c_str());
+            std::printf("collision: %s\n", py::JsonDumpsDefault(report.collision).c_str());
+            const auto degraded = std::ranges::count_if(report.materials, [](const MaterialRecord& m) { return m.notes && !m.notes->empty(); });
+            std::printf("materials: %zu written, %zu with degradations (see zone_raw/%s/bridge_stage.report.json)\n", report.materials.size(),
+                        static_cast<std::size_t>(degraded), project.c_str());
+            std::printf("images: %zu IWI written; technique sets used: %zu\n", report.images.size(), report.techsets.size());
+            for (const auto& warning : report.warnings)
+                std::printf("warning: %s\n", warning.c_str());
             std::fflush(stdout);
-            const auto& errors = report["errors"];
+            const auto& errors = report.errors;
             for (std::size_t i = 0; i < errors.size() && i < 40; ++i)
-                std::fprintf(stderr, "error: %s\n", errors[i].get<std::string>().c_str());
+                std::fprintf(stderr, "error: %s\n", errors[i].c_str());
             if (errors.size() > 40)
                 std::fprintf(stderr, "... %zu more errors in the report\n", errors.size() - 40);
             std::fflush(stderr);

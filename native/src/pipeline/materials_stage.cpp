@@ -131,7 +131,7 @@ namespace w2b::pipeline
         struct Result
         {
             bool native = false;
-            Json entry; // null: no material
+            std::optional<MaterialRecord> entry; // none: no material
             std::string techset;
             Json warnings = Json::array(), errors = Json::array(), images = Json::array();
             std::vector<std::pair<std::string, std::string>> files; // (relative, bytes), Path order
@@ -149,10 +149,12 @@ namespace w2b::pipeline
                 if ((substitute = DanglingSubstitute(name, *c.sources)))
                     source = c.sources->Find(substitute->first);
             const auto outRel = assets::MaterialPath(Renamed(c, name));
-            Json entry{{"name", Renamed(c, name)}, {"file", Generic(outRel)}};
+            MaterialRecord entry;
+            entry.name = Renamed(c, name);
+            entry.file = Generic(outRel);
             if (c.rename.count(name))
-                entry["source"] = name;
-            Json notes = Json::array();
+                entry.source = name;
+            std::vector<std::string> notes;
             if (!source)
             {
                 result.errors.push_back("material " + name + ": no WaW source " + Generic(rel) + " in any zone dump");
@@ -160,14 +162,14 @@ namespace w2b::pipeline
             }
             if (substitute)
             {
-                entry["substituted_from"] = substitute->first;
+                entry.substitutedFrom = substitute->first;
                 notes.push_back(substitute->second);
                 result.warnings.push_back(substitute->second);
             }
             const auto& t4 = *source;
             const auto& t4ts = t4.techniqueSet;
-            entry["t4_techset"] = t4ts;
-            entry["t4_sort_key"] = t4.sortKey;
+            entry.t4Techset = std::optional(t4ts);
+            entry.t4SortKey = t4.sortKey;
             std::error_code e;
             bool programs = false;
             if (c.techsetRoot)
@@ -215,14 +217,10 @@ namespace w2b::pipeline
                 }
                 if (paired)
                 {
-                    Json kept = Json::array();
-                    for (const auto& n : notes)
-                        if (n != "distance falloff dropped")
-                            kept.push_back(n);
-                    notes = kept;
+                    std::erase(notes, std::string("distance falloff dropped"));
                 }
             }
-            entry["shader_runtime"] = runtime;
+            entry.shaderRuntime = runtime;
             const auto stateSlots = shaders::ApplySourcePassStates(t4, out, runtime);
             if (!stateSlots.empty())
                 notes.push_back("WaW pass blend/depth/raster state on T6 slots " + IntList(stateSlots));
@@ -232,10 +230,10 @@ namespace w2b::pipeline
                 if (!c.imagePrefix.empty() && !image.empty() && !StartsWith(image, ",") && !StartsWith(image, "$") && !StartsWith(image, c.imagePrefix))
                     texture.image = c.imagePrefix + image;
             }
-            entry["t6_techset"] = out.techniqueSet;
-            entry["donor"] = Generic(fs::path(files::FromUtf8(c.donorPaths[target].get<std::string>())).lexically_relative(c.stockMaterials));
-            entry["cost"] = prepared.cost;
-            entry["notes"] = notes;
+            entry.t6Techset = out.techniqueSet;
+            entry.donor = Generic(fs::path(files::FromUtf8(c.donorPaths[target].get<std::string>())).lexically_relative(c.stockMaterials));
+            entry.cost = prepared.cost;
+            entry.notes = std::move(notes);
             output.Write(outRel, materials::T6MaterialText(out), true);
             result.entry = entry;
             result.techset = out.techniqueSet;
@@ -249,10 +247,12 @@ namespace w2b::pipeline
             Result result;
             result.native = true;
             const auto outRel = assets::MaterialPath(Renamed(c, name));
-            Json entry{{"name", Renamed(c, name)}, {"file", Generic(outRel)}};
+            MaterialRecord entry;
+            entry.name = Renamed(c, name);
+            entry.file = Generic(outRel);
             if (c.rename.count(name))
-                entry["source"] = name;
-            Json notes = Json::array();
+                entry.source = name;
+            std::vector<std::string> notes;
             const auto& nativePath = c.fallbacks.at(name);
             auto out = materials::ReadT6Material(nativePath);
             if (out.thermalMaterial)
@@ -306,13 +306,11 @@ namespace w2b::pipeline
             fs::create_directories(dst.parent_path());
             files::WriteText(dst, materials::T6MaterialText(out));
             const std::string why = "original material absent from WaW lookup";
-            entry["t4_techset"] = nullptr;
-            entry["t6_techset"] = out.techniqueSet;
-            entry["native_equivalent"] = Str(nativePath);
-            Json allNotes = Json::array({why});
-            for (const auto& n : notes)
-                allNotes.push_back(n);
-            entry["notes"] = allNotes;
+            entry.t4Techset = std::optional<std::string>();
+            entry.t6Techset = out.techniqueSet;
+            entry.nativeEquivalent = Str(nativePath);
+            notes.insert(notes.begin(), why);
+            entry.notes = std::move(notes);
             result.entry = entry;
             result.techset = out.techniqueSet;
             result.warnings.push_back("BO2_FALLBACK material " + name + " -> " + Str(nativePath) + ": " + why);

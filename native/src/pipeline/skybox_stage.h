@@ -6,6 +6,7 @@
 // drawn with the WaW sky cube.
 
 #include "core/pytext.h"
+#include "pipeline/bridge_report.h"
 
 #include <filesystem>
 #include <optional>
@@ -32,7 +33,7 @@ namespace w2b::pipeline
 
     struct SourceSkyStage
     {
-        py::Json materials; // report material entries
+        std::vector<MaterialRecord> materials;
         SourceSky sky;
     };
 
@@ -47,7 +48,7 @@ namespace w2b::pipeline
     // stage_skybox: BO2's sky dome with the WaW sky cube `skyImage` (found in
     // `imageRoots`), black when the map has no sky; appends to report's
     // warnings and errors
-    TemplateSky StageTemplateSkybox(py::Json& report, const std::string& project, const std::filesystem::path& projectRoot,
+    TemplateSky StageTemplateSkybox(BridgeReport& report, const std::string& project, const std::filesystem::path& projectRoot,
                                     const std::optional<std::filesystem::path>& bo2Root, std::optional<std::string> skyImage,
                                     const std::vector<std::filesystem::path>& imageRoots);
 } // namespace w2b::pipeline

@@ -1,6 +1,7 @@
 #include "models/surface_fixes.h"
 
 #include "core/files.h"
+#include "materials/t6_material.h"
 #include "weapons/stage.h"
 
 #include <algorithm>
@@ -12,26 +13,23 @@ namespace w2b::models
     {
         constexpr int MaxSortKey = 63;
 
-        bool ModelMaterial(const Json& entry)
+        bool ModelMaterial(const SurfaceMaterial& entry)
         {
-            return entry.contains("t4_sort_key") && entry.value("t4_techset", std::string{}).starts_with("mc_");
+            return entry.t4SortKey && entry.t4Techset.starts_with("mc_");
         }
 
-        bool Translucent(const Json& material)
+        bool Translucent(const materials::T6Material& material)
         {
-            const auto states = material.find("stateBits");
-            return material.value("cameraRegion", std::string{}).ends_with("Trans") &&
-                   states != material.end() && std::ranges::any_of(*states, [](const Json& state)
+            return material.cameraRegion.ends_with("Trans") && std::ranges::any_of(material.stateBits, [](const materials::T6StateBits& state)
             {
-                return state.value("colorWriteRgb", false) && !state.value("polymodeLine", false) &&
-                       state.value("dstBlendRgb", std::string{"zero"}) != "zero";
+                return state.colorWriteRgb && !state.polymodeLine && state.dstBlendRgb != "zero";
             });
         }
 
         struct SortMaterial
         {
             Path path;
-            Json material;
+            materials::T6Material material;
             int sourceKey;
             int originalKey;
             int key;
@@ -72,7 +70,7 @@ namespace w2b::models
         }
     }
 
-    bool HasModelSortMaterials(const Json& materials)
+    bool HasModelSortMaterials(const std::vector<SurfaceMaterial>& materials)
     {
         return std::ranges::any_of(materials, ModelMaterial);
     }
@@ -103,34 +101,41 @@ namespace w2b::models
         return names;
     }
 
-    std::vector<SortKeyChange> ApplySurfaceOrder(const Path& project, const Json& materials, const std::vector<SurfaceOrder>& orders)
+    std::vector<SortKeyChange> ApplySurfaceOrder(const Path& project, const std::vector<SurfaceMaterial>& materials, const std::vector<SurfaceOrder>& orders)
     {
-        auto entries = Json::object();
+        // by WaW name, in first-seen order; a later record of the same name replaces the earlier one
+        std::vector<std::pair<std::string, const SurfaceMaterial*>> entries;
         for (const auto& entry : materials)
             if (ModelMaterial(entry))
-                entries[entry.value("source", entry.at("name").get<std::string>())] = entry;
+            {
+                const auto known = std::ranges::find(entries, entry.wawName, &std::pair<std::string, const SurfaceMaterial*>::first);
+                if (known != entries.end())
+                    known->second = &entry;
+                else
+                    entries.emplace_back(entry.wawName, &entry);
+            }
         std::map<std::string, SortMaterial, std::less<>> eligible;
-        for (const auto& [name, entry] : entries.items())
+        for (const auto& [name, entry] : entries)
         {
-            const auto path = project / files::FromUtf8(entry.at("file").get_ref<const std::string&>());
+            const auto path = project / files::FromUtf8(entry->file);
             if (!files::fs::is_regular_file(path))
                 continue;
-            auto definition = weapons::ReadAssetJson(path);
-            if (!definition.contains("sortKey") || !Translucent(definition))
+            auto definition = materials::ReadT6Material(path);
+            if (!Translucent(definition))
                 continue;
-            const auto key = definition.at("sortKey").get<int>();
-            eligible.emplace(name, SortMaterial{path, std::move(definition), entry.at("t4_sort_key").get<int>(), key, key});
+            const auto key = static_cast<int>(definition.sortKey);
+            eligible.emplace(name, SortMaterial{path, std::move(definition), *entry->t4SortKey, key, key});
         }
         RaiseKeys(orders, eligible);
         std::vector<SortKeyChange> changed;
-        for (const auto& [name, entry] : entries.items())
+        for (const auto& [name, entry] : entries)
         {
             const auto it = eligible.find(name);
             if (it == eligible.end() || it->second.key == it->second.originalKey)
                 continue;
             auto& value = it->second;
-            value.material["sortKey"] = value.key;
-            ReplaceStagedText(value.path, py::JsonDumps(value.material, 2) + "\n");
+            value.material.sortKey = static_cast<unsigned>(value.key);
+            ReplaceStagedText(value.path, materials::T6MaterialText(value.material));
             changed.push_back({name, value.originalKey, value.key});
         }
         return changed;

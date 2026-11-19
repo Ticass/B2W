@@ -5,6 +5,7 @@
 #include "core/parallel.h"
 #include "core/pyre.h"
 #include "core/sum.h"
+#include "sound/alias_row.h"
 #include "sound/bank_csv.h"
 #include "sound/streamed_bank.h"
 
@@ -125,6 +126,14 @@ namespace w2b::sound
         double D(const Json& v)
         {
             return v.get<double>();
+        }
+
+        std::optional<double> Number(const T6AliasRow& row, const char* key)
+        {
+            double out = 0;
+            if (py::ParseFloat(row[key], out))
+                return out;
+            return std::nullopt;
         }
 
         std::optional<double> Number(const Json& row, const char* key)
@@ -258,9 +267,9 @@ namespace w2b::sound
         }
 
         // t6_alias_rows: rows of the official BO2 alias CSV for one bound alias list
-        std::pair<std::vector<Json>, Json> AliasRows(const Json& document, const std::set<std::string>& weaponAliases, const Json& reverbSend, const Json& classes)
+        std::pair<std::vector<T6AliasRow>, Json> AliasRows(const Json& document, const std::set<std::string>& weaponAliases, const Json& reverbSend, const Json& classes)
         {
-            std::vector<Json> rows;
+            std::vector<T6AliasRow> rows;
             Json errors = Json::array();
             const auto docName = document["name"].get<std::string>();
             const auto busGroups = classes.is_object() ? classes.value("bus_groups", Json()) : Json();
@@ -311,18 +320,24 @@ namespace w2b::sound
                 }
                 waw["wet_ratio"] = D(source["distMax"]) > 0 ? D(source["distReverbMax"]) / D(source["distMax"]) : 1.0;
                 const double offset = SendOffset(reverbSend, group);
-                Json out{{"_waw", waw}, {"Name", docName}, {"FileSource", binding["output"]}, {"Secondary", secondary},
-                         {"Storage", T6_STORAGE.count(flags["loadType"].get<int>()) ? T6_STORAGE.at(flags["loadType"].get<int>()) : std::string("loaded")},
-                         {"Bus", bus}, {"VolumeGroup", group}, {"DuckGroup", duckGroup}, {"Duck", ""},
-                         {"ReverbSend", Dbspl(flags["noWetLevel"].get<bool>() ? 0.0 : std::min(D(source["reverbSend"]) * std::pow(10.0, offset / 20), 1.0))},
-                         {"CenterSend", Dbspl(D(source["centerPercentage"]))},
-                         {"VolMin", Dbspl(D(source["volMin"]) * gain)},
-                         {"VolMax", Dbspl(D(source["volMax"]) * gain)},
-                         {"DistMin", Num(D(source["distMin"]))},
-                         {"DistMaxDry", Num(D(source["distMax"]))},
-                         {"DistMaxWet", Num(D(source["distReverbMax"]))}};
+                T6AliasRow out;
+                out.waw = std::move(waw);
+                out["Name"] = docName;
+                out["FileSource"] = binding["output"].get<std::string>();
+                out["Secondary"] = secondary;
+                out["Storage"] = T6_STORAGE.count(flags["loadType"].get<int>()) ? T6_STORAGE.at(flags["loadType"].get<int>()) : std::string("loaded");
+                out["Bus"] = bus;
+                out["VolumeGroup"] = group;
+                out["DuckGroup"] = duckGroup;
+                out["ReverbSend"] = Dbspl(flags["noWetLevel"].get<bool>() ? 0.0 : std::min(D(source["reverbSend"]) * std::pow(10.0, offset / 20), 1.0));
+                out["CenterSend"] = Dbspl(D(source["centerPercentage"]));
+                out["VolMin"] = Dbspl(D(source["volMin"]) * gain);
+                out["VolMax"] = Dbspl(D(source["volMax"]) * gain);
+                out["DistMin"] = Num(D(source["distMin"]));
+                out["DistMaxDry"] = Num(D(source["distMax"]));
+                out["DistMaxWet"] = Num(D(source["distReverbMax"]));
                 for (const auto& [k, v] : curves.items())
-                    out[k] = v["t6"];
+                    out[k] = v["t6"].get<std::string>();
                 const auto str = [](const Json& v) { return v.is_number_integer() ? std::to_string(v.get<long long>()) : (v.is_string() ? v.get<std::string>() : py::FloatRepr(v.get<double>())); };
                 out["LimitCount"] = str(source["limitCount"]);
                 out["EntityLimitCount"] = str(source["entityLimitCount"]);
@@ -361,7 +376,7 @@ namespace w2b::sound
         }
 
         // clamp_t6_ranges: rows fitted to the T6 column formats
-        Json ClampRanges(std::vector<Json>& rows)
+        Json ClampRanges(std::vector<T6AliasRow>& rows)
         {
             static const std::map<std::string, std::pair<double, double>> ranges{{"DistMin", {0, 65535}}, {"DistMaxDry", {0, 65535}}, {"DistMaxWet", {0, 65535}},
                                                                                  {"LimitCount", {0, 128}}, {"EntityLimitCount", {0, 128}}};
@@ -373,8 +388,8 @@ namespace w2b::sound
                 for (const auto& column : intColumns)
                 {
                     double value = 0;
-                    if (!py::ParseFloat(row[column].get<std::string>(), value))
-                        throw Error("could not convert string to float: " + row[column].dump());
+                    if (!py::ParseFloat(row[column], value))
+                        throw Error("could not convert string to float: " + Json(row[column]).dump());
                     const auto it = ranges.find(column);
                     const double low = it == ranges.end() ? -INFINITY : it->second.first, high = it == ranges.end() ? INFINITY : it->second.second;
                     const auto t6 = static_cast<long long>(std::nearbyint(std::min(std::max(value, low), high)));
@@ -407,19 +422,19 @@ namespace w2b::sound
             return std::nullopt;
         }
 
-        std::map<std::string, std::vector<size_t>> ByName(const std::vector<Json>& rows)
+        std::map<std::string, std::vector<size_t>> ByName(const std::vector<T6AliasRow>& rows)
         {
             std::map<std::string, std::vector<size_t>> out;
             for (size_t i = 0; i < rows.size(); i++)
-                out[Unprefixed(rows[i]["Name"].get<std::string>())].push_back(i);
+                out[Unprefixed(rows[i]["Name"])].push_back(i);
             return out;
         }
 
-        Json EngineNameCopies(std::vector<Json>& rows, const std::vector<std::string>& names, const Json& twins)
+        Json EngineNameCopies(std::vector<T6AliasRow>& rows, const std::vector<std::string>& names, const Json& twins)
         {
             const auto byName = ByName(rows);
             Json copies = Json::object(), unmatched = Json::array();
-            std::vector<Json> added;
+            std::vector<T6AliasRow> added;
             long long placed = 0;
             for (const auto& name : names)
             {
@@ -438,7 +453,7 @@ namespace w2b::sound
                     auto copy = rows[i];
                     copy["Name"] = name;
                     for (const auto& [k, v] : twin.items())
-                        copy[k] = v;
+                        copy[k] = v.get<std::string>();
                     added.push_back(copy);
                 }
             }
@@ -446,7 +461,7 @@ namespace w2b::sound
             return Json{{"copies", copies}, {"unmatched", unmatched}, {"stock_mix", placed}};
         }
 
-        std::set<std::string> Chained(const std::vector<Json>& rows, const std::map<std::string, std::vector<size_t>>& byName, const std::vector<std::string>& names)
+        std::set<std::string> Chained(const std::vector<T6AliasRow>& rows, const std::map<std::string, std::vector<size_t>>& byName, const std::vector<std::string>& names)
         {
             std::set<std::string> found;
             std::vector<std::string> pending;
@@ -460,20 +475,20 @@ namespace w2b::sound
                     continue;
                 if (const auto it = byName.find(name); it != byName.end())
                     for (const auto i : it->second)
-                        if (rows[i].contains("Secondary") && !rows[i]["Secondary"].get<std::string>().empty())
-                            pending.push_back(Unprefixed(rows[i]["Secondary"].get<std::string>()));
+                        if (!rows[i]["Secondary"].empty())
+                            pending.push_back(Unprefixed(rows[i]["Secondary"]));
             }
             return found;
         }
 
         // fit_loaded_budget: weapon chains, then played sounds, then the smallest
-        Json FitLoadedBudget(std::vector<Json>& rows, const fs::path& pcmRoot, Json& budget, const std::set<std::string>& weaponAliases)
+        Json FitLoadedBudget(std::vector<T6AliasRow>& rows, const fs::path& pcmRoot, Json& budget, const std::set<std::string>& weaponAliases)
         {
             std::map<std::string, long long> sizes;
             for (const auto& row : rows)
                 if (row["Storage"] == "loaded")
                 {
-                    const auto file = row["FileSource"].get<std::string>();
+                    const auto file = row["FileSource"];
                     if (!sizes.count(file))
                         sizes[file] = static_cast<long long>(fs::file_size(pcmRoot / files::FromUtf8(file)));
                 }
@@ -483,7 +498,7 @@ namespace w2b::sound
             for (const auto& n : weaponChain)
                 if (const auto it = byName.find(n); it != byName.end())
                     for (const auto i : it->second)
-                        weaponFiles.insert(rows[i]["FileSource"].get<std::string>());
+                        weaponFiles.insert(rows[i]["FileSource"]);
             std::vector<std::string> playedNames;
             if (budget.contains("played"))
             {
@@ -493,7 +508,7 @@ namespace w2b::sound
             for (const auto& n : Chained(rows, byName, playedNames))
                 if (const auto it = byName.find(n); it != byName.end())
                     for (const auto i : it->second)
-                        playedFiles.insert(rows[i]["FileSource"].get<std::string>());
+                        playedFiles.insert(rows[i]["FileSource"]);
             std::vector<std::pair<std::string, long long>> order(sizes.begin(), sizes.end());
             std::sort(order.begin(), order.end(), [&](const auto& a, const auto& b)
                       {
@@ -512,17 +527,17 @@ namespace w2b::sound
             }
             Json streamed = Json::array();
             for (auto& row : rows)
-                if (row["Storage"] == "loaded" && !keep.count(row["FileSource"].get<std::string>()))
+                if (row["Storage"] == "loaded" && !keep.count(row["FileSource"]))
                 {
                     row["Storage"] = "streamed";
-                    streamed.push_back(Json{{"alias", row["Name"]}, {"file", row["FileSource"]}, {"bytes", sizes[row["FileSource"].get<std::string>()]}});
+                    streamed.push_back(Json{{"alias", row["Name"]}, {"file", row["FileSource"]}, {"bytes", sizes[row["FileSource"]]}});
                 }
             if (budget.contains("entry_pool"))
             {
                 std::set<std::string> files;
                 for (const auto& r : rows)
-                    if (r.contains("FileSource") && !r["FileSource"].get<std::string>().empty())
-                        files.insert(r["FileSource"].get<std::string>());
+                    if (!r["FileSource"].empty())
+                        files.insert(r["FileSource"]);
                 budget["entry_pool"]["map"] = files.size();
             }
             const auto countIn = [&](const std::set<std::string>& a, const auto& pred)
@@ -558,18 +573,18 @@ namespace w2b::sound
             return std::nullopt;
         }
 
-        Json AnnouncerCopies(std::vector<Json>& rows, std::map<std::string, std::string>& roles, const Json& events, const std::string& prefix)
+        Json AnnouncerCopies(std::vector<T6AliasRow>& rows, std::map<std::string, std::string>& roles, const Json& events, const std::string& prefix)
         {
             static const pyre::Regex unsafe("[^a-z0-9_]");
             std::map<std::string, std::string> wanted;
             for (const auto& [_, aliases] : events.items())
                 for (const auto& alias : aliases)
                     wanted["waw/" + alias.get<std::string>()] = "vox_zmba_" + prefix + unsafe.Sub("_", alias.get<std::string>());
-            std::vector<Json> copies;
+            std::vector<T6AliasRow> copies;
             Json made = Json::object();
             for (const auto& row : rows)
             {
-                const auto name = Lower(row["Name"].get<std::string>());
+                const auto name = Lower(row["Name"]);
                 const auto it = wanted.find(name);
                 if (it != wanted.end() && roles.count(name) && roles[name] == "announcer")
                 {
@@ -584,7 +599,7 @@ namespace w2b::sound
             return made;
         }
 
-        void Shift(const std::vector<Json*>& rows, const double shift)
+        void Shift(const std::vector<T6AliasRow*>& rows, const double shift)
         {
             for (auto* row : rows)
                 for (const char* column : {"VolMin", "VolMax"})
@@ -618,9 +633,9 @@ namespace w2b::sound
             return target[index] + (target[index + 1] - target[index]) * (rank - index);
         }
 
-        bool Places(const Json& row)
+        bool Places(const T6AliasRow& row)
         {
-            return row.value("PanType", std::string()) == "3d" && row.contains("_waw") && row["_waw"].value("standard", false);
+            return row["PanType"] == "3d" && row.waw.is_object() && row.waw.value("standard", false);
         }
 
         std::vector<double> Doubles(const Json& list)
@@ -631,7 +646,7 @@ namespace w2b::sound
             return out;
         }
 
-        std::pair<std::optional<std::vector<double>>, std::string> SourceQuantiles(const std::string& key, const std::string& column, const std::vector<Json*>& members,
+        std::pair<std::optional<std::vector<double>>, std::string> SourceQuantiles(const std::string& key, const std::string& column, const std::vector<T6AliasRow*>& members,
                                                                                    const Json& reference)
         {
             if (reference.is_object() && reference.contains(key) && reference[key].contains(column))
@@ -642,7 +657,7 @@ namespace w2b::sound
                 if (column == "Falloff")
                 {
                     if (Places(*row))
-                        values.push_back(D((*row)["_waw"]["falloff"]));
+                        values.push_back(D(row->waw["falloff"]));
                 }
                 else if (column == "DistMin")
                 {
@@ -658,7 +673,7 @@ namespace w2b::sound
             return {std::nullopt, ""};
         }
 
-        std::vector<double> ColumnValues(const std::vector<Json*>& rows, const char* column)
+        std::vector<double> ColumnValues(const std::vector<T6AliasRow*>& rows, const char* column)
         {
             std::vector<double> out;
             for (const auto* row : rows)
@@ -667,15 +682,15 @@ namespace w2b::sound
             return out;
         }
 
-        Json MixClass(const std::string& key, const std::vector<Json*>& members, const Json& stock, const Json& reference, const std::string& reach = "waw")
+        Json MixClass(const std::string& key, const std::vector<T6AliasRow*>& members, const Json& stock, const Json& reference, const std::string& reach = "waw")
         {
             Json out{{"routing", stock["routing"]}, {"transferred", Json::object()}};
             for (auto* row : members)
                 for (const auto& [k, v] : stock["routing"].items())
-                    (*row)[k] = v;
+                    (*row)[k] = v.get<std::string>();
             const auto& targets = stock["quantiles"];
             const auto falloff = stock.value("falloff", Json());
-            std::vector<Json*> ordered;
+            std::vector<T6AliasRow*> ordered;
             for (auto* row : members)
                 if (Number(*row, "PriorityMin").value_or(0.0) <= Number(*row, "PriorityMax").value_or(0.0))
                     ordered.push_back(row);
@@ -702,7 +717,7 @@ namespace w2b::sound
                     (*row)["PriorityMin"] = (*row)["PriorityMax"];
             const auto [nearQ, nearOrigin] = SourceQuantiles(key, "DistMin", members, reference);
             const auto [farQ, farOrigin] = SourceQuantiles(key, "Falloff", members, reference);
-            std::vector<Json*> placed;
+            std::vector<T6AliasRow*> placed;
             for (auto* row : members)
                 if (Places(*row))
                     placed.push_back(row);
@@ -715,18 +730,18 @@ namespace w2b::sound
                 for (auto* row : placed)
                 {
                     const double start = Transfer(Number(*row, "DistMin").value_or(0.0), *nearQ, Doubles(targets["DistMin"]));
-                    const double end = start + Transfer(D((*row)["_waw"]["falloff"]), *farQ, Doubles(targets["Falloff"])) / D(falloff["area"]);
+                    const double end = start + Transfer(D(row->waw["falloff"]), *farQ, Doubles(targets["Falloff"])) / D(falloff["area"]);
                     (*row)["DistMin"] = std::to_string(static_cast<long long>(std::nearbyint(start)));
                     (*row)["DistMaxDry"] = std::to_string(static_cast<long long>(std::nearbyint(end)));
-                    (*row)["DistMaxWet"] = std::to_string(static_cast<long long>(std::nearbyint(end * (*row)["_waw"].value("wet_ratio", 1.0))));
-                    (*row)["DryMaxCurve"] = falloff["DryMaxCurve"];
+                    (*row)["DistMaxWet"] = std::to_string(static_cast<long long>(std::nearbyint(end * row->waw.value("wet_ratio", 1.0))));
+                    (*row)["DryMaxCurve"] = falloff["DryMaxCurve"].get<std::string>();
                     const auto& curves = falloff["falloff_curves"];
-                    if (row->contains("WetMaxCurve") && std::find(curves.begin(), curves.end(), (*row)["WetMaxCurve"]) != curves.end())
-                        (*row)["WetMaxCurve"] = falloff["WetMaxCurve"];
+                    if (std::find(curves.begin(), curves.end(), (*row)["WetMaxCurve"]) != curves.end())
+                        (*row)["WetMaxCurve"] = falloff["WetMaxCurve"].get<std::string>();
                 }
                 long long spatial = 0;
                 for (auto* row : members)
-                    spatial += row->value("PanType", std::string()) == "3d";
+                    spatial += (*row)["PanType"] == "3d";
                 std::vector<double> afterValues;
                 for (auto* row : placed)
                     afterValues.push_back(Number(*row, "DistMaxDry").value_or(0.0));
@@ -740,25 +755,25 @@ namespace w2b::sound
             return out;
         }
 
-        Json Remaster(std::vector<Json>& rows, const std::map<std::string, std::string>& roles, const Json& profiles, const Json& reference, const Json& twins)
+        Json Remaster(std::vector<T6AliasRow>& rows, const std::map<std::string, std::string>& roles, const Json& profiles, const Json& reference, const Json& twins)
         {
             Json report{{"roles", Json::object()}, {"unmeasured", Json::array()}, {"groups", Json::object()}};
-            std::map<std::string, std::vector<Json*>> byRole, byGroup;
+            std::map<std::string, std::vector<T6AliasRow*>> byRole, byGroup;
             for (auto& row : rows)
             {
-                const auto name = Lower(row["Name"].get<std::string>());
+                const auto name = Lower(row["Name"]);
                 if (const auto it = roles.find(name); it != roles.end())
                     byRole[it->second].push_back(&row);
                 else
-                    byGroup[row.value("VolumeGroup", std::string()) + "|" + row.value("PanType", std::string())].push_back(&row);
+                    byGroup[row["VolumeGroup"] + "|" + row["PanType"]].push_back(&row);
             }
             const auto groups = profiles.value("groups", Json::object());
             const auto classes = profiles.value("classes", Json::object());
-            const auto nameCount = [](const std::vector<Json*>& members)
+            const auto nameCount = [](const std::vector<T6AliasRow*>& members)
             {
                 std::set<std::string> names;
                 for (const auto* row : members)
-                    names.insert((*row)["Name"].get<std::string>());
+                    names.insert((*row)["Name"]);
                 return names.size();
             };
             for (auto& [key, members] : byGroup)
@@ -795,16 +810,16 @@ namespace w2b::sound
                 long long placed = 0;
                 for (auto* row : members)
                     for (const auto& [k, v] : mix.items())
-                        (*row)[k] = v;
+                        (*row)[k] = v.get<std::string>();
                 Json spread;
                 if (r == "ambience" && classes.contains("grp_ambience|3d"))
                 {
                     const auto& ambient = classes["grp_ambience|3d"];
                     if (ambient.contains("falloff") && !ambient["falloff"].is_null() && !ambient["falloff"].empty())
                     {
-                        std::vector<Json*> spatial;
+                        std::vector<T6AliasRow*> spatial;
                         for (auto* row : members)
-                            if (row->value("PanType", std::string()) == "3d")
+                            if ((*row)["PanType"] == "3d")
                                 spatial.push_back(row);
                         auto copy = ambient;
                         copy["routing"] = Json::object();
@@ -815,11 +830,11 @@ namespace w2b::sound
                     for (auto* row : members)
                     {
                         const auto emitters = profile.value("emitters", Json::object());
-                        const auto looping = row->value("Looping", std::string());
-                        if (emitters.contains(looping) && !emitters[looping].is_null() && row->value("PanType", std::string()) == "3d")
+                        const auto looping = (*row)["Looping"];
+                        if (emitters.contains(looping) && !emitters[looping].is_null() && (*row)["PanType"] == "3d")
                         {
                             for (const auto& [k, v] : emitters[looping]["columns"].items())
-                                (*row)[k] = v;
+                                (*row)[k] = v.get<std::string>();
                             placed++;
                         }
                     }
@@ -838,15 +853,15 @@ namespace w2b::sound
                 std::set<std::string> missing;
                 for (auto& row : rows)
                 {
-                    const auto name = Lower(row["Name"].get<std::string>());
+                    const auto name = Lower(row["Name"]);
                     if (!twins.contains(name))
                         continue;
                     const auto twin = twins[name].get<std::string>();
                     if (stock.contains(twin))
                     {
                         for (const auto& [k, v] : stock[twin].items())
-                            row[k] = v;
-                        placedTwins[row["Name"].get<std::string>()] = twin;
+                            row[k] = v.get<std::string>();
+                        placedTwins[row["Name"]] = twin;
                     }
                     else
                         missing.insert(twin);
@@ -997,15 +1012,15 @@ namespace w2b::sound
 
     } // namespace
 
-    Json WriteT6Bank(const Json& request)
+    BankResult WriteT6Bank(const BankRequest& request)
     {
-        const auto project = files::FromUtf8(request["project"].get<std::string>());
-        const auto bank = request["bank"].get<std::string>();
-        const auto destination = files::FromUtf8(request["destination"].get<std::string>());
-        auto budget = request.value("budget", Json());
-        const auto reverbSendIn = request.value("reverb_send", Json());
-        const auto remaster = request.value("remaster", Json());
-        const auto engineNames = request.value("engine_names", Json::array()).get<std::vector<std::string>>();
+        const auto& project = request.project;
+        const auto& bank = request.bank;
+        const auto& destination = request.destination;
+        auto budget = request.budget;
+        const auto& reverbSendIn = request.reverbSend;
+        const auto& remaster = request.remaster;
+        const auto& engineNames = request.engineNames;
         const auto bindings = ReadJson(project / "sounds.bindings.json");
         std::set<std::string> weaponAliases;
         std::error_code e;
@@ -1028,7 +1043,7 @@ namespace w2b::sound
                                                                                        : Json{{"status", "unmeasured_default"}, {"db", REVERB_SEND_DB}, {"reason", "no stock data supplied"}}},
                     {"voice_limit_approximations", Json::array()},
                     {"errors", Json::array()}};
-        std::vector<Json> rows;
+        std::vector<T6AliasRow> rows;
         std::map<std::string, std::string> roles;
         const bool remastering = !remaster.is_null();
         std::set<std::string> music, ambience;
@@ -1049,7 +1064,7 @@ namespace w2b::sound
             std::optional<std::string> role;
             Json approximations = Json::array();
             Json errors = Json::array();
-            std::vector<Json> rows;
+            std::vector<T6AliasRow> rows;
         };
         std::vector<AliasWork> converted(inputs.size());
         parallel::For(inputs.size(), [&](std::size_t i)
@@ -1129,10 +1144,10 @@ namespace w2b::sound
         const auto actorAliases = ActorSoundAliases(project.parent_path());
         std::set<std::string> matched;
         for (auto& row : rows)
-            if (actorAliases.count(Lower(row["Name"].get<std::string>())))
+            if (actorAliases.count(Lower(row["Name"])))
             {
                 row["StopOnEntDeath"] = "yes";
-                matched.insert(row["Name"].get<std::string>());
+                matched.insert(row["Name"]);
             }
         report["actor_death_cleanup"] = std::vector<std::string>(matched.begin(), matched.end());
         report["clamped"] = ClampRanges(rows);
@@ -1147,15 +1162,14 @@ namespace w2b::sound
             report["loaded_to_streamed"] = FitLoadedBudget(rows, project / "pcm", budget, weaponAliases);
             report["loaded_budget"] = budget;
         }
-        if (request.value("stream_flac", StreamFlacEnabled()))
-            report["streamed_flac"] = PackStreamedAudio(rows, project / "pcm",
-                                                        files::FromUtf8(request.value("flac_encoder", std::string{})));
+        if (request.streamFlac.value_or(StreamFlacEnabled()))
+            report["streamed_flac"] = PackStreamedAudio(rows, project / "pcm", files::FromUtf8(request.flacEncoder));
         std::set<std::string> known;
         for (const auto& r : rows)
-            known.insert(r["Name"].get<std::string>());
+            known.insert(r["Name"]);
         for (auto& row : rows)
         {
-            const auto secondary = row["Secondary"].get<std::string>();
+            const auto secondary = row["Secondary"];
             if (!secondary.empty() && !known.count(secondary))
             {
                 report["errors"].push_back(Json{{"alias", row["Name"]}, {"reason", "secondary alias " + secondary + " not converted"}});
@@ -1165,7 +1179,7 @@ namespace w2b::sound
         report["variants"] = rows.size();
         WriteAliasCsv(destination / files::FromUtf8(bank + ".aliases.csv"), rows);
         files::WriteText(project / "sounds.bank.json", py::JsonDumps(report, 2) + "\n");
-        return Json{{"report", report}, {"budget", budget}};
+        return {std::move(report), std::move(budget)};
     }
     Json DefaultReverbMixOf(const fs::path& project)
     {

@@ -2,6 +2,7 @@
 // t6bridge.stage_materials, per material (see materials_stage.cpp).
 
 #include "core/pytext.h"
+#include "pipeline/material_record.h"
 
 #include <array>
 #include <filesystem>
@@ -32,7 +33,7 @@ namespace w2b::pipeline
     {
         std::string name;
         bool native = false;
-        py::Json entry; // the report's material record; null: no material
+        std::optional<MaterialRecord> entry; // the report's material record; none: no material
         std::string techset;
         py::Json warnings, errors, images;
     };

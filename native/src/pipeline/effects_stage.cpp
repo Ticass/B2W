@@ -172,7 +172,8 @@ namespace w2b::pipeline
         IwdFormats formats(request.iwdDirs);
         auto* stock = request.stock;
         auto* modToolsSource = request.source;
-        Json warnings = Json::array(), errors = Json::array(), materialsReport = Json::array(), images = Json::array(), recovered = Json::object();
+        Json warnings = Json::array(), errors = Json::array(), images = Json::array(), recovered = Json::object();
+        std::vector<MaterialRecord> materialsReport;
         std::vector<fs::path> extraRoots;
         std::set<std::string> techsets;
         std::map<std::pair<std::string, std::string>, std::string> stockUsed;
@@ -385,17 +386,18 @@ namespace w2b::pipeline
                     if (!t.image.empty())
                         effectImages.insert(t.image);
                 materialNames[key] = name;
-                Json entryNotes = Json(notes);
+                MaterialRecord record;
+                record.name = name;
+                record.source = mat;
+                record.file = Generic(outRel);
+                record.t4Techset = std::optional(ts);
+                record.t6Techset = material.techniqueSet;
+                record.shaderRuntime = runtime;
+                record.donor = Generic(donor->path.lexically_relative(stockMaterials));
+                record.notes = notes;
                 if (trail)
-                    entryNotes.push_back("trail geometry: WaW view falloff evaluated face-on");
-                materialsReport.push_back(Json{{"name", name},
-                                               {"source", mat},
-                                               {"file", Generic(outRel)},
-                                               {"t4_techset", ts},
-                                               {"t6_techset", material.techniqueSet},
-                                               {"shader_runtime", runtime},
-                                               {"donor", Generic(donor->path.lexically_relative(stockMaterials))},
-                                               {"notes", entryNotes}});
+                    record.notes->emplace_back("trail geometry: WaW view falloff evaluated face-on");
+                materialsReport.push_back(std::move(record));
             }
         }
         if (!worldMaterials.empty())
@@ -423,9 +425,9 @@ namespace w2b::pipeline
                     warnings.push_back(w);
                 for (const auto& x : result.errors)
                     errors.push_back(x);
-                if (!result.entry.is_null())
+                if (result.entry)
                 {
-                    materialsReport.push_back(std::move(result.entry));
+                    materialsReport.push_back(std::move(*result.entry));
                     techsets.insert(result.techset);
                 }
             }

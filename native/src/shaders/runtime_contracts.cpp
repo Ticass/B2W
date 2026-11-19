@@ -12,6 +12,7 @@
 #include "translate.h"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <unordered_map>
@@ -130,25 +131,37 @@ namespace w2b::shaders::runtime
         }
 
         // source pass arguments by register: c<dest+row> for types 5, 6, 7
-        std::map<std::string, Json> ConstantArgs(const Json& sourcePass)
+        std::map<std::string, const WawPassArg*> ConstantArgs(const WawPass& sourcePass)
         {
-            std::map<std::string, Json> out;
-            for (const auto& a : sourcePass["args"])
-            {
-                const auto type = I(a["type"]);
-                if (type == 5 || type == 6 || type == 7)
-                    for (long long row = 0; row < (a.contains("rowCount") ? I(a["rowCount"]) : 1); row++)
-                        out["c" + std::to_string(I(a["dest"]) + row)] = a;
-            }
+            std::map<std::string, const WawPassArg*> out;
+            for (const auto& a : sourcePass.args)
+                if (a.type == 5 || a.type == 6 || a.type == 7)
+                    for (long long row = 0; row < a.rowCount.value_or(1); row++)
+                        out["c" + std::to_string(a.dest + row)] = &a;
             return out;
         }
 
-        const Json* FindArg(const Json& pass, const long long type, const long long value)
+        const T6PassArg* FindArg(const T6Pass& pass, const long long type, const long long value)
         {
-            for (const auto& a : pass["args"])
-                if (I(a["type"]) == type && a["u"].contains("value") && I(a["u"]["value"]) == value)
+            for (const auto& a : pass.args)
+                if (a.type == type && a.value == value)
                     return &a;
             return nullptr;
+        }
+
+        // the first stable argument a new one of these goes before (args after the per-primitive and per-object ones)
+        std::size_t StableInsertAt(const T6Pass& pass, const std::function<bool(const T6PassArg&)>& before)
+        {
+            for (auto i = static_cast<std::size_t>(pass.perPrimArgCount + pass.perObjArgCount); i < pass.args.size(); i++)
+                if (before(pass.args[i]))
+                    return i;
+            return pass.args.size();
+        }
+
+        void InsertStable(T6Pass& pass, const T6PassArg& arg, const std::function<bool(const T6PassArg&)>& before)
+        {
+            pass.args.insert(pass.args.begin() + static_cast<long long>(StableInsertAt(pass, before)), arg);
+            pass.stableArgCount++;
         }
 
         std::optional<std::vector<double>> MaterialLiteral(const materials::WawMaterial& sourceMaterial, const long long hash)
@@ -198,30 +211,20 @@ namespace w2b::shaders::runtime
             return Search("float4 hdrControl0;\\s*// Offset:\\s*320 Size:\\s*16\\s*\\n", ps) && Search("^sqrt o0\\.xyz", ps, pyre::MULTILINE);
         }
 
-        void EnsureCodeConstantArg(Json& nativePass, const std::string& field, const int location)
+        void EnsureCodeConstantArg(T6Pass& nativePass, const std::string& field, const int location)
         {
             const long long value = 0x01000000 + LIGHT_CODE_CONSTANTS.at(field);
-            for (const auto& a : nativePass["args"])
-                if (I(a["type"]) == 5 && I(a["u"]["value"]) == value)
+            for (const auto& a : nativePass.args)
+                if (a.type == 5 && a.value == value)
                     return;
-            for (const auto& a : nativePass["args"])
-                if (I(a["type"]) == 5 && I(a["location"]) == location)
+            for (const auto& a : nativePass.args)
+                if (a.type == 5 && a.location == location)
                     throw ShaderError("native constant row of " + field + " carries another code constant");
-            const auto start = static_cast<size_t>(I(nativePass["perPrimArgCount"]) + I(nativePass["perObjArgCount"]));
-            auto& args = nativePass["args"];
-            size_t position = args.size();
-            for (size_t i = start; i < args.size(); i++)
-                if (I(args[i]["type"]) == 5 && I(args[i]["location"]) > location)
-                {
-                    position = i;
-                    break;
-                }
-            args.insert(args.begin() + static_cast<long long>(position), Json{{"buffer", 0}, {"location", location}, {"size", 16}, {"type", 5}, {"u", Json{{"value", value}}}});
-            nativePass["stableArgCount"] = I(nativePass["stableArgCount"]) + 1;
+            InsertStable(nativePass, {0, location, 16, 5, value}, [&](const T6PassArg& a) { return a.type == 5 && a.location > location; });
         }
 
         Json LightConstant(const std::string& name, const std::map<std::string, Field>& nativeFields, const std::optional<int>& hdrRow,
-                           const std::optional<std::array<double, 4>>& falloffPlacement, Json* nativePass)
+                           const std::optional<std::array<double, 4>>& falloffPlacement, T6Pass* nativePass)
         {
             const auto row = [&](const std::string& field)
             {
@@ -340,12 +343,12 @@ namespace w2b::shaders::runtime
             throw ShaderError("stock reciprocal-depth reference absent");
         }
 
-        int FreeTextureSlot(const Json& nativePass, const std::string& nativePs)
+        int FreeTextureSlot(const T6Pass& nativePass, const std::string& nativePs)
         {
             std::set<long long> used{13, 15, 14};
-            for (const auto& a : nativePass["args"])
-                if (I(a["type"]) == 2 || I(a["type"]) == 4)
-                    used.insert(I(a["location"]) & 255), used.insert(I(a["location"]) >> 8);
+            for (const auto& a : nativePass.args)
+                if (a.type == 2 || a.type == 4)
+                    used.insert(a.location & 255), used.insert(a.location >> 8);
             for (const auto& [slot, _] : ResourceNames(nativePs))
                 used.insert(slot);
             static const pyre::Regex sampler("^dcl_sampler s(\\d+),", pyre::MULTILINE);
@@ -357,23 +360,13 @@ namespace w2b::shaders::runtime
             throw ShaderError("no free texture slot");
         }
 
-        int AddCodeTexture(Json& nativePass, const int code, const std::string& nativePs)
+        int AddCodeTexture(T6Pass& nativePass, const int code, const std::string& nativePs)
         {
-            for (const auto& a : nativePass["args"])
-                if (I(a["type"]) == 4 && I(a["u"]["value"]) == code)
-                    return static_cast<int>(I(a["location"]) & 255);
+            for (const auto& a : nativePass.args)
+                if (a.type == 4 && a.value == code)
+                    return static_cast<int>(a.location & 255);
             const int slot = FreeTextureSlot(nativePass, nativePs);
-            const auto start = static_cast<size_t>(I(nativePass["perPrimArgCount"]) + I(nativePass["perObjArgCount"]));
-            auto& args = nativePass["args"];
-            size_t position = args.size();
-            for (size_t i = start; i < args.size(); i++)
-                if (I(args[i]["type"]) != 2 && I(args[i]["type"]) != 4)
-                {
-                    position = i;
-                    break;
-                }
-            args.insert(args.begin() + static_cast<long long>(position), Json{{"buffer", 0}, {"location", slot | (slot << 8)}, {"size", 1}, {"type", 4}, {"u", Json{{"value", code}}}});
-            nativePass["stableArgCount"] = I(nativePass["stableArgCount"]) + 1;
+            InsertStable(nativePass, {0, slot | (slot << 8), 1, 4, code}, [](const T6PassArg& a) { return a.type != 2 && a.type != 4; });
             return slot;
         }
 
@@ -383,7 +376,7 @@ namespace w2b::shaders::runtime
         }
 
         // add_material_texture: a source texture the donor pass has no slot for
-        std::optional<Json> AddMaterialTexture(Json& nativePass, materials::T6Material& outputMaterial, const materials::WawMaterial& sourceMaterial, const long long hash, const std::string& nativePs)
+        std::optional<T6PassArg> AddMaterialTexture(T6Pass& nativePass, materials::T6Material& outputMaterial, const materials::WawMaterial& sourceMaterial, const long long hash, const std::string& nativePs)
         {
             const auto named = [](const materials::WawTexture& t) { return t.name && !t.name->empty(); };
             const materials::WawTexture* texture = nullptr;
@@ -404,18 +397,8 @@ namespace w2b::shaders::runtime
                 std::stable_sort(textures.begin(), textures.end(), [](const auto& a, const auto& b) { return TextureHash(a) < TextureHash(b); });
             }
             const int slot = FreeTextureSlot(nativePass, nativePs);
-            Json arg{{"buffer", 0}, {"location", slot | (slot << 8)}, {"size", 1}, {"type", 2}, {"u", Json{{"value", hash}}}};
-            const auto start = static_cast<size_t>(I(nativePass["perPrimArgCount"]) + I(nativePass["perObjArgCount"]));
-            auto& args = nativePass["args"];
-            size_t position = args.size();
-            for (size_t i = start; i < args.size(); i++)
-                if (I(args[i]["type"]) != 2 || I(args[i]["u"]["value"]) > hash)
-                {
-                    position = i;
-                    break;
-                }
-            args.insert(args.begin() + static_cast<long long>(position), arg);
-            nativePass["stableArgCount"] = I(nativePass["stableArgCount"]) + 1;
+            const T6PassArg arg{0, slot | (slot << 8), 1, 2, hash};
+            InsertStable(nativePass, arg, [&](const T6PassArg& a) { return a.type != 2 || a.value > hash; });
             return arg;
         }
 
@@ -500,28 +483,27 @@ namespace w2b::shaders::runtime
         return Contains(sourceMaterial.techniqueSet, "_sco");
     }
 
-    const std::string& NativeProgram(const fs::path& root, const std::string& stage, const Json& pass)
+    const std::string& NativeProgram(const fs::path& root, const std::string& stage, const T6Pass& pass)
     {
-        const auto& shader = pass[stage == "vs" ? "vertexShader" : "pixelShader"];
-        const auto name = shader.contains("name") && shader["name"].is_string() ? shader["name"].get<std::string>() : std::string();
+        const auto& name = stage == "vs" ? pass.vertexShader : pass.pixelShader;
         if (name.empty())
             throw ShaderError("native pass has no " + stage + " program");
         return AssemblyOf(root / "shader_bin" / files::FromUtf8(stage + "_" + name + ".cso"));
     }
 
-    std::string EmbedLiterals(std::string assembly, const Json& sourcePass, const std::string& stage)
+    std::string EmbedLiterals(std::string assembly, const WawPass& sourcePass, const std::string& stage)
     {
         const int kind = stage == "ps" ? 7 : 1;
         std::string definitions;
         bool first = true;
-        for (const auto& a : sourcePass["args"])
+        for (const auto& a : sourcePass.args)
         {
-            if (I(a["type"]) != kind)
+            if (a.type != kind)
                 continue;
-            std::string line = "def c" + std::to_string(I(a["dest"])) + ", ";
+            std::string line = "def c" + std::to_string(a.dest) + ", ";
             size_t i = 0;
-            for (const auto& v : a["literal"])
-                line += (i++ ? ", " : "") + F(v.get<double>());
+            for (const auto v : a.literal.value())
+                line += (i++ ? ", " : "") + F(v);
             definitions += (first ? "" : "\n") + line;
             first = false;
         }
@@ -531,7 +513,7 @@ namespace w2b::shaders::runtime
         return assembly;
     }
 
-    Json PixelContract(const std::string& sourceAssembly, const Json& sourcePass, const Json& nativePass, const fs::path& nativeRoot, const materials::WawMaterial& sourceMaterial)
+    Json PixelContract(const std::string& sourceAssembly, const WawPass& sourcePass, const T6Pass& nativePass, const fs::path& nativeRoot, const materials::WawMaterial& sourceMaterial)
     {
         const auto ir = Ir(sourceAssembly);
         const auto& vs = NativeProgram(nativeRoot, "vs", nativePass);
@@ -573,14 +555,14 @@ namespace w2b::shaders::runtime
             const auto it = sourceArgs.find(reg);
             if (it == sourceArgs.end())
                 throw ShaderError("no original pass argument for " + reg);
-            const auto& arg = it->second;
-            const auto type = I(arg["type"]);
+            const auto& arg = *it->second;
+            const auto type = arg.type;
             if (type == 5)
             {
                 const auto* named = names.Find(reg);
                 if (!named || !nativeFields.count(named->name))
                     throw ShaderError("no native code uniform for " + reg + ": " + RegisterRepr(named));
-                const long long row = (arg.contains("firstRow") ? I(arg["firstRow"]) : 0) + std::stoll(reg.substr(1)) - I(arg["dest"]);
+                const long long row = arg.firstRow.value_or(0) + std::stoll(reg.substr(1)) - arg.dest;
                 const auto field = nativeFields[named->name];
                 if (field.slot != 0 || field.offset % 16 || field.size < 16 * (row + 1))
                     throw ShaderError("code uniform requires an adapter: " + named->name);
@@ -588,41 +570,41 @@ namespace w2b::shaders::runtime
             }
             else if (type == 6)
             {
-                const auto* found = FindArg(nativePass, 6, I(arg["value"]));
-                if (!found || I((*found)["location"]) % 16 || I((*found)["size"]) < 16)
+                const auto* found = FindArg(nativePass, 6, arg.value.value());
+                if (!found || found->location % 16 || found->size < 16)
                 {
                     // the donor has no slot: embed this material's own WaW value
-                    const auto literal = MaterialLiteral(sourceMaterial, I(arg["value"]));
+                    const auto literal = MaterialLiteral(sourceMaterial, arg.value.value());
                     if (!literal)
                         throw ShaderError("native material constant binding absent for " + reg);
                     contract["constants"][reg] = Json{{"expr", Float4(*literal)}, {"uses", Json::array()}};
-                    AddTo(contract, "embedded_material_constants", arg["value"]);
+                    AddTo(contract, "embedded_material_constants", *arg.value);
                     continue;
                 }
-                contract["constants"][reg] = Json{{"buffer", (*found)["buffer"]}, {"index", I((*found)["location"]) / 16}};
+                contract["constants"][reg] = Json{{"buffer", found->buffer}, {"index", found->location / 16}};
             }
             else
                 throw ShaderError("original literal argument needs source embedding: " + reg);
         }
-        std::map<std::string, Json> textureArgs;
-        for (const auto& a : sourcePass["args"])
-            if (I(a["type"]) == 2 || I(a["type"]) == 4)
-                textureArgs["s" + std::to_string(I(a["dest"]))] = a;
+        std::map<std::string, const WawPassArg*> textureArgs;
+        for (const auto& a : sourcePass.args)
+            if (a.type == 2 || a.type == 4)
+                textureArgs["s" + std::to_string(a.dest)] = &a;
         for (const auto& [reg, dimJson] : ir["samplers"].items())
         {
             const auto dim = dimJson.get<std::string>();
             const auto it = textureArgs.find(reg);
-            if (it == textureArgs.end() || I(it->second["type"]) != 2)
+            if (it == textureArgs.end() || it->second->type != 2)
                 throw ShaderError("code texture adapter required for " + reg);
-            const auto* found = FindArg(nativePass, 2, I(it->second["value"]));
+            const auto* found = FindArg(nativePass, 2, it->second->value.value());
             if (!found || dim != "2d")
                 throw ShaderError("native material texture binding absent for " + reg + "/" + dim);
-            contract["samplers"][reg] = Json{{"texture", I((*found)["location"]) & 255}, {"sampler", I((*found)["location"]) >> 8}};
+            contract["samplers"][reg] = Json{{"texture", found->location & 255}, {"sampler", found->location >> 8}};
         }
         return contract;
     }
 
-    Json PairedPixelContract(const std::string& sourceAssembly, const Json& sourcePass, Json& nativePass, const fs::path& nativeRoot, const Json& linked,
+    Json PairedPixelContract(const std::string& sourceAssembly, const WawPass& sourcePass, T6Pass& nativePass, const fs::path& nativeRoot, const Json& linked,
                              const std::optional<std::string>& visibility, const materials::WawMaterial& sourceMaterial, const std::optional<std::array<double, 4>>& falloffPlacement,
                              materials::T6Material* outputMaterial)
     {
@@ -677,21 +659,21 @@ namespace w2b::shaders::runtime
             const auto it = sourceArgs.find(reg);
             if (it == sourceArgs.end())
                 throw ShaderError("no original pass argument for " + reg);
-            const auto& arg = it->second;
-            const auto type = I(arg["type"]);
+            const auto& arg = *it->second;
+            const auto type = arg.type;
             if (type == 6)
             {
-                const auto* found = FindArg(nativePass, 6, I(arg["value"]));
-                if (!found || I((*found)["location"]) % 16 || I((*found)["size"]) < 16)
+                const auto* found = FindArg(nativePass, 6, arg.value.value());
+                if (!found || found->location % 16 || found->size < 16)
                 {
-                    const auto literal = MaterialLiteral(sourceMaterial, I(arg["value"]));
+                    const auto literal = MaterialLiteral(sourceMaterial, arg.value.value());
                     if (!literal)
                         throw ShaderError("native material constant binding absent for " + reg);
                     contract["constants"][reg] = Json{{"expr", Float4(*literal)}, {"uses", Json::array()}};
-                    AddTo(contract, "embedded_material_constants", arg["value"]);
+                    AddTo(contract, "embedded_material_constants", *arg.value);
                     continue;
                 }
-                contract["constants"][reg] = Json{{"buffer", (*found)["buffer"]}, {"index", I((*found)["location"]) / 16}};
+                contract["constants"][reg] = Json{{"buffer", found->buffer}, {"index", found->location / 16}};
                 continue;
             }
             if (type != 5)
@@ -708,14 +690,14 @@ namespace w2b::shaders::runtime
             if (name == "gameTime" && !nativeFields.count(name))
             {
                 // T6 CONST_SRC_CODE_GAMETIME (0x19): stock pixel passes route it to buffer 2 row 4
-                const Json binding{{"type", 5}, {"buffer", 2}, {"location", 64}, {"size", 16}, {"u", Json{{"value", 0x01000019}}}};
-                const auto& args = nativePass["args"];
-                if (std::none_of(args.begin(), args.end(), [&](const Json& a) { return py::SortKeys(a) == py::SortKeys(binding); }))
+                const T6PassArg binding{2, 64, 16, 5, 0x01000019};
+                auto& args = nativePass.args;
+                if (std::ranges::find(args, binding) == args.end())
                 {
-                    if (std::any_of(args.begin(), args.end(), [](const Json& a) { return I(a["type"]) == 5 && I(a["buffer"]) == 2 && I(a["location"]) == 64; }))
+                    if (std::ranges::any_of(args, [](const T6PassArg& a) { return a.type == 5 && a.buffer == 2 && a.location == 64; }))
                         throw ShaderError("pixel game time row is taken");
-                    nativePass["args"].push_back(binding);
-                    nativePass["stableArgCount"] = I(nativePass["stableArgCount"]) + 1;
+                    args.push_back(binding);
+                    nativePass.stableArgCount++;
                 }
                 contract["constants"][reg] = Json{{"buffer", 2}, {"index", 4}};
                 AddConversion(contract, "gameTime: T6 code constant 0x19");
@@ -731,7 +713,7 @@ namespace w2b::shaders::runtime
                 name = CODE_UNIFORM_ALIASES.at(name);
             if (!hasName || !nativeFields.count(name))
                 throw ShaderError("no native code uniform for " + reg + ": " + RegisterRepr(named));
-            const long long row = (arg.contains("firstRow") ? I(arg["firstRow"]) : 0) + std::stoll(reg.substr(1)) - I(arg["dest"]);
+            const long long row = arg.firstRow.value_or(0) + std::stoll(reg.substr(1)) - arg.dest;
             const auto field = nativeFields[name];
             if (field.slot != 0 || field.offset % 16 || field.size < 16 * (row + 1))
                 throw ShaderError("code uniform requires an adapter: " + name);
@@ -755,17 +737,17 @@ namespace w2b::shaders::runtime
                     return &r;
             return nullptr;
         };
-        std::map<std::string, Json> sourceSamplers;
-        for (const auto& a : sourcePass["args"])
-            if (I(a["type"]) == 2 || I(a["type"]) == 4)
-                sourceSamplers["s" + std::to_string(I(a["dest"]))] = a;
+        std::map<std::string, const WawPassArg*> sourceSamplers;
+        for (const auto& a : sourcePass.args)
+            if (a.type == 2 || a.type == 4)
+                sourceSamplers["s" + std::to_string(a.dest)] = &a;
         const auto hasSampler = [&](const int slot, const std::string& suffix) { return Search("^dcl_sampler s" + std::to_string(slot) + suffix, ps, pyre::MULTILINE); };
         for (const auto& [reg, dimJson] : ir["samplers"].items())
         {
             const auto dim = dimJson.get<std::string>();
-            std::optional<Json> arg;
+            std::optional<WawPassArg> arg;
             if (const auto it = sourceSamplers.find(reg); it != sourceSamplers.end())
-                arg = it->second;
+                arg = *it->second;
             const auto* named = names.Find(reg);
             std::optional<std::string> sourceName = named ? std::optional<std::string>(named->name) : std::nullopt;
             if (ramp && reg == *ramp)
@@ -775,20 +757,20 @@ namespace w2b::shaders::runtime
             const auto sname = sourceName.value_or(std::string());
             long long texture = 0, sampler = 0;
             bool code = true;
-            if (arg && I((*arg)["type"]) == 2)
+            if (arg && arg->type == 2)
             {
                 code = false;
-                const Json* found = FindArg(nativePass, 2, I((*arg)["value"]));
-                std::optional<Json> added;
+                const T6PassArg* found = FindArg(nativePass, 2, arg->value.value());
+                std::optional<T6PassArg> added;
                 if (!found && outputMaterial)
                 {
-                    added = AddMaterialTexture(nativePass, *outputMaterial, sourceMaterial, I((*arg)["value"]), ps);
+                    added = AddMaterialTexture(nativePass, *outputMaterial, sourceMaterial, arg->value.value(), ps);
                     if (added)
                         found = &*added;
                 }
                 if (!found)
                     throw ShaderError("native texture binding absent for " + reg + " (" + (sourceName ? *sourceName : "None") + ")");
-                texture = I((*found)["location"]) & 255, sampler = I((*found)["location"]) >> 8;
+                texture = found->location & 255, sampler = found->location >> 8;
                 if (added)
                 {
                     const auto it = std::find_if(nativeTextures.begin(), nativeTextures.end(), [&](const auto& e) { return e.first == texture; });
@@ -834,15 +816,16 @@ namespace w2b::shaders::runtime
                 else if (slots.size() != 1 || !hasSampler(slots[0], ","))
                     throw ShaderError("native code texture absent for " + reg + " (" + (sourceName ? *sourceName : "None") + ")");
                 texture = sampler = slots[0];
-                arg = Json{{"type", 4}};
+                arg = WawPassArg{};
+                arg->type = 4;
             }
             const auto* native = textureName(static_cast<int>(texture));
-            const bool sourceSky = I((*arg)["type"]) == 2 && StartsWith(sourceMaterial.techniqueSet, "mc_sky");
+            const bool sourceSky = arg->type == 2 && StartsWith(sourceMaterial.techniqueSet, "mc_sky");
             const std::string mapped = dim == "2d" ? "2d" : dim == "volume" ? "3d" : dim == "cube" ? "cube" : throw std::runtime_error("KeyError: " + gsc::Repr(dim));
             if (!sourceSky && (!native || mapped != native->dim))
                 throw ShaderError("texture dimension differs for " + reg + ": " + dim + " vs " + (native ? native->dim : "None"));
             Json entry{{"texture", texture}, {"sampler", sampler}};
-            if (I((*arg)["type"]) == 4)
+            if (arg->type == 4)
             {
                 if (sname == "shadowmapSamplerSun" || sname == "shadowmapSamplerSpot")
                 {
@@ -914,13 +897,13 @@ namespace w2b::shaders::runtime
             {
                 const auto bitName = WAW_PAGE_UV.count(sname) ? std::string("lightmapSamplerSecondary") : sname;
                 if (const auto bit = CUSTOM_SAMPLER_BITS.find(bitName); bit != CUSTOM_SAMPLER_BITS.end())
-                    nativePass["customSamplerFlags"] = (nativePass.contains("customSamplerFlags") ? I(nativePass["customSamplerFlags"]) : 0) | bit->second;
+                    nativePass.customSamplerFlags |= bit->second;
             }
         }
         return contract;
     }
 
-    std::pair<std::string, Json> BindLocalLightRamp(std::string assembly, const Json& sourcePass, const materials::WawMaterial& sourceMaterial)
+    std::pair<std::string, WawPass> BindLocalLightRamp(std::string assembly, const WawPass& sourcePass, const materials::WawMaterial& sourceMaterial)
     {
         // local_light_ramp: the sole secondary-lightmap read is a placed 1D lookup
         const auto& names = Registers(assembly);
@@ -960,11 +943,7 @@ namespace w2b::shaders::runtime
                     assembly = pyre::Regex("\\b" + Escape(scorch[i]) + "\\b").Sub([&](const pyre::Match&) { return scorch[0]; }, assembly);
                     removed.insert(std::stoll(scorch[i].substr(1)));
                 }
-                Json kept = Json::array();
-                for (const auto& a : adapted["args"])
-                    if (!(I(a["type"]) == 4 && removed.count(I(a["dest"]))))
-                        kept.push_back(a);
-                adapted["args"] = kept;
+                std::erase_if(adapted.args, [&](const WawPassArg& a) { return a.type == 4 && removed.count(a.dest); });
             }
         }
         if (!unused)
@@ -978,7 +957,11 @@ namespace w2b::shaders::runtime
         assembly = "// attenuationSampler " + *unused + " 1\n" + assembly;
         if (const auto at = assembly.find("ps_3_0"); at != std::string::npos)
             assembly.replace(at, 6, "ps_3_0\n    dcl_2d " + *unused);
-        adapted["args"].push_back(Json{{"type", 4}, {"dest", std::stoll(unused->substr(1))}, {"value", 0}});
+        WawPassArg ramp;
+        ramp.type = 4;
+        ramp.dest = std::stoll(unused->substr(1));
+        ramp.value = 0;
+        adapted.args.push_back(std::move(ramp));
         return {assembly, adapted};
     }
 
@@ -997,7 +980,7 @@ namespace w2b::shaders::runtime
         return {adapted, true};
     }
 
-    Json VertexContract(const std::string& sourceAssembly, const Json& sourcePass, Json& nativePass, const fs::path& nativeRoot, const bool paired,
+    Json VertexContract(const std::string& sourceAssembly, const WawPass& sourcePass, T6Pass& nativePass, const fs::path& nativeRoot, const bool paired,
                         const materials::WawMaterial& sourceMaterial, const bool layered, const bool trailGeometry)
     {
         const auto ir = Ir(sourceAssembly);
@@ -1106,9 +1089,9 @@ namespace w2b::shaders::runtime
         for (const auto& reg : Keys(ir["constants"]))
         {
             const long long number = std::stoll(reg.substr(1));
-            const Json* materialArg = nullptr;
-            for (const auto& a : sourcePass["args"])
-                if (I(a["type"]) == 0 && I(a["dest"]) == number)
+            const WawPassArg* materialArg = nullptr;
+            for (const auto& a : sourcePass.args)
+                if (a.type == 0 && a.dest == number)
                 {
                     materialArg = &a;
                     break;
@@ -1117,7 +1100,7 @@ namespace w2b::shaders::runtime
             const std::string sourceName = named ? named->name : std::string();
             if (materialArg)
             {
-                auto literal = MaterialLiteral(sourceMaterial, I((*materialArg)["value"]));
+                auto literal = MaterialLiteral(sourceMaterial, materialArg->value.value());
                 if (!literal)
                     throw ShaderError("original vertex material constant absent for " + reg);
                 if (trailGeometry && sourceName == "falloffParms")
@@ -1128,22 +1111,21 @@ namespace w2b::shaders::runtime
                 contract["constants"][reg] = Json{{"expr", Float4(*literal)}, {"uses", Json::array()}};
                 continue;
             }
-            const Json* arg = nullptr;
-            for (const auto& a : sourcePass["args"])
-                if (I(a["type"]) == 3 && I(a["dest"]) <= number && number < I(a["dest"]) + I(a["rowCount"]))
+            const WawPassArg* arg = nullptr;
+            for (const auto& a : sourcePass.args)
+                if (a.type == 3 && a.dest <= number && number < a.dest + a.rowCount.value())
                 {
                     arg = &a;
                     break;
                 }
-            const auto rowOf = [&] { return (arg->contains("firstRow") ? I((*arg)["firstRow"]) : 0) + number - I((*arg)["dest"]); };
+            const auto rowOf = [&] { return arg->firstRow.value_or(0) + number - arg->dest; };
             if (arg && sourceName == "gameTime" && sky)
             {
-                const Json binding{{"type", 3}, {"buffer", 2}, {"location", 240}, {"size", 16}, {"u", Json{{"value", 0x01000019}}}};
-                const auto& args = nativePass["args"];
-                if (std::none_of(args.begin(), args.end(), [&](const Json& a) { return py::SortKeys(a) == py::SortKeys(binding); }))
+                const T6PassArg binding{2, 240, 16, 3, 0x01000019};
+                if (std::ranges::find(nativePass.args, binding) == nativePass.args.end())
                 {
-                    nativePass["args"].push_back(binding);
-                    nativePass["stableArgCount"] = (nativePass.contains("stableArgCount") ? I(nativePass["stableArgCount"]) : 0) + 1;
+                    nativePass.args.push_back(binding);
+                    nativePass.stableArgCount++;
                 }
                 contract["constants"][reg] = Json{{"buffer", 2}, {"index", 15}};
                 continue;
@@ -1239,8 +1221,8 @@ namespace w2b::shaders::runtime
             if (field.slot != 0)
             {
                 bool maintained = false;
-                for (const auto& a : nativePass["args"])
-                    maintained |= I(a["type"]) == 3 && I(a["buffer"]) == field.slot && I(a["location"]) <= at && at + 16 <= I(a["location"]) + I(a["size"]);
+                for (const auto& a : nativePass.args)
+                    maintained |= a.type == 3 && a.buffer == field.slot && a.location <= at && at + 16 <= a.location + a.size;
                 if (!maintained)
                     throw ShaderError("native pass does not maintain vertex uniform " + name);
             }
@@ -1289,7 +1271,7 @@ namespace w2b::shaders::runtime
         return contract;
     }
 
-    std::string NativeFogAdapter(const std::string& hlsl, const std::string& sourceAssembly, const Json& contract, const Json& nativePass, const fs::path& nativeRoot)
+    std::string NativeFogAdapter(const std::string& hlsl, const std::string& sourceAssembly, const Json& contract, const T6Pass& nativePass, const fs::path& nativeRoot)
     {
         const auto found = FogOutput(sourceAssembly, contract);
         if (!found)
@@ -1359,24 +1341,23 @@ namespace w2b::shaders::runtime
         }
     }
 
-    void PruneMissingMaterialConstants(Json& nativePass, const materials::T6Material& material, const std::vector<const Json*>& contracts, const bool unread)
+    void PruneMissingMaterialConstants(T6Pass& nativePass, const materials::T6Material& material, const std::vector<const Json*>& contracts, const bool unread)
     {
         std::set<long long> hashes;
         for (const auto& c : material.constants)
             hashes.insert(c.nameHash ? static_cast<long long>(*c.nameHash) : T6Hash(c.name.value_or(std::string())));
-        Json args = Json::array();
+        std::vector<T6PassArg> args;
         size_t cursor = 0;
-        std::map<std::string, long long> counts;
-        for (const char* count : {"perPrimArgCount", "perObjArgCount", "stableArgCount"})
+        for (auto* count : {&nativePass.perPrimArgCount, &nativePass.perObjArgCount, &nativePass.stableArgCount})
         {
-            const auto n = static_cast<size_t>(I(nativePass[count]));
+            const auto n = static_cast<size_t>(*count);
             long long kept = 0;
-            for (size_t i = cursor; i < std::min(cursor + n, nativePass["args"].size()); i++)
+            for (size_t i = cursor; i < std::min(cursor + n, nativePass.args.size()); i++)
             {
-                const auto& arg = nativePass["args"][i];
-                if (I(arg["type"]) == 0 || I(arg["type"]) == 6)
+                const auto& arg = nativePass.args[i];
+                if (arg.type == 0 || arg.type == 6)
                 {
-                    const auto start = I(arg["location"]), end = start + I(arg["size"]);
+                    const auto start = arg.location, end = start + arg.size;
                     bool read = false;
                     for (const auto* contract : contracts)
                         for (const auto& [_, binding] : (*contract)["constants"].items())
@@ -1387,9 +1368,9 @@ namespace w2b::shaders::runtime
                             if (binding.contains("buffer"))
                                 uses.emplace_back(I(binding["buffer"]), I(binding["index"]));
                             for (const auto& [buffer, row] : uses)
-                                read |= buffer == I(arg["buffer"]) && start <= row * 16 && row * 16 < end;
+                                read |= buffer == arg.buffer && start <= row * 16 && row * 16 < end;
                         }
-                    if (!hashes.count(I(arg["u"]["value"])))
+                    if (!hashes.count(arg.value))
                     {
                         if (read)
                             throw ShaderError("translated shader reads an absent donor material constant");
@@ -1402,12 +1383,10 @@ namespace w2b::shaders::runtime
                 kept++;
             }
             cursor += n;
-            counts[count] = kept;
+            *count = kept;
         }
-        if (cursor != nativePass["args"].size())
+        if (cursor != nativePass.args.size())
             throw ShaderError("native argument frequency counts do not cover all bindings");
-        for (const auto& [k, v] : counts)
-            nativePass[k] = v;
-        nativePass["args"] = args;
+        nativePass.args = std::move(args);
     }
 } // namespace w2b::shaders::runtime

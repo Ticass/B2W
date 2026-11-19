@@ -169,7 +169,7 @@ namespace w2b::pipeline::bridge
         return static_cast<unsigned>(std::min<std::size_t>(workers, std::max<std::size_t>(1, total)));
     }
 
-    std::optional<Json> StageWeapons(Json& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& weapons,
+    std::optional<Json> StageWeapons(BridgeReport& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& weapons,
                                      const Names& scriptModels, extract::StockWaw* stock, Names& sounds)
     {
         if (weapons.empty() && scriptModels.empty())
@@ -183,32 +183,32 @@ namespace w2b::pipeline::bridge
                 roots = PathList(weaponReport["resolved_roots"]);
             for (const auto& name : weaponReport["dependencies"].value("sound", Json::array()))
                 sounds.insert(name.get<std::string>());
-            report["content"]["weapons"] = Json{{"status", weaponReport["status"]}, {"weapons", weaponReport["weapons"].size()},
+            report.content["weapons"] = Json{{"status", weaponReport["status"]}, {"weapons", weaponReport["weapons"].size()},
                                                 {"animations", weaponReport["animations"].size()},
                                                 {"missing_animations", weaponReport["missing_animations"]},
                                                 {"report", "content_source/weapons.stage.json"}};
             const auto& models = weaponReport["models"];
             for (const auto& [name, bones] : SortedItems(models.value("reparented_roots", Json::object())))
-                report["warnings"].push_back("SKELETON_REPARENTED xmodel " + name + ": root bones " + ListText(bones) +
+                report.Warn("SKELETON_REPARENTED xmodel " + name + ": root bones " + ListText(bones) +
                                              " share one bind transform; secondary roots became identity children of the primary (globals unchanged)");
             for (const auto& name : models.value("rebound_to_root", Json::array()))
-                report["warnings"].push_back("WORLD_MODEL_REBOUND xmodel " + name.get<std::string>() +
+                report.Warn("WORLD_MODEL_REBOUND xmodel " + name.get<std::string>() +
                                              ": over the mod tools linker's animated vertex limit; weights moved to the root bone, all bones kept (world models do not animate)");
             for (const auto& [name, why] : SortedItems(models.at("unsupported")))
-                report["warnings"].push_back("UNSUPPORTED_XMODEL " + name + " (weapon model): " + why.get<std::string>());
+                report.Warn("UNSUPPORTED_XMODEL " + name + " (weapon model): " + why.get<std::string>());
             const auto graphFile = projectRoot / "content_source/weapons.dependencies.json";
             const auto graph = mod::IsFile(graphFile) ? mod::Json(graphFile) : Json::object();
             if (graph.contains("nodes"))
                 for (const auto& node : graph["nodes"])
                 {
                     for (const auto& source : node.value("recovered_geometry", Json::array()))
-                        report["warnings"].push_back("WAW_MODEL_GEOMETRY_RECOVERED " + node["name"].get<std::string>() + ": " + source.get<std::string>());
+                        report.Warn("WAW_MODEL_GEOMETRY_RECOVERED " + node["name"].get<std::string>() + ": " + source.get<std::string>());
                     if (node["status"] == "missing_model_geometry")
                     {
                         std::vector<std::string> missing;
                         for (const auto& file : node["missing_files"])
                             missing.push_back(file.get<std::string>());
-                        report["errors"].push_back("MODEL_GEOMETRY_MISSING " + node["name"].get<std::string>() + ": the map and WaW stock assets do not contain " +
+                        report.Fail("MODEL_GEOMETRY_MISSING " + node["name"].get<std::string>() + ": the map and WaW stock assets do not contain " +
                                                    mod::Join(missing, ", ") + "; verify the source map and WaW installation files");
                     }
                 }
@@ -216,7 +216,7 @@ namespace w2b::pipeline::bridge
         });
     }
 
-    Names RecoverScriptModels(Json& scripts, Json& warnings, const Names& wanted, std::vector<fs::path>& roots, extract::StockWaw* stock,
+    Names RecoverScriptModels(Json& scripts, std::vector<std::string>& warnings, const Names& wanted, std::vector<fs::path>& roots, extract::StockWaw* stock,
                               extract::WawSource* source)
     {
         // a setModel-only asset need not occur in the map's entity/model table:
@@ -287,7 +287,7 @@ namespace w2b::pipeline::bridge
         return models;
     }
 
-    std::map<std::string, fs::path> RecoverMaterialSources(Json& report, const Names& names, std::vector<fs::path>& roots, extract::StockWaw* stock,
+    std::map<std::string, fs::path> RecoverMaterialSources(BridgeReport& report, const Names& names, std::vector<fs::path>& roots, extract::StockWaw* stock,
                                                            extract::WawSource* source, const fs::path& stockMaterials, const std::optional<fs::path>& bo2Root)
     {
         // compiled WaW definitions win; BO2 equivalents must be explicit or
@@ -315,7 +315,7 @@ namespace w2b::pipeline::bridge
                 if (const auto recovered = CompileSource(*source, "material", name))
                 {
                     roots.push_back(*recovered);
-                    report["warnings"].push_back("WAW_SOURCE_ASSET material " + name + ": compiled from WaW Mod Tools");
+                    report.Warn("WAW_SOURCE_ASSET material " + name + ": compiled from WaW Mod Tools");
                     auto& node = closure["nodes"][nodeIndex.at(name)];
                     node["status"] = "resolved";
                     node["provenance"] = "WAW_SOURCE_ASSET";
@@ -340,11 +340,11 @@ namespace w2b::pipeline::bridge
             if (node["status"] != "resolved")
                 missing.push_back(node);
         closure["missing"] = std::move(missing);
-        report["content"]["material_dependencies"] = std::move(closure);
+        report.content["material_dependencies"] = std::move(closure);
         return fallbacks;
     }
 
-    Names StageMaterials(Json& report, const Names& names, const std::vector<fs::path>& roots, const fs::path& stockMaterials,
+    Names StageMaterials(BridgeReport& report, const Names& names, const std::vector<fs::path>& roots, const fs::path& stockMaterials,
                          const fs::path& projectRoot, const std::optional<fs::path>& techsetRoot, const MaterialOptions& options)
     {
         return Timed("Convert materials", [&]
@@ -361,9 +361,9 @@ namespace w2b::pipeline::bridge
                 Extend(report, "warnings", result.warnings);
                 if (!result.native)
                     Extend(report, "errors", result.errors);
-                if (!result.entry.is_null())
+                if (result.entry)
                 {
-                    report["materials"].push_back(std::move(result.entry));
+                    report.materials.push_back(std::move(*result.entry));
                     used.insert(result.techset);
                 }
             }
@@ -371,7 +371,7 @@ namespace w2b::pipeline::bridge
         });
     }
 
-    std::vector<std::string> StageImages(Json& report, const std::vector<fs::path>& imageRoots, const fs::path& projectRoot,
+    std::vector<std::string> StageImages(BridgeReport& report, const std::vector<fs::path>& imageRoots, const fs::path& projectRoot,
                                          const std::optional<std::vector<fs::path>>& iwdDirs, const std::vector<std::string>& extraImages,
                                          textures::IwdRecovery& recovery, Json& recovered)
     {
@@ -379,9 +379,9 @@ namespace w2b::pipeline::bridge
         {
             std::vector<std::string> materials;
             std::set<std::string> nativeImages;
-            for (const auto& material : report["materials"])
-                materials.push_back(material["file"].get<std::string>());
-            for (const auto& image : report["images"])
+            for (const auto& material : report.materials)
+                materials.push_back(material.file);
+            for (const auto& image : report.images)
                 if (image.value("source_kind", Json()) == "t6_equivalent")
                     nativeImages.insert(image["name"].get<std::string>());
             const auto flag = [](const char* name)
@@ -395,10 +395,10 @@ namespace w2b::pipeline::bridge
             for (const auto& [stem, metadata] : result.recovered.items())
                 recovered[stem] = metadata;
             Extend(report, "images", result.images);
-            for (const auto& warning : result.warnings)
-                report["warnings"].push_back(warning);
-            for (const auto& error : result.errors)
-                report["errors"].push_back(error);
+            for (auto& warning : result.warnings)
+                report.Warn(std::move(warning));
+            for (auto& error : result.errors)
+                report.Fail(std::move(error));
             return std::move(result.written);
         });
     }
@@ -425,9 +425,8 @@ namespace w2b::pipeline::bridge
         const auto& closure = graph.report;
         const auto output = projectRoot / "content_source/impact_materials";
         fs::create_directories(output);
-        Json report{{"project", "source_impact_materials"}, {"materials", Json::array()}, {"images", Json::array()}, {"techsets", Json::array()},
-                    {"collision", Json::object()}, {"entities", Json::object()}, {"scripts", Json::object()}, {"content", Json::object()},
-                    {"fx_table", Json::object()}, {"errors", Json::array()}, {"warnings", Json::array()}};
+        BridgeReport report;
+        report.project = "source_impact_materials";
         MaterialOptions options;
         options.layeredVertexData = layeredVertexData;
         StageMaterials(report, names, resolvedRoots, techsetDump / "materials", output, techsetDump, options);
@@ -435,16 +434,13 @@ namespace w2b::pipeline::bridge
         for (const auto& root : resolvedRoots)
             imageRoots.push_back(root / "images");
         StageImages(report, imageRoots, output, std::nullopt, {}, recovery, recovered);
-        if (!report["errors"].empty())
+        if (!report.errors.empty())
         {
-            std::vector<std::string> first;
-            for (const auto& error : report["errors"])
-                if (first.size() < 8)
-                    first.push_back(error.get<std::string>());
+            const std::vector<std::string> first(report.errors.begin(), report.errors.begin() + static_cast<long long>(std::min<std::size_t>(8, report.errors.size())));
             throw StepError("ValueError", "source impact materials: " + mod::Join(first, "; "));
         }
-        files::WriteText(output / "stage.json", py::JsonDumps(Json{{"materials", report["materials"]}, {"images", report["images"]}}, 1));
-        return Json{{"materials", report["materials"].size()}, {"report", "content_source/impact_materials/stage.json"},
+        files::WriteText(output / "stage.json", py::JsonDumps(Json{{"materials", ToJson(report.materials)}, {"images", report.images}}, 1));
+        return Json{{"materials", report.materials.size()}, {"report", "content_source/impact_materials/stage.json"},
                     {"missing_dependencies", closure["missing"]}};
     }
 

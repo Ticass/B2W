@@ -20,6 +20,7 @@
 #include "weapons/stage.h"
 #include "core/asset_paths.h"
 #include "shaders/stage.h"
+#include "shaders/techsets.h"
 #include "visions/visions.h"
 #include "client_stage.h"
 #include "weapons/water_bullets.h"
@@ -86,6 +87,15 @@ namespace w2b::pipeline
             return {entries.begin(), entries.end()};
         }
 
+        std::vector<models::SurfaceMaterial> SurfaceView(const std::vector<MaterialRecord>& records)
+        {
+            std::vector<models::SurfaceMaterial> view;
+            for (const auto& record : records)
+                view.push_back({record.WawName(), record.file, record.t4Techset && *record.t4Techset ? **record.t4Techset : std::string(),
+                                record.t4SortKey ? std::optional(static_cast<int>(*record.t4SortKey)) : std::nullopt});
+            return view;
+        }
+
         // repr() of a dict of str -> int, as print() shows framework_coverage.totals
         std::string CountsRepr(const std::vector<std::pair<std::string, long long>>& counts)
         {
@@ -100,7 +110,7 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json BridgeTail(TailInput input, Json& report, extract::StockWaw* stock, textures::IwdRecovery& recovery)
+    Json BridgeTail(TailInput input, BridgeReport& report, extract::StockWaw* stock, textures::IwdRecovery& recovery)
     {
         // input: the visuals block supplies the later blocks' vision report and HUD materials
         const auto& project = input.project;
@@ -111,10 +121,11 @@ namespace w2b::pipeline
         const auto& techsetDump = input.techsetDump;
         const auto& wawMapStem = input.wawMapStem;
 
-        const bool hasScripts = Truthy(report["scripts"]);
-        auto& warnings = report["warnings"];
-        auto& errors = report["errors"];
-        auto& content = report["content"];
+        const bool hasScripts = Truthy(report.scripts);
+        auto& warnings = report.warnings;
+        auto& errors = report.errors;
+        auto& content = report.content;
+        const auto characters = report.scripts.is_object() && Truthy(report.scripts.value("characters", Json()));
         auto& images = input.images;
         Json weaponRecovered = Json::object();
         {
@@ -122,7 +133,7 @@ namespace w2b::pipeline
             // verify_techsets: every technique set the materials use, with its shaders
             {
                 const auto& used = scripts.usedTechsets;
-                report["techsets"] = std::vector<std::string>(used.begin(), used.end());
+                report.techsets.assign(used.begin(), used.end());
                 if (!techsetDump)
                     errors.push_back("no --techset-dump given; the bridge cannot load technique sets without techniquesets/*.json + shader_bin/*.cso dumped from a stock T6 zone");
                 else
@@ -136,20 +147,7 @@ namespace w2b::pipeline
                                 return root / rel;
                         return std::nullopt;
                     };
-                    const auto shadersOf = [](const Json& techset)
-                    {
-                        std::set<std::string> found;
-                        for (const auto& tech : techset.value("techniques", Json::array()))
-                        {
-                            if (!Truthy(tech))
-                                continue;
-                            for (const auto& pass : tech.value("passArray", Json::array()))
-                                for (const auto& [key, prefix] : std::vector<std::pair<std::string, std::string>>{{"pixelShader", "ps_"}, {"vertexShader", "vs_"}})
-                                    if (pass.contains(key) && pass[key].is_object() && Truthy(pass[key].value("name", Json())))
-                                        found.insert("shader_bin/" + prefix + pass[key]["name"].get<std::string>() + ".cso");
-                        }
-                        return found;
-                    };
+                    const auto shadersOf = [](const fs::path& techset) { return shaders::ProgramFiles(shaders::ReadT6TechniqueSet(techset)); };
                     for (const auto& name : used)
                     {
                         const fs::path rel = fs::path("techniquesets") / files::FromUtf8(name + ".json");
@@ -161,7 +159,7 @@ namespace w2b::pipeline
                             if (owner)
                             {
                                 std::vector<std::string> rels{mod::Generic(rel)};
-                                for (const auto& sh : shadersOf(mod::Json(*owner / rel)))
+                                for (const auto& sh : shadersOf(*owner / rel))
                                     rels.push_back(sh);
                                 for (const auto& r : rels)
                                     if (mod::IsFile(*owner / files::FromUtf8(r)))
@@ -179,7 +177,7 @@ namespace w2b::pipeline
                             errors.push_back("technique set " + name + ": " + Str(*path) + " missing from dump");
                             continue;
                         }
-                        for (const auto& sh : shadersOf(mod::Json(*path)))
+                        for (const auto& sh : shadersOf(*path))
                             if (!find(files::FromUtf8(sh)))
                                 errors.push_back("technique set " + name + ": shader " + sh + " missing from dump");
                     }
@@ -219,9 +217,8 @@ namespace w2b::pipeline
                     warnings.push_back("zm_test electric_switch guarded: WaW map has no template switch entities");
             }
             MapHookRequest hooks{projectRoot, project, wawMapStem.value_or(std::string()), bo2Root, input.bo2StockPerks, hasScripts,
-                                 report["scripts"].is_object() && Truthy(report["scripts"].value("characters", Json())), {}};
-            if (report["scripts"].is_object())
-                hooks.stagedAnimtrees = report["scripts"].value("staged_animtrees", Json::array()).get<std::vector<std::string>>();
+                                 characters, {}};
+            hooks.stagedAnimtrees = report.Script("staged_animtrees").get<std::vector<std::string>>();
             HookMapScripts(hooks).MergeInto(report);
             // stage_rawfiles
             gsc::port::StageDiagnostics rawfiles;
@@ -328,7 +325,7 @@ namespace w2b::pipeline
                         warnings.push_back("UNSUPPORTED_WEAPON " + name + ": not carried in mod.ff: " + joined);
                     }
                     fs::create_directories(projectRoot / "maps" / "mp" / "waw");
-                    const auto finished = FinishWeaponRuntime({projectRoot, report["fx_table"].get<std::map<std::string, std::string>>(),
+                    const auto finished = FinishWeaponRuntime({projectRoot, report.fxTable,
                                                                wawMapStem, runtime.at("table").get<std::map<std::string, std::string>>(),
                                                                weaponReq.mapTableRoots, weaponReq.tableRoots});
                     content["map_tables"] = finished.mapTables;
@@ -355,26 +352,26 @@ namespace w2b::pipeline
                 if (k != "shaders")
                     shaderContent[k] = v;
             shaderContent["report"] = "content_source/shaders/stage.json";
-            Json runtimeMaterials = report["materials"];
+            auto runtimeMaterials = report.materials;
             const auto weaponVisuals = projectRoot / "content_source/weapons.visuals.json";
             if (mod::IsFile(weaponVisuals))
             {
                 const auto visualsReport = mod::Json(weaponVisuals);
                 for (const auto& m : visualsReport.at("materials"))
-                    runtimeMaterials.push_back(m);
+                    runtimeMaterials.push_back(MaterialRecord::FromJson(m));
             }
             std::vector<const Json*> active;
             long long activeMaterials = 0, vertexPasses = 0;
             std::set<std::string> uniqueShaders;
             for (const auto& m : runtimeMaterials)
             {
-                const auto runtime = m.contains("shader_runtime") && m["shader_runtime"].is_object() ? m["shader_runtime"] : Json::object();
-                const auto passes = runtime.value("active", Json::array());
+                if (!m.shaderRuntime.is_object() || !m.shaderRuntime.contains("active"))
+                    continue;
+                // pointers into runtimeMaterials itself
+                const auto& passes = m.shaderRuntime["active"];
                 activeMaterials += Truthy(passes);
-                // pointers into runtimeMaterials itself (a ternary would yield a temporary copy)
-                if (m.contains("shader_runtime") && m["shader_runtime"].is_object() && m["shader_runtime"].contains("active"))
-                    for (const auto& p : m["shader_runtime"]["active"])
-                        active.push_back(&p);
+                for (const auto& p : passes)
+                    active.push_back(&p);
             }
             for (const auto* p : active)
             {
@@ -414,8 +411,12 @@ namespace w2b::pipeline
             const auto overlay = vision.contains("overlay") && vision["overlay"].is_object() ? vision["overlay"] : Json::object();
             for (const auto& name : overlay.value("materials", Json::array()))
             {
-                report["materials"].push_back(Json{{"name", name}, {"file", mod::Generic(assets::MaterialPath(name.get<std::string>()))},
-                                                   {"t6_techset", "waw film/glow overlay"}, {"notes", Json::array({"WaW film + glow pass (glow.py)"})}});
+                MaterialRecord record;
+                record.name = name.get<std::string>();
+                record.file = mod::Generic(assets::MaterialPath(record.name));
+                record.t6Techset = "waw film/glow overlay";
+                record.notes = std::vector<std::string>{"WaW film + glow pass (glow.py)"};
+                report.materials.push_back(std::move(record));
                 input.hudMaterials.push_back(name.get<std::string>());
             }
             const auto overlayNotes = overlay.value("notes", Json::object());
@@ -456,11 +457,10 @@ namespace w2b::pipeline
                         for (const auto& n : kinds["sound"])
                             soundNames.insert(n.get<std::string>());
             }
-            const auto mapClient = report["scripts"].is_object() && report["scripts"].contains("client") ? report["scripts"]["client"] : Json();
-            const auto finished = FinishClientScripts({projectRoot, project, roots, report["fx_table"].get<std::map<std::string, std::string>>(), soundNames,
-                                                       report["scripts"].is_object() && Truthy(report["scripts"].value("characters", Json())), mapClient});
+            const auto mapClient = report.Script("client", Json());
+            const auto finished = FinishClientScripts({projectRoot, project, roots, report.fxTable, soundNames, characters, mapClient});
             if (Truthy(mapClient))
-                report["scripts"]["client"] = finished.mapClient;
+                report.scripts["client"] = finished.mapClient;
             for (const auto& w : finished.warnings)
                 warnings.push_back(w);
         }
@@ -551,12 +551,12 @@ namespace w2b::pipeline
                                    " lightmap pages; T4 corner obstruction traces require a separate runtime adapter because T6 stores scalar visibility");
             }
             // the window barrier
-            const auto timing = report["scripts"].is_object() && report["scripts"].contains("window_repair_timing") ? report["scripts"]["window_repair_timing"] : Json();
+            const auto timing = report.Script("window_repair_timing", Json());
             StageZbarrier(projectRoot, techsetDump, bo2Root, timing).MergeInto(report);
         }
 
         // stage_model_overlay_fx
-        const auto overlays = effects::StageModelOverlayRuntime(projectRoot, report["fx_table"].get<std::map<std::string, std::string>>());
+        const auto overlays = effects::StageModelOverlayRuntime(projectRoot, report.fxTable);
         content["model_overlay_fx"] = effects::ToJson(overlays);
         std::vector<std::string> overlayVariants;
         for (const auto& entry : overlays)
@@ -629,7 +629,7 @@ namespace w2b::pipeline
         }
         // modelcolours.stage_surface_fixes
         {
-            const auto fixes = models::StageSurfaceFixes(projectRoot, report["materials"], true, true);
+            const auto fixes = models::StageSurfaceFixes(projectRoot, SurfaceView(report.materials), true, true);
             content["additive_model_vertex_alpha"] = fixes.OpacityJson();
             if (!fixes.opacity.empty())
             {
@@ -655,18 +655,16 @@ namespace w2b::pipeline
         if (techsetDump)
         {
             std::vector<models::MaterialFile> entries;
-            for (const auto& entry : report["materials"])
-                entries.push_back({entry.at("name").get<std::string>(), entry.at("file").get<std::string>()});
-            std::vector<std::string> hud;
-            if (report["scripts"].is_object() && report["scripts"].contains("hud_materials"))
-                hud = report["scripts"]["hud_materials"].get<std::vector<std::string>>();
+            for (const auto& entry : report.materials)
+                entries.push_back({entry.name, entry.file});
+            const auto hud = report.Script("hud_materials").get<std::vector<std::string>>();
             auto result = models::IsolateMaterialNames(projectRoot, *techsetDump, entries, hud);
             for (const auto& update : result.updates)
             {
-                auto& material = report["materials"][update.index];
-                material["name"] = update.name;
-                material["file"] = update.file;
-                material["source_name"] = update.sourceName;
+                auto& material = report.materials[update.index];
+                material.name = update.name;
+                material.file = update.file;
+                material.sourceName = update.sourceName;
             }
             materialRenames = std::move(result.renamed);
             if (!materialRenames.empty())
@@ -683,8 +681,8 @@ namespace w2b::pipeline
         for (const auto& n : input.hudMaterials)
             hudMaterials.insert(materialNames.contains(n) ? materialNames.find(n)->second : n);
         std::set<std::string> staged;
-        for (const auto& m : report["materials"])
-            staged.insert(m.at("name").get<std::string>());
+        for (const auto& m : report.materials)
+            staged.insert(m.name);
         // rumbles.stage
         auto rumbleRoots = roots;
         rumbleRoots.insert(rumbleRoots.end(), rawRoots.begin(), rawRoots.end());
@@ -715,12 +713,12 @@ namespace w2b::pipeline
             world::WriteMapZone(stage, project, input.ipak, assets);
         }
         // CLAUDE.md: every function BO2 runs in place of the map's own without a glue reason is reported
-        const auto covered = FrameworkCoverage(project, projectRoot, input.coverageRoots, report["scripts"]);
+        const auto covered = FrameworkCoverage(project, projectRoot, input.coverageRoots, report.scripts);
         content["framework_coverage"] = covered.TotalsJson();
         for (const auto& w : covered.warnings)
             warnings.push_back(w);
         mod::Print("framework coverage: " + CountsRepr(covered.totals) + " (framework_coverage.md)");
-        files::WriteText(projectRoot / "bridge_stage.report.json", py::JsonDumps(report, 2) + "\n");
+        files::WriteText(projectRoot / "bridge_stage.report.json", py::JsonDumps(report.ToJson(), 2) + "\n");
         weaponRecovered.update(recovered);
         return weaponRecovered;
     }

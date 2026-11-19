@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdlib>
+#include <nlohmann/json.hpp>
 
 namespace
 {
@@ -119,4 +120,46 @@ TEST_CASE("T6 material documents round-trip byte for byte", "[materials]")
             INFO(w2b::files::Utf8(path));
             CHECK(T6MaterialText(ReadT6Material(path)) == text);
         }
+}
+
+#include "shaders/techsets.h"
+
+TEST_CASE("T6 technique sets round-trip", "[materials]")
+{
+    // W2B_TECHSET_ROUNDTRIP=<folder>: every techniquesets document under it
+    const char* folder = std::getenv("W2B_TECHSET_ROUNDTRIP");
+    if (!folder || !*folder)
+        return;
+    for (const auto& path : w2b::files::RGlob(w2b::files::FromUtf8(folder), ".json"))
+    {
+        if (w2b::files::Utf8(path).find("techniquesets") == std::string::npos || w2b::files::Utf8(path).find("waw_techniquesets") != std::string::npos)
+            continue;
+        INFO(w2b::files::Utf8(path));
+        const auto data = w2b::py::Json::parse(w2b::files::ReadText(path));
+        const auto written = w2b::shaders::ToJson(w2b::shaders::T6TechniqueSetFromJson(data));
+        // key order aside: an argument the runtime added type-first is written sorted
+        CHECK(w2b::py::Json::diff(data, written).empty());
+    }
+}
+
+TEST_CASE("JSON documents match by content", "[parity]")
+{
+    // W2B_JSON_PAIRS=<file>: lines "<base>|<new>"; each pair must hold the same document, key order aside
+    const char* list = std::getenv("W2B_JSON_PAIRS");
+    if (!list || !*list)
+        return;
+    const auto pairs = w2b::files::ReadText(w2b::files::FromUtf8(list)); // SplitLines views into it
+    for (const auto line : w2b::py::SplitLines(pairs))
+    {
+        const auto bar = line.find('|');
+        if (bar == std::string_view::npos)
+            continue;
+        const auto base = w2b::files::FromUtf8(std::string(line.substr(0, bar)));
+        const auto fresh = w2b::files::FromUtf8(std::string(line.substr(bar + 1)));
+        INFO(std::string(line.substr(bar + 1)));
+        const auto a = nlohmann::json::parse(w2b::files::ReadText(base));
+        const auto b = nlohmann::json::parse(w2b::files::ReadText(fresh));
+        INFO((a == b ? std::string() : nlohmann::json::diff(a, b).dump().substr(0, 600)));
+        CHECK(a == b);
+    }
 }

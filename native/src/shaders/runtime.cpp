@@ -182,11 +182,17 @@ namespace w2b::shaders
             return (rule == "gt0" || rule == "ge128" || rule == "lt128") && Get(state, &S::blendOpRgb, "disabled") == "disabled";
         }
 
-        const Json* SourceTechnique(const Json& original, const std::string& sourceName, const int slot)
+        const WawTechnique* SourceTechnique(const WawTechniqueSet& original, const std::string& sourceName, const int slot)
         {
-            const auto& techniques = original["techniques"];
-            const auto index = SourceSlot([&](const int i) { return i < static_cast<int>(techniques.size()) && Truthy(techniques[i]); }, sourceName, slot);
-            return index ? &techniques[static_cast<size_t>(*index)] : nullptr;
+            const auto& techniques = original.techniques;
+            const auto index = SourceSlot([&](const int i) { return i >= 0 && i < static_cast<int>(techniques.size()) && techniques[i].has_value(); }, sourceName, slot);
+            return index ? &*techniques[static_cast<size_t>(*index)] : nullptr;
+        }
+
+        // a technique in slot `slot`, when the set has one there
+        bool Has(const T6TechniqueSet& set, const int slot)
+        {
+            return slot >= 0 && slot < static_cast<int>(set.techniques.size()) && set.techniques[static_cast<size_t>(slot)];
         }
 
         // _write_program: content-named program and its proof
@@ -202,18 +208,14 @@ namespace w2b::shaders
             return name;
         }
 
-        Json VertexDecl(const Json& binding, const std::map<std::string, std::pair<int, int>>& streams)
+        T6VertexDecl VertexDecl(const Json& binding, const std::map<std::string, std::pair<int, int>>& streams)
         {
-            Json routing = Json::array();
+            T6VertexDecl decl;
             for (const auto& [_, e] : binding["inputs"].items())
-            {
-                const auto& [source, dest] = streams.at(Upper(e["semantic"].get<std::string>()));
-                routing.push_back(Json{{"source", source}, {"dest", dest}});
-            }
-            const auto count = routing.size();
-            for (size_t i = count; i < 16; i++)
-                routing.push_back(Json{{"source", 0}, {"dest", 0}});
-            return Json{{"streamCount", count}, {"hasOptionalSource", false}, {"isLoaded", false}, {"routing", routing}};
+                decl.routing.push_back(streams.at(Upper(e["semantic"].get<std::string>())));
+            decl.streamCount = static_cast<long long>(decl.routing.size());
+            decl.routing.resize(16, {0, 0});
+            return decl;
         }
 
         std::string TargetRegister(const Json& contract)
@@ -254,30 +256,30 @@ namespace w2b::shaders
                 result["unsupported"].push_back("original/native technique metadata absent");
                 return result;
             }
-            const auto original = Json::parse(files::ReadText(*sourceFile));
-            const auto pristine = Json::parse(files::ReadText(nativeFile));
+            const auto original = ReadWawTechniqueSet(*sourceFile);
+            const auto pristine = ReadT6TechniqueSet(nativeFile);
             auto native = pristine;
             for (const auto& [slot, _] : SLOTS)
             {
-                auto& target = native["techniques"][static_cast<size_t>(slot)];
                 const auto* source = SourceTechnique(original, sourceName, slot);
-                if (!Truthy(target) || !source || !Truthy(*source))
+                if (!Has(native, slot) || !source || source->passes.empty())
                     continue;
-                if ((*source)["passes"].size() != 1 || target["passArray"].size() != 1)
+                auto& target = *native.techniques[static_cast<size_t>(slot)].technique;
+                if (source->passes.size() != 1 || target.passes.size() != 1)
                 {
                     result["unsupported"].push_back("slot " + std::to_string(slot) + ": multi-pass adapter required");
                     continue;
                 }
-                const auto& sourcePass = (*source)["passes"][0];
-                auto& targetPass = target["passArray"][0];
+                const auto& sourcePass = source->passes[0];
+                auto& targetPass = target.passes[0];
                 const bool outputScale = OutputScale(sourceMaterial, sourceName, slot);
-                const auto binary = Find(roots, fs::path("shader_bin") / files::FromUtf8("ps_" + sourcePass["pixelShader"].get<std::string>() + ".cso"));
+                const auto binary = Find(roots, fs::path("shader_bin") / files::FromUtf8("ps_" + sourcePass.pixelShader + ".cso"));
                 if (!binary)
                 {
                     result["unsupported"].push_back("slot " + std::to_string(slot) + ": original program absent");
                     continue;
                 }
-                const auto vertexBinary = Find(roots, fs::path("shader_bin") / files::FromUtf8("vs_" + sourcePass["vertexShader"].get<std::string>() + ".cso"));
+                const auto vertexBinary = Find(roots, fs::path("shader_bin") / files::FromUtf8("vs_" + sourcePass.vertexShader + ".cso"));
                 // preferred: the original vertex+pixel pair, so the varyings stay WaW's
                 std::optional<std::string> pairedError;
                 if (vertexBinary)
@@ -288,7 +290,7 @@ namespace w2b::shaders
                         bool normalizedDepth;
                         std::tie(vertexAssembly, normalizedDepth) = NormalizeSoftParticleDepth(vertexAssembly, AssemblyOf(*binary));
                         auto vertexBinding = VertexContract(vertexAssembly, sourcePass, targetPass, nativeRoot, true, sourceMaterial,
-                                                            Truthy(pristine.value("worldVertFormat", Json())), trailGeometry);
+                                                            pristine.worldVertFormat != 0, trailGeometry);
                         if (normalizedDepth)
                             vertexBinding["soft_particle_depth"] = "packed WaW depth to T6 camera depth";
                         AddVertex(vertexBinding, result);
@@ -299,7 +301,7 @@ namespace w2b::shaders
                         for (const auto& [_, decl] : vertexTranslation.report["outputs"].items())
                             linked.push_back(Json{{"semantic", decl[0]}, {"width", decl[1]}});
                         auto assembly = EmbedLiterals(AssemblyOf(*binary), sourcePass, "ps");
-                        Json pixelPass;
+                        WawPass pixelPass;
                         std::tie(assembly, pixelPass) = BindLocalLightRamp(assembly, sourcePass, sourceMaterial);
                         std::optional<std::string> visibility;
                         if (vertexBinding.contains("lighting_visibility") && vertexBinding["lighting_visibility"].is_string())
@@ -326,18 +328,18 @@ namespace w2b::shaders
                         if (sourceName.rfind("mc_sky", 0) == 0)
                         {
                             // donor skies stream only POSITION; the dome also reads color and UV
-                            targetPass["vertexDecl"] = VertexDecl(vertexBinding, {{"POSITION0", {0, 0}}, {"COLOR0", {1, 2}}, {"TEXCOORD0", {2, 5}}});
+                            targetPass.vertexDecl = VertexDecl(vertexBinding, {{"POSITION0", {0, 0}}, {"COLOR0", {1, 2}}, {"TEXCOORD0", {2, 5}}});
                             PruneMissingMaterialConstants(targetPass, outputMaterial, {&vertexBinding, &contract}, false);
                         }
                         if (materials::ParseTechnique(sourceName).unlit == "unlit_falloff_add")
-                            targetPass["vertexDecl"] = VertexDecl(vertexBinding, {{"POSITION0", {0, 0}}, {"COLOR0", {1, 2}}, {"TEXCOORD0", {2, 5}}, {"NORMAL0", {3, 1}}});
+                            targetPass.vertexDecl = VertexDecl(vertexBinding, {{"POSITION0", {0, 0}}, {"COLOR0", {1, 2}}, {"TEXCOORD0", {2, 5}}, {"NORMAL0", {3, 1}}});
                         PruneMissingMaterialConstants(targetPass, outputMaterial, {&vertexBinding, &contract}, true);
                         const auto shaderName = WriteProgram(output, "ps", dxbc, *binary, contract, translation.report);
                         const auto vertexName = WriteProgram(output, "vs", vertexCode, *vertexBinary, vertexBinding, vertexTranslation.report);
-                        targetPass["pixelShader"] = Json{{"name", shaderName}};
-                        targetPass["vertexShader"] = Json{{"name", vertexName}};
+                        targetPass.pixelShader = shaderName;
+                        targetPass.vertexShader = vertexName;
                         result["active"].push_back(Json{{"slot", slot},
-                                                        {"source", sourcePass["pixelShader"]},
+                                                        {"source", sourcePass.pixelShader},
                                                         {"shader", shaderName},
                                                         {"vertex_shader", vertexName},
                                                         {"paired", true},
@@ -378,10 +380,10 @@ namespace w2b::shaders
                             result["unsupported"].push_back("slot " + std::to_string(slot) + " vertex: " + exc.what());
                         }
                     }
-                    targetPass["pixelShader"] = Json{{"name", shaderName}};
+                    targetPass.pixelShader = shaderName;
                     if (Truthy(vertexName))
-                        targetPass["vertexShader"] = Json{{"name", vertexName}};
-                    result["active"].push_back(Json{{"slot", slot}, {"source", sourcePass["pixelShader"]}, {"shader", shaderName}, {"vertex_shader", vertexName}});
+                        targetPass.vertexShader = vertexName.get<std::string>();
+                    result["active"].push_back(Json{{"slot", slot}, {"source", sourcePass.pixelShader}, {"shader", shaderName}, {"vertex_shader", vertexName}});
                 }
                 catch (const ShaderError& exc)
                 {
@@ -409,22 +411,21 @@ namespace w2b::shaders
             if (sourceName.find("projected_decal") != std::string::npos && decalBase)
             {
                 auto& entries = outputMaterial.stateBitsEntry;
-                const auto& techniques = pristine["techniques"];
-                for (int slot = 0; slot < std::min<int>(DEBUG_SLOTS_START, static_cast<int>(techniques.size())); slot++)
+                for (int slot = 0; slot < std::min<int>(DEBUG_SLOTS_START, static_cast<int>(pristine.techniques.size())); slot++)
                 {
                     const bool dlight = std::any_of(DLIGHT_BASE_SLOTS.begin(), DLIGHT_BASE_SLOTS.end(), [&](const auto& s) { return s.first == slot; });
                     const bool spot = std::any_of(SPOT_SHAPE_BASE_SLOTS.begin(), SPOT_SHAPE_BASE_SLOTS.end(), [&](const auto& s) { return s.first == slot; });
-                    if (bound.count(slot) || !Truthy(techniques[slot]) || dlight || spot)
+                    if (bound.count(slot) || !Has(pristine, slot) || dlight || spot)
                         continue;
                     if (slot == 0 || slot == 1)
                     {
-                        native["techniques"][static_cast<size_t>(slot)] = nullptr;
+                        native.techniques[static_cast<size_t>(slot)] = {true, std::nullopt};
                         if (slot < static_cast<int>(entries.size()))
                             entries[static_cast<size_t>(slot)] = -1;
                         result["unsupported"].push_back("slot " + std::to_string(slot) + ": dropped (WaW projected decals cast no depth or shadow)");
                         continue;
                     }
-                    native["techniques"][static_cast<size_t>(slot)] = native["techniques"][static_cast<size_t>(*decalBase)];
+                    native.techniques[static_cast<size_t>(slot)] = native.techniques[static_cast<size_t>(*decalBase)];
                     auto entry = bound[*decalBase];
                     entry["slot"] = slot;
                     entry["decal_base"] = *decalBase;
@@ -434,9 +435,9 @@ namespace w2b::shaders
                 }
             }
             for (const auto& [slot, base] : DLIGHT_BASE_SLOTS)
-                if (bound.count(base) && Truthy(pristine["techniques"][static_cast<size_t>(slot)]) && !bound.count(slot))
+                if (bound.count(base) && Has(pristine, slot) && !bound.count(slot))
                 {
-                    native["techniques"][static_cast<size_t>(slot)] = native["techniques"][static_cast<size_t>(base)];
+                    native.techniques[static_cast<size_t>(slot)] = native.techniques[static_cast<size_t>(base)];
                     auto entry = bound[base];
                     entry["slot"] = slot;
                     entry["dlight_base"] = base;
@@ -444,9 +445,9 @@ namespace w2b::shaders
                     result["unsupported"].push_back("slot " + std::to_string(slot) + ": dynamic lights not added (draws the WaW pass of slot " + std::to_string(base) + ")");
                 }
             for (const auto& [slot, base] : SPOT_SHAPE_BASE_SLOTS)
-                if (bound.count(base) && slot < static_cast<int>(pristine["techniques"].size()) && Truthy(pristine["techniques"][static_cast<size_t>(slot)]) && !bound.count(slot))
+                if (bound.count(base) && Has(pristine, slot) && !bound.count(slot))
                 {
-                    native["techniques"][static_cast<size_t>(slot)] = native["techniques"][static_cast<size_t>(base)];
+                    native.techniques[static_cast<size_t>(slot)] = native.techniques[static_cast<size_t>(base)];
                     auto entry = bound[base];
                     entry["slot"] = slot;
                     entry["spot_shape_base"] = base;
@@ -470,9 +471,9 @@ namespace w2b::shaders
                 {
                     if (!lightShadows && SHADOWED_LIT_SLOTS.count(slot))
                         continue;
-                    if (activeSlots.count(slot) || !Truthy(pristine["techniques"][static_cast<size_t>(slot)]))
+                    if (activeSlots.count(slot) || !Has(pristine, slot))
                         continue;
-                    const auto& program = NativeProgram(nativeRoot, "ps", pristine["techniques"][static_cast<size_t>(slot)]["passArray"][0]);
+                    const auto& program = NativeProgram(nativeRoot, "ps", pristine.techniques[static_cast<size_t>(slot)].technique->passes.at(0));
                     bool reads = false;
                     for (const auto& [_, r] : ResourceNames(program))
                         reads |= r.name == "lightmapSamplerSecondary";
@@ -488,7 +489,7 @@ namespace w2b::shaders
                     for (const auto& a : wawLightmap)
                     {
                         const auto slot = static_cast<size_t>(I(a["slot"]));
-                        native["techniques"][slot] = pristine["techniques"][slot];
+                        native.techniques[slot] = pristine.techniques[slot];
                         auto& active = result["active"];
                         for (auto it = active.begin(); it != active.end(); ++it)
                             if (*it == a)
@@ -513,9 +514,9 @@ namespace w2b::shaders
                 {
                     if (translated.count(slot))
                         continue;
-                    if (slot < static_cast<int>(native["techniques"].size()) && Truthy(native["techniques"][static_cast<size_t>(slot)]))
+                    if (Has(native, slot))
                     {
-                        native["techniques"][static_cast<size_t>(slot)] = nullptr;
+                        native.techniques[static_cast<size_t>(slot)] = {true, std::nullopt};
                         if (slot < static_cast<int>(entries.size()))
                             entries[static_cast<size_t>(slot)] = -1;
                         result["unsupported"].push_back("slot " + std::to_string(slot) + ": dropped for the WaW alpha test (cut-out casts no shadow-map shadow)");
@@ -525,27 +526,27 @@ namespace w2b::shaders
             if (!result["active"].empty())
             {
                 // T6 resolves the scene depth texture only for techniques flagged as reading it
-                for (auto& technique : native["techniques"])
+                for (auto& slot : native.techniques)
                 {
-                    if (!Truthy(technique))
+                    if (!slot)
                         continue;
                     bool floatZ = false;
-                    for (const auto& p : technique["passArray"])
-                        for (const auto& a : p["args"])
-                            floatZ |= I(a["type"]) == 4 && a["u"].contains("value") && I(a["u"]["value"]) == FLOATZ_CODE_TEXTURE;
+                    for (const auto& p : slot.technique->passes)
+                        for (const auto& a : p.args)
+                            floatZ |= a.type == 4 && a.value == FLOATZ_CODE_TEXTURE;
                     if (floatZ)
-                        technique["flags"] = I(technique["flags"]) | TECHNIQUE_FLAG_FLOATZ;
+                        slot.technique->flags |= TECHNIQUE_FLAG_FLOATZ;
                 }
                 // named by content, arguments included
                 Json boundList = Json::array();
                 for (const auto& a : result["active"])
                     boundList.push_back(Json::array({a["slot"], a["shader"], a.value("vertex_shader", Json())}));
-                const auto content = py::JsonDumpsSorted(native);
+                const auto content = py::JsonDumpsSorted(ToJson(native));
                 const auto tsName = "waw/runtime_" + hash::Sha256Hex(nativeName + py::JsonDumpsDefault(boundList) + content).substr(0, 16);
                 for (const auto& a : result["active"])
-                    native["techniques"][static_cast<size_t>(I(a["slot"]))]["name"] = tsName + "_" + std::to_string(I(a["slot"]));
-                native["name"] = tsName;
-                output.Write(fs::path("techniquesets") / files::FromUtf8(tsName + ".json"), py::JsonDumps(native, 2), true);
+                    native.techniques[static_cast<size_t>(I(a["slot"]))].technique->name = tsName + "_" + std::to_string(I(a["slot"]));
+                native.name = tsName;
+                output.Write(fs::path("techniquesets") / files::FromUtf8(tsName + ".json"), py::JsonDumps(ToJson(native), 2), true);
                 outputMaterial.techniqueSet = tsName;
             }
             return result;

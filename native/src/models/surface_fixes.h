@@ -3,6 +3,7 @@
 #include "models/models.h"
 
 #include <map>
+#include <optional>
 
 namespace w2b::models
 {
@@ -24,10 +25,18 @@ namespace w2b::models
         py::Json SortKeysJson() const;
     };
 
+    // a staged material as the surface fixes see it
+    struct SurfaceMaterial
+    {
+        std::string wawName, file;          // the WaW material and its staged JSON, project-relative
+        std::string t4Techset;              // empty: not converted from a WaW material
+        std::optional<int> t4SortKey;
+    };
+
     std::size_t OpaqueVertexAlpha(Json& gltf, const MaterialNames& materials);
     SurfaceOrder SurfaceMaterials(const Json& gltf);
-    std::vector<SortKeyChange> ApplySurfaceOrder(const Path& project, const Json& materials, const std::vector<SurfaceOrder>& orders);
-    bool HasModelSortMaterials(const Json& materials);
+    std::vector<SortKeyChange> ApplySurfaceOrder(const Path& project, const std::vector<SurfaceMaterial>& materials, const std::vector<SurfaceOrder>& orders);
+    bool HasModelSortMaterials(const std::vector<SurfaceMaterial>& materials);
     void ReplaceStagedText(const Path& path, std::string_view text);
-    SurfaceFixes StageSurfaceFixes(const Path& project, const Json& materials, bool colors, bool sort);
+    SurfaceFixes StageSurfaceFixes(const Path& project, const std::vector<SurfaceMaterial>& materials, bool colors, bool sort);
 }
