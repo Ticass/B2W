@@ -5,6 +5,7 @@
 
 #include "core/pytext.h"
 #include "pipeline/step_report.h"
+#include "sound/bank.h"
 
 #include <filesystem>
 #include <optional>
@@ -33,7 +34,7 @@ namespace w2b::pipeline
     {
         StepReport report;
         py::Json bankReport; // content_source/sounds.bank.json
-        py::Json budget;     // the loaded-bank budget, null without BO2
+        std::optional<sound::SoundBudget> budget; // the loaded-bank budget, none without BO2
     };
 
     SoundMixResult SoundMix(const SoundMixRequest& request);

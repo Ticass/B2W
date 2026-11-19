@@ -667,7 +667,7 @@ namespace w2b::pipeline
         }
 
         // sounds.loaded_budget(bo2_root, None)
-        Json LoadedBudget(const fs::path& bo2)
+        sound::SoundBudget LoadedBudget(const fs::path& bo2)
         {
             std::vector<fs::path> banks, all;
             for (const auto& p : Stock::Glob(bo2 / "sound", "", ".all.sabl"))
@@ -703,16 +703,16 @@ namespace w2b::pipeline
             for (const auto& p : all)
                 if (AlwaysLoaded(p))
                     always += static_cast<long long>(stock[Str(p)].size());
-            return Json{{"reference_bank", files::Utf8(biggest.filename())},
-                        {"reference_entries", stock[Str(biggest)].size()},
-                        {"reference_bytes", size},
-                        {"template_entries", 0},
-                        {"template_bytes", 0},
-                        {"template_unmatched", 0},
-                        {"entries", std::max(T6_SND_ENTRY_POOL - always, 0LL)},
-                        {"entry_pool", Json{{"size", T6_SND_ENTRY_POOL}, {"always_loaded", always}, {"template", 0}}},
-                        {"stock_headroom_bytes", std::max(size, 0LL)},
-                        {"bytes", std::max(std::min(size, LOADED_BYTES_MEASURED), 0LL)}};
+            sound::SoundBudget budget;
+            budget.referenceBank = files::Utf8(biggest.filename());
+            budget.referenceEntries = static_cast<long long>(stock[Str(biggest)].size());
+            budget.referenceBytes = size;
+            budget.entries = std::max(T6_SND_ENTRY_POOL - always, 0LL);
+            budget.entryPool.size = T6_SND_ENTRY_POOL;
+            budget.entryPool.alwaysLoaded = always;
+            budget.stockHeadroomBytes = std::max(size, 0LL);
+            budget.bytes = std::max(std::min(size, LOADED_BYTES_MEASURED), 0LL);
+            return budget;
         }
 
         std::vector<std::string> TemplateAliasNames(const fs::path& csv)
@@ -817,7 +817,7 @@ namespace w2b::pipeline
         Json warnings = Json::array(), content = Json::object();
         const auto bank = "waw_" + project + ".all";
         const std::optional<fs::path> templateCsv = bo2Root ? std::optional(*bo2Root / "mods" / "zm_test" / "soundbank" / "zmb_test.all.aliases.csv") : std::nullopt;
-        Json budget;
+        std::optional<sound::SoundBudget> budget;
         if (bo2Root)
         {
             budget = [&] { const profile::Scope scope("sound mix: loaded budget"); return LoadedBudget(*bo2Root); }();
@@ -828,7 +828,7 @@ namespace w2b::pipeline
                 if (actor != "doc")
                     for (const auto& [_, a] : cats.items())
                         played.insert(a.get<std::string>());
-            budget["played"] = std::vector<std::string>(played.begin(), played.end());
+            budget->played = std::vector<std::string>(played.begin(), played.end());
         }
         const auto& audio = api["audio_remaster"];
         // stock_waw_sound_records: every alias of the stock WaW zombies zones

@@ -482,7 +482,7 @@ namespace w2b::sound
         }
 
         // fit_loaded_budget: weapon chains, then played sounds, then the smallest
-        Json FitLoadedBudget(std::vector<T6AliasRow>& rows, const fs::path& pcmRoot, Json& budget, const std::set<std::string>& weaponAliases)
+        Json FitLoadedBudget(std::vector<T6AliasRow>& rows, const fs::path& pcmRoot, SoundBudget& budget, const std::set<std::string>& weaponAliases)
         {
             std::map<std::string, long long> sizes;
             for (const auto& row : rows)
@@ -500,10 +500,10 @@ namespace w2b::sound
                     for (const auto i : it->second)
                         weaponFiles.insert(rows[i]["FileSource"]);
             std::vector<std::string> playedNames;
-            if (budget.contains("played"))
+            if (budget.played)
             {
-                playedNames = budget["played"].get<std::vector<std::string>>();
-                budget.erase("played");
+                playedNames = std::move(*budget.played);
+                budget.played.reset();
             }
             for (const auto& n : Chained(rows, byName, playedNames))
                 if (const auto it = byName.find(n); it != byName.end())
@@ -517,7 +517,7 @@ namespace w2b::sound
                       });
             std::set<std::string> keep;
             long long used = 0;
-            const long long entries = budget["entries"].get<long long>(), bytes = budget["bytes"].get<long long>();
+            const long long entries = budget.entries, bytes = budget.bytes;
             for (const auto& [source, size] : order)
             {
                 if (static_cast<long long>(keep.size()) >= entries || used + size > bytes)
@@ -532,13 +532,12 @@ namespace w2b::sound
                     row["Storage"] = "streamed";
                     streamed.push_back(Json{{"alias", row["Name"]}, {"file", row["FileSource"]}, {"bytes", sizes[row["FileSource"]]}});
                 }
-            if (budget.contains("entry_pool"))
             {
                 std::set<std::string> files;
                 for (const auto& r : rows)
                     if (!r["FileSource"].empty())
                         files.insert(r["FileSource"]);
-                budget["entry_pool"]["map"] = files.size();
+                budget.entryPool.map = static_cast<long long>(files.size());
             }
             const auto countIn = [&](const std::set<std::string>& a, const auto& pred)
             {
@@ -547,13 +546,14 @@ namespace w2b::sound
                     n += pred(f);
                 return n;
             };
-            budget["loaded_files"] = keep.size();
-            budget["loaded_bytes"] = used;
-            budget["streamed_files"] = static_cast<long long>(sizes.size()) - static_cast<long long>(keep.size());
-            budget["weapon_files_loaded"] = countIn(weaponFiles, [&](const std::string& f) { return keep.count(f) > 0; });
-            budget["weapon_files_streamed"] = countIn(weaponFiles, [&](const std::string& f) { return sizes.count(f) && !keep.count(f); });
-            budget["played_files_loaded"] = countIn(playedFiles, [&](const std::string& f) { return keep.count(f) > 0; });
-            budget["played_files_streamed"] = countIn(playedFiles, [&](const std::string& f) { return sizes.count(f) && !keep.count(f); });
+            auto& fit = budget.fit.emplace();
+            fit.loadedFiles = static_cast<long long>(keep.size());
+            fit.loadedBytes = used;
+            fit.streamedFiles = static_cast<long long>(sizes.size()) - static_cast<long long>(keep.size());
+            fit.weaponFilesLoaded = countIn(weaponFiles, [&](const std::string& f) { return keep.count(f) > 0; });
+            fit.weaponFilesStreamed = countIn(weaponFiles, [&](const std::string& f) { return sizes.count(f) && !keep.count(f); });
+            fit.playedFilesLoaded = countIn(playedFiles, [&](const std::string& f) { return keep.count(f) > 0; });
+            fit.playedFilesStreamed = countIn(playedFiles, [&](const std::string& f) { return sizes.count(f) && !keep.count(f); });
             return streamed;
         }
 
@@ -1012,6 +1012,36 @@ namespace w2b::sound
 
     } // namespace
 
+    Json SoundBudget::ToJson() const
+    {
+        Json pool{{"size", entryPool.size}, {"always_loaded", entryPool.alwaysLoaded}, {"template", entryPool.templateEntries}};
+        if (entryPool.map)
+            pool["map"] = *entryPool.map;
+        Json out{{"reference_bank", referenceBank},
+                 {"reference_entries", referenceEntries},
+                 {"reference_bytes", referenceBytes},
+                 {"template_entries", templateEntries},
+                 {"template_bytes", templateBytes},
+                 {"template_unmatched", templateUnmatched},
+                 {"entries", entries},
+                 {"entry_pool", std::move(pool)},
+                 {"stock_headroom_bytes", stockHeadroomBytes},
+                 {"bytes", bytes}};
+        if (played)
+            out["played"] = *played;
+        if (fit)
+        {
+            out["loaded_files"] = fit->loadedFiles;
+            out["loaded_bytes"] = fit->loadedBytes;
+            out["streamed_files"] = fit->streamedFiles;
+            out["weapon_files_loaded"] = fit->weaponFilesLoaded;
+            out["weapon_files_streamed"] = fit->weaponFilesStreamed;
+            out["played_files_loaded"] = fit->playedFilesLoaded;
+            out["played_files_streamed"] = fit->playedFilesStreamed;
+        }
+        return out;
+    }
+
     BankResult WriteT6Bank(const BankRequest& request)
     {
         const auto& project = request.project;
@@ -1130,14 +1160,14 @@ namespace w2b::sound
         if (!engineNames.empty())
         {
             report["engine_names"] = EngineNameCopies(rows, engineNames, remastering ? remaster["profiles"].value("twins", Json()) : Json());
-            if (!budget.is_null())
+            if (budget)
             {
                 std::set<std::string> played;
-                for (const auto& p : budget.value("played", Json::array()))
-                    played.insert(p.get<std::string>());
+                if (budget->played)
+                    played.insert(budget->played->begin(), budget->played->end());
                 for (const auto& [_, v] : report["engine_names"]["copies"].items())
                     played.insert(v.get<std::string>());
-                budget["played"] = std::vector<std::string>(played.begin(), played.end());
+                budget->played = std::vector<std::string>(played.begin(), played.end());
             }
         }
         // animation notes play on the actor's native sound owner: they end on death
@@ -1151,16 +1181,16 @@ namespace w2b::sound
             }
         report["actor_death_cleanup"] = std::vector<std::string>(matched.begin(), matched.end());
         report["clamped"] = ClampRanges(rows);
-        if (!budget.is_null())
+        if (budget)
         {
             std::set<std::string> played;
-            for (const auto& p : budget.value("played", Json::array()))
-                played.insert(p.get<std::string>());
+            if (budget->played)
+                played.insert(budget->played->begin(), budget->played->end());
             for (const auto& a : actorAliases)
                 played.insert(Lower(a));
-            budget["played"] = std::vector<std::string>(played.begin(), played.end());
-            report["loaded_to_streamed"] = FitLoadedBudget(rows, project / "pcm", budget, weaponAliases);
-            report["loaded_budget"] = budget;
+            budget->played = std::vector<std::string>(played.begin(), played.end());
+            report["loaded_to_streamed"] = FitLoadedBudget(rows, project / "pcm", *budget, weaponAliases);
+            report["loaded_budget"] = budget->ToJson();
         }
         if (request.streamFlac.value_or(StreamFlacEnabled()))
             report["streamed_flac"] = PackStreamedAudio(rows, project / "pcm", files::FromUtf8(request.flacEncoder));

@@ -149,17 +149,17 @@ namespace w2b::pipeline
         const auto& budget = mix.budget;
         const auto& bankReport = mix.bankReport;
         WriteAmbCsc(project, projectRoot, sourceAmb, ents).MergeInto(report);
-        if (!budget.is_null())
+        if (budget)
         {
-            const auto mb = [&](const char* key) { return std::to_string(budget.at(key).get<long long>() / 1048576); };
-            warnings.push_back("SOUND_LOADED_TO_STREAMED " + std::to_string(budget.at("streamed_files").get<long long>()) + " WaW loaded sounds streamed: loaded-bank budget " +
-                               mb("bytes") + " MB (largest stock map bank " + budget.at("reference_bank").get<std::string>() + " minus the template bank's " + mb("template_bytes") +
-                               " MB); kept " + std::to_string(budget.at("loaded_files").get<long long>()) + " loaded files, weapon dependencies, then played sounds (" + mb("loaded_bytes") +
-                               " MB); " + std::to_string(budget.at("played_files_streamed").get<long long>()) +
-                               " played files still stream (10 stream voices). List: content_source/sounds.bank.json");
-            const auto pool = budget.value("entry_pool", Json::object());
-            if (!pool.empty() && pool.at("always_loaded").get<long long>() + pool.at("template").get<long long>() + pool.value("map", 0LL) > pool.at("size").get<long long>())
-                warnings.push_back("SOUND_ENTRY_POOL " + IntDictRepr(pool) + ": T6 cannot load the map bank (entry pool full)");
+            const auto& fit = budget->fit.value(); // the bank always fits a budget it was given
+            const auto mb = [](long long bytes) { return std::to_string(bytes / 1048576); };
+            warnings.push_back("SOUND_LOADED_TO_STREAMED " + std::to_string(fit.streamedFiles) + " WaW loaded sounds streamed: loaded-bank budget " + mb(budget->bytes) +
+                               " MB (largest stock map bank " + budget->referenceBank + " minus the template bank's " + mb(budget->templateBytes) + " MB); kept " +
+                               std::to_string(fit.loadedFiles) + " loaded files, weapon dependencies, then played sounds (" + mb(fit.loadedBytes) + " MB); " +
+                               std::to_string(fit.playedFilesStreamed) + " played files still stream (10 stream voices). List: content_source/sounds.bank.json");
+            const auto& pool = budget->entryPool;
+            if (pool.alwaysLoaded + pool.templateEntries + pool.map.value_or(0) > pool.size)
+                warnings.push_back("SOUND_ENTRY_POOL " + IntDictRepr(budget->ToJson()["entry_pool"]) + ": T6 cannot load the map bank (entry pool full)");
         }
         if (Truthy(bankReport.at("variants")))
             AppendZone(projectRoot, "soundbank," + bank + "\n");
