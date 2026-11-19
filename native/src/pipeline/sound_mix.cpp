@@ -210,11 +210,12 @@ namespace w2b::pipeline
         }
 
         // sounds._category: the BO2 volume group of a WaW bus
-        std::string CategoryGroup(const std::string& busName, const Json& busGroups)
+        std::string CategoryGroup(const std::string& busName, const std::map<std::string, std::string>* busGroups)
         {
             const auto bus = Lower(busName);
-            if (busGroups.is_object() && busGroups.contains(bus) && busGroups[bus].is_string() && !busGroups[bus].get<std::string>().empty())
-                return busGroups[bus].get<std::string>();
+            if (busGroups)
+                if (const auto it = busGroups->find(bus); it != busGroups->end() && !it->second.empty())
+                    return it->second;
             const auto has = [&](std::initializer_list<const char*> keys) { return std::any_of(keys.begin(), keys.end(), [&](const char* k) { return bus.find(k) != std::string::npos; }); };
             if (bus.find("music") != std::string::npos || bus.substr(0, 3) == "mus")
                 return "grp_music";
@@ -293,13 +294,13 @@ namespace w2b::pipeline
             return out;
         }
 
-        Json StockClasses(Stock& stock)
+        std::map<std::string, sound::StockClass> StockClasses(Stock& stock)
         {
             const auto curves = ReadCurves(stock.Root() / "raw/soundbank/globals/curves.csv");
             std::map<std::string, std::vector<const Row*>> found;
             for (const auto& row : stock.Rows())
                 found[Get(row, "VolumeGroup") + "|" + Get(row, "PanType")].push_back(&row);
-            Json classes = Json::object();
+            std::map<std::string, sound::StockClass> classes;
             for (const auto& [key, rows] : found)
             {
                 if (static_cast<int>(rows.size()) < MIN_GROUP_ROWS)
@@ -332,27 +333,27 @@ namespace w2b::pipeline
                 for (const auto* row : rows)
                     routing.Add({Get(*row, "Bus"), Get(*row, "DuckGroup")});
                 const auto route = routing.MostCommon().first;
-                Json quantiles = Json::object();
+                auto& entry = classes[key];
+                entry.rows = static_cast<long long>(rows.size());
+                entry.routing = {{"Bus", route.first}, {"DuckGroup", route.second}};
                 for (const auto& c : TRANSFER_COLUMNS)
                     if (static_cast<int>(values[c].size()) >= MIN_GROUP_ROWS)
-                        quantiles[c] = Percentiles(values[c]);
-                Json entry{{"rows", rows.size()}, {"routing", Json{{"Bus", route.first}, {"DuckGroup", route.second}}}, {"quantiles", quantiles}};
+                        entry.quantiles[c] = Percentiles(values[c]);
                 if (!dry.Empty())
                 {
-                    const auto curve = dry.MostCommon().first;
-                    std::vector<std::string> falloffCurves;
+                    auto& falloff = entry.falloff.emplace();
+                    falloff.dryMaxCurve = dry.MostCommon().first;
+                    falloff.area = CurveArea(curves.at(falloff.dryMaxCurve));
+                    falloff.wetMaxCurve = wet.Empty() ? falloff.dryMaxCurve : wet.MostCommon().first;
                     for (const auto& [n, p] : curves)
                         if (IsFalloff(p))
-                            falloffCurves.push_back(n);
-                    entry["falloff"] = Json{{"DryMaxCurve", curve}, {"area", CurveArea(curves.at(curve))}, {"WetMaxCurve", wet.Empty() ? curve : wet.MostCommon().first},
-                                            {"falloff_curves", falloffCurves}};
+                            falloff.falloffCurves.push_back(n);
                 }
-                classes[key] = entry;
             }
             return classes;
         }
 
-        Json StockTwins(Stock& stock, const std::vector<std::string>& names)
+        std::map<std::string, sound::AliasMix> StockTwins(Stock& stock, const std::vector<std::string>& names)
         {
             std::set<std::string> wanted;
             for (const auto& n : names)
@@ -372,14 +373,13 @@ namespace w2b::pipeline
                         it = found.insert(found.end(), {name, {}});
                     it->second.Add(mix);
                 }
-            Json out = Json::object();
+            std::map<std::string, sound::AliasMix> out;
             for (const auto& [name, mixes] : found)
             {
                 const auto mix = mixes.MostCommon().first;
-                Json row = Json::object();
+                auto& row = out[name];
                 for (size_t i = 0; i < TWIN_COLUMNS.size(); i++)
-                    row[TWIN_COLUMNS[i]] = mix[i];
-                out[name] = row;
+                    row.emplace_back(TWIN_COLUMNS[i], mix[i]);
             }
             return out;
         }
@@ -405,7 +405,7 @@ namespace w2b::pipeline
             return out;
         }
 
-        Json StockProfiles(Stock& stock, const std::vector<std::string>& stingers, const std::vector<std::string>& twins)
+        sound::StockProfiles StockProfiles(Stock& stock, const std::vector<std::string>& stingers, const std::vector<std::string>& twins)
         {
             std::map<std::string, std::vector<const Row*>> rows;
             for (const auto& [role, _] : STOCK_FAMILY)
@@ -417,7 +417,7 @@ namespace w2b::pipeline
                     if (StartsWith(name, prefix))
                         rows[role].push_back(&row);
             }
-            Json profiles = Json::object();
+            sound::StockProfiles profiles;
             const auto mixOf = [](const Row& r, const std::vector<std::string>& columns)
             {
                 std::vector<std::string> mix;
@@ -447,10 +447,12 @@ namespace w2b::pipeline
                     if (mixOf(*r, MIX_COLUMNS) == mix)
                         if (const auto v = Number(Get(*r, "VolMax")))
                             volumes.push_back(*v);
-                Json mixJson = Json::object();
+                auto& profile = profiles.roles[role];
                 for (size_t i = 0; i < MIX_COLUMNS.size(); i++)
-                    mixJson[MIX_COLUMNS[i]] = mix[i];
-                profiles[role] = Json{{"mix", mixJson}, {"volume", volumes.empty() ? Json() : Json(Median(volumes))}, {"rows", count}};
+                    profile.mix.emplace_back(MIX_COLUMNS[i], mix[i]);
+                if (!volumes.empty())
+                    profile.volume = Median(volumes);
+                profile.rows = static_cast<long long>(count);
             }
             static const std::vector<std::string> STINGER_COLUMNS = []
             {
@@ -490,16 +492,17 @@ namespace w2b::pipeline
                     if (!v.empty())
                         levels.push_back(Median(v));
                 }
-                Json mixJson = Json::object();
+                auto& profile = profiles.roles["stinger:" + name];
                 for (size_t i = 0; i < STINGER_COLUMNS.size(); i++)
-                    mixJson[STINGER_COLUMNS[i]] = mix[i];
-                profiles["stinger:" + name] = Json{{"mix", mixJson}, {"volume", levels.empty() ? Json() : Json(*std::max_element(levels.begin(), levels.end()))},
-                                                   {"rows", found.size()}};
+                    profile.mix.emplace_back(STINGER_COLUMNS[i], mix[i]);
+                if (!levels.empty())
+                    profile.volume = *std::max_element(levels.begin(), levels.end());
+                profile.rows = static_cast<long long>(found.size());
             }
             if (!rows["ambience"].empty())
             {
                 // stock_emitters: BO2's 3D ambient emitter placement per looping value
-                Json emitters = Json::object();
+                auto& emitters = profiles.roles["ambience"].emitters;
                 for (const char* looping : {"looping", "nonlooping"})
                 {
                     std::vector<const Row*> found;
@@ -508,25 +511,25 @@ namespace w2b::pipeline
                             found.push_back(r);
                     if (found.empty())
                         continue;
-                    Json columns = Json::object();
+                    auto& emitter = emitters[looping];
+                    emitter.rows = static_cast<long long>(found.size());
+                    auto& columns = emitter.columns;
                     for (const char* c : {"DistMin", "DistMaxDry", "DistMaxWet"})
                     {
                         std::vector<double> v;
                         for (const auto* r : found)
                             if (const auto x = Number(Get(*r, c)))
                                 v.push_back(*x);
-                        columns[c] = G("%g", Median(v));
+                        columns.emplace_back(c, G("%g", Median(v)));
                     }
                     for (const char* c : {"DryMinCurve", "DryMaxCurve", "WetMinCurve", "WetMaxCurve"})
                     {
                         Counter<std::string> counts;
                         for (const auto* r : found)
                             counts.Add(Get(*r, c));
-                        columns[c] = counts.MostCommon().first;
+                        columns.emplace_back(c, counts.MostCommon().first);
                     }
-                    emitters[looping] = Json{{"columns", columns}, {"rows", found.size()}};
                 }
-                profiles["ambience"]["emitters"] = emitters;
             }
             {
                 // stock_group_levels: median stock VolMax per class
@@ -544,14 +547,12 @@ namespace w2b::pipeline
                         }
                         values[it->second].second.push_back(*v);
                     }
-                Json groups = Json::object();
                 for (const auto& [key, found] : values)
                     if (static_cast<int>(found.size()) >= MIN_GROUP_ROWS && Median(found) > 0)
-                        groups[key] = Json{{"volume", Median(found)}, {"rows", found.size()}};
-                profiles["groups"] = groups;
+                        profiles.groups[key] = {Median(found), static_cast<long long>(found.size())};
             }
-            profiles["classes"] = StockClasses(stock);
-            profiles["twins"] = StockTwins(stock, twins);
+            profiles.classes = StockClasses(stock);
+            profiles.twins = StockTwins(stock, twins);
             return profiles;
         }
 
@@ -726,11 +727,11 @@ namespace w2b::pipeline
             return {names.begin(), names.end()};
         }
 
-        Json SoundTableTwins(const fs::path& projectRoot, const fs::path& bo2, const std::string& reg)
+        std::map<std::string, std::string> SoundTableTwins(const fs::path& projectRoot, const fs::path& bo2, const std::string& reg)
         {
             const auto stockFile = bo2 / "raw/maps/mp/zombies/_zm.gsc";
             if (!IsFile(stockFile))
-                return Json::object();
+                return {};
             std::map<std::string, std::string> stock;
             for (const auto& m : pyre::Regex(reg + "\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)").FindAll(mod::ReadReplace(stockFile)))
                 stock[m[0]] = m[1];
@@ -750,7 +751,7 @@ namespace w2b::pipeline
                         f = found.insert(found.end(), {alias, {}});
                     f->second.insert(Lower(it->second));
                 }
-            Json out = Json::object();
+            std::map<std::string, std::string> out;
             for (const auto& [alias, twins] : found)
                 if (twins.size() == 1)
                     out[alias] = *twins.begin();
@@ -766,18 +767,18 @@ namespace w2b::pipeline
             return out;
         }
 
-        Json MusicStingers(const std::string& amb, const Json& states)
+        std::map<std::string, std::string> MusicStingers(const std::string& amb, const Json& states)
         {
             static const pyre::Regex call("\\b(declareMusicState|musicAliasloop|musicAlias)\\s*\\(\\s*\"([^\"]+)\"", pyre::IGNORECASE);
-            Json out = Json::object();
+            std::map<std::string, std::string> out;
             std::optional<std::string> state;
             for (const auto& m : call.FindAll(amb))
             {
                 const auto name = Lower(m[0]);
                 if (name == "declaremusicstate")
                     state = m[1];
-                else if (name == "musicalias" && state && states.contains(*state) && !out.contains(Lower(m[1])))
-                    out[Lower(m[1])] = states[*state];
+                else if (name == "musicalias" && state && states.contains(*state))
+                    out.emplace(Lower(m[1]), states[*state].get<std::string>());
             }
             return out;
         }
@@ -859,10 +860,13 @@ namespace w2b::pipeline
             stock.emplace(*bo2Root);
         }
         // measure_sound_classes: the WaW bus -> BO2 group table of this build
-        Json soundClasses;
+        std::optional<sound::SoundClasses> soundClasses;
         if (bo2Root)
         {
-            Json busGroups = audio["bus_groups"];
+            auto& classes = soundClasses.emplace();
+            auto& busGroups = classes.busGroups;
+            busGroups = audio["bus_groups"].get<std::map<std::string, std::string>>();
+            classes.weaponDependencyGroup = audio["weapon_dependency_group"].get<std::map<std::string, std::string>>();
             std::map<std::string, std::string> wawBuses;
             if (records)
                 for (const auto& r : *records)
@@ -872,7 +876,8 @@ namespace w2b::pipeline
             for (const auto& [name, group] : stockGroups)
                 if (const auto bus = FamilySource(name, wawBuses))
                     votes[*bus][group]++;
-            Json learned = Json::object(), differs = Json::object();
+            auto& learned = classes.learned;
+            auto& differs = classes.differs;
             for (const auto& [bus, found] : votes)
             {
                 long long totalVotes = 0;
@@ -885,28 +890,21 @@ namespace w2b::pipeline
                 for (const auto& [g, n] : found)
                     if (n > best)
                         best = n, group = g;
-                learned[bus] = Json{{"group", group}, {"twins", best}, {"of", totalVotes}};
+                learned[bus] = {group, best, totalVotes};
             }
-            for (const auto& [bus, vote] : learned.items())
-                if (!busGroups.contains(bus) || busGroups[bus] != vote["group"])
-                {
-                    Json entry{{"declared", busGroups.contains(bus) ? busGroups[bus] : Json()}};
-                    entry.update(vote);
-                    differs[bus] = entry;
-                }
-            for (const auto& [bus, vote] : learned.items())
-                busGroups[bus] = vote["group"];
-            soundClasses = Json{{"bus_groups", busGroups}, {"weapon_dependency_group", audio["weapon_dependency_group"]}, {"learned", learned}, {"differs", differs}};
-            std::vector<std::string> busNames;
-            for (const auto& [bus, _] : differs.items())
-                busNames.push_back(bus);
-            std::sort(busNames.begin(), busNames.end());
-            for (const auto& bus : busNames)
+            for (const auto& [bus, vote] : learned)
             {
-                const auto& vote = differs[bus];
-                warnings.push_back("SOUND_BUS_GROUP WaW bus " + bus + ": stock BO2 mixes its engine sounds in " + vote["group"].get<std::string>() + " (" +
-                                   std::to_string(vote["twins"].get<long long>()) + " of " + std::to_string(vote["of"].get<long long>()) + " twins), not the declared " +
-                                   (vote["declared"].is_null() ? std::string("None") : vote["declared"].get<std::string>()) + "; the stock group is used");
+                const auto declared = busGroups.find(bus);
+                if (declared == busGroups.end() || declared->second != vote.group)
+                    differs[bus] = {declared == busGroups.end() ? std::nullopt : std::optional(declared->second), vote};
+            }
+            for (const auto& [bus, vote] : learned)
+                busGroups[bus] = vote.group;
+            for (const auto& [bus, differ] : differs)
+            {
+                const auto& [declared, vote] = differ;
+                warnings.push_back("SOUND_BUS_GROUP WaW bus " + bus + ": stock BO2 mixes its engine sounds in " + vote.group + " (" + std::to_string(vote.twins) + " of " +
+                                   std::to_string(vote.of) + " twins), not the declared " + declared.value_or("None") + "; the stock group is used");
             }
         }
         // measure_reverb_send: the WaW-to-BO2 send offset from both games' stock aliases
@@ -920,7 +918,7 @@ namespace w2b::pipeline
                 reverbSend = Json{{"status", "unmeasured_default"}, {"db", REVERB_SEND_DB}, {"reason", recordsReason}};
             else
             {
-                const auto busGroups = !soundClasses.is_null() ? soundClasses["bus_groups"] : Json();
+                const auto* busGroups = soundClasses ? &soundClasses->busGroups : nullptr;
                 std::map<std::string, std::vector<double>> waw, bo2;
                 for (const auto& r : *records)
                     if (r.reverbSend > 0 && !r.noWetLevel)
@@ -936,7 +934,7 @@ namespace w2b::pipeline
                             bo2[Get(row, "VolumeGroup")].push_back(send - 100);
                     }
                 std::vector<std::string> groups;
-                if (busGroups.is_object() && !busGroups.empty())
+                if (busGroups && !busGroups->empty())
                 {
                     for (const auto& [g, _] : waw)
                         if (bo2.count(g))
@@ -977,14 +975,14 @@ namespace w2b::pipeline
             if (reverbSend["status"] != "measured")
                 warnings.push_back("SOUND_REVERB_SEND unmeasured: " + reverbSend["reason"].get<std::string>() + "; using the last stock measurement " + py::FloatRepr(reverbSend["db"].get<double>()) + " dB");
         }
-        Json remaster;
+        std::optional<sound::RemasterTables> remaster;
         if (bo2Root)
         {
             const auto amb = request.sourceAmb ? encoding::WawText(mod::Bytes(*request.sourceAmb)) : std::string();
             const auto eventsFile = projectRoot / "content_source/announcer_events.json";
             const auto& stingerStates = audio["music_stingers"];
             const auto& twin = audio["vocal_twins"];
-            Json vocalTwins = Json::object();
+            std::map<std::string, std::string> vocalTwins;
             for (const auto& [actor, cats] : api["zombie_vocals"].items())
                 if (actor != "doc")
                     for (const auto& [category, alias] : cats.items())
@@ -998,7 +996,7 @@ namespace w2b::pipeline
                     }
             const profile::Scope remasterScope("sound mix: remaster profiles");
             auto twins = SoundTableTwins(projectRoot, *bo2Root, api["map_content"]["sound_table"]["register"].get<std::string>());
-            for (const auto& [k, v] : vocalTwins.items())
+            for (const auto& [k, v] : vocalTwins)
                 twins[k] = v;
             const auto engineNames = TemplateAliasNames(*templateCsv);
             if (!records)
@@ -1007,9 +1005,9 @@ namespace w2b::pipeline
             for (const auto& [_, v] : stingerStates.items())
                 stingerSet.insert(v.get<std::string>());
             std::vector<std::string> twinNames = engineNames;
-            for (const auto& [_, v] : twins.items())
-                twinNames.push_back(v.get<std::string>());
-            Json reference;
+            for (const auto& [_, v] : twins)
+                twinNames.push_back(v);
+            std::map<std::string, std::map<std::string, sound::ReferenceQuantiles>> reference;
             if (records)
             {
                 // waw_mix_reference -> reference_quantiles
@@ -1025,7 +1023,7 @@ namespace w2b::pipeline
                 };
                 for (const auto& r : *records)
                 {
-                    const auto key = CategoryGroup(r.bus, soundClasses["bus_groups"]) + "|" + (r.spatialized ? "3d" : "2d");
+                    const auto key = CategoryGroup(r.bus, &soundClasses->busGroups) + "|" + (r.spatialized ? "3d" : "2d");
                     auto it = std::find_if(found.begin(), found.end(), [&](const auto& f) { return f.first == key; });
                     if (it == found.end())
                         it = found.insert(found.end(), {key, {}});
@@ -1041,14 +1039,12 @@ namespace w2b::pipeline
                         add(columns, "Falloff", r.falloff);
                     }
                 }
-                reference = Json::object();
                 for (const auto& [key, columns] : found)
                 {
-                    Json out = Json::object();
+                    auto& out = reference[key];
                     for (const auto& [column, values] : columns)
                         if (static_cast<int>(values.size()) >= REFERENCE_MIN_SAMPLES)
-                            out[column] = Json{{"q", Percentiles(values)}, {"samples", values.size()}};
-                    reference[key] = out;
+                            out[column] = {Percentiles(values), static_cast<long long>(values.size())};
                 }
             }
             std::set<std::string> ambience;
@@ -1072,15 +1068,15 @@ namespace w2b::pipeline
                 }
             }
             const auto music = MusicTableAliases(amb);
-            remaster = Json{{"profiles", StockProfiles(*stock, std::vector<std::string>(stingerSet.begin(), stingerSet.end()), twinNames)},
-                            {"classes", soundClasses},
-                            {"twins", twins},
-                            {"reference", reference},
-                            {"music", std::vector<std::string>(music.begin(), music.end())},
-                            {"stingers", MusicStingers(amb, stingerStates)},
-                            {"ambience", std::vector<std::string>(ambience.begin(), ambience.end())},
-                            {"announcer_events", IsFile(eventsFile) ? mod::Json(eventsFile) : Json::object()},
-                            {"announcer_prefix", audio["announcer_alias_prefix"]}};
+            remaster = sound::RemasterTables{StockProfiles(*stock, std::vector<std::string>(stingerSet.begin(), stingerSet.end()), twinNames),
+                                             *soundClasses,
+                                             std::move(twins),
+                                             std::move(reference),
+                                             {music.begin(), music.end()},
+                                             std::move(ambience),
+                                             MusicStingers(amb, stingerStates),
+                                             IsFile(eventsFile) ? mod::Json(eventsFile) : Json::object(),
+                                             audio["announcer_alias_prefix"].get<std::string>()};
         }
         // the bank (sounds.write_t6_bank)
         Json bankReport;

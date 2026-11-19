@@ -3,6 +3,7 @@
 // official BO2 alias CSV of every PCM- and curve-bound WaW alias.
 
 #include "core/pytext.h"
+#include "sound/remaster_tables.h"
 
 #include <filesystem>
 #include <optional>
@@ -39,7 +40,7 @@ namespace w2b::sound
         std::filesystem::path destination; // the project's soundbank folder
         std::optional<SoundBudget> budget; // none without BO2
         py::Json reverbSend;               // the measured stock reverb send, null when unmeasured
-        py::Json remaster;                 // the stock BO2 mix profiles, null without BO2
+        std::optional<RemasterTables> remaster; // the stock BO2 mix, none without BO2
         std::vector<std::string> engineNames;
         std::string flacEncoder;
         std::optional<bool> streamFlac;    // default: StreamFlacEnabled()
