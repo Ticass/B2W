@@ -49,9 +49,14 @@ namespace w2b::world
         }
     }
 
-    CollisionRecords BuildStaticModels(const CollisionWorld& world)
+    py::Json StaticModelRecord::ToJson() const
     {
-        auto records = py::Json::array();
+        return {{"name", name}, {"contents", contents}, {"origin", origin}, {"invScaledAxis", invScaledAxis}, {"absmin", absmin}, {"absmax", absmax}};
+    }
+
+    StaticModelRecords BuildStaticModels(const CollisionWorld& world)
+    {
+        std::vector<StaticModelRecord> records;
         std::size_t outside = 0, triangles = 0, noCollision = 0;
         for (const auto& model : world.staticModels)
         {
@@ -67,9 +72,13 @@ namespace w2b::world
                 for (const auto& triangle : surface.triangles)
                     outside += Outside(model, placement, triangle);
             }
-            records.push_back({{"name", model.name}, {"contents", std::bit_cast<std::int32_t>(model.contents)},
-                               {"origin", model.origin}, {"invScaledAxis", model.inverseScaledAxis},
-                               {"absmin", model.absmin}, {"absmax", model.absmax}});
+            auto& record = records.emplace_back();
+            record.name = model.name;
+            record.contents = std::bit_cast<std::int32_t>(model.contents);
+            std::ranges::copy(model.origin, record.origin.begin());
+            std::ranges::copy(model.inverseScaledAxis, record.invScaledAxis.begin());
+            std::ranges::copy(model.absmin, record.absmin.begin());
+            std::ranges::copy(model.absmax, record.absmax.begin());
         }
         py::Json summary{{"static_models", records.size()}, {"static_model_collision_triangles", triangles},
                          {"static_models_without_collision", noCollision},

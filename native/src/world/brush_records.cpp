@@ -1,5 +1,6 @@
 #include "world/collision_records.h"
 
+#include "core/files.h"
 #include "world/geometry_math.h"
 
 #include <algorithm>
@@ -39,10 +40,16 @@ namespace w2b::world
             return vertices;
         }
 
-        Json BrushRecord(const ClipBrush& brush, const std::vector<ClipMaterial>& materials)
+        RecordPoint Point(const ClipPoint& p)
         {
-            auto axial = Json::array();
-            auto sides = Json::array();
+            return {p[0], p[1], p[2]};
+        }
+
+        BrushRecord MakeBrushRecord(const ClipBrush& brush, const std::vector<ClipMaterial>& materials)
+        {
+            BrushRecord record;
+            auto& axial = record.axial;
+            auto& sides = record.sides;
             for (std::size_t i = 0; i < brush.planes.size(); ++i)
             {
                 const auto& plane = brush.planes[i];
@@ -54,11 +61,17 @@ namespace w2b::world
                 if (i < 6)
                     axial.push_back({contents, flags});
                 else
-                    sides.push_back({plane.normal[0], plane.normal[1], plane.normal[2], plane.distance, contents, flags});
+                    sides.push_back({Point(plane.normal), plane.distance, contents, flags});
             }
-            auto verts = brush.vertices.empty() ? Json(BrushVertices(brush)) : Json(brush.vertices);
-            return {{"mins", brush.mins}, {"maxs", brush.maxs}, {"contents", std::bit_cast<std::int32_t>(brush.contents)},
-                    {"axial", std::move(axial)}, {"sides", std::move(sides)}, {"verts", std::move(verts)}};
+            if (brush.vertices.empty())
+                record.verts = BrushVertices(brush);
+            else
+                for (const auto& v : brush.vertices)
+                    record.verts.push_back(Point(v));
+            record.mins = Point(brush.mins);
+            record.maxs = Point(brush.maxs);
+            record.contents = std::bit_cast<std::int32_t>(brush.contents);
+            return record;
         }
 
         bool InsideModel(const ClipBrush& brush, const ClipModel& model)
@@ -70,7 +83,59 @@ namespace w2b::world
         }
     }
 
-    CollisionRecords BuildWorldBrushes(const CollisionWorld& world)
+    Json BrushRecord::ToJson() const
+    {
+        auto sidesJson = Json::array();
+        for (const auto& side : sides)
+            sidesJson.push_back({side.normal[0], side.normal[1], side.normal[2], side.distance, side.contents, side.surfaceFlags});
+        return {{"mins", mins}, {"maxs", maxs}, {"contents", contents}, {"axial", axial}, {"sides", std::move(sidesJson)}, {"verts", verts}};
+    }
+
+    BrushRecord BrushRecord::FromJson(const Json& brush)
+    {
+        BrushRecord record;
+        record.mins = brush.at("mins").get<RecordPoint>();
+        record.maxs = brush.at("maxs").get<RecordPoint>();
+        record.contents = brush.at("contents").get<std::int32_t>();
+        record.axial = brush.at("axial").get<std::vector<std::array<std::int32_t, 2>>>();
+        for (const auto& side : brush.at("sides"))
+            record.sides.push_back({{side.at(0).get<double>(), side.at(1).get<double>(), side.at(2).get<double>()}, side.at(3).get<double>(),
+                                    side.at(4).get<std::int32_t>(), side.at(5).get<std::int32_t>()});
+        record.verts = brush.at("verts").get<std::vector<RecordPoint>>();
+        return record;
+    }
+
+    Json SubmodelRecord::ToJson() const
+    {
+        auto brushesJson = Json::array();
+        for (const auto& brush : brushes)
+            brushesJson.push_back(brush.ToJson());
+        return {{"mins", mins}, {"maxs", maxs}, {"brushes", std::move(brushesJson)}};
+    }
+
+    SubmodelRecords ReadSubmodels(const std::filesystem::path& path)
+    {
+        SubmodelRecords out;
+        for (const auto& model : Json::parse(files::ReadText(path)).at("submodels"))
+        {
+            auto& record = out.emplace_back();
+            record.mins = model.at("mins").get<RecordPoint>();
+            record.maxs = model.at("maxs").get<RecordPoint>();
+            for (const auto& brush : model.at("brushes"))
+                record.brushes.push_back(BrushRecord::FromJson(brush));
+        }
+        return out;
+    }
+
+    void WriteSubmodels(const std::filesystem::path& path, const SubmodelRecords& submodels)
+    {
+        auto list = Json::array();
+        for (const auto& model : submodels)
+            list.push_back(model.ToJson());
+        files::WriteText(path, py::JsonDumps({{"submodels", std::move(list)}}, -1) + "\n");
+    }
+
+    BrushRecords BuildWorldBrushes(const CollisionWorld& world)
     {
         std::vector<bool> listed(world.brushes.size());
         std::size_t owned = 0;
@@ -109,7 +174,7 @@ namespace w2b::world
             }
         }
 
-        auto records = Json::array();
+        std::vector<BrushRecord> records;
         std::size_t dropped = 0;
         for (const auto index : worldIds)
         {
@@ -117,7 +182,7 @@ namespace w2b::world
             if (brush.contents && !(brush.contents & ~nonCollidingContents))
                 ++dropped;
             else
-                records.push_back(BrushRecord(brush, world.materials));
+                records.push_back(MakeBrushRecord(brush, world.materials));
         }
         Json summary{{"world_brushes", records.size()}, {"entity_brushes_excluded", owned},
                      {"world_brushes_recovered_unlisted", recovered}, {"unlisted_brushes_ambiguous_skipped", ambiguous},
@@ -126,16 +191,17 @@ namespace w2b::world
         return {std::move(records), std::move(summary)};
     }
 
-    py::Json BuildSubmodels(const CollisionWorld& world)
+    SubmodelRecords BuildSubmodels(const CollisionWorld& world)
     {
-        auto records = Json::array();
+        SubmodelRecords records;
         for (std::size_t i = 1; i < world.models.size(); ++i)
         {
             const auto& model = world.models[i];
-            auto brushes = Json::array();
+            auto& record = records.emplace_back();
+            record.mins = Point(model.mins);
+            record.maxs = Point(model.maxs);
             for (const auto brush : model.brushes)
-                brushes.push_back(BrushRecord(world.brushes.at(brush), world.materials));
-            records.push_back({{"mins", model.mins}, {"maxs", model.maxs}, {"brushes", std::move(brushes)}});
+                record.brushes.push_back(MakeBrushRecord(world.brushes.at(brush), world.materials));
         }
         return records;
     }

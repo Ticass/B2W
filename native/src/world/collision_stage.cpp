@@ -59,19 +59,19 @@ namespace w2b::world
         py::Json WriteCollisionRecords(const std::filesystem::path& output, const CollisionWorld& world)
         {
             auto brushes = BuildWorldBrushes(world);
-            files::WriteText(output / "brushes.json",
-                             py::JsonDumps({{"brushes", std::move(brushes.records)}}, -1) + "\n");
-            auto submodels = BuildSubmodels(world);
+            auto brushList = py::Json::array();
+            for (const auto& brush : brushes.records)
+                brushList.push_back(brush.ToJson());
+            files::WriteText(output / "brushes.json", py::JsonDumps({{"brushes", std::move(brushList)}}, -1) + "\n");
+            const auto submodels = BuildSubmodels(world);
             const auto submodelCount = submodels.size();
-            const auto empty = std::ranges::count_if(submodels, [](const py::Json& model)
-            {
-                return model.at("brushes").empty();
-            });
-            files::WriteText(output / "submodels.json",
-                             py::JsonDumps({{"submodels", std::move(submodels)}}, -1) + "\n");
+            const auto empty = std::ranges::count_if(submodels, [](const SubmodelRecord& model) { return model.brushes.empty(); });
+            WriteSubmodels(output / "submodels.json", submodels);
             auto models = BuildStaticModels(world);
-            files::WriteText(output / "staticmodels.json",
-                             py::JsonDumps({{"staticModels", std::move(models.records)}}, 1) + "\n");
+            auto modelList = py::Json::array();
+            for (const auto& model : models.records)
+                modelList.push_back(model.ToJson());
+            files::WriteText(output / "staticmodels.json", py::JsonDumps({{"staticModels", std::move(modelList)}}, 1) + "\n");
             return {{"brushes", std::move(brushes.summary)}, {"static_models", std::move(models.summary)},
                     {"submodels", submodelCount}, {"empty_submodels", empty}};
         }

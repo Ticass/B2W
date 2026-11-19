@@ -182,10 +182,10 @@ TEST_CASE("Unlisted legacy brushes retain their planes and moving brush ownershi
     CHECK(brushes.summary.at("world_brushes_recovered_unlisted") == 1);
     CHECK(brushes.summary.at("entity_brushes_excluded") == 1);
     REQUIRE(brushes.records.size() == 2);
-    CHECK(brushes.records[0].at("verts").size() == 8);
-    CHECK(brushes.records[1].at("verts").size() == 8);
-    CHECK(brushes.records[0].at("axial")[0][1] == -2147483648ll);
-    CHECK(BuildSubmodels(world).at(0).at("brushes").size() == 1);
+    CHECK(brushes.records[0].verts.size() == 8);
+    CHECK(brushes.records[1].verts.size() == 8);
+    CHECK(brushes.records[0].axial[0][1] == -2147483647 - 1);
+    CHECK(BuildSubmodels(world).at(0).brushes.size() == 1);
 
     world.brushOwnershipComplete = true;
     CHECK(BuildWorldBrushes(world).records.size() == 1);

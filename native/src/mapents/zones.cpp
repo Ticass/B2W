@@ -1,7 +1,7 @@
 #include "mapents/entities.h"
 
 #include "core/files.h"
-#include "world/collision_world.h"
+#include "world/collision_records.h"
 
 #include <algorithm>
 #include <limits>
@@ -14,11 +14,11 @@ namespace w2b::mapents
     {
         using Vec3 = std::array<double, 3>;
         using Names = std::set<std::string, std::less<>>;
-        using Flags = std::array<std::uint32_t, 2>;
+        using Flags = std::array<std::int32_t, 2>;
         constexpr std::string_view InitSpawners = "zombie_spawner_init";
         constexpr std::string_view FirstZone = "waw2bo2_zone";
 
-        Flags VolumeFlags(const MapEntities& entities, const Json& submodels)
+        Flags VolumeFlags(const MapEntities& entities, const world::SubmodelRecords& submodels)
         {
             Names models;
             for (const auto& entity : entities)
@@ -38,25 +38,25 @@ namespace w2b::mapents
                     continue;
                 if (index < 0)
                     index += size;
-                const auto& brushes = submodels.at(static_cast<std::size_t>(index)).at("brushes");
+                const auto& brushes = submodels.at(static_cast<std::size_t>(index)).brushes;
                 if (!brushes.empty())
-                    return {brushes.at(0).at("contents").get<std::uint32_t>(), brushes.at(0).at("axial").at(0).at(1).get<std::uint32_t>()};
+                    return {brushes.at(0).contents, brushes.at(0).axial.at(0).at(1)};
             }
             return {134217729, 262272};
         }
 
-        Json BoxBrush(const Vec3& mins, const Vec3& maxs, const Flags& flags)
+        world::BrushRecord BoxBrush(const Vec3& mins, const Vec3& maxs, const Flags& flags)
         {
-            auto corners = Json::array();
+            world::BrushRecord brush;
+            brush.mins = mins;
+            brush.maxs = maxs;
+            brush.contents = flags[0];
             for (const auto x : {mins[0], maxs[0]})
                 for (const auto y : {mins[1], maxs[1]})
                     for (const auto z : {mins[2], maxs[2]})
-                        corners.push_back({x, y, z});
-            auto axial = Json::array();
-            for (int side = 0; side < 6; ++side)
-                axial.push_back(flags);
-            return {{"mins", mins}, {"maxs", maxs}, {"contents", flags[0]}, {"axial", std::move(axial)},
-                    {"sides", Json::array()}, {"verts", std::move(corners)}};
+                        brush.verts.push_back({x, y, z});
+            brush.axial.assign(6, flags);
+            return brush;
         }
 
         Vec3 Offset(const world::ClipPoint& point, double delta)
@@ -128,7 +128,7 @@ namespace w2b::mapents
             std::rotate(groups.begin(), init, init + 1);
 
         const auto path = bsp / "submodels.json";
-        auto submodels = Json::parse(files::ReadText(path)).at("submodels");
+        auto submodels = world::ReadSubmodels(path);
         const auto flags = VolumeFlags(entities, submodels);
         const auto& world = clip.models.at(0);
         const auto mins = Offset(world.mins, -512), maxs = Offset(world.maxs, 512);
@@ -152,7 +152,7 @@ namespace w2b::mapents
             }
             const auto& lo = unlocked ? mins : cornerMin;
             const auto& hi = unlocked ? maxs : cornerMax;
-            submodels.push_back({{"mins", lo}, {"maxs", hi}, {"brushes", Json::array({BoxBrush(lo, hi, flags)})}});
+            submodels.push_back({lo, hi, {BoxBrush(lo, hi, flags)}});
             entities.push_back({{"classname", "info_volume"}, {"targetname", zone}, {"target", group}, {"origin", "0 0 0"},
                                 {"model", "*" + std::to_string(submodels.size())}, {"script_noteworthy", "player_volume"}});
             for (const auto index : spawners.at(group))
@@ -164,7 +164,7 @@ namespace w2b::mapents
                 }
             }
         }
-        files::WriteText(path, py::JsonDumps({{"submodels", std::move(submodels)}}, -1) + "\n");
+        world::WriteSubmodels(path, submodels);
         summary["synthesized_zones"] = {{"initial", initial}, {"adjacency", std::move(adjacency)}, {"groups", groups},
                                         {"never_unlocked", std::move(locked)}};
         return initial;
