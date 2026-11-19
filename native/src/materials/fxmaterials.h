@@ -2,6 +2,7 @@
 // Port of fxmaterials.py: WaW effect materials on stock BO2 effect donors.
 
 #include "core/pytext.h"
+#include "materials/t6_material.h"
 #include "materials/waw_material.h"
 
 #include <filesystem>
@@ -15,7 +16,7 @@ namespace w2b::materials
     {
         std::string techset;
         std::filesystem::path path;
-        py::Json material;
+        T6Material material;
         std::set<std::string> features;
         std::string blend;
     };
@@ -25,5 +26,5 @@ namespace w2b::materials
     std::vector<EffectDonor> IndexEffectDonors(const std::filesystem::path& stockMaterials, const std::filesystem::path* techsetDump, const std::filesystem::path& bo2Raw);
     // choose_donor: (donor, notes); throws TechniqueError when none fits
     std::pair<const EffectDonor*, std::vector<std::string>> ChooseEffectDonor(const WawMaterial& t4, const std::vector<EffectDonor>& donors);
-    py::Json BuildEffectMaterial(const WawMaterial& t4, const EffectDonor& donor, std::vector<std::string>& notes);
+    T6Material BuildEffectMaterial(const WawMaterial& t4, const EffectDonor& donor, std::vector<std::string>& notes);
 } // namespace w2b::materials

@@ -21,8 +21,6 @@ namespace w2b::pipeline
     namespace
     {
         const std::string SKYBOX_MATERIAL = "mc/mtl_dlc0_zm_skybox_nuketown";
-        const std::vector<std::string> STATE_FIELDS{"srcBlendRgb",   "dstBlendRgb",     "blendOpRgb", "srcBlendAlpha", "dstBlendAlpha", "blendOpAlpha", "alphaTest",
-                                                    "cullFace",      "colorWriteRgb",   "colorWriteAlpha", "depthTest",  "depthWrite",    "polygonOffset"};
 
         struct StageError : std::runtime_error
         {
@@ -38,12 +36,11 @@ namespace w2b::pipeline
         }
 
         // fxmaterials._main_state: the first state that draws normally
-        const Json* MainState(const Json& material)
+        const materials::WawStateBits* MainState(const materials::WawMaterial& material)
         {
-            if (material.contains("stateBits"))
-                for (const auto& s : material["stateBits"])
-                    if (!mod::Truthy(s, "polymodeLine") && !(s.contains("depthTest") && s["depthTest"] == "disabled"))
-                        return &s;
+            for (const auto& s : material.stateBits)
+                if (!s.polymodeLine && s.depthTest != "disabled")
+                    return &s;
             return nullptr;
         }
 
@@ -202,7 +199,7 @@ namespace w2b::pipeline
             if (!sourceFile)
                 throw StageError("source sky model " + sourceName + " missing");
             auto model = mod::Json(*sourceFile);
-            const auto donor = mod::Json(bo2 / "raw/materials" / files::FromUtf8(SKYBOX_MATERIAL + ".json"));
+            const auto donor = materials::ReadT6Material(bo2 / "raw/materials" / files::FromUtf8(SKYBOX_MATERIAL + ".json"));
             std::set<std::string> materialNames;
             fs::path sourceRoot;
             for (const auto& root : roots)
@@ -241,19 +238,38 @@ namespace w2b::pipeline
                 const auto materialFile = Find(roots, assets::MaterialPath(name));
                 if (!materialFile)
                     throw StageError("source sky material " + name + " missing");
-                const auto source = mod::Json(*materialFile);
+                const auto source = materials::FromOatJson(mod::Json(*materialFile));
                 auto target = donor;
-                target["textures"] = source.at("textures");
-                target["constants"] = source.value("constants", Json::array());
-                target["sortKey"] = source.at("sortKey");
-                if (const auto* state = MainState(source); state && !state->empty())
-                    for (auto& native : target["stateBits"])
-                        if (!mod::Truthy(native, "polymodeLine"))
-                            for (const auto& key : STATE_FIELDS)
-                                if (state->contains(key))
-                                    native[key] = (*state)[key];
+                target.textures.clear();
+                for (const auto& texture : source.textures)
+                    target.textures.push_back(materials::ToT6(texture));
+                target.constants.clear();
+                for (const auto& constant : source.constants)
+                {
+                    materials::T6Constant out;
+                    out.name = constant.name;
+                    if (!constant.name)
+                    {
+                        out.nameFragment = constant.nameFragment;
+                        out.nameHash = constant.nameHash;
+                    }
+                    for (std::size_t i = 0; i < 4; ++i)
+                        out.literal[i] = constant.literal[i];
+                    target.constants.push_back(std::move(out));
+                }
+                target.sortKey = source.sortKey;
+                if (const auto* state = MainState(source))
+                {
+                    const auto wanted = materials::ToT6(*state);
+                    for (auto& native : target.stateBits)
+                        if (!native.polymodeLine)
+                        {
+                            materials::CopyBlendState(native, wanted);
+                            materials::CopyRasterState(native, wanted);
+                        }
+                }
                 shaders::FolderOutput output(projectRoot);
-                const auto runtime = shaders::BindMaterial(materials::FromOatJson(source), target, roots, output, nativeRoot);
+                const auto runtime = shaders::BindMaterial(source, target, roots, output, nativeRoot);
                 bool paired = false;
                 for (const auto& a : runtime.value("active", Json::array()))
                     if (mod::Truthy(a, "paired") && a.at("slot") == 2)
@@ -266,8 +282,8 @@ namespace w2b::pipeline
                     throw StageError("source sky shader " + name + " unsupported: " + mod::ListRepr(unsupported));
                 }
                 const auto relative = assets::MaterialPath(name);
-                files::WriteText(projectRoot / relative, py::JsonDumps(target, 2) + "\n");
-                materials.push_back(Json{{"name", name}, {"file", mod::Generic(relative)}, {"t6_techset", target["techniqueSet"]}, {"shader_runtime", runtime}});
+                files::WriteText(projectRoot / relative, materials::T6MaterialText(target));
+                materials.push_back(Json{{"name", name}, {"file", mod::Generic(relative)}, {"t6_techset", target.techniqueSet}, {"shader_runtime", runtime}});
             }
             model["_game"] = "t6";
             BridgeBoneBounds(model);

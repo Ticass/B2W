@@ -24,17 +24,17 @@ namespace w2b::materials
                 }
             }
 
-    const Json& Donors::Get(const std::string& name)
+    const T6Material& Donors::Get(const std::string& name)
             {
                 // The stock donor files are shared by many converted materials.
                 std::lock_guard guard(lock_);
                 auto it = cached_.find(name);
                 if (it == cached_.end())
-                    it = cached_.emplace(name, Json::parse(files::ReadText(paths_.at(name)))).first;
+                    it = cached_.emplace(name, ReadT6Material(paths_.at(name))).first;
                 return it->second;
             }
 
-    Json SelectMaterial(const WawMaterial& input, bool programs, bool layered, Donors& donors)
+    MaterialSelection SelectMaterial(const WawMaterial& input, bool programs, bool layered, Donors& donors)
         {
             const auto& original = input.techniqueSet;
             auto source = SourceTechnique(input);
@@ -68,7 +68,9 @@ namespace w2b::materials
                         for (std::size_t i = 0; i < attempts.size(); ++i)
                             firstError += (i ? "; " : "") + attempts[i];
                     }
-                    return {{"error", firstError}};
+                    MaterialSelection failed;
+                    failed.error = firstError;
+                    return failed;
                 }
 
                 auto notes = match.notes;
@@ -79,9 +81,8 @@ namespace w2b::materials
                     auto material = BuildMaterial(input, donors.Get(match.target), notes);
                     for (const auto& attempt : attempts)
                         notes.push_back(attempt + ", not used");
-                    return {{"target", match.target}, {"cost", match.cost}, {"match_notes", std::move(match.notes)},
-                            {"notes", std::move(notes)}, {"material", std::move(material)},
-                            {"approximation", approximated ? Json(source) : Json{}}};
+                    return {std::nullopt, match.target, match.cost, std::move(match.notes), std::move(notes), std::move(material),
+                            approximated ? std::optional(source) : std::nullopt};
                 }
                 catch (const TechniqueError& error)
                 {

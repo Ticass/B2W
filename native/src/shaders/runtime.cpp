@@ -36,8 +36,6 @@ namespace w2b::shaders
         constexpr int DEBUG_SLOTS_START = 32;
         constexpr int FLOATZ_CODE_TEXTURE = 18, TECHNIQUE_FLAG_FLOATZ = 0x40;
         constexpr double WAW_OUTPUT_SCALE = 0.5;
-        const std::vector<std::string> PASS_STATE_FIELDS{"srcBlendRgb", "dstBlendRgb", "blendOpRgb", "srcBlendAlpha", "dstBlendAlpha", "blendOpAlpha", "alphaTest"};
-        const std::vector<std::string> SOURCE_RASTER_FIELDS{"depthTest", "depthWrite", "polygonOffset", "cullFace", "colorWriteRgb", "colorWriteAlpha"};
 
         int WawSlot(const int slot)
         {
@@ -95,10 +93,7 @@ namespace w2b::shaders
             return s;
         }
 
-        std::string TechniqueSet(const Json& material)
-        {
-            return material.contains("techniqueSet") && material["techniqueSet"].is_string() ? material["techniqueSet"].get<std::string>() : std::string();
-        }
+
 
         using Present = std::function<bool(int)>;
 
@@ -244,14 +239,14 @@ namespace w2b::shaders
                 result["face_on_falloff"] = true;
         }
 
-        Json BindMaterialCore(const materials::WawMaterial& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, Output& output,
+        Json BindMaterialCore(const materials::WawMaterial& sourceMaterial, materials::T6Material& outputMaterial, const std::vector<fs::path>& roots, Output& output,
                               const fs::path& nativeRoot, const std::optional<std::array<double, 4>>& falloffPlacement, const bool lightShadows,
                               const bool trailGeometry)
         {
             Json result{{"active", Json::array()}, {"unsupported", Json::array()}};
             const auto& sourceName = sourceMaterial.techniqueSet;
             const auto sourceFile = Find(roots, fs::path("waw_techniquesets") / files::FromUtf8(sourceName + ".json"));
-            const auto nativeName = TechniqueSet(outputMaterial);
+            const auto nativeName = outputMaterial.techniqueSet;
             result["native_techset"] = nativeName;
             const auto nativeFile = nativeRoot / "techniquesets" / files::FromUtf8(nativeName + ".json");
             if (!sourceFile || !IsFile(nativeFile))
@@ -413,8 +408,7 @@ namespace w2b::shaders
                 }
             if (sourceName.find("projected_decal") != std::string::npos && decalBase)
             {
-                Json scratch = Json::array();
-                auto& entries = outputMaterial.contains("stateBitsEntry") ? outputMaterial["stateBitsEntry"] : scratch;
+                auto& entries = outputMaterial.stateBitsEntry;
                 const auto& techniques = pristine["techniques"];
                 for (int slot = 0; slot < std::min<int>(DEBUG_SLOTS_START, static_cast<int>(techniques.size())); slot++)
                 {
@@ -425,7 +419,7 @@ namespace w2b::shaders
                     if (slot == 0 || slot == 1)
                     {
                         native["techniques"][static_cast<size_t>(slot)] = nullptr;
-                        if (entries.is_array() && slot < static_cast<int>(entries.size()))
+                        if (slot < static_cast<int>(entries.size()))
                             entries[static_cast<size_t>(slot)] = -1;
                         result["unsupported"].push_back("slot " + std::to_string(slot) + ": dropped (WaW projected decals cast no depth or shadow)");
                         continue;
@@ -511,8 +505,7 @@ namespace w2b::shaders
             if (!result["active"].empty() && AlphaTested(sourceMaterial))
             {
                 // the donor depth prepass / shadow caster draw the whole quad
-                Json scratch = Json::array();
-                auto& entries = outputMaterial.contains("stateBitsEntry") ? outputMaterial["stateBitsEntry"] : scratch;
+                auto& entries = outputMaterial.stateBitsEntry;
                 std::set<int> translated;
                 for (const auto& a : result["active"])
                     translated.insert(static_cast<int>(I(a["slot"])));
@@ -523,7 +516,7 @@ namespace w2b::shaders
                     if (slot < static_cast<int>(native["techniques"].size()) && Truthy(native["techniques"][static_cast<size_t>(slot)]))
                     {
                         native["techniques"][static_cast<size_t>(slot)] = nullptr;
-                        if (entries.is_array() && slot < static_cast<int>(entries.size()))
+                        if (slot < static_cast<int>(entries.size()))
                             entries[static_cast<size_t>(slot)] = -1;
                         result["unsupported"].push_back("slot " + std::to_string(slot) + ": dropped for the WaW alpha test (cut-out casts no shadow-map shadow)");
                     }
@@ -553,7 +546,7 @@ namespace w2b::shaders
                     native["techniques"][static_cast<size_t>(I(a["slot"]))]["name"] = tsName + "_" + std::to_string(I(a["slot"]));
                 native["name"] = tsName;
                 output.Write(fs::path("techniquesets") / files::FromUtf8(tsName + ".json"), py::JsonDumps(native, 2), true);
-                outputMaterial["techniqueSet"] = tsName;
+                outputMaterial.techniqueSet = tsName;
             }
             return result;
         }
@@ -577,7 +570,7 @@ namespace w2b::shaders
         return cache.emplace(key, std::move(text)).first->second;
     }
 
-    Json BindMaterial(const materials::WawMaterial& sourceMaterial, Json& outputMaterial, const std::vector<fs::path>& roots, Output& output, const fs::path& nativeRoot,
+    Json BindMaterial(const materials::WawMaterial& sourceMaterial, materials::T6Material& outputMaterial, const std::vector<fs::path>& roots, Output& output, const fs::path& nativeRoot,
                       const std::optional<std::array<double, 4>>& falloffPlacement, const bool lightShadows, const bool trailGeometry)
     {
         auto result = [&]
@@ -592,14 +585,10 @@ namespace w2b::shaders
         return result;
     }
 
-    std::vector<int> ApplySourcePassStates(const materials::WawMaterial& sourceMaterial, Json& outputMaterial, const Json& runtime)
+    std::vector<int> ApplySourcePassStates(const materials::WawMaterial& sourceMaterial, materials::T6Material& outputMaterial, const Json& runtime)
     {
-        if (!outputMaterial.contains("stateBitsEntry") || !outputMaterial.contains("stateBits"))
-            return {};
-        auto& entries = outputMaterial["stateBitsEntry"];
-        auto& states = outputMaterial["stateBits"];
-        if (!entries.is_array() || !states.is_array())
-            return {};
+        auto& entries = outputMaterial.stateBitsEntry;
+        auto& states = outputMaterial.stateBits;
         const auto& name = sourceMaterial.techniqueSet;
         const auto present = StatePresent(sourceMaterial);
         std::map<int, Json> active;
@@ -613,7 +602,7 @@ namespace w2b::shaders
         std::vector<int> changed;
         for (const int slot : slots)
         {
-            if (slot >= static_cast<int>(entries.size()) || I(entries[slot]) < 0 || I(entries[slot]) >= static_cast<long long>(states.size()))
+            if (slot >= static_cast<int>(entries.size()) || entries[slot] < 0 || entries[slot] >= static_cast<int>(states.size()))
                 continue;
             // generated T6 light variants follow their base's provenance
             int source = slot;
@@ -638,37 +627,24 @@ namespace w2b::shaders
             const auto index = SourceSlot(present, name, source);
             if (!index)
                 continue;
-            const auto wanted = materials::ToOatJson(*sourceMaterial.TechniqueState(static_cast<size_t>(*index)));
-            const auto native = states[static_cast<size_t>(I(entries[slot]))];
-            const auto additive = [](const Json& s) { return Get(&s, "blendOpRgb", "disabled") != "disabled" && Get(&s, "dstBlendRgb", "") == "one"; };
+            const auto wanted = materials::ToT6(*sourceMaterial.TechniqueState(static_cast<size_t>(*index)));
+            const auto native = states[static_cast<size_t>(entries[slot])];
+            const auto additive = [](const materials::T6StateBits& s) { return s.blendOpRgb != "disabled" && s.dstBlendRgb == "one"; };
             if (!active.count(slot) && !(additive(wanted) && !additive(native)))
                 continue;
-            auto fields = PASS_STATE_FIELDS;
-            if (active.count(slot))
-                fields.insert(fields.end(), SOURCE_RASTER_FIELDS.begin(), SOURCE_RASTER_FIELDS.end());
-            Json update = Json::object();
-            for (const auto& k : fields)
-                if (wanted.contains(k))
-                    update[k] = wanted[k];
-            if (std::all_of(update.items().begin(), update.items().end(), [&](const auto& kv) { return native.contains(kv.key()) && native[kv.key()] == kv.value(); }))
+            const bool raster = active.count(slot) != 0;
+            if (materials::SameBlendState(native, wanted) && (!raster || materials::SameRasterState(native, wanted)))
                 continue;
             auto merged = native;
-            for (const auto& [k, v] : update.items())
-                merged[k] = v;
-            const auto sortedMerged = py::SortKeys(merged);
-            std::optional<size_t> existing;
-            for (size_t i = 0; i < states.size(); i++)
-                if (py::SortKeys(states[i]) == sortedMerged)
-                {
-                    existing = i;
-                    break;
-                }
-            if (existing)
-                entries[slot] = *existing;
+            materials::CopyBlendState(merged, wanted);
+            if (raster)
+                materials::CopyRasterState(merged, wanted);
+            if (const auto existing = std::ranges::find(states, merged); existing != states.end())
+                entries[slot] = static_cast<int>(existing - states.begin());
             else
             {
                 states.push_back(merged);
-                entries[slot] = states.size() - 1;
+                entries[slot] = static_cast<int>(states.size() - 1);
             }
             changed.push_back(slot);
         }

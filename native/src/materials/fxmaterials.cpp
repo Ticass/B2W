@@ -25,8 +25,7 @@ namespace w2b::materials
         const std::set<std::string> FEATURES{"zfeather", "falloff", "eyeoffset", "outdoor", "distortion", "particlecloud", "dissolve", "spotlight", "add"};
         const std::map<std::string, std::string> DROPPABLE{{"nofog", "nofog (BO2 effect techniques always fog)"},
                                                            {"zfeather", "depth feathering (no feathered BO2 variant for this family)"}};
-        const std::vector<std::string> BLEND_FIELDS{"srcBlendRgb", "dstBlendRgb", "blendOpRgb", "srcBlendAlpha", "dstBlendAlpha", "blendOpAlpha",
-                                                    "alphaTest", "cullFace", "colorWriteRgb", "colorWriteAlpha"};
+
         const std::string NONE = "\x01None"; // Python's None in a set of names
 
         bool StartsWith(const std::string& s, const std::string& p)
@@ -106,16 +105,11 @@ namespace w2b::materials
             return feats;
         }
 
-        const Json* MainState(const Json& material)
+        const T6StateBits* MainState(const T6Material& material)
         {
-            if (!material.contains("stateBits"))
-                return nullptr;
-            for (const auto& s : material["stateBits"])
-            {
-                const bool line = s.contains("polymodeLine") && s["polymodeLine"].is_boolean() && s["polymodeLine"].get<bool>();
-                if (!line && !(s.contains("depthTest") && s["depthTest"] == "disabled"))
-                    return &s;
-            }
+            for (const auto& state : material.stateBits)
+                if (!state.polymodeLine && state.depthTest != "disabled")
+                    return &state;
             return nullptr;
         }
 
@@ -142,12 +136,9 @@ namespace w2b::materials
         }
 
         // a donor's (T6 material file) state
-        std::string BlendClass(const Json* state)
+        std::string BlendClass(const T6StateBits* state)
         {
-            const auto get = [&](const char* k) { return state->contains(k) && (*state)[k].is_string() ? (*state)[k].get<std::string>() : std::string("None"); };
-            if (!state || state->empty())
-                return "opaque";
-            return BlendClass(get("blendOpRgb"), get("srcBlendRgb"), get("dstBlendRgb"));
+            return state ? BlendClass(state->blendOpRgb, state->srcBlendRgb, state->dstBlendRgb) : "opaque";
         }
 
         std::string BlendClass(const WawStateBits* state)
@@ -156,12 +147,11 @@ namespace w2b::materials
         }
 
         // a donor's texture slots
-        std::set<std::string> Slots(const Json& material)
+        std::set<std::string> Slots(const T6Material& material)
         {
             std::set<std::string> out;
-            if (material.contains("textures"))
-                for (const auto& t : material["textures"])
-                    out.insert(t.contains("name") && t["name"].is_string() ? t["name"].get<std::string>() : NONE);
+            for (const auto& t : material.textures)
+                out.insert(t.name.value_or(NONE));
             return out;
         }
 
@@ -204,7 +194,7 @@ namespace w2b::materials
             {
                 continue;
             }
-            const auto ts = data.value("techniqueSet", std::string());
+            const auto ts = data.is_object() ? data.value("techniqueSet", std::string()) : std::string();
             if (std::none_of(T6_PREFIXES.begin(), T6_PREFIXES.end(), [&](const std::string& p) { return StartsWith(ts, p); }))
                 continue;
             std::error_code e;
@@ -214,7 +204,9 @@ namespace w2b::materials
                 cache[ts] = T6Features(bo2Raw, ts);
             if (!cache[ts])
                 continue;
-            donors.push_back(EffectDonor{ts, path, data, *cache[ts], BlendClass(MainState(data))});
+            auto material = T6MaterialFromJson(data);
+            const auto blend = BlendClass(MainState(material));
+            donors.push_back(EffectDonor{ts, path, std::move(material), *cache[ts], blend});
         }
         return donors;
     }
@@ -271,21 +263,23 @@ namespace w2b::materials
         throw TechniqueError("no stock BO2 effect technique set with features " + ListRepr(feats) + " for '" + techset + "'");
     }
 
-    Json BuildEffectMaterial(const WawMaterial& t4, const EffectDonor& donor, std::vector<std::string>& notes)
+    T6Material BuildEffectMaterial(const WawMaterial& t4, const EffectDonor& donor, std::vector<std::string>& notes)
     {
         auto out = BuildMaterial(t4, donor.material, notes);
-        if (const auto* main = MainState(t4); main && out.contains("stateBits"))
+        if (const auto* main = MainState(t4))
         {
-            const auto blend = ToOatJson(*main);
-            for (auto& state : out["stateBits"])
+            const auto blend = ToT6(*main);
+            for (auto& state : out.stateBits)
             {
-                if (state.contains("polymodeLine") && state["polymodeLine"].is_boolean() && state["polymodeLine"].get<bool>())
+                if (state.polymodeLine)
                     continue;
-                for (const auto& k : BLEND_FIELDS)
-                    state[k] = blend.at(k);
+                CopyBlendState(state, blend);
+                state.cullFace = blend.cullFace;
+                state.colorWriteRgb = blend.colorWriteRgb;
+                state.colorWriteAlpha = blend.colorWriteAlpha;
             }
         }
-        out["textureAtlas"] = Json{{"columns", t4.atlasColumns}, {"rows", t4.atlasRows}};
+        out.textureAtlas = T6Atlas{t4.atlasRows, t4.atlasColumns};
         return out;
     }
 } // namespace w2b::materials

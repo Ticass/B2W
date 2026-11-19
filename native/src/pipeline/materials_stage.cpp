@@ -173,25 +173,24 @@ namespace w2b::pipeline
             if (c.techsetRoot)
                 for (const auto& root : c.roots)
                     programs |= fs::exists(root / "waw_techniquesets" / files::FromUtf8(t4ts + ".json"), e);
-            // the prepared form round-trips through JSON in the Python step
-            const auto prepared = [&] { const profile::Scope scope("materials: select donor"); return Json::parse(py::JsonDumps(materials::SelectMaterial(t4, programs, c.layered, donors), -1)); }();
-            if (prepared.contains("error"))
+            auto prepared = [&] { const profile::Scope scope("materials: select donor"); return materials::SelectMaterial(t4, programs, c.layered, donors); }();
+            if (prepared.error)
             {
-                result.errors.push_back("material " + name + " (" + t4ts + "): " + prepared["error"].get<std::string>());
+                result.errors.push_back("material " + name + " (" + t4ts + "): " + *prepared.error);
                 return result;
             }
-            const auto target = prepared["target"].get<std::string>();
-            auto out = prepared["material"];
-            for (const auto& n : prepared["notes"])
+            const auto& target = prepared.target;
+            auto& out = prepared.material;
+            for (const auto& n : prepared.notes)
                 notes.push_back(n);
-            if (Truthy(prepared, "approximation"))
+            if (prepared.approximation && !prepared.approximation->empty())
                 result.warnings.push_back("APPROXIMATED_MATERIAL " + name + ": no T6 rule for WaW technique '" + t4ts + "'; drawn with its own textures as '" +
-                                          prepared["approximation"].get<std::string>() + "' (" + target + ")");
+                                          *prepared.approximation + "' (" + target + ")");
             Json runtime = c.techsetRoot ? shaders::BindMaterial(t4, out, c.roots, output, *c.techsetRoot, c.falloff, c.lightShadows)
                                          : Json{{"active", Json::array()}, {"unsupported", Json::array({"native technique dump absent"})}};
             bool sourceProgram = false;
-            for (const auto& n : prepared["match_notes"])
-                sourceProgram |= n.get<std::string>().find("source program supplies") != std::string::npos;
+            for (const auto& n : prepared.matchNotes)
+                sourceProgram |= n.find("source program supplies") != std::string::npos;
             if (sourceProgram)
             {
                 std::set<int> active;
@@ -227,20 +226,19 @@ namespace w2b::pipeline
             const auto stateSlots = shaders::ApplySourcePassStates(t4, out, runtime);
             if (!stateSlots.empty())
                 notes.push_back("WaW pass blend/depth/raster state on T6 slots " + IntList(stateSlots));
-            if (out.contains("textures"))
-                for (auto& texture : out["textures"])
-                {
-                    const auto image = texture.value("image", std::string());
-                    if (!c.imagePrefix.empty() && !image.empty() && !StartsWith(image, ",") && !StartsWith(image, "$") && !StartsWith(image, c.imagePrefix))
-                        texture["image"] = c.imagePrefix + image;
-                }
-            entry["t6_techset"] = out["techniqueSet"];
+            for (auto& texture : out.textures)
+            {
+                const auto& image = texture.image;
+                if (!c.imagePrefix.empty() && !image.empty() && !StartsWith(image, ",") && !StartsWith(image, "$") && !StartsWith(image, c.imagePrefix))
+                    texture.image = c.imagePrefix + image;
+            }
+            entry["t6_techset"] = out.techniqueSet;
             entry["donor"] = Generic(fs::path(files::FromUtf8(c.donorPaths[target].get<std::string>())).lexically_relative(c.stockMaterials));
-            entry["cost"] = prepared["cost"];
+            entry["cost"] = prepared.cost;
             entry["notes"] = notes;
-            output.Write(outRel, py::JsonDumps(out, 2) + "\n", true);
+            output.Write(outRel, materials::T6MaterialText(out), true);
             result.entry = entry;
-            result.techset = out["techniqueSet"].get<std::string>();
+            result.techset = out.techniqueSet;
             result.files = output.Files();
             return result;
         }
@@ -256,24 +254,22 @@ namespace w2b::pipeline
                 entry["source"] = name;
             Json notes = Json::array();
             const auto& nativePath = c.fallbacks.at(name);
-            auto out = ReadJson(nativePath);
-            if (out.contains("thermalMaterial"))
+            auto out = materials::ReadT6Material(nativePath);
+            if (out.thermalMaterial)
             {
-                const bool had = Truthy(out, "thermalMaterial");
-                out.erase("thermalMaterial");
-                if (had)
+                if (!out.thermalMaterial->empty())
                     notes.push_back("BO2 thermalMaterial dropped (the WaW material has none)");
+                out.thermalMaterial.reset();
             }
             const auto nativeRoot = c.stockMaterials.parent_path();
-            if (out.contains("textures"))
-                for (auto& texture : out["textures"])
+            for (auto& texture : out.textures)
                 {
-                    auto image = texture.value("image", std::string());
+                    auto image = texture.image;
                     if (StartsWith(image, ","))
                         image.erase(0, 1);
                     if (image.empty() || StartsWith(image, "$"))
                     {
-                        texture["image"] = StartsWith(image, "$") ? "," + image : image;
+                        texture.image = StartsWith(image, "$") ? "," + image : image;
                         continue;
                     }
                     const auto output = (c.imagePrefix.empty() ? std::string("waw_image/") : c.imagePrefix) + "bo2_fallback/" + image;
@@ -303,22 +299,22 @@ namespace w2b::pipeline
                             throw StepError("StageError", "BO2 equivalent material " + name + ": image " + image + " missing from " + Str(nativeRoot));
                         textures::ConvertFile(*imagePath, dst);
                     }
-                    texture["image"] = output;
+                    texture.image = output;
                     result.images.push_back(Json{{"name", output}, {"source", Str(*imagePath)}, {"source_kind", "t6_equivalent"}});
                 }
             const auto dst = c.projectRoot / outRel;
             fs::create_directories(dst.parent_path());
-            files::WriteText(dst, py::JsonDumps(out, 2) + "\n");
+            files::WriteText(dst, materials::T6MaterialText(out));
             const std::string why = "original material absent from WaW lookup";
             entry["t4_techset"] = nullptr;
-            entry["t6_techset"] = out["techniqueSet"];
+            entry["t6_techset"] = out.techniqueSet;
             entry["native_equivalent"] = Str(nativePath);
             Json allNotes = Json::array({why});
             for (const auto& n : notes)
                 allNotes.push_back(n);
             entry["notes"] = allNotes;
             result.entry = entry;
-            result.techset = out["techniqueSet"].get<std::string>();
+            result.techset = out.techniqueSet;
             result.warnings.push_back("BO2_FALLBACK material " + name + " -> " + Str(nativePath) + ": " + why);
             return result;
         }

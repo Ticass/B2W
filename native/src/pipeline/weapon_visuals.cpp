@@ -149,7 +149,7 @@ namespace w2b::pipeline
             {
                 const materials::EffectDonor* donor = nullptr;
                 std::vector<std::string> notes;
-                Json material;
+                materials::T6Material material;
                 try
                 {
                     std::tie(donor, notes) = materials::ChooseEffectDonor(source, donors);
@@ -164,13 +164,13 @@ namespace w2b::pipeline
                 const auto runtime = shaders::BindMaterial(source, material, roots, output, techsetDump);
                 const auto outName = weapons::OutputName("material", name);
                 const auto relative = assets::MaterialPath(outName);
-                files::WriteText(project / relative, py::JsonDumps(material, 2));
-                used.insert(material["techniqueSet"].get<std::string>());
+                files::WriteText(project / relative, py::JsonDumps(materials::ToJson(material), 2));
+                used.insert(material.techniqueSet);
                 report.materials.push_back(Json{{"name", outName},
                                                 {"source", name},
                                                 {"file", Generic(relative)},
                                                 {"t4_techset", source.techniqueSet},
-                                                {"t6_techset", material["techniqueSet"]},
+                                                {"t6_techset", material.techniqueSet},
                                                 {"shader_runtime", runtime},
                                                 {"donor", Str(donor->path.lexically_relative(stockMaterials))},
                                                 {"notes", notes}});
@@ -257,18 +257,17 @@ namespace w2b::pipeline
         {
             const auto wawMaterial = entry.contains("source") ? entry["source"].get<std::string>() : entry["name"].get<std::string>();
             const auto path = project / files::FromUtf8(entry["file"].get<std::string>());
-            auto material = mod::Json(path);
+            auto material = materials::ReadT6Material(path);
             Json images = Json::array();
-            if (material.contains("textures"))
-                for (auto& texture : material["textures"])
+            for (auto& texture : material.textures)
                 {
-                    const auto name = texture.value("image", std::string());
+                    const auto name = texture.image;
                     if (name.empty())
                         continue;
                     if (StartsWith(name, ",") || StartsWith(name, "$"))
                     {
-                        texture["image"] = StartsWith(name, ",") ? name.substr(1) : name;
-                        images.push_back("," + texture["image"].get<std::string>());
+                        texture.image = StartsWith(name, ",") ? name.substr(1) : name;
+                        images.push_back("," + texture.image);
                         continue;
                     }
                     if (mod::Truthy(entry, "native_equivalent"))
@@ -281,12 +280,12 @@ namespace w2b::pipeline
                     if (!imageStatus.count(output))
                         imageStatus[output] = stageImage(name, output);
                     const auto status = imageStatus[output];
-                    const auto slot = texture.value("name", std::string());
+                    const auto slot = texture.name.value_or(std::string());
                     const auto code = ABSENT_IMAGE_SLOTS.find(slot);
                     if (status && StartsWith(*status, ABSENT) && code != ABSENT_IMAGE_SLOTS.end())
                     {
                         // the pixels exist nowhere in WaW: a BO2 code image of the slot's neutral value
-                        texture["image"] = code->second.substr(1);
+                        texture.image = code->second.substr(1);
                         images.push_back(code->second);
                         report.warnings.push_back("BO2_FALLBACK image " + name + " -> " + code->second + ": " + slot + " of material " + wawMaterial + "; " +
                                                   status->substr(ABSENT.size()));
@@ -311,11 +310,11 @@ namespace w2b::pipeline
                                     kept.push_back(err);
                             report.errors = kept;
                         }
-                        texture["image"] = output;
+                        texture.image = output;
                         images.push_back(output);
                         continue;
                     }
-                    texture["image"] = output;
+                    texture.image = output;
                     images.push_back(output);
                     if (status)
                     {
@@ -325,7 +324,7 @@ namespace w2b::pipeline
                     }
                 }
             materialImages[entry["name"].get<std::string>()] = images;
-            files::WriteText(path, py::JsonDumps(material, 2) + "\n");
+            files::WriteText(path, materials::T6MaterialText(material));
         }
         // the technique sets and shader programs the materials use
         for (const auto& name : used)

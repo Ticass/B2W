@@ -250,9 +250,9 @@ namespace w2b::shaders
             return std::pair{Str(path), std::string()};
         }
 
-        int BindProbesWith(py::Json& material, Output& output, const fs::path& stock, ProbeCache& cache)
+        int BindProbesWith(materials::T6Material& material, Output& output, const fs::path& stock, ProbeCache& cache)
         {
-            const auto name = material.value("techniqueSet", std::string());
+            const auto name = material.techniqueSet;
             const auto file = OutputOrStock(output, stock, fs::path("techniquesets") / files::FromUtf8(name + ".json"));
             if (!file)
                 return 0;
@@ -320,14 +320,14 @@ namespace w2b::shaders
                     i++;
                 }
                 output.Write(fs::path("techniquesets") / files::FromUtf8(identity + ".json"), py::JsonDumpsDefault(data), true);
-                material["techniqueSet"] = identity;
+                material.techniqueSet = identity;
             }
             return count;
         }
 
     } // namespace
 
-    int BindNativeProbes(py::Json& material, Output& output, const fs::path& stock)
+    int BindNativeProbes(materials::T6Material& material, Output& output, const fs::path& stock)
     {
         static std::mutex lock;
         static ProbeCache cache;

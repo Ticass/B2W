@@ -377,14 +377,13 @@ namespace w2b::shaders::runtime
             return slot;
         }
 
-        long long TextureHash(const Json& t)
+        long long TextureHash(const materials::T6Texture& t)
         {
-            return t.contains("name") && t["name"].is_string() && !t["name"].get<std::string>().empty() ? T6Hash(t["name"].get<std::string>())
-                                                                                                         : (t.contains("nameHash") ? I(t["nameHash"]) : -1);
+            return t.name && !t.name->empty() ? T6Hash(*t.name) : (t.nameHash ? static_cast<long long>(*t.nameHash) : -1);
         }
 
         // add_material_texture: a source texture the donor pass has no slot for
-        std::optional<Json> AddMaterialTexture(Json& nativePass, Json& outputMaterial, const materials::WawMaterial& sourceMaterial, const long long hash, const std::string& nativePs)
+        std::optional<Json> AddMaterialTexture(Json& nativePass, materials::T6Material& outputMaterial, const materials::WawMaterial& sourceMaterial, const long long hash, const std::string& nativePs)
         {
             const auto named = [](const materials::WawTexture& t) { return t.name && !t.name->empty(); };
             const materials::WawTexture* texture = nullptr;
@@ -398,20 +397,11 @@ namespace w2b::shaders::runtime
                 return std::nullopt;
             if (named(*texture) && T6Hash(*texture->name) != hash)
                 return std::nullopt;
-            if (!outputMaterial.contains("textures"))
-                outputMaterial["textures"] = Json::array();
-            auto& textures = outputMaterial["textures"];
-            if (std::none_of(textures.begin(), textures.end(), [&](const Json& t) { return TextureHash(t) == hash; }))
+            auto& textures = outputMaterial.textures;
+            if (std::none_of(textures.begin(), textures.end(), [&](const materials::T6Texture& t) { return TextureHash(t) == hash; }))
             {
-                Json entry = Json::object();
-                const auto source = materials::ToOatJson(*texture);
-                for (const auto& [k, v] : source.items())
-                    if (k == "image" || k == "isMatureContent" || k == "name" || k == "nameHash" || k == "nameStart" || k == "nameEnd" || k == "samplerState" || k == "semantic")
-                        entry[k] = v;
-                textures.push_back(entry);
-                std::vector<Json> sorted(textures.begin(), textures.end());
-                std::stable_sort(sorted.begin(), sorted.end(), [](const Json& a, const Json& b) { return TextureHash(a) < TextureHash(b); });
-                textures = Json(sorted);
+                textures.push_back(materials::ToT6(*texture));
+                std::stable_sort(textures.begin(), textures.end(), [](const auto& a, const auto& b) { return TextureHash(a) < TextureHash(b); });
             }
             const int slot = FreeTextureSlot(nativePass, nativePs);
             Json arg{{"buffer", 0}, {"location", slot | (slot << 8)}, {"size", 1}, {"type", 2}, {"u", Json{{"value", hash}}}};
@@ -634,7 +624,7 @@ namespace w2b::shaders::runtime
 
     Json PairedPixelContract(const std::string& sourceAssembly, const Json& sourcePass, Json& nativePass, const fs::path& nativeRoot, const Json& linked,
                              const std::optional<std::string>& visibility, const materials::WawMaterial& sourceMaterial, const std::optional<std::array<double, 4>>& falloffPlacement,
-                             Json* outputMaterial)
+                             materials::T6Material* outputMaterial)
     {
         const auto ir = Ir(sourceAssembly);
         const auto& vs = NativeProgram(nativeRoot, "vs", nativePass);
@@ -1369,11 +1359,11 @@ namespace w2b::shaders::runtime
         }
     }
 
-    void PruneMissingMaterialConstants(Json& nativePass, const Json& material, const std::vector<const Json*>& contracts, const bool unread)
+    void PruneMissingMaterialConstants(Json& nativePass, const materials::T6Material& material, const std::vector<const Json*>& contracts, const bool unread)
     {
         std::set<long long> hashes;
-        for (const auto& c : material.value("constants", Json::array()))
-            hashes.insert(c.contains("nameHash") ? I(c["nameHash"]) : T6Hash(c.value("name", std::string())));
+        for (const auto& c : material.constants)
+            hashes.insert(c.nameHash ? static_cast<long long>(*c.nameHash) : T6Hash(c.name.value_or(std::string())));
         Json args = Json::array();
         size_t cursor = 0;
         std::map<std::string, long long> counts;

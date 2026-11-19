@@ -101,11 +101,11 @@ namespace w2b::pipeline
             const auto target = overlay / files::FromUtf8(relative);
             if (fs::exists(target))
                 continue;
-            auto material = [&] { const profile::Scope scope("probes: read material"); return Json(source); }();
+            auto material = [&] { const profile::Scope scope("probes: read material"); return materials::ReadT6Material(source); }();
             if (const int count = shaders::BindNativeProbes(material, overlayOutput, stock))
             {
                 MakeParent(target);
-                files::WriteText(target, py::JsonDumpsDefault(material));
+                files::WriteText(target, py::JsonDumpsDefault(materials::ToJson(material)));
                 changed[relative] = count;
             }
         }

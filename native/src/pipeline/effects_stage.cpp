@@ -349,7 +349,7 @@ namespace w2b::pipeline
             }
             const materials::EffectDonor* donor = nullptr;
             std::vector<std::string> notes;
-            Json out;
+            materials::T6Material out;
             try
             {
                 std::tie(donor, notes) = materials::ChooseEffectDonor(t4, donors);
@@ -361,7 +361,7 @@ namespace w2b::pipeline
                 failedMaterials.insert(mat);
                 continue;
             }
-            std::vector<std::tuple<std::string, std::string, Json, bool>> variants{{outName, mat, out, false}};
+            std::vector<std::tuple<std::string, std::string, materials::T6Material, bool>> variants{{outName, mat, out, false}};
             if (deps.trailMaterials.count(mat) && techsetDump)
                 variants.emplace_back(outName + FX_TRAIL_MATERIAL_SUFFIX, mat + "#trail", out, true);
             for (auto& [name, key, material, trail] : variants)
@@ -370,21 +370,20 @@ namespace w2b::pipeline
                                                  : Json{{"active", Json::array()}, {"unsupported", Json::array({"native technique dump absent"})}};
                 if (trail && !mod::Truthy(runtime, "face_on_falloff"))
                     continue; // no view falloff: trails share the ordinary material
-                if (material.contains("textures"))
-                    for (auto& tex : material["textures"])
-                    {
-                        const auto image = tex.value("image", std::string());
-                        if (!image.empty() && !StartsWith(image, ",") && !StartsWith(image, "$"))
-                            tex["image"] = FX_IMAGE_PREFIX + image;
-                    }
+                for (auto& tex : material.textures)
+                {
+                    const auto& image = tex.image;
+                    if (!image.empty() && !StartsWith(image, ",") && !StartsWith(image, "$"))
+                        tex.image = FX_IMAGE_PREFIX + image;
+                }
                 const auto outRel = assets::MaterialPath(name);
                 const auto dst = projectRoot / outRel;
                 fs::create_directories(dst.parent_path());
-                files::WriteText(dst, py::JsonDumps(material, 2) + "\n");
-                techsets.insert(material["techniqueSet"].get<std::string>());
-                for (const auto& t : material.value("textures", Json::array()))
-                    if (t.contains("image") && t["image"].is_string() && !t["image"].get<std::string>().empty())
-                        effectImages.insert(t["image"].get<std::string>());
+                files::WriteText(dst, materials::T6MaterialText(material));
+                techsets.insert(material.techniqueSet);
+                for (const auto& t : material.textures)
+                    if (!t.image.empty())
+                        effectImages.insert(t.image);
                 materialNames[key] = name;
                 Json entryNotes = Json(notes);
                 if (trail)
@@ -393,7 +392,7 @@ namespace w2b::pipeline
                                                {"source", mat},
                                                {"file", Generic(outRel)},
                                                {"t4_techset", ts},
-                                               {"t6_techset", material["techniqueSet"]},
+                                               {"t6_techset", material.techniqueSet},
                                                {"shader_runtime", runtime},
                                                {"donor", Generic(donor->path.lexically_relative(stockMaterials))},
                                                {"notes", entryNotes}});
