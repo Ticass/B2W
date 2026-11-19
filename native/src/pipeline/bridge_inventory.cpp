@@ -103,7 +103,7 @@ namespace w2b::pipeline
             return names;
         }
 
-        void AddLevelWeapons(const Names& named, Names& weapons, const Json& levelWeapons, Json& warnings)
+        void AddLevelWeapons(const Names& named, Names& weapons, const Json& levelWeapons, std::vector<std::string>& warnings)
         {
             Names common;
             for (const auto& name : levelWeapons)
@@ -118,8 +118,8 @@ namespace w2b::pipeline
         }
     }
 
-    Json BridgeInventory(const std::vector<fs::path>& roots, const std::vector<fs::path>& mapRoots,
-                         const std::optional<fs::path>& entities, const Json& levelWeapons, Json& warnings)
+    Inventory BridgeInventory(const std::vector<fs::path>& roots, const std::vector<fs::path>& mapRoots,
+                              const std::optional<fs::path>& entities, const Json& levelWeapons, std::vector<std::string>& warnings)
     {
         Names compiled;
         for (const auto& source : weapons::Discover(roots))
@@ -128,6 +128,6 @@ namespace w2b::pipeline
             AddLevelWeapons(NamedWeapons(*entities, mapRoots), compiled, levelWeapons, warnings);
         // A zone defines whole alias tables. The sound stage decides which
         // candidates actually play by following script and asset references.
-        return {{"compiled_weapons", std::move(compiled)}, {"zone_sounds", SoundAliases(roots)}, {"shipped_models", ShippedModels(mapRoots)}};
+        return {std::move(compiled), SoundAliases(roots), ShippedModels(mapRoots)};
     }
 }

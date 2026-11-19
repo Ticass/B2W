@@ -78,7 +78,7 @@ namespace w2b::paths
         return encoding::UniversalNewlines(encoding::Utf8Replace(input));
     }
 
-    Json Stage(const Path& input, const Path& bsp, const Path& project, const std::optional<Path>& asd, const std::vector<Path>& roots)
+    StagedPaths Stage(const Path& input, const Path& bsp, const Path& project, const std::optional<Path>& asd, const std::vector<Path>& roots)
     {
         const auto source = ReadManifest(input);
         auto dogs = roots.empty() ? DogTraversals{} : SourceDogs(roots, SourceScripts(source));
@@ -92,8 +92,6 @@ namespace w2b::paths
         auto output = Convert(source, substates, dogs.calls);
         files::WriteText(bsp / "paths.json", py::JsonDumps(output.at("manifest"), -1) + "\n");
         WriteScripts(project, output.at("renamed"), dogs, output.at("summary"));
-        return {{"summary", std::move(output.at("summary"))}, {"renamed", std::move(output.at("renamed"))},
-                {"dogs", {{"calls", std::move(dogs.calls)}, {"library", std::move(dogs.library)},
-                         {"states", std::move(dogs.states)}, {"errors", std::move(dogs.errors)}}}};
+        return {std::move(output.at("summary")), output.at("renamed").get<Renames>(), std::move(dogs)};
     }
 }

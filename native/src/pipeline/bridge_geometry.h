@@ -3,9 +3,12 @@
 // map physics and, through the navigation pass, the entities and AI paths.
 
 #include "core/pytext.h"
+#include "gsc/port/zone_scripts.h"
+#include "pipeline/bridge_inventory.h"
 #include "world/render_world.h"
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -27,6 +30,19 @@ namespace w2b::pipeline
         py::Json levelWeapons;         // the stock common zone's weapons
         bool bo2StockPerks = false;
         std::string respawnExclusion;  // gsc_api zombie_runtime.source_respawn.native_exclusion_tag
+    };
+
+    struct NavigationResult // the map's entities, AI paths and zone graph
+    {
+        std::filesystem::path entitySource;          // the WaW .ents dump
+        py::Json entities = py::Json::object();      // the entity conversion summary
+        bool hasEntities = false;
+        std::vector<std::string> scriptModels;       // map-placed script_model models, sorted
+        std::optional<gsc::port::ZoneGraph> zoneGraph;
+        std::map<std::string, std::string> dogStates; // dog traversal animations by state
+        std::set<std::string> machineModels;         // stock BO2 perk machine models
+        Inventory inventory;
+        std::vector<std::string> warnings, errors;
     };
 
     struct GeometryRequest
@@ -59,7 +75,7 @@ namespace w2b::pipeline
         std::optional<std::string> sky;
         py::Json dynents, constraints;         // map physics
         std::set<std::string> clipModels;
-        py::Json navigation;                   // null without a navigation request
+        std::optional<NavigationResult> navigation; // none without a navigation request
     };
 
     GeometryStage StageBridgeGeometry(const GeometryRequest& request);

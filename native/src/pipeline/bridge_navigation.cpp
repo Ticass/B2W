@@ -39,13 +39,13 @@ namespace w2b::pipeline
             return text + '}';
         }
 
-        Json StagePaths(const fs::path& source, const fs::path& project, const std::optional<fs::path>& bo2,
-                        const std::vector<fs::path>& roots, Json& warnings, Json& errors)
+        std::optional<paths::StagedPaths> StagePaths(const fs::path& source, const fs::path& project, const std::optional<fs::path>& bo2,
+                                                     const std::vector<fs::path>& roots, std::vector<std::string>& warnings, std::vector<std::string>& errors)
         {
             if (!fs::exists(source))
             {
                 errors.push_back("path nodes " + files::Utf8(source.filename()) + " missing (dump gameworldsp): zombies cannot path");
-                return Json();
+                return std::nullopt;
             }
             try
             {
@@ -54,9 +54,9 @@ namespace w2b::pipeline
                     if (auto path = *bo2 / "raw/animstatedefs/zm_nuked_basic.asd"; fs::exists(path))
                         states = std::move(path);
                 auto result = paths::Stage(source, project / "BSP", project, states, roots);
-                const auto& summary = result.at("summary");
-                for (const auto& error : result.at("dogs").at("errors"))
-                    warnings.push_back("UNCONVERTED_TRAVERSAL " + error.get<std::string>());
+                const auto& summary = result.summary;
+                for (const auto& error : result.dogs.errors)
+                    warnings.push_back("UNCONVERTED_TRAVERSAL " + error);
                 const auto number = [&](const char* key) { return std::to_string(summary.at(key).get<std::size_t>()); };
                 warnings.push_back("path nodes: " + number("nodes") + " nodes, " + number("links") + " links, vis "
                                    + number("vis_bytes") + " bytes; traversals " + TraversalRepr(summary.at("traversals")));
@@ -65,11 +65,11 @@ namespace w2b::pipeline
             catch (const paths::Error& error)
             {
                 errors.push_back("path nodes: " + std::string(error.what()));
-                return Json();
+                return std::nullopt;
             }
         }
 
-        void AppendSynthesizedZoneWarnings(const Json& entities, Json& warnings)
+        void AppendSynthesizedZoneWarnings(const Json& entities, std::vector<std::string>& warnings)
         {
             const auto found = entities.find("synthesized_zones");
             if (found == entities.end() || found->empty())
@@ -104,7 +104,7 @@ namespace w2b::pipeline
         }
     }
 
-    Json StageBridgeNavigation(const NavigationRequest& request, const fs::path& gfx, const fs::path& project,
+    NavigationResult StageBridgeNavigation(const NavigationRequest& request, const fs::path& gfx, const fs::path& project,
                                const std::vector<fs::path>& roots, const world::CollisionWorld& clip)
     {
         auto stem = files::Utf8(gfx.filename());
@@ -113,15 +113,18 @@ namespace w2b::pipeline
         const auto bsp = project / "BSP";
         const auto& bo2 = request.bo2Root;
         const auto source = SourceEntities(gfx, request.stage, roots, stem);
-        auto warnings = Json::array(), errors = Json::array();
+        NavigationResult result;
+        auto& warnings = result.warnings;
+        auto& errors = result.errors;
         const auto paths = StagePaths(gfx.parent_path() / files::FromUtf8(stem + ".paths.json"), project, bo2, request.traversalRoots, warnings, errors);
         const auto machines = bo2 && request.bo2StockPerks ? gsc::port::stockperks::MachineModels(*bo2) : std::set<std::string>{};
-        auto result = Json{{"entity_source", mod::Str(source)}, {"entities", Json::object()}, {"script_models", Json::array()}, {"has_entities", false},
-                           {"zone_graph", nullptr}, {"dog_states", paths.is_null() ? Json::object() : paths.at("dogs").at("states")},
-                           {"bo2_machine_models", machines}};
+        result.entitySource = source;
+        if (paths)
+            result.dogStates = paths->dogs.states.get<std::map<std::string, std::string>>();
+        result.machineModels = machines;
         if (fs::exists(source))
         {
-            mapents::MapEntityRequest entityRequest{source, bsp, request.project, paths.is_null() ? Json::object() : paths.at("renamed"),
+            mapents::MapEntityRequest entityRequest{source, bsp, request.project, paths ? paths->renamed : mapents::Renames{},
                                                     std::nullopt, request.respawnExclusion, &clip};
             if (request.wawMapScript && fs::exists(*request.wawMapScript))
                 entityRequest.zoneScript = request.wawMapScript;
@@ -154,15 +157,13 @@ namespace w2b::pipeline
             if (fs::exists(bsp / "paths.json"))
                 for (const auto& note : paths::LinkWindowTraversals(bsp))
                     warnings.push_back(note);
-            result["entities"] = std::move(summary);
-            result["has_entities"] = true;
-            result["script_models"] = std::move(entities.scriptModels);
-            result["zone_graph"] = std::move(entities.zoneGraph);
+            result.entities = std::move(summary);
+            result.hasEntities = true;
+            result.scriptModels = std::move(entities.scriptModels);
+            result.zoneGraph = std::move(entities.zoneGraph);
         }
         else
             errors.push_back("map entities " + files::Utf8(source.filename()) + " missing");
-        result["warnings"] = std::move(warnings);
-        result["errors"] = std::move(errors);
         return result;
     }
 }

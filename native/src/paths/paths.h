@@ -35,6 +35,15 @@ namespace w2b::paths
         std::vector<std::string> errors;
     };
 
+    using Renames = std::map<std::string, std::string, std::less<>>;
+
+    struct StagedPaths
+    {
+        Json summary;    // nodes, links, vis_bytes, traversals, scripts, generated
+        Renames renamed; // WaW traversal animscript (or #node) -> the T6 script it plays
+        DogTraversals dogs;
+    };
+
     std::string ReadSource(const Path& file);
     Json ReadManifest(const Path& file);
     Names TraverseSubstates(std::string_view text);
@@ -42,7 +51,7 @@ namespace w2b::paths
     DogTraversals SourceDogs(const std::vector<Path>& roots, const Names& scripts);
     std::string TraverseScript(const Alias& alias, const Json& dogCalls);
     Json Convert(const Json& source, const std::optional<Names>& substates, const Json& dogCalls);
-    Json Stage(const Path& input, const Path& bsp, const Path& project, const std::optional<Path>& asd, const std::vector<Path>& roots);
+    StagedPaths Stage(const Path& input, const Path& bsp, const Path& project, const std::optional<Path>& asd, const std::vector<Path>& roots);
     using WindowHubs = std::map<std::string, std::string, std::less<>>;
     WindowHubs SplitWindowEnds(Json& graph, const std::vector<std::size_t>& begins);
     Json LinkWindowTraversals(const Path& bsp);

@@ -82,7 +82,7 @@ namespace w2b::mapents
         class Converter
         {
         public:
-            Converter(const Json& animscripts, std::string_view respawnExclusion)
+            Converter(const Renames& animscripts, std::string_view respawnExclusion)
                 : animscripts_(animscripts), respawnExclusion_(respawnExclusion) {}
 
             Converted Run(MapEntities& entities, std::string_view project, const Names& zones)
@@ -240,7 +240,7 @@ namespace w2b::mapents
                 {
                     if (entity.Has("animscript"))
                         if (const auto script = animscripts_.find(Field(entity, "animscript")); script != animscripts_.end())
-                            entity.Set("animscript", script->get<std::string>());
+                            entity.Set("animscript", script->second);
                     output_.push_back(std::move(entity));
                     return;
                 }
@@ -263,7 +263,7 @@ namespace w2b::mapents
                     output_.push_back(std::move(*twin));
             }
 
-            const Json& animscripts_;
+            const Renames& animscripts_;
             std::string_view respawnExclusion_;
             std::map<std::string, bool, std::less<>> barriers_;
             Names volumeTargets_;
@@ -284,9 +284,9 @@ namespace w2b::mapents
         return marker;
     }
 
-    Converted Convert(MapEntities entities, std::string_view project, const Json& animscripts, const Json& zoneNames,
+    Converted Convert(MapEntities entities, std::string_view project, const Renames& animscripts, const ZoneNames& zoneNames,
                  std::string_view respawnExclusion)
     {
-        return Converter(animscripts, respawnExclusion).Run(entities, project, zoneNames.get<Names>());
+        return Converter(animscripts, respawnExclusion).Run(entities, project, Names(zoneNames.begin(), zoneNames.end()));
     }
 }

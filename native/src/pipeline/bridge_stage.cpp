@@ -276,7 +276,7 @@ namespace w2b::pipeline
             // the geometry stage's results
             std::vector<GeometrySurface> surfaces_;
             std::vector<world::WorldStaticModel> staticModels_;
-            Json mapDynents_, navigation_;
+            Json mapDynents_;
             bool shadowLights_ = false, hasWater_ = false, layeredVertexData_ = false;
             std::optional<std::string> skyImage_;
             std::size_t probeCount_ = 0;
@@ -285,7 +285,8 @@ namespace w2b::pipeline
             // the navigation stage's results
             Names compiledWeapons_, zoneSounds_, shipped_, scriptModels_, entityBoxModels_, machineModels_, compiledSounds_;
             fs::path entitiesSource_;
-            Json zoneGraph_, dogStates_;
+            std::optional<gsc::port::ZoneGraph> zoneGraph_;
+            std::map<std::string, std::string> dogStates_;
 
             std::optional<Json> weaponReport_;
             Effects effects_;
@@ -374,20 +375,20 @@ namespace w2b::pipeline
             mapDynents_ = std::move(staged.dynents);
             clipModels_ = {staged.clipModels.begin(), staged.clipModels.end()};
             hasWater_ = staged.hasWater;
-            navigation_ = std::move(staged.navigation);
-
-            const auto& inventory = navigation_["inventory"];
-            compiledWeapons_ = NameSet(inventory["compiled_weapons"]);
-            zoneSounds_ = NameSet(inventory["zone_sounds"]);
-            shipped_ = NameSet(inventory["shipped_models"]);
-            entitiesSource_ = files::FromUtf8(navigation_["entity_source"].get<std::string>());
-            report_.entities = navigation_["entities"];
-            Extend(report_, "warnings", navigation_["warnings"]);
-            Extend(report_, "errors", navigation_["errors"]);
-            scriptModels_ = NameSet(navigation_["script_models"]);
-            zoneGraph_ = navigation_["zone_graph"];
-            dogStates_ = navigation_["dog_states"];
-            machineModels_ = NameSet(navigation_["bo2_machine_models"]);
+            auto& nav = staged.navigation.value(); // the bridge stage always asks for navigation
+            compiledWeapons_ = std::move(nav.inventory.compiledWeapons);
+            zoneSounds_ = std::move(nav.inventory.zoneSounds);
+            shipped_ = std::move(nav.inventory.shippedModels);
+            entitiesSource_ = nav.entitySource;
+            report_.entities = std::move(nav.entities);
+            for (auto& warning : nav.warnings)
+                report_.Warn(std::move(warning));
+            for (auto& error : nav.errors)
+                report_.Fail(std::move(error));
+            scriptModels_ = {nav.scriptModels.begin(), nav.scriptModels.end()};
+            zoneGraph_ = std::move(nav.zoneGraph);
+            dogStates_ = std::move(nav.dogStates);
+            machineModels_ = std::move(nav.machineModels);
             // the map is king: every model its own zones ship converts, referenced or not
             content["map_shipped_models"] = shipped_.size();
             if (mod::IsFile(entitiesSource_))
@@ -517,9 +518,9 @@ namespace w2b::pipeline
                     const auto donors = config.value("add_states", Json::object());
                     for (const auto& [donor, states] : donors.items())
                         request.donorStates.emplace_back(donor, states.get<std::vector<std::string>>());
-                    if (kind == "dog" && Truthy(dogStates_))
+                    if (kind == "dog" && !dogStates_.empty())
                     {
-                        request.sourceStates = dogStates_.get<std::map<std::string, std::string>>();
+                        request.sourceStates = dogStates_;
                         request.stock = stock_ ? &*stock_ : nullptr;
                     }
                     auto staged = StageOwnedActorTree(request);
@@ -894,10 +895,10 @@ namespace w2b::pipeline
             TailScripts scripts{{used.begin(), used.end()}, *o_.wawMapScript, std::nullopt, std::nullopt, std::nullopt};
             if (o_.scriptTemplate && o_.scriptTemplateName)
                 scripts.requiredTemplate = gsc::port::ScriptTemplate{*o_.scriptTemplate, *o_.scriptTemplateName};
-            if (!zoneGraph_.is_null())
+            if (zoneGraph_)
             {
                 scripts.dropZoneManager = true;
-                scripts.zoneGraph = gsc::port::ZoneGraph{zoneGraph_["initial"].get<std::vector<std::string>>(), zoneGraph_["adjacency"].get<std::vector<std::string>>()};
+                scripts.zoneGraph = *zoneGraph_;
             }
             const auto zoneModels = Union(Union(Union(scriptModels_, Intersection(shipped_, resolved_)), fxModels), projectileModels);
             Tail(std::move(scripts), images, hudMaterials, zoneModels);

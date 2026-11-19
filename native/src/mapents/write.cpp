@@ -85,12 +85,13 @@ namespace w2b::mapents
             return false;
         }
 
-        void AddInitialSpawns(MapEntities& entities, Json& spawns, Json& summary, const world::CollisionWorld* clip, const Json& startZones)
+        void AddInitialSpawns(MapEntities& entities, Json& spawns, Json& summary, const world::CollisionWorld* clip,
+                              const std::optional<std::vector<std::string>>& startZones)
         {
             constexpr std::size_t CoopPlayers = 4;
             std::vector<std::size_t> starts, volumes;
             using Names = std::set<std::string, std::less<>>;
-            const auto names = startZones.is_array() ? startZones.get<Names>() : Names{};
+            const auto names = startZones ? Names(startZones->begin(), startZones->end()) : Names{};
             for (std::size_t i = 0; i < entities.size(); ++i)
             {
                 const auto& entity = entities.at(i);
@@ -131,12 +132,12 @@ namespace w2b::mapents
         }
     }
 
-    MapEntityResult Write(Converted converted, const Path& bsp, const world::CollisionWorld* clip, Json startZones)
+    MapEntityResult Write(Converted converted, const Path& bsp, const world::CollisionWorld* clip, std::optional<std::vector<std::string>> startZones)
     {
         auto& entities = converted.entities;
         auto& spawns = converted.spawns;
         auto& summary = converted.summary;
-        if (startZones.is_array() && startZones.empty() && clip && std::filesystem::exists(bsp / "submodels.json"))
+        if (startZones && startZones->empty() && clip && std::filesystem::exists(bsp / "submodels.json"))
             startZones = SynthesizeZones(entities, *clip, bsp, summary);
         MarkChasers(entities, summary);
         AddInitialSpawns(entities, spawns, summary, clip, startZones);
@@ -149,6 +150,6 @@ namespace w2b::mapents
         }
         WriteMapEntities(bsp / "entities.json", entities);
         files::WriteText(bsp / "spawns.json", py::JsonDumps(spawns, 1) + "\n");
-        return {std::move(summary), {models.begin(), models.end()}, Json()};
+        return {std::move(summary), {models.begin(), models.end()}, std::nullopt};
     }
 }

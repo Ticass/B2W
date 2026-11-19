@@ -11,16 +11,15 @@ namespace w2b::mapents
 {
     MapEntityResult ConvertMapEntities(const MapEntityRequest& request)
     {
-        Json graph;
+        std::optional<gsc::port::ZoneGraph> graph;
         if (request.zoneScript)
-            graph = gsc::port::ReadZoneGraphFile(*request.zoneScript).ToJson();
+            graph = gsc::port::ReadZoneGraphFile(*request.zoneScript);
         std::string bytes;
         if (!files::ReadBytes(request.source, bytes))
             throw std::runtime_error("cannot read " + files::Utf8(request.source));
         auto entries = Parse(encoding::UniversalNewlines(encoding::Utf8Replace(bytes)));
-        auto output = Convert(std::move(entries), request.project, request.animscripts, graph.is_null() ? Json::array() : graph.at("names"),
-                              request.respawnExclusion);
-        auto written = Write(std::move(output), request.bsp, request.clip, graph.is_null() ? Json() : graph.at("initial"));
+        auto output = Convert(std::move(entries), request.project, request.animscripts, graph ? graph->Names() : ZoneNames{}, request.respawnExclusion);
+        auto written = Write(std::move(output), request.bsp, request.clip, graph ? std::optional(graph->initial) : std::nullopt);
         written.zoneGraph = std::move(graph);
         return written;
     }

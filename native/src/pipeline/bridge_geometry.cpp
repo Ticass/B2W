@@ -270,9 +270,8 @@ namespace w2b::pipeline
         if (request.navigation)
         {
             auto navigation = StageBridgeNavigation(*request.navigation, request.gfx, project, roots, clip);
-            const auto entities = navigation.at("has_entities").get<bool>() ? std::optional(project / "BSP/entities.json") : std::nullopt;
-            auto inventory = BridgeInventory(roots, request.navigation->mapRoots, entities, request.navigation->levelWeapons, navigation.at("warnings"));
-            navigation["inventory"] = std::move(inventory);
+            const auto entities = navigation.hasEntities ? std::optional(project / "BSP/entities.json") : std::nullopt;
+            navigation.inventory = BridgeInventory(roots, request.navigation->mapRoots, entities, request.navigation->levelWeapons, navigation.warnings);
             staged.navigation = std::move(navigation);
         }
         return staged;

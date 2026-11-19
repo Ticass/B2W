@@ -42,11 +42,11 @@ TEST_CASE("Bridge inventory preserves weapon include matching and source names",
     WriteText(root / "soundaliases/hit.w2bsnd.json", "{}");
     WriteText(root / "xmodel/sub/tree.json", "{}");
 
-    auto warnings = Json::array();
+    std::vector<std::string> warnings;
     const auto inventory = BridgeInventory({root}, {root}, root / "entities.json", {"ignored", "mixed", "unicode", "turret", "world"}, warnings);
-    CHECK(inventory.at("compiled_weapons") == Json::array({"compiled", "mixed", "turret", "unicode", "world"}));
-    CHECK(inventory.at("zone_sounds") == Json::array({"hit"}));
-    CHECK(inventory.at("shipped_models") == Json::array({"sub/tree"}));
+    CHECK(inventory.compiledWeapons == std::set<std::string>{"compiled", "mixed", "turret", "unicode", "world"});
+    CHECK(inventory.zoneSounds == std::set<std::string>{"hit"});
+    CHECK(inventory.shippedModels == std::set<std::string>{"sub/tree"});
     CHECK(warnings.size() == 4);
 }
 

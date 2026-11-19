@@ -1,11 +1,14 @@
 #pragma once
 
 #include "core/pytext.h"
+#include "gsc/port/zone_scripts.h"
 #include "mapents/map_entity.h"
 
 #include <array>
 #include <filesystem>
+#include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -24,14 +27,16 @@ namespace w2b::mapents
         Json spawns;  // spawns.json: attackers, defenders, FFA
         Json summary; // entities, dropped, renamed, spawn_points, ...
     };
-    Converted Convert(MapEntities entities, std::string_view project, const Json& animscripts, const Json& zoneNames,
+    using Renames = std::map<std::string, std::string, std::less<>>;
+    using ZoneNames = std::set<std::string>;
+    Converted Convert(MapEntities entities, std::string_view project, const Renames& animscripts, const ZoneNames& zoneNames,
                       std::string_view respawnExclusion);
 
     struct MapEntityRequest
     {
         Path source, bsp;                      // the WaW .ents dump, the project's BSP folder
         std::string project;
-        Json animscripts;                      // traversal animscript renames from the paths pass
+        Renames animscripts;                   // traversal animscript renames from the paths pass
         std::optional<Path> zoneScript;        // the map script whose zone graph names the zones
         std::string respawnExclusion;
         const world::CollisionWorld* clip = nullptr;
@@ -41,13 +46,14 @@ namespace w2b::mapents
     {
         Json summary;
         std::vector<std::string> scriptModels; // the script_model models placed, sorted
-        Json zoneGraph;                        // the map script's zone graph, null without one
+        std::optional<gsc::port::ZoneGraph> zoneGraph; // the map script's zone graph
     };
 
     // the map's entities converted and written to BSP/; throws std::invalid_argument on a malformed entity
     MapEntityResult ConvertMapEntities(const MapEntityRequest& request);
-    MapEntityResult Write(Converted converted, const Path& bsp, const world::CollisionWorld* clip, Json startZones);
-    Json SynthesizeZones(MapEntities& entities, const world::CollisionWorld& clip, const Path& bsp, Json& summary);
+    // startZones: the zone graph's initial zones, none without a zone graph
+    MapEntityResult Write(Converted converted, const Path& bsp, const world::CollisionWorld* clip, std::optional<std::vector<std::string>> startZones);
+    std::vector<std::string> SynthesizeZones(MapEntities& entities, const world::CollisionWorld& clip, const Path& bsp, Json& summary);
 
     inline std::string_view Field(const MapEntity& entity, std::string_view key, std::string_view fallback = {})
     {

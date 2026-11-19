@@ -106,7 +106,7 @@ namespace w2b::mapents
         }
     }
 
-    Json SynthesizeZones(MapEntities& entities, const world::CollisionWorld& clip, const Path& bsp, Json& summary)
+    std::vector<std::string> SynthesizeZones(MapEntities& entities, const world::CollisionWorld& clip, const Path& bsp, Json& summary)
     {
         std::map<std::string, std::vector<std::size_t>, std::less<>> spawners;
         std::set<std::pair<std::string, std::string>> structs;
@@ -133,7 +133,8 @@ namespace w2b::mapents
         const auto& world = clip.models.at(0);
         const auto mins = Offset(world.mins, -512), maxs = Offset(world.maxs, 512);
         const auto cornerMin = Offset(world.mins, 0), cornerMax = Offset(world.mins, 16);
-        auto initial = Json::array(), adjacency = Json::array(), locked = Json::array();
+        std::vector<std::string> initial;
+        auto adjacency = Json::array(), locked = Json::array();
         for (std::size_t i = 0; i < groups.size(); ++i)
         {
             const auto& group = groups[i];
