@@ -66,20 +66,14 @@ namespace w2b::files
         }
     }
 
-    py::Json ShareIdenticalFiles(const fs::path& request)
+    SharedFiles ShareIdenticalFiles(const fs::path& staging, const std::vector<fs::path>& prior, const std::vector<fs::path>& names)
     {
-        const auto data = py::Json::parse(ReadText(request));
-        const auto root = FromUtf8(data.at("staging").get<std::string>());
-        std::vector<fs::path> prior;
-        for (const auto& directory : data.at("prior"))
-            prior.push_back(FromUtf8(directory.get<std::string>()));
-        const auto& names = data.at("files");
         std::vector<std::uintmax_t> sizes(names.size());
         parallel::For(names.size(), [&](std::size_t index)
         {
-            sizes[index] = FindAndShare(root, prior, FromUtf8(names[index].get<std::string>()), index);
+            sizes[index] = FindAndShare(staging, prior, names[index], index);
         }, 4);
-        return {{"files", std::ranges::count_if(sizes, [](auto size) { return size != 0; })},
-                {"shared_bytes", std::accumulate(sizes.begin(), sizes.end(), std::uintmax_t{})}};
+        return {static_cast<std::size_t>(std::ranges::count_if(sizes, [](auto size) { return size != 0; })),
+                std::accumulate(sizes.begin(), sizes.end(), std::uintmax_t{})};
     }
 }

@@ -168,18 +168,12 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json FrameworkCoverage(const fs::path& requestPath)
+    CoverageSummary FrameworkCoverage(const std::string& project, const fs::path& projectRoot, const std::vector<fs::path>& roots, const Json& scripts)
     {
-        const auto request = mod::Json(requestPath);
-        const auto project = request["project"].get<std::string>();
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        std::vector<fs::path> roots;
-        for (const auto& r : request["roots"])
-            roots.push_back(files::FromUtf8(r.get<std::string>()));
-        const auto cov = Compute(request.value("scripts", Json()), roots);
+        const auto cov = Compute(scripts, roots);
         gsc::port::SetCompatDir(extract::ResourceRoot() / "src/waw2bo2/compat");
         const auto& api = gsc::port::Api();
-        Json warnings = Json::array();
+        std::vector<std::string> warnings;
         for (const auto& [key, rows] : Sorted(cov))
             for (const auto& [name, status] : rows)
             {
@@ -207,9 +201,6 @@ namespace w2b::pipeline
         }
         files::WriteText(projectRoot / "framework_coverage.json", py::JsonDumps(document, 1) + "\n");
         files::WriteText(projectRoot / "framework_coverage.md", Markdown(project, cov));
-        Json totals = Json::object();
-        for (const auto& [k, v] : Count(cov))
-            totals[k] = v;
-        return Json{{"totals", totals}, {"warnings", warnings}};
+        return {Count(cov), std::move(warnings)};
     }
 } // namespace w2b::pipeline

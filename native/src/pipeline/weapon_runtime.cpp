@@ -285,13 +285,13 @@ namespace w2b::pipeline
         class Bo2Equivalents
         {
         public:
-            Bo2Equivalents(const std::optional<fs::path>& bo2, const Json& loaded)
+            Bo2Equivalents(const std::optional<fs::path>& bo2, const std::map<std::string, std::set<std::string>>& loaded)
             {
                 if (bo2)
                     raw_ = *bo2 / "raw";
-                for (const auto& [kind, names] : loaded.items())
+                for (const auto& [kind, names] : loaded)
                     for (const auto& n : names)
-                        loaded_[kind].insert(Lower(n.get<std::string>()));
+                        loaded_[kind].insert(Lower(n));
                 const auto table = extract::ResourceRoot() / "src/waw2bo2/compat/bo2_equivalents.json";
                 const auto data = IsFile(table) ? mod::Json(table) : Json::object(); // items() views into it
                 for (const auto& [kind, entries] : data.items())
@@ -402,16 +402,13 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageWeaponRuntime(const fs::path& requestPath)
+    Json StageWeaponRuntime(const WeaponRuntimeRequest& request)
     {
-        const auto request = mod::Json(requestPath);
-        const auto project = files::FromUtf8(request["content"].get<std::string>());
-        const auto ipak = request["ipak"].get<std::string>();
-        const std::optional<fs::path> bo2 = request["bo2_root"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["bo2_root"].get<std::string>()));
-        const auto& loaded = request["loaded"];
-        std::set<std::string> convertedFx;
-        for (const auto& f : request["converted_fx"])
-            convertedFx.insert(f.get<std::string>());
+        const auto& project = request.content;
+        const auto& ipak = request.ipak;
+        const auto& bo2 = request.bo2Root;
+        const auto& loaded = request.loaded;
+        const auto& convertedFx = request.convertedFx;
         StageWeaponEvents(project);
 
         static const pyre::Regex variantModelSlot("^(gunModel|worldModel)([2-9]|1[0-6])$");
@@ -433,11 +430,11 @@ namespace w2b::pipeline
         for (const auto& g : stageReport["missing_accuracy_graphs"])
             missingGraphs.insert(files::Utf8(files::FromUtf8(g.get<std::string>()).filename()));
         std::set<std::string> reserved;
-        for (const auto& n : request["reserved"])
-            reserved.insert(Lower(n.get<std::string>()));
-        if (loaded.contains("weapon"))
-            for (const auto& n : loaded["weapon"])
-                reserved.insert(Lower(n.get<std::string>()));
+        for (const auto& n : request.reserved)
+            reserved.insert(Lower(n));
+        if (const auto weapons = loaded.find("weapon"); weapons != loaded.end())
+            for (const auto& n : weapons->second)
+                reserved.insert(Lower(n));
         Bo2Equivalents equivalents(bo2, loaded);
 
         Json excluded = Json::object(), notes = Json::array(), table = Json::object(), replacements = Json::object();
@@ -710,21 +707,16 @@ namespace w2b::pipeline
         return result;
     }
 
-    Json FinishWeaponRuntime(const fs::path& requestPath)
+    WeaponRuntimeFinish FinishWeaponRuntime(const WeaponFinishRequest& request)
     {
-        const auto request = mod::Json(requestPath);
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        std::map<std::string, std::string> fxTable, weaponTable;
-        for (const auto& [k, v] : request["fx_table"].items())
-            fxTable[k] = v.get<std::string>();
-        for (const auto& [k, v] : request["weapons"].items())
-            weaponTable[k] = v.get<std::string>();
-        const std::optional<std::string> wawMap = request["waw_map"].is_null() ? std::nullopt : std::optional(request["waw_map"].get<std::string>());
+        const auto& projectRoot = request.projectRoot;
+        const auto& fxTable = request.fxTable;
+        const auto& weaponTable = request.weapons;
+        const auto& wawMap = request.wawMap;
         // stage_map_tables: the map's own string tables as waw/<path> (the first root holding a path wins)
         std::map<std::string, std::string> tables;
-        for (const auto& r : request["map_table_roots"])
+        for (const auto& root : request.mapTableRoots)
         {
-            const auto root = files::FromUtf8(r.get<std::string>());
             if (!mod::IsDir(root))
                 continue;
             for (const auto& path : files::GlobSuffix(root, ".csv"))
@@ -767,9 +759,9 @@ namespace w2b::pipeline
         }
         // source_zombie_var_overrides: WaW table column one, source roots in order
         std::map<std::string, std::string> overrides;
-        for (const auto& r : request["table_roots"])
+        for (const auto& root : request.tableRoots)
         {
-            const auto source = files::FromUtf8(r.get<std::string>()) / "mp/zombiemode.csv";
+            const auto source = root / "mp/zombiemode.csv";
             if (!IsFile(source))
                 continue;
             auto text = mod::Bytes(source);
@@ -783,7 +775,7 @@ namespace w2b::pipeline
         gsc::port::SetCompatDir(extract::ResourceRoot() / "src/waw2bo2/compat");
         files::WriteText(projectRoot / "maps/mp/waw/_waw2bo2_assets.gsc", gsc::port::AssetsSource(fxTable, wawMap, weaponTable, bolted, overrides, tables));
         // entities.map_wall_buys
-        Json notes = Json::array();
+        std::vector<std::string> notes;
         const auto entitiesJson = projectRoot / "BSP" / "entities.json";
         if (fs::exists(entitiesJson))
         {
@@ -794,7 +786,7 @@ namespace w2b::pipeline
                 if (ent.contains("targetname") && ent["targetname"] == "weapon_upgrade")
                 {
                     const auto weapon = ent.contains("zombie_weapon_upgrade") && ent["zombie_weapon_upgrade"].is_string() ? std::optional(ent["zombie_weapon_upgrade"].get<std::string>()) : std::nullopt;
-                    if (weapon && weaponTable.count(*weapon) && weaponTable[*weapon].empty())
+                    if (weapon && weaponTable.count(*weapon) && weaponTable.at(*weapon).empty())
                     {
                         const auto origin = ent.contains("origin") && ent["origin"].is_string() ? ent["origin"].get<std::string>() : std::string("None");
                         notes.push_back("UNSUPPORTED_WALLBUY " + *weapon + " at " + origin + ": weapon not carried in mod.ff; trigger removed");
@@ -810,6 +802,6 @@ namespace w2b::pipeline
         std::vector<std::string> tableKeys;
         for (const auto& [k, _] : tables)
             tableKeys.push_back(k);
-        return Json{{"map_tables", tableKeys}, {"wall_buy_notes", notes}};
+        return {std::move(tableKeys), std::move(notes)};
     }
 } // namespace w2b::pipeline

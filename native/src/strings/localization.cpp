@@ -277,29 +277,19 @@ namespace w2b::strings
         return {ordered.begin(), ordered.end()};
     }
 
-    Json StageLocalization(const fs::path& requestPath)
+    Json StageLocalization(const LocalizationRequest& request)
     {
-        const auto request = ReadJson(requestPath);
-        const auto path = [&](const char* key) -> std::optional<fs::path>
-        {
-            if (!request.contains(key) || request[key].is_null())
-                return std::nullopt;
-            return files::FromUtf8(request[key].get<std::string>());
-        };
-        const auto paths = [&](const char* key)
-        {
-            std::vector<fs::path> out;
-            for (const auto& p : request.value(key, Json::array()))
-                out.push_back(files::FromUtf8(p.get<std::string>()));
-            return out;
-        };
-        const auto project = *path("project");
-        const auto roots = paths("roots"), iwdDirs = paths("iwd_dirs"), rawRoots = paths("raw_roots");
-        const auto unlinker = path("unlinker"), bo2Root = path("bo2_root"), t6Unlinker = path("t6_unlinker"), t6StockDump = path("t6_stock_dump");
-        const auto language = request.value("language", std::string("english"));
-        const auto work = path("work").value_or(project / "content_source/localization_cache");
-        auto stock = extract::StockWaw::FromJson(request.value("stock", Json()));
-
+        const auto& project = request.project;
+        const auto& roots = request.roots;
+        const auto& iwdDirs = request.iwdDirs;
+        const auto& rawRoots = request.rawRoots;
+        const auto& unlinker = request.unlinker;
+        const auto& bo2Root = request.bo2Root;
+        const auto& t6Unlinker = request.t6Unlinker;
+        const auto& t6StockDump = request.t6StockDump;
+        const auto& language = request.language;
+        const auto work = request.work.value_or(project / "content_source/localization_cache");
+        const auto* stock = request.stock;
         std::map<std::string, std::string> reverse;
         const auto previous = project / "content_source/localization.stage.json";
         if (IsFile(previous))

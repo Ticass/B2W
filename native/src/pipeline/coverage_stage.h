@@ -7,10 +7,26 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace w2b::pipeline
 {
-    // request {project, project_root, roots, scripts (the report's)};
-    // returns {totals, warnings}
-    py::Json FrameworkCoverage(const std::filesystem::path& request);
+    struct CoverageSummary
+    {
+        std::vector<std::pair<std::string, long long>> totals; // status -> functions
+        std::vector<std::string> warnings;                     // FRAMEWORK_BO2 rows without a glue reason
+        py::Json TotalsJson() const
+        {
+            auto json = py::Json::object();
+            for (const auto& [status, count] : totals)
+                json[status] = count;
+            return json;
+        }
+    };
+
+    // scripts: the bridge report's scripts section
+    CoverageSummary FrameworkCoverage(const std::string& project, const std::filesystem::path& projectRoot,
+                                      const std::vector<std::filesystem::path>& roots, const py::Json& scripts);
 } // namespace w2b::pipeline

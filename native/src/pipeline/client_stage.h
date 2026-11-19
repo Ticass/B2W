@@ -6,10 +6,31 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
 
 namespace w2b::pipeline
 {
-    // request {project_root, project, roots, fx_table, sound_names, characters,
-    // map_client}; returns {warnings, map_client} or {value_error}
-    py::Json FinishClientScripts(const std::filesystem::path& request);
+    struct ClientFinishRequest
+    {
+        std::filesystem::path projectRoot;
+        std::string project;
+        std::vector<std::filesystem::path> roots;
+        std::map<std::string, std::string> fxTable;
+        std::set<std::string> soundNames;
+        bool characters = false;
+        py::Json mapClient; // the scripts report's client section, null without map client scripts
+    };
+
+    struct ClientFinish
+    {
+        std::vector<std::string> warnings;
+        py::Json mapClient; // the client section as the map client hook left it
+    };
+
+    // The client mains: environment script, Tesla, characters and the map's own client main.
+    // Throws StepError("ValueError") when the BO2 client main has no waitforclient( 0 ).
+    ClientFinish FinishClientScripts(const ClientFinishRequest& request);
 } // namespace w2b::pipeline

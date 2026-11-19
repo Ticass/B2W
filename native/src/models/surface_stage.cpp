@@ -30,7 +30,23 @@ namespace w2b::models
         }
     }
 
-    Json StageSurfaceFixes(const Path& project, const Json& materials, bool colors, bool sort)
+    py::Json SurfaceFixes::OpacityJson() const
+    {
+        auto json = Json::object();
+        for (const auto& [file, vertices] : opacity)
+            json[file] = vertices;
+        return json;
+    }
+
+    py::Json SurfaceFixes::SortKeysJson() const
+    {
+        auto json = Json::object();
+        for (const auto& change : sortKeys)
+            json[change.material] = {change.from, change.to};
+        return json;
+    }
+
+    SurfaceFixes StageSurfaceFixes(const Path& project, const Json& materials, bool colors, bool sort)
     {
         MaterialNames additive;
         if (colors)
@@ -38,8 +54,7 @@ namespace w2b::models
                 if (material.value("t4_techset", std::string{}).starts_with("mc_unlit_add"))
                     additive.insert(material.value("source", material.at("name").get<std::string>()));
         const bool inspectOrder = sort && HasModelSortMaterials(materials);
-        auto alpha = Json::object();
-        auto sorted = Json::object();
+        SurfaceFixes fixes;
         if (!additive.empty() || inspectOrder)
         {
             const auto paths = files::GlobSuffix(project / "model_export", ".gltf");
@@ -56,17 +71,10 @@ namespace w2b::models
             }, 4);
             for (std::size_t i = 0; i < paths.size(); ++i)
                 if (changed[i] != 0)
-                    alpha[weapons::PosixPath(paths[i].lexically_relative(project))] = changed[i];
+                    fixes.opacity.emplace_back(weapons::PosixPath(paths[i].lexically_relative(project)), changed[i]);
             if (inspectOrder)
-                sorted = ApplySurfaceOrder(project, materials, orders);
+                fixes.sortKeys = ApplySurfaceOrder(project, materials, orders);
         }
-        return {{"opacity", std::move(alpha)}, {"sortKeys", std::move(sorted)}};
-    }
-
-    Json StageSurfaceFixesRequest(const Path& path)
-    {
-        const auto request = weapons::ReadAssetJson(path);
-        return StageSurfaceFixes(files::FromUtf8(request.at("project").get_ref<const std::string&>()),
-                                 request.at("materials"), request.value("colors", true), request.value("sort", true));
+        return fixes;
     }
 }

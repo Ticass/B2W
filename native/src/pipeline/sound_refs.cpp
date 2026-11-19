@@ -379,13 +379,13 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json DiscoverSounds(const Json& request)
+    SoundDiscovery DiscoverSounds(const SoundDiscoveryRequest& request)
     {
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        auto stockWaw = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
-        const auto zoneSounds = StringSet(request["zone_sounds"]);
-        auto compiled = StringSet(request["compiled_sounds"]);
-        const std::optional<fs::path> ents = request["ents"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["ents"].get<std::string>()));
+        const auto& projectRoot = request.projectRoot;
+        auto* stockWaw = request.stock;
+        const Names zoneSounds(request.zoneSounds.begin(), request.zoneSounds.end());
+        Names compiled(request.compiledSounds.begin(), request.compiledSounds.end());
+        const auto& ents = request.ents;
         Names stockSounds;
         if (stockWaw)
             for (const auto& [_, kinds] : stockWaw->Index().items())
@@ -396,8 +396,8 @@ namespace w2b::pipeline
         defined.insert(compiled.begin(), compiled.end());
         defined.insert(stockSounds.begin(), stockSounds.end());
         auto scriptSounds = ScriptAliases(projectRoot, defined, zoneSounds);
-        if (!request["source_amb"].is_null())
-            for (const auto& a : AmbientAliases(encoding::WawText(mod::Bytes(files::FromUtf8(request["source_amb"].get<std::string>())))))
+        if (request.sourceAmb)
+            for (const auto& a : AmbientAliases(encoding::WawText(mod::Bytes(*request.sourceAmb))))
                 if (defined.count(a))
                     scriptSounds.insert(a);
         const auto entitySounds = EntityAliases(ents, defined);
@@ -408,11 +408,9 @@ namespace w2b::pipeline
         content["script_sound_dependencies"] = std::vector<std::string>(scriptSounds.begin(), scriptSounds.end());
         content["entity_sound_dependencies"] = std::vector<std::string>(entitySounds.begin(), entitySounds.end());
         // assetresolve.Resolver(roots, stock_waw).expand, the stock dumps in process
-        Json requests = Json::array();
+        assets::AssetSet requests;
         for (const auto& n : compiled)
-            requests.push_back(Json::array({"sound", n}));
-        const Json expandRequest{{"base", Str(extract::ResourceRoot())}, {"sourceRoots", request["roots"]}, {"stockRoots", Json::array()},
-                                 {"nodes", Json::array()}, {"edges", Json::array()}, {"requests", requests}, {"hasStock", stockWaw.has_value()}};
+            requests.emplace("sound", n);
         assets::StockLookup lookup;
         assets::StockSounds sounds;
         if (stockWaw)
@@ -426,8 +424,8 @@ namespace w2b::pipeline
             };
             sounds = [&]() { return stockSounds; };
         }
-        auto result = assets::Expand(expandRequest, std::move(lookup), std::move(sounds));
-        auto graph = result["report"];
+        auto result = assets::Expand(extract::ResourceRoot(), request.roots, requests, std::move(lookup), std::move(sounds));
+        auto& graph = result.report;
         // the report's missing rows are its node rows (Resolver.expand)
         std::set<std::pair<std::string, std::string>> missing;
         for (const auto& node : graph["missing"])
@@ -451,14 +449,15 @@ namespace w2b::pipeline
         fs::create_directories(projectRoot / "content_source");
         files::WriteText(projectRoot / "content_source/sounds.unreferenced.json", py::JsonDumps(Json(unreferenced), 2) + "\n");
         content["unreferenced_sound_aliases"] = Json{{"count", unreferenced.size()}, {"defined", zoneSounds.size()}, {"report", "content_source/sounds.unreferenced.json"}};
-        return Json{{"script_sounds", std::vector<std::string>(scriptSounds.begin(), scriptSounds.end())},
-                    {"entity_sounds", std::vector<std::string>(entitySounds.begin(), entitySounds.end())},
-                    {"compiled_sounds", std::vector<std::string>(compiled.begin(), compiled.end())},
-                    {"sound_names", std::vector<std::string>(soundNames.begin(), soundNames.end())},
-                    {"sound_graph", graph},
-                    {"stock_roots", result["stockRoots"]},
-                    {"animation_sound_identities", BindActorSounds(projectRoot, soundNames)},
-                    {"content", content},
-                    {"stock_prepared", stockWaw ? stockWaw->PreparedJson() : Json()}};
+        SoundDiscovery found;
+        found.scriptSounds.assign(scriptSounds.begin(), scriptSounds.end());
+        found.entitySounds.assign(entitySounds.begin(), entitySounds.end());
+        found.soundNames.assign(soundNames.begin(), soundNames.end());
+        found.soundGraph = std::move(graph);
+        found.stockRoots = std::move(result.stockRoots);
+        found.animationSoundIdentities = BindActorSounds(projectRoot, soundNames);
+        for (auto& [section, value] : content.items())
+            found.report.Add(section, std::move(value));
+        return found;
     }
 } // namespace w2b::pipeline

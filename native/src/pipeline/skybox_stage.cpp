@@ -182,17 +182,19 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageSourceSkybox(const fs::path& requestPath)
+    Json SourceSky::ToJson() const
     {
-        const auto request = mod::Json(requestPath);
-        const auto project = request["project"].get<std::string>();
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        std::vector<fs::path> roots;
-        for (const auto& r : request["roots"])
-            roots.push_back(files::FromUtf8(r.get<std::string>()));
-        const auto sourceName = request["source_name"].get<std::string>();
-        const auto nativeRoot = files::FromUtf8(request["native_root"].get<std::string>());
-        const auto bo2 = files::FromUtf8(request["bo2_root"].get<std::string>());
+        return {{"source_model", sourceModel}, {"status", "source_geometry_and_paired_shaders"}, {"materials", materials}};
+    }
+
+    SourceSkyStage StageSourceSkybox(const SourceSkyRequest& request)
+    {
+        const auto& project = request.project;
+        const auto& projectRoot = request.projectRoot;
+        const auto& roots = request.roots;
+        const auto& sourceName = request.sourceName;
+        const auto& nativeRoot = request.nativeRoot;
+        const auto& bo2 = request.bo2Root;
         try
         {
             const fs::path modelRelative = fs::path("xmodel") / files::FromUtf8(sourceName + ".json");
@@ -274,13 +276,11 @@ namespace w2b::pipeline
             model["lightingOriginRange"] = 0.5;
             model.erase("physPreset");
             files::WriteText(projectRoot / "xmodel" / files::FromUtf8("skybox_" + project + ".json"), py::JsonDumps(model, 2) + "\n");
-            return Json{{"materials", materials},
-                        {"sky", Json{{"source_model", sourceName}, {"status", "source_geometry_and_paired_shaders"},
-                                     {"materials", std::vector<std::string>(materialNames.begin(), materialNames.end())}}}};
+            return {std::move(materials), {sourceName, {materialNames.begin(), materialNames.end()}}};
         }
         catch (const StageError& error)
         {
-            return Json{{"stage_error", error.what()}};
+            throw StepError("StageError", error.what());
         }
     }
 

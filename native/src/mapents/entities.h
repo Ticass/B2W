@@ -4,6 +4,8 @@
 
 #include <array>
 #include <filesystem>
+#include <optional>
+#include <string>
 
 namespace w2b::world { struct CollisionWorld; }
 
@@ -14,8 +16,18 @@ namespace w2b::mapents
     Json Parse(std::string_view text);
     Json Convert(Json entities, std::string_view project, const Json& animscripts, const Json& zoneNames,
                  std::string_view respawnExclusion);
-    Json ConvertRequest(const Json& request, const world::CollisionWorld* clip);
-    Json Run(const Path& request);
+    struct MapEntityRequest
+    {
+        Path source, bsp;                      // the WaW .ents dump, the project's BSP folder
+        std::string project;
+        Json animscripts;                      // traversal animscript renames from the paths pass
+        std::optional<Path> zoneScript;        // the map script whose zone graph names the zones
+        std::string respawnExclusion;
+        const world::CollisionWorld* clip = nullptr;
+    };
+
+    // the map's entities converted and written to BSP/; throws std::invalid_argument on a malformed entity
+    Json ConvertMapEntities(const MapEntityRequest& request);
     Json Write(Json converted, const Path& bsp, const world::CollisionWorld* clip, Json startZones);
     Json SynthesizeZones(Json& entities, const world::CollisionWorld& clip, const Path& bsp, Json& summary);
 

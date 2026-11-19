@@ -19,7 +19,7 @@ namespace w2b::weapons
             "hipSpreadStandMin", "hipSpreadDuckedMin", "hipSpreadProneMin", "hipSpreadMax", "hipSpreadDuckedMax",
             "hipSpreadProneMax", "hipSpreadDecayRate", "hipSpreadFireAdd", "hipSpreadMoveAdd", "adsSpread"};
 
-        Json WaterDepths(const path& source)
+        std::vector<std::pair<std::string, double>> WaterDepths(const path& source)
         {
             std::string bytes;
             if (!files::ReadBytes(source, bytes))
@@ -29,7 +29,7 @@ namespace w2b::weapons
             std::map<std::string_view, std::string_view> fields;
             for (std::size_t i = 1; i + 1 < parts.size(); i += 2)
                 fields[parts[i]] = parts[i + 1];
-            auto depths = Json::object();
+            std::vector<std::pair<std::string, double>> depths;
             for (const std::string_view kind : {"small", "medium", "large"})
             {
                 const auto field = fields.find(std::string(kind) + "_water");
@@ -38,7 +38,7 @@ namespace w2b::weapons
                 double depth = 0;
                 if (!py::ParseFloat(field->second, depth))
                     throw WeaponError("invalid water penetration depth: " + py::StringRepr(field->second));
-                depths[kind] = depth;
+                depths.emplace_back(kind, depth);
             }
             return depths;
         }
@@ -76,26 +76,25 @@ namespace w2b::weapons
             return row + " );\n";
         }
 
-        Json StageRows(const path& root, const Json& weaponTable, const path& source, std::string& rows)
+        WaterBulletRows StageRows(const path& root, const std::vector<std::string>& weaponNames, const path& source, std::string& rows)
         {
-            auto depths = WaterDepths(source);
-            auto weapons = Json::array();
-            std::set<std::string> targets;
-            for (const auto& name : weaponTable)
-                targets.insert(name.get<std::string>());
+            WaterBulletRows staged{WaterDepths(source), {}};
+            const std::set<std::string> targets(weaponNames.begin(), weaponNames.end());
             for (const auto& name : targets)
             {
                 const auto weapon = root / "content_source/weapons" / files::FromUtf8(name);
                 if (!files::fs::is_regular_file(weapon))
                     continue;
                 const auto fields = ReadInfo(weapon);
-                const auto depth = depths.value(Field(fields, "penetrateType"), 0.0);
+                const auto& type = Field(fields, "penetrateType");
+                const auto found = std::ranges::find(staged.depths, type, &std::pair<std::string, double>::first);
+                const auto depth = found == staged.depths.end() ? 0.0 : found->second;
                 if (Field(fields, "weaponType") != "bullet" || depth <= 0)
                     continue;
-                weapons.push_back(name);
+                staged.weapons.push_back(name);
                 rows += WeaponRow(name, fields, depth);
             }
-            return {{"depths", std::move(depths)}, {"weapons", std::move(weapons)}};
+            return staged;
         }
 
         path FindPenetrationTable(const std::vector<path>& roots)
@@ -110,18 +109,26 @@ namespace w2b::weapons
         }
     }
 
-    Json StageWaterBullets(const path& root, const std::vector<path>& roots, bool hasWater, const Json& weaponTable)
+    Json WaterBulletRows::ToJson() const
     {
-        auto result = Json::object();
+        auto byType = Json::object();
+        for (const auto& [type, depth] : depths)
+            byType[type] = depth;
+        return {{"depths", std::move(byType)}, {"weapons", weapons}};
+    }
+
+    WaterBulletStage StageWaterBullets(const path& root, const std::vector<path>& roots, bool hasWater, const std::vector<std::string>& weapons)
+    {
+        WaterBulletStage result;
         std::string rows;
         if (hasWater)
         {
             const auto source = FindPenetrationTable(roots);
             if (source.empty())
-                result["warning"] = "WATER_BULLETS_NO_TABLE " + std::string(penetrationTable) +
+                result.warning = "WATER_BULLETS_NO_TABLE " + std::string(penetrationTable) +
                                     " in no source root; bullets stop at the water";
             else
-                result["content"] = StageRows(root, weaponTable, source, rows);
+                result.rows = StageRows(root, weapons, source, rows);
         }
 
         std::string script = "// waw2bo2: no water brushes or no bullet weapon penetrates water.\n\ninit()\n{\n}\n";
@@ -133,15 +140,5 @@ namespace w2b::weapons
         }
         files::WriteText(root / "maps/mp/waw/_waw2bo2_water_bullets.gsc", script);
         return result;
-    }
-
-    Json StageWaterBulletsRequest(const path& requestPath)
-    {
-        const auto request = Json::parse(files::ReadText(requestPath));
-        std::vector<path> roots;
-        for (const auto& root : request.at("roots"))
-            roots.push_back(files::FromUtf8(root.get<std::string>()));
-        return StageWaterBullets(files::FromUtf8(request.at("project").get<std::string>()), roots,
-                                 request.at("hasWater").get<bool>(), request.at("weapons"));
     }
 }

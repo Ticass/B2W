@@ -8,16 +8,23 @@
 
 namespace w2b::models
 {
-    Json StageEffectAssets(const Path& root, const std::set<std::string>& names)
+    py::Json EffectModelAssets::EntriesJson() const
     {
-        auto errors = Json::array();
-        auto entries = Json::array();
+        auto json = Json::array();
+        for (const auto& entry : entries)
+            json.push_back({{"source_model", entry.sourceModel}, {"name", entry.name}, {"file", entry.file}, {"lods", entry.lods}});
+        return json;
+    }
+
+    EffectModelAssets StageEffectAssets(const Path& root, const std::set<std::string>& names)
+    {
+        EffectModelAssets staged;
         for (const auto& name : names)
         {
             const auto source = root / "xmodel" / files::FromUtf8(name + ".json");
             if (!files::fs::is_regular_file(source))
             {
-                errors.push_back("FX xmodel " + name + ": converted WaW model missing");
+                staged.errors.push_back("FX xmodel " + name + ": converted WaW model missing");
                 continue;
             }
             const auto definition = Json::parse(files::ReadText(source));
@@ -29,25 +36,17 @@ namespace w2b::models
             const auto lods = definition.find("lods");
             if (game != "t6" || lods == definition.end() || lods->empty())
             {
-                errors.push_back("FX xmodel " + name + ": converted WaW model is invalid");
+                staged.errors.push_back("FX xmodel " + name + ": converted WaW model is invalid");
                 continue;
             }
             const auto output = std::string(effects::modelPrefix) + name;
             const auto relative = Path("xmodel") / files::FromUtf8(output + ".json");
             weapons::CopySource(source, root / relative);
-            auto lodFiles = Json::array();
+            EffectModelAsset entry{name, output, weapons::PosixPath(relative), {}};
             for (const auto& lod : *lods)
-                lodFiles.push_back(lod.at("file"));
-            entries.push_back({{"source_model", name}, {"name", output}, {"file", weapons::PosixPath(relative)},
-                               {"lods", std::move(lodFiles)}});
+                entry.lods.push_back(lod.at("file").get<std::string>());
+            staged.entries.push_back(std::move(entry));
         }
-        return {{"entries", std::move(entries)}, {"errors", std::move(errors)}};
-    }
-
-    Json StageEffectAssetsRequest(const Path& requestPath)
-    {
-        const auto request = Json::parse(files::ReadText(requestPath));
-        return StageEffectAssets(files::FromUtf8(request.at("project").get<std::string>()),
-                                 request.at("names").get<std::set<std::string>>());
+        return staged;
     }
 }

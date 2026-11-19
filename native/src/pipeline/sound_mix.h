@@ -4,13 +4,37 @@
 // loaded-bank budget) and the bank written with them (sound/bank.cpp).
 
 #include "core/pytext.h"
+#include "pipeline/step_report.h"
 
 #include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace w2b::extract
+{
+    class StockWaw;
+}
 
 namespace w2b::pipeline
 {
-    // request {project_root, project, bo2_root, stock_waw, script_sounds,
-    // entity_sounds, source_amb}; returns {warnings, content, bank_report,
-    // budget, reverb_send, stock_prepared}
-    py::Json SoundMix(const py::Json& request);
+    struct SoundMixRequest
+    {
+        std::filesystem::path projectRoot;
+        std::string project;
+        std::optional<std::filesystem::path> bo2Root;
+        extract::StockWaw* stock = nullptr;
+        std::vector<std::string> scriptSounds, entitySounds; // the sounds the map plays
+        std::optional<std::filesystem::path> sourceAmb;
+        std::string flacEncoder;
+    };
+
+    struct SoundMixResult
+    {
+        StepReport report;
+        py::Json bankReport; // content_source/sounds.bank.json
+        py::Json budget;     // the loaded-bank budget, null without BO2
+    };
+
+    SoundMixResult SoundMix(const SoundMixRequest& request);
 } // namespace w2b::pipeline

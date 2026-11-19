@@ -11,9 +11,15 @@ namespace w2b::textures
     class IwdRecovery;
 }
 
+namespace w2b::extract
+{
+    class StockWaw;
+}
+
 namespace w2b::pipeline
 {
     // request: the report so far and the stage_bridge values this part reads
-    // (see stage_bridge in t6bridge.py); returns {report, stock_prepared, recovered}
-    py::Json BridgeTail(const py::Json& request, textures::IwdRecovery& recovery);
+    // (see stage_bridge in t6bridge.py); stock: the stock WaW zones the earlier
+    // passes used, null without them; returns {report, recovered}
+    py::Json BridgeTail(const py::Json& request, extract::StockWaw* stock, textures::IwdRecovery& recovery);
 } // namespace w2b::pipeline

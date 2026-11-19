@@ -1619,17 +1619,13 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageWawMenus(const fs::path& requestPath)
+    MenuStage StageWawMenus(const fs::path& project, const std::vector<fs::path>& rawRoots, const std::string& mapname)
     {
-        const auto request = mod::Json(requestPath);
-        const auto project = files::FromUtf8(request["project_root"].get<std::string>());
-        const auto mapname = request["mapname"].get<std::string>();
         try
         {
             std::optional<fs::path> raw;
-            for (const auto& r : request["raw_roots"])
+            for (const auto& root : rawRoots)
             {
-                const auto root = files::FromUtf8(r.get<std::string>());
                 if (std::all_of(MENULISTS.begin(), MENULISTS.end(), [&](const std::string& m) { return mod::IsFile(root / files::FromUtf8(m)); }))
                 {
                     raw = root;
@@ -1657,11 +1653,11 @@ namespace w2b::pipeline
                 result[k] = v;
             result["engine_menus"] = std::vector<std::string>(stop.begin(), stop.end());
             files::WriteText(project / "content_source/waw_menu.json", py::JsonDumps(result, 2) + "\n");
-            return Json{{"result", result}};
+            return {std::move(result), std::nullopt};
         }
         catch (const MenuSourceError& error)
         {
-            return Json{{"menu_error", error.what()}};
+            return {Json(), error.what()};
         }
     }
 } // namespace w2b::pipeline

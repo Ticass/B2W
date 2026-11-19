@@ -40,17 +40,16 @@ namespace w2b::pipeline
             tree.insert(ByteOffset(tree, match->End()), extra);
         }
 
-        std::vector<std::string> AddDonorStates(const fs::path& raw, const Json& donors, std::string& states, const std::string& tree)
+        std::vector<std::string> AddDonorStates(const fs::path& raw, const std::vector<std::pair<std::string, std::vector<std::string>>>& donors, std::string& states, const std::string& tree)
         {
             const auto known = NativeTreeAnimations(tree);
             std::set<std::string> used(known.begin(), known.end());
             std::vector<std::string> added;
-            for (const auto& [donor, donorStates] : donors.items())
+            for (const auto& [donor, donorStates] : donors)
             {
                 const auto text = files::ReadText(raw / "animstatedefs" / FromUtf8(donor + ".asd"));
-                for (const auto& entry : donorStates)
+                for (const auto& state : donorStates)
                 {
-                    const auto& state = entry.get_ref<const std::string&>();
                     const auto header = "^" + pyre::Escape(state) + R"(\s*:)";
                     if (pyre::Regex(header, pyre::MULTILINE).Search(states))
                         continue;
@@ -85,15 +84,14 @@ namespace w2b::pipeline
             return {};
         }
 
-        void AddDogStates(const fs::path& project, const std::vector<fs::path>& roots, extract::StockWaw* stock, const Json& requested,
-                          std::string& states, std::string& tree, std::vector<std::string>& added, Json& errors)
+        void AddDogStates(const fs::path& project, const std::vector<fs::path>& roots, extract::StockWaw* stock,
+                          const std::map<std::string, std::string>& requested, std::string& states, std::string& tree,
+                          std::vector<std::string>& added, std::vector<std::string>& errors)
         {
             std::string lines;
             std::set<std::string> names;
-            const auto sorted = py::SortKeys(requested);
-            for (const auto& [state, value] : sorted.items())
+            for (const auto& [state, animation] : requested)
             {
-                const auto animation = value.get<std::string>();
                 const auto source = FindAnimation(roots, stock, animation);
                 if (source.empty())
                 {
@@ -169,44 +167,21 @@ namespace w2b::pipeline
         return animations;
     }
 
-    Json StageOwnedActorTree(const Json& request)
+    OwnedActorTree StageOwnedActorTree(const OwnedActorTreeRequest& request)
     {
-        const auto project = FromUtf8(request.at("project_root").get<std::string>());
-        const auto raw = FromUtf8(request.at("bo2_root").get<std::string>()) / "raw";
-        const auto& base = request.at("base").get_ref<const std::string&>();
-        const auto& config = request.at("config");
-        auto states = files::ReadText(raw / "animstatedefs" / FromUtf8(base + ".asd"));
-        auto tree = files::ReadText(raw / "animtrees" / FromUtf8(base + ".atr"));
-        auto added = AddDonorStates(raw, config.value("add_states", Json::object()), states, tree);
+        const auto raw = request.bo2Root / "raw";
+        auto states = files::ReadText(raw / "animstatedefs" / FromUtf8(request.base + ".asd"));
+        auto tree = files::ReadText(raw / "animtrees" / FromUtf8(request.base + ".atr"));
+        auto added = AddDonorStates(raw, request.donorStates, states, tree);
         if (!added.empty())
-            InsertBodyAnimations(tree, added, "StageError", base + ".atr has no body group");
-
-        std::optional<extract::StockWaw> stock;
-        auto errors = Json::array();
-        if (const auto dogStates = request.value("source_states", Json::object()); !dogStates.empty())
-        {
-            stock = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
-            std::vector<fs::path> roots;
-            for (const auto& root : request.at("roots"))
-                roots.push_back(FromUtf8(root.get<std::string>()));
-            AddDogStates(project, roots, stock ? &*stock : nullptr, dogStates, states, tree, added, errors);
-        }
-        const auto& name = config.at("owned_tree").get_ref<const std::string&>();
-        files::WriteText(project / "animtrees" / FromUtf8(name + ".atr"), tree);
-        files::WriteText(project / "animstatedefs" / FromUtf8(name + ".asd"), states);
-        UpdateActorScripts(project, base, name, added);
-        return {{"name", name}, {"tree", tree}, {"errors", errors}, {"stock_prepared", stock ? stock->PreparedJson() : Json()}};
-    }
-
-    Json StageOwnedActorTreeRequest(const fs::path& request)
-    {
-        try
-        {
-            return StageOwnedActorTree(mod::Json(request));
-        }
-        catch (const StepError& error)
-        {
-            return {{"error_kind", error.kind}, {"error", error.what()}};
-        }
+            InsertBodyAnimations(tree, added, "StageError", request.base + ".atr has no body group");
+        std::vector<std::string> errors;
+        if (!request.sourceStates.empty())
+            AddDogStates(request.project, request.roots, request.stock, request.sourceStates, states, tree, added, errors);
+        const auto& name = request.ownedTree;
+        files::WriteText(request.project / "animtrees" / FromUtf8(name + ".atr"), tree);
+        files::WriteText(request.project / "animstatedefs" / FromUtf8(name + ".asd"), states);
+        UpdateActorScripts(request.project, request.base, name, added);
+        return {name, std::move(tree), std::move(errors)};
     }
 }

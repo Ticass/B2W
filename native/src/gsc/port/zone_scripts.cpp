@@ -65,22 +65,4 @@ namespace w2b::gsc::port
             files::WriteText(main, script);
         return result;
     }
-
-    py::Json ZoneScriptsRequest(const std::filesystem::path& path)
-    {
-        const auto request = py::Json::parse(files::ReadText(path));
-        auto result = py::Json::object();
-        if (const auto source = request.find("source"); source != request.end())
-        {
-            result = ReadZoneGraphFile(files::FromUtf8(source->get<std::string>())).ToJson();
-        }
-        if (const auto main = request.find("main"); main != request.end())
-        {
-            const auto staged = StageZoneMain(files::FromUtf8(main->get<std::string>()),
-                                              request.value("dropManager", false), request.value("guardSwitch", false));
-            result["error"] = staged.error;
-            result["guardedSwitch"] = staged.guardedSwitch;
-        }
-        return result;
-    }
 }

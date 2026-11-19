@@ -3,12 +3,39 @@
 
 #include "core/pytext.h"
 
+#include <array>
 #include <filesystem>
+#include <map>
+#include <optional>
+#include <set>
+#include <string>
+#include <vector>
 
 namespace w2b::pipeline
 {
-    // request {names, roots, stock_materials, project_root, techset_root, rename,
-    // image_prefix, donors, falloff_placement, light_shadows, layered_vertex_data,
-    // native_fallbacks}; returns {"results": [...]} in name order
-    py::Json StageMaterials(const std::filesystem::path& request);
+    struct MaterialStageRequest
+    {
+        std::set<std::string> names;
+        std::vector<std::filesystem::path> roots;
+        std::filesystem::path stockMaterials, projectRoot;
+        std::optional<std::filesystem::path> techsetRoot;
+        std::string imagePrefix = "waw_world/";
+        py::Json donors; // techniqueSet -> stock donor material (bridge::Donors)
+        std::optional<std::array<double, 4>> falloffPlacement;
+        bool lightShadows = true, layeredVertexData = false;
+        std::map<std::string, std::filesystem::path> nativeFallbacks; // material -> BO2 equivalent
+        std::map<std::string, std::string> rename;                    // source material -> staged name
+    };
+
+    // one material's outcome, in name order
+    struct MaterialOutcome
+    {
+        std::string name;
+        bool native = false;
+        py::Json entry; // the report's material record; null: no material
+        std::string techset;
+        py::Json warnings, errors, images;
+    };
+
+    std::vector<MaterialOutcome> StageMaterials(const MaterialStageRequest& request);
 } // namespace w2b::pipeline

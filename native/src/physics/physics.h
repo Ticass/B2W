@@ -22,5 +22,4 @@ namespace w2b::physics
     Json StageRopeEntities(const Path& project);
     Json StageSuspensions(const Path& project);
     Json StageRopeRuntime(const Path& project);
-    Json Run(const Path& request);
 }

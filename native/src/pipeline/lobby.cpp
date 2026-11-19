@@ -426,11 +426,11 @@ namespace w2b::pipeline
                     entry = {"6", index, project, "default", "zclassic", "0", "left", "YES"};
                     entry.resize(23);
                 }
-                const auto at = list.empty() ? IndexOf(rows, rows[*countRow()]) + 1 : IndexOf(rows, rows[list.back()]) + 1;
+                const auto at = list.empty() ? IndexOf(rows, rows[countRow().value()]) + 1 : IndexOf(rows, rows[list.back()]) + 1;
                 rows.insert(rows.begin() + static_cast<long long>(at), entry);
             }
             // engine iteration uses these bounds, not the physical CSV row count
-            rows[*countRow()].at(1) = nextIndex();
+            rows[countRow().value()].at(1) = nextIndex();
         }
         size_t entryAt = rows.size();
         for (size_t i = 0; i < rows.size() && entryAt == rows.size(); i++)

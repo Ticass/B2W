@@ -31,8 +31,6 @@ namespace w2b::extract
         WawSource(fs::path modTools, fs::path wawRoot, fs::path unlinker, fs::path work);
 
         // the request form {mod_tools, waw_root, unlinker, work}; nullopt for null
-        static std::optional<WawSource> FromJson(const py::Json& data);
-        py::Json ToJson() const;
 
         // the Mod Tools folder holding bin/linker_pc.exe: the explicit one, else
         // the WaW install (the installer's default) or <resources>/wawModTools

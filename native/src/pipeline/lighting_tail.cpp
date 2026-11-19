@@ -45,17 +45,11 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageLightDefs(const fs::path& requestPath)
+    LightDefs StageLightDefs(const fs::path& projectRoot, const std::vector<fs::path>& roots, const std::set<std::string>& definitions)
     {
-        const auto request = mod::Json(requestPath);
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        std::vector<fs::path> roots;
-        for (const auto& r : request["roots"])
-            roots.push_back(files::FromUtf8(r.get<std::string>()));
-        std::set<std::string> definitions;
-        for (const auto& d : request["definitions"])
-            definitions.insert(d.get<std::string>());
-        Json images = Json::array(), errors = Json::array();
+        LightDefs staged;
+        auto& images = staged.images;
+        auto& errors = staged.errors;
         std::set<std::string> attenuation;
         for (const auto& name : definitions)
         {
@@ -102,16 +96,17 @@ namespace w2b::pipeline
                 ordered[k] = v;
             files::WriteText(path, py::JsonDumps(Json{{"streamingMode", ordered}}, 2) + "\n");
         }
-        return Json{{"images", images}, {"errors", errors}};
+        return staged;
     }
 
-    Json StageZbarrier(const fs::path& requestPath)
+    StepReport StageZbarrier(const fs::path& projectRoot, const std::optional<fs::path>& techsetDump, const std::optional<fs::path>& bo2Root,
+                             const Json& timing)
     {
-        const auto request = mod::Json(requestPath);
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
         const std::string asset = "zmcore_basicwoodbarrier";
-        Json warnings = Json::array(), errors = Json::array(), content = Json::object();
-        const auto stock = request["techset_dump"].is_null() ? std::optional<fs::path>() : std::optional(files::FromUtf8(request["techset_dump"].get<std::string>()) / "zbarrier" / asset);
+        StepReport report;
+        auto& warnings = report.warnings;
+        auto& errors = report.errors;
+        const auto stock = techsetDump ? std::optional(*techsetDump / "zbarrier" / asset) : std::nullopt;
         if (stock && fs::exists(*stock))
         {
             auto text = encoding::UniversalNewlines(encoding::Utf8Replace(mod::Bytes(*stock)));
@@ -124,11 +119,10 @@ namespace w2b::pipeline
             const auto override = projectRoot / "mod_override";
             std::error_code e;
             fs::remove_all(override / "xanim", e);
-            const auto& timing = request["timing"];
-            if (!timing.is_null() && !request["bo2_root"].is_null())
+            if (!timing.is_null() && bo2Root)
             {
-                const auto written = barriers::StageRepairs(text, files::FromUtf8(request["bo2_root"].get<std::string>()), timing, override);
-                content["window_repair_animations"] = Json{{"timing", timing}, {"animations", written}};
+                const auto written = barriers::StageRepairs(text, *bo2Root, timing, override);
+                report.Add("window_repair_animations", Json{{"timing", timing}, {"animations", written}});
                 warnings.push_back("WINDOW_REBUILD " + std::to_string(written.size()) + " board repair animations play the map's " + timing.at("script").get<std::string>() +
                                    "::replace_chunk motion (lift " + NumberText(timing.at("lift")) + "s, turn " + NumberText(timing.at("turn")) + "s, hold " +
                                    NumberText(timing.at("hold")) + "s, push " + NumberText(timing.at("push")) + "s); the fast-reload perk scales it as BO2 does");
@@ -140,6 +134,6 @@ namespace w2b::pipeline
         }
         else
             errors.push_back("stock T6 zbarrier " + asset + " missing from techset dump");
-        return Json{{"warnings", warnings}, {"errors", errors}, {"content", content}};
+        return report;
     }
 } // namespace w2b::pipeline

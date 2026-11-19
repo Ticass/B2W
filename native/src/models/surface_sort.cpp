@@ -103,7 +103,7 @@ namespace w2b::models
         return names;
     }
 
-    Json ApplySurfaceOrder(const Path& project, const Json& materials, const std::vector<SurfaceOrder>& orders)
+    std::vector<SortKeyChange> ApplySurfaceOrder(const Path& project, const Json& materials, const std::vector<SurfaceOrder>& orders)
     {
         auto entries = Json::object();
         for (const auto& entry : materials)
@@ -122,7 +122,7 @@ namespace w2b::models
             eligible.emplace(name, SortMaterial{path, std::move(definition), entry.at("t4_sort_key").get<int>(), key, key});
         }
         RaiseKeys(orders, eligible);
-        auto changed = Json::object();
+        std::vector<SortKeyChange> changed;
         for (const auto& [name, entry] : entries.items())
         {
             const auto it = eligible.find(name);
@@ -131,7 +131,7 @@ namespace w2b::models
             auto& value = it->second;
             value.material["sortKey"] = value.key;
             ReplaceStagedText(value.path, py::JsonDumps(value.material, 2) + "\n");
-            changed[name] = {value.originalKey, value.key};
+            changed.push_back({name, value.originalKey, value.key});
         }
         return changed;
     }

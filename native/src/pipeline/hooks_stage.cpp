@@ -15,23 +15,24 @@ namespace w2b::pipeline
     using py::Json;
     namespace port = gsc::port;
 
-    Json HookMapScripts(const fs::path& requestPath)
+    StepReport HookMapScripts(const MapHookRequest& request)
     {
-        const auto request = mod::Json(requestPath);
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        const auto project = request["project"].get<std::string>();
-        const std::optional<fs::path> bo2Root = request["bo2_root"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["bo2_root"].get<std::string>()));
-        const bool stockPerks = request.value("bo2_stock_perks", false);
+        const auto& projectRoot = request.projectRoot;
+        const auto& project = request.project;
+        const auto& bo2Root = request.bo2Root;
+        const bool stockPerks = request.stockPerks;
         port::SetCompatDir(extract::ResourceRoot() / "src/waw2bo2/compat");
-        Json warnings = Json::array(), errors = Json::array(), content = Json::object();
+        StepReport report;
+        auto& warnings = report.warnings;
+        auto& errors = report.errors;
         const auto mainGsc = projectRoot / "maps" / "mp" / files::FromUtf8(project + ".gsc");
         const auto mainCsc = projectRoot / "clientscripts" / "mp" / files::FromUtf8(project + ".csc");
-        if (request.value("scripts", false) && mod::IsFile(mainGsc))
+        if (request.scripts && mod::IsFile(mainGsc))
         {
             try
             {
-                port::HookBo2Main(mainGsc, request["map_name"].get<std::string>());
-                if (request.value("characters", false))
+                port::HookBo2Main(mainGsc, request.mapName);
+                if (request.characters)
                     port::HookBo2Characters(mainGsc);
                 port::HookBo2Weapons(mainGsc);
                 port::HookBo2Box(mainGsc);
@@ -41,7 +42,7 @@ namespace w2b::pipeline
                     throw std::runtime_error("BO2 runtime sources required to stage WaW perk ownership");
                 port::StageBo2PerkSupport(projectRoot, *bo2Root, stockPerks);
                 const auto perks = port::perktable::Stage(projectRoot);
-                content["emulated_perks"] = perks;
+                report.Add("emulated_perks", perks);
                 if (perks.contains("error"))
                     warnings.push_back("PERK_TABLE_UNAVAILABLE " + perks["error"].get<std::string>());
                 else if (!perks["emulated"].empty())
@@ -52,7 +53,7 @@ namespace w2b::pipeline
                     warnings.push_back("BO2_STOCK_PERKS: native BO2 perk machines, purchases, HUD and last stand; the WaW Pack-a-Punch stays");
                 port::HookBo2PerkServer(mainGsc);
                 port::HookBo2PerkClient(mainCsc);
-                port::HookBo2Animtrees(mainGsc, mainCsc, projectRoot, request.value("staged_animtrees", Json::array()).get<std::vector<std::string>>());
+                port::HookBo2Animtrees(mainGsc, mainCsc, projectRoot, request.stagedAnimtrees);
             }
             catch (const fs::filesystem_error&)
             {
@@ -79,6 +80,6 @@ namespace w2b::pipeline
                 errors.push_back(std::string("scripts: ") + exc.what());
             }
         }
-        return Json{{"warnings", warnings}, {"errors", errors}, {"content", content}};
+        return report;
     }
 } // namespace w2b::pipeline

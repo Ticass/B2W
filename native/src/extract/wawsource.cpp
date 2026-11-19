@@ -116,19 +116,6 @@ namespace w2b::extract
     {
     }
 
-    std::optional<WawSource> WawSource::FromJson(const py::Json& data)
-    {
-        if (!data.is_object())
-            return std::nullopt;
-        const auto path = [&](const char* key) { return files::FromUtf8(data.at(key).get<std::string>()); };
-        return WawSource(path("mod_tools"), path("waw_root"), path("unlinker"), path("work"));
-    }
-
-    py::Json WawSource::ToJson() const
-    {
-        return py::Json{{"mod_tools", Str(modTools_)}, {"waw_root", Str(wawRoot_)}, {"unlinker", Str(unlinker_)}, {"work", Str(work_)}};
-    }
-
     std::optional<fs::path> WawSource::Locate(const std::optional<fs::path>& explicitFolder, const std::optional<fs::path>& wawRoot,
                                               const fs::path& resourceRoot)
     {

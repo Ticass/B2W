@@ -4,6 +4,7 @@
 #include "core/files.h"
 #include "gsc/port/util.h"
 #include "gsc/tokens.h"
+#include "pipeline/finish.h"
 #include "weapons/stage.h"
 
 #include <map>
@@ -82,7 +83,13 @@ namespace w2b::pipeline
         }
     }
 
-    py::Json StageRumbles(const fs::path& project, const std::vector<fs::path>& roots, const fs::path& nativeRaw)
+    py::Json RumbleStage::ToJson() const
+    {
+        return {{"files", files}, {"missing", missing}, {"native_profiles", nativeProfiles}};
+    }
+
+    RumbleStage StageRumbles(const fs::path& project, const std::vector<fs::path>& roots, const fs::path& nativeRaw)
+    try
     {
         Names profiles, native, missing;
         AddWeaponProfiles(project / "content_source", profiles);
@@ -116,27 +123,14 @@ namespace w2b::pipeline
                 weapons::CopySource(source, target);
             staged.push_back(name);
         }
-        return {{"files", staged}, {"missing", missing}, {"native_profiles", native}};
+        return {std::move(staged), {missing.begin(), missing.end()}, {native.begin(), native.end()}};
     }
-
-    py::Json StageRumblesRequest(const fs::path& path)
+    catch (const std::invalid_argument& error)
     {
-        const auto request = weapons::ReadAssetJson(path);
-        std::vector<fs::path> roots;
-        for (const auto& root : request.at("roots"))
-            roots.push_back(files::FromUtf8(root.get_ref<const std::string&>()));
-        try
-        {
-            return StageRumbles(files::FromUtf8(request.at("project").get_ref<const std::string&>()), roots,
-                                files::FromUtf8(request.value("nativeRaw", std::string{})));
-        }
-        catch (const std::invalid_argument& error)
-        {
-            return {{"invalid", error.what()}};
-        }
-        catch (const weapons::WeaponError& error)
-        {
-            return {{"invalid", error.what()}};
-        }
+        throw StepError("ValueError", error.what());
+    }
+    catch (const weapons::WeaponError& error)
+    {
+        throw StepError("ValueError", error.what());
     }
 }

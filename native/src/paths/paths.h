@@ -46,5 +46,4 @@ namespace w2b::paths
     using WindowHubs = std::map<std::string, std::string, std::less<>>;
     WindowHubs SplitWindowEnds(Json& graph, const std::vector<std::size_t>& begins);
     Json LinkWindowTraversals(const Path& bsp);
-    Json Run(const Path& request);
 }

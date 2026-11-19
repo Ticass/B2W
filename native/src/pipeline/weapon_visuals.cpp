@@ -82,15 +82,13 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageWeaponVisuals(const Json& request, textures::IwdRecovery& recovery)
+    WeaponVisuals StageWeaponVisuals(const WeaponVisualsRequest& request, textures::IwdRecovery& recovery)
     {
-        std::vector<fs::path> roots;
-        for (const auto& r : request.at("roots"))
-            roots.push_back(files::FromUtf8(r.get<std::string>()));
-        const auto project = files::FromUtf8(request.at("project").get<std::string>());
-        const auto stockMaterials = files::FromUtf8(request.at("stock_materials").get<std::string>());
-        const auto techsetDump = files::FromUtf8(request.at("techset_dump").get<std::string>());
-        const auto bo2Raw = request.at("bo2_raw").is_null() ? project : files::FromUtf8(request.at("bo2_raw").get<std::string>());
+        const auto& roots = request.roots;
+        const auto& project = request.project;
+        const auto& stockMaterials = request.stockMaterials;
+        const auto& techsetDump = request.techsetDump;
+        const auto bo2Raw = request.bo2Raw.value_or(project);
         const auto stageReport = mod::Json(project / "weapons.stage.json");
         std::set<std::string> names;
         for (const auto& n : stageReport["models"]["materials"])
@@ -118,52 +116,28 @@ namespace w2b::pipeline
                     donors[ts] = path;
             if (donors.empty())
                 throw StepError("StageError", "no stock T6 material donors found under " + Str(stockMaterials));
-            Json ordered = Json::array(), rename = Json::object(), rootsJson = Json::array();
+            MaterialStageRequest materialRequest{{}, roots, stockMaterials, project, techsetDump, "", donors, std::nullopt, true,
+                                                 request.layeredVertexData, request.nativeFallbacks, {}};
             for (const auto& n : names)
             {
                 if (!effects.count(n))
-                    ordered.push_back(n);
-                rename[n] = weapons::OutputName("material", n);
+                    materialRequest.names.insert(n);
+                materialRequest.rename.emplace(n, weapons::OutputName("material", n));
             }
-            for (const auto& r : roots)
-                rootsJson.push_back(Str(r));
-            const auto scratch = fs::temp_directory_path() / ("w2b_weapon_materials_" + std::to_string(GetCurrentProcessId()));
-            const Json materialRequest{{"names", ordered},
-                                       {"roots", rootsJson},
-                                       {"stock_materials", Str(stockMaterials)},
-                                       {"project_root", Str(project)},
-                                       {"techset_root", Str(techsetDump)},
-                                       {"rename", rename},
-                                       {"image_prefix", ""},
-                                       {"donors", donors},
-                                       {"falloff_placement", nullptr},
-                                       {"light_shadows", true},
-                                       {"layered_vertex_data", request.value("layered_vertex_data", false)},
-                                       {"native_fallbacks", request.value("native_fallbacks", Json::object())}};
-            fs::create_directories(scratch);
-            files::WriteText(scratch / "request.json", py::JsonDumpsDefault(materialRequest));
-            const auto staged = StageMaterials(scratch / "request.json");
-            fs::remove_all(scratch, e);
-            for (const auto& result : staged["results"])
+
+            for (auto& result : StageMaterials(materialRequest))
             {
-                for (const auto& i : result["images"])
+                for (const auto& i : result.images)
                     report.images.push_back(i);
-                if (result.value("native", false))
-                {
-                    report.materials.push_back(result["entry"]);
-                    for (const auto& w : result["warnings"])
-                        report.warnings.push_back(w);
-                    used.insert(result["techset"].get<std::string>());
-                    continue;
-                }
-                for (const auto& w : result["warnings"])
+                for (const auto& w : result.warnings)
                     report.warnings.push_back(w);
-                for (const auto& x : result["errors"])
-                    report.errors.push_back(x);
-                if (!result["entry"].is_null())
+                if (!result.native)
+                    for (const auto& x : result.errors)
+                        report.errors.push_back(x);
+                if (result.native || !result.entry.is_null())
                 {
-                    report.materials.push_back(result["entry"]);
-                    used.insert(result["techset"].get<std::string>());
+                    report.materials.push_back(std::move(result.entry));
+                    used.insert(result.techset);
                 }
             }
         }
@@ -397,7 +371,6 @@ namespace w2b::pipeline
                     {"errors", report.errors},
                     {"warnings", report.warnings}};
         files::WriteText(project / "weapons.visuals.json", py::JsonDumps(result, 2) + "\n");
-        result["recovered"] = recovered;
-        return result;
+        return {report.warnings.get<std::vector<std::string>>(), report.errors.size(), std::move(recovered)};
     }
 } // namespace w2b::pipeline

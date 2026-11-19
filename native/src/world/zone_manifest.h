@@ -1,12 +1,17 @@
 #pragma once
 
-#include "core/pytext.h"
-
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace w2b::world
 {
-    std::filesystem::path WriteMapZone(const std::filesystem::path& stage, const std::string& project,
-                                       bool ipak, const py::Json& assets);
-    py::Json WriteMapZoneRequest(const std::filesystem::path& request);
+    // The map zone's assets, written in this order.
+    struct MapZoneAssets
+    {
+        std::vector<std::string> image, xmodel, zbarrier, fx, material, script, localize, rawfile;
+    };
+
+    std::filesystem::path WriteMapZone(const std::filesystem::path& stage, const std::string& project, bool ipak,
+                                       const MapZoneAssets& assets);
 }

@@ -482,21 +482,18 @@ namespace w2b::models
         }
     } // namespace
 
-    Json RecoverProjectileCollision(const fs::path& requestPath)
+    ProjectileCollision RecoverProjectileCollision(const ProjectileCollisionRequest& request)
     {
-        const auto request = ReadJson(requestPath);
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        std::vector<fs::path> roots;
-        for (const auto& r : request["roots"])
-            roots.push_back(files::FromUtf8(r.get<std::string>()));
-        const auto clip = world::ReadCollisionWorld(files::FromUtf8(request["clip"].get<std::string>()));
-        Json warnings = Json::array();
+        const auto& projectRoot = request.projectRoot;
+        const auto& roots = request.roots;
+        const auto clip = world::ReadCollisionWorld(request.clip);
+        std::vector<std::string> warnings;
         if (!clip.brushOwnershipComplete || clip.models.empty())
         {
             warnings.push_back("PROJECTILE_PROP_COLLISION_UNSUPPORTED: complete source brush ownership required");
-            return Json{{"names", Json::array()}, {"entries", nullptr}, {"warnings", warnings}};
+            return {{}, std::nullopt, std::move(warnings)};
         }
-        const auto worldModel = world::ReadRenderWorld(files::FromUtf8(request["gfx"].get<std::string>()), request.value("compensated", true));
+        const auto worldModel = world::ReadRenderWorld(request.gfx, true);
         const std::set<std::uint16_t> worldIds(clip.models[0].brushes.begin(), clip.models[0].brushes.end());
         std::set<std::uint16_t> entityIds;
         for (size_t i = 1; i < clip.models.size(); i++)
@@ -704,6 +701,6 @@ namespace w2b::models
         files::WriteText(recordsPath, py::JsonDumps(records, 1) + "\n");
         warnings.push_back("PROJECTILE_PROP_COLLISION_RECOVERED " + std::to_string(entries.size()) +
                            " placements: hard render surfaces complete two-sided hard meshes qualified by source movement brushes; missile only, source masks unchanged");
-        return Json{{"names", std::vector<std::string>(names.begin(), names.end())}, {"entries", entries}, {"warnings", warnings}};
+        return {{names.begin(), names.end()}, std::move(entries), std::move(warnings)};
     }
 } // namespace w2b::models

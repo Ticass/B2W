@@ -7,10 +7,17 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace w2b::pipeline
 {
-    // request {project_root, raw_roots, mapname}; returns {result} or, for a
-    // wawmenu.MenuSourceError, {menu_error}
-    py::Json StageWawMenus(const std::filesystem::path& request);
+    struct MenuStage
+    {
+        py::Json result;                  // content_source/waw_menu.json, as written
+        std::optional<std::string> error; // the WaW menu sources are missing or incomplete
+    };
+
+    MenuStage StageWawMenus(const std::filesystem::path& project, const std::vector<std::filesystem::path>& rawRoots, const std::string& mapname);
 } // namespace w2b::pipeline

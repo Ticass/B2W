@@ -496,22 +496,15 @@ namespace w2b::visions
         return out + data;
     }
 
-    Json StageVisions(const fs::path& requestPath)
+    Json StageVisions(const VisionRequest& request)
     {
-        const auto request = ReadJson(requestPath);
-        const auto optionalPath = [&](const char* key) -> std::optional<fs::path>
-        {
-            if (!request.contains(key) || request[key].is_null())
-                return std::nullopt;
-            return files::FromUtf8(request[key].get<std::string>());
-        };
-        const auto project = files::FromUtf8(request["project"].get<std::string>());
-        const auto sourceRoot = optionalPath("source_root"), techsetDump = optionalPath("techset_dump");
-        auto stock = extract::StockWaw::FromJson(request.value("stock", Json()));
+        const auto& project = request.project;
+        const auto& sourceRoot = request.sourceRoot;
+        const auto& techsetDump = request.techsetDump;
+        auto* stock = request.stock;
         std::map<std::string, std::pair<std::string, std::string>> sources;
-        for (const auto& a : request["iwds"])
+        for (const auto& archive : request.iwds)
         {
-            const auto archive = files::FromUtf8(a.get<std::string>());
             zip::Archive z(archive);
             std::vector<const zip::Entry*> entries;
             for (const auto& entry : z.Entries())
@@ -525,9 +518,8 @@ namespace w2b::visions
                     sources.try_emplace(low.substr(7, low.size() - 14), encoding::Utf8Replace(z.Read(*entry)), Str(archive) + ":" + entry->name);
             }
         }
-        for (const auto& r : request["roots"])
+        for (const auto& root : request.roots)
         {
-            const auto root = files::FromUtf8(r.get<std::string>());
             auto found = files::RGlob(root / "vision", ".vision");
             SortPaths(found);
             for (const auto& p : found)
@@ -703,7 +695,7 @@ namespace w2b::visions
         files::WriteText(project / "maps/mp/waw/_waw2bo2_visions.gsc", script);
         if (grades.size() > 1)
         {
-            const auto donor = optionalPath("donor") ? optionalPath("donor") : LutDonor(techsetDump);
+            const auto donor = request.donor ? request.donor : LutDonor(techsetDump);
             if (!donor || !fs::exists(*donor))
                 report["errors"].push_back("native T6 LUT material donor missing");
             else

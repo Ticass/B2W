@@ -36,9 +36,10 @@ namespace w2b::effects
             return state;
         }
 
-        std::string LookupMaterial(const Json& materials, const std::string& name)
+        std::string LookupMaterial(const MaterialNames& materials, const std::string& name)
         {
-            return materials.value(name, name);
+            const auto found = materials.find(name);
+            return found == materials.end() ? name : found->second;
         }
 
         std::string Prefix(std::string_view prefix, const std::string& name)
@@ -46,7 +47,7 @@ namespace w2b::effects
             return name.empty() ? name : std::string(prefix) + name;
         }
 
-        Json ConvertVisual(const Json& source, const Json& materials, int type,
+        Json ConvertVisual(const Json& source, const MaterialNames& materials, int type,
                            std::vector<std::string>& notes, const std::string& location)
         {
             if (const auto entries = source.find("materials"); entries != source.end())
@@ -78,7 +79,7 @@ namespace w2b::effects
         }
     }
 
-    py::Json ConvertElement(const py::Json& source, const py::Json& materials,
+    py::Json ConvertElement(const py::Json& source, const MaterialNames& materials,
                             std::vector<std::string>& notes, const std::string& location)
     {
         const auto sourceType = source.at("elemType").get<int>();

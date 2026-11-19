@@ -45,17 +45,15 @@ namespace w2b::pipeline
             return name;
         }
 
-        std::map<std::string, std::string> WantedImages(const fs::path& project, const Json& materialFiles, const Json& extras)
+        std::map<std::string, std::string> WantedImages(const fs::path& project, const std::vector<std::string>& materialFiles,
+                                                        const std::vector<std::string>& extras)
         {
             std::map<std::string, std::string> wanted;
-            for (const auto& extra : extras)
-            {
-                const auto& name = extra.get_ref<const std::string&>();
+            for (const auto& name : extras)
                 wanted.try_emplace(name, ImageStem(name, false));
-            }
             for (const auto& file : materialFiles)
             {
-                const auto material = mod::Json(project / FromUtf8(file.get_ref<const std::string&>()));
+                const auto material = mod::Json(project / FromUtf8(file));
                 for (const auto& texture : material.value("textures", Json::array()))
                     if (const auto image = texture.find("image"); image != texture.end() && image->is_string())
                     {
@@ -106,19 +104,19 @@ namespace w2b::pipeline
             return {{"name", name}, {"source", nullptr}, {"synthesized", reason}};
         }
 
-        std::optional<Json> RequiredImage(const std::string& asset, const fs::path& dst, const Json& request, Json& warnings)
+        std::optional<Json> RequiredImage(const std::string& asset, const fs::path& dst, const BridgeImagesRequest& request, Json& warnings)
         {
             if (asset == "lightmap0_secondary")
             {
                 constexpr Color magenta{255, 0, 255, 255};
-                const auto pages = request.value("diagnostic_lightmap", false) ? std::array{magenta, magenta, magenta} :
+                const auto pages = request.diagnosticLightmap ? std::array{magenta, magenta, magenta} :
                     std::array<Color, 3>{{{116, 164, 181, 154}, {132, 172, 191, 111}, {129, 129, 192, 147}}};
                 return WriteSynthesized(asset, dst, "fallback flat lightmap, linked only when the map has no WaW lightmap pages "
                                         "(BSP/lightmaps.json); pages = stock zm_nuked lightmap means", warnings, 4, 12, pages);
             }
             if (asset == "reflection_probe0")
             {
-                const std::array<Color, 1> color{{{static_cast<unsigned char>(request.value("diagnostic_probes", false) ? 255 : 0), 0, 0, 255}}};
+                const std::array<Color, 1> color{{{static_cast<unsigned char>(request.diagnosticProbes ? 255 : 0), 0, 0, 255}}};
                 return WriteSynthesized(asset, dst, "black cube probe; the WaW probe is a solid red placeholder", warnings, 4, 4, color, true);
             }
             return std::nullopt;
@@ -156,13 +154,13 @@ namespace w2b::pipeline
         }
     }
 
-    Json StageBridgeImages(const Json& request, textures::IwdRecovery& recovery)
+    BridgeImages StageBridgeImages(const BridgeImagesRequest& request, textures::IwdRecovery& recovery)
     {
-        const auto project = FromUtf8(request.at("project_root").get_ref<const std::string&>());
-        const auto imageRoots = bridge::PathList(request.at("image_roots"));
-        const auto wanted = WantedImages(project, request.at("materials"), request.at("extra_images"));
-        const auto equivalents = request.at("native_images").get<std::set<std::string>>();
-        auto knownRecovered = request.at("known_recovered");
+        const auto& project = request.projectRoot;
+        const auto& imageRoots = request.imageRoots;
+        const auto wanted = WantedImages(project, request.materialFiles, request.extraImages);
+        const auto& equivalents = request.nativeImages;
+        auto knownRecovered = request.knownRecovered;
         std::optional<std::unordered_set<std::string>> iwdStems;
         auto warnings = Json::array(), errors = Json::array(), recovered = Json::object();
         std::vector<std::string> names;
@@ -208,10 +206,10 @@ namespace w2b::pipeline
                 if (stem.starts_with("~$white-rgb&"))
                     images[index] = WriteSynthesized(asset, dst, "packed spec map with no pixel data in any zone or IWD; white RGB, mid gloss",
                                                      warnings, 4, 4, std::array<Color, 1>{{{255, 255, 255, 128}}});
-                else if (!request.at("iwd_dirs").is_null())
+                else if (request.iwdDirs)
                 {
                     if (!iwdStems)
-                        iwdStems = recovery.ImageStems(bridge::PathList(request.at("iwd_dirs")));
+                        iwdStems = recovery.ImageStems(*request.iwdDirs);
                     if (!iwdStems->contains(mod::Lower(stem)))
                         images[index] = WriteSynthesized(asset, dst, "no pixel data in any zone or IWD (WaW draws its default image); neutral grey",
                                                          warnings, 4, 4, std::array<Color, 1>{{{128, 128, 128, 255}}});
@@ -228,16 +226,15 @@ namespace w2b::pipeline
                 groups.emplace_back();
             groups[key->second].push_back({index, std::move(source.path), dst, knownRecovered.value(stem, Json())});
         }
-        ConvertGroups(groups, names, images, written, errors, request.value("workers", parallel::Workers()));
-        auto output = Json::array(), report = Json::array();
+        ConvertGroups(groups, names, images, written, errors, request.workers);
+        BridgeImages staged{{}, Json::array(), warnings.get<std::vector<std::string>>(), errors.get<std::vector<std::string>>(), std::move(recovered)};
         for (std::size_t index = 0; index < names.size(); ++index)
         {
             if (written[index])
-                output.push_back(names[index]);
+                staged.written.push_back(names[index]);
             if (!images[index].is_null())
-                report.push_back(std::move(images[index]));
+                staged.images.push_back(std::move(images[index]));
         }
-        return {{"written", std::move(output)}, {"images", std::move(report)}, {"warnings", std::move(warnings)}, {"errors", std::move(errors)},
-                {"recovered", std::move(recovered)}};
+        return staged;
     }
 }

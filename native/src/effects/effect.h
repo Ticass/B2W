@@ -2,6 +2,7 @@
 
 #include "core/pytext.h"
 
+#include <map>
 #include <set>
 #include <stdexcept>
 
@@ -33,10 +34,14 @@ namespace w2b::effects
         std::vector<std::string> notes;
     };
 
+    // WaW material -> the converted material an effect draws
+    using MaterialNames = std::map<std::string, std::string, std::less<>>;
+
     Dependencies FindDependencies(const py::Json& source);
-    ConvertedEffect ConvertEffect(const py::Json& source, const py::Json& materials);
+    // source: the dumped WaW effect (.w2bfx.json, a JSON format of its own)
+    ConvertedEffect ConvertEffect(const py::Json& source, const MaterialNames& materials);
     std::size_t AllocationSize(const py::Json& effect);
 
-    py::Json ConvertElement(const py::Json& source, const py::Json& materials,
+    py::Json ConvertElement(const py::Json& source, const MaterialNames& materials,
                             std::vector<std::string>& notes, const std::string& location);
 }

@@ -25,5 +25,4 @@ namespace w2b::gsc::port
     ZoneGraph ReadZoneGraph(std::string_view source);
     ZoneGraph ReadZoneGraphFile(const std::filesystem::path& source);
     ZoneMainResult StageZoneMain(const std::filesystem::path& main, bool dropManager, bool guardSwitch);
-    py::Json ZoneScriptsRequest(const std::filesystem::path& request);
 }

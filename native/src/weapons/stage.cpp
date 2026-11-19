@@ -11,19 +11,13 @@ namespace w2b::weapons
 {
     namespace
     {
-        Names SelectWeapons(const Plan& plan, const Json& requested)
+        Names SelectWeapons(const Plan& plan, const std::vector<std::string>& requested)
         {
             std::map<std::string_view, const Weapon*> byName;
             for (std::size_t i = 0; i < plan.sources.size(); ++i)
                 byName.emplace(plan.sources[i].name, &plan.weapons[i]);
             Names selected;
-            if (requested.is_null())
-            {
-                for (const auto& [name, weapon] : byName)
-                    selected.emplace(name);
-                return selected;
-            }
-            auto pending = requested.get<std::vector<std::string>>();
+            auto pending = requested;
             Names missing;
             for (const auto& name : pending)
                 if (!byName.contains(name))
@@ -88,68 +82,51 @@ namespace w2b::weapons
             report["missing_animations"] = std::move(missing);
             return zone;
         }
-
-        Json Stage(const Json& inputs)
-        {
-            const auto project = files::FromUtf8(inputs.at("project").get<std::string>());
-            const auto base = files::FromUtf8(inputs.at("base").get<std::string>());
-            std::vector<path> roots;
-            for (const auto& root : inputs.at("roots"))
-                roots.push_back(files::FromUtf8(root.get<std::string>()));
-            auto plan = PlanWeapons(roots, project, base);
-            const auto selected = SelectWeapons(plan, inputs.at("names"));
-            auto dependencies = Json::object();
-            Names outputNames, worldModels;
-            std::vector<std::string> zoneWeapons;
-            static const std::regex worldModel(R"(^worldModel([2-9]|1[0-6])?$)");
-            for (std::size_t i = 0; i < plan.weapons.size(); ++i)
-            {
-                if (!selected.contains(plan.sources[i].name))
-                    continue;
-                const auto& weapon = plan.weapons[i];
-                outputNames.insert(weapon.name);
-                zoneWeapons.push_back(weapon.name);
-                for (const auto& [kind, names] : weapon.dependencies.items())
-                    for (const auto& asset : names)
-                        AddDependency(dependencies, kind, asset.get_ref<const std::string&>());
-                for (const auto& [key, value] : weapon.fields.items())
-                    if (key.starts_with("worldModel") && std::regex_match(key, worldModel))
-                        worldModels.insert(value.get_ref<const std::string&>());
-                files::WriteText(project / "weapons" / files::FromUtf8(weapon.name), WriteInfo(weapon.fields));
-            }
-            auto& report = plan.report;
-            auto weapons = Json::array();
-            for (auto& entry : report.at("weapons"))
-                if (outputNames.contains(entry.at("name").get_ref<const std::string&>()))
-                    weapons.push_back(std::move(entry));
-            report["weapons"] = std::move(weapons);
-            report["status"] = "partial_source_stage";
-            report["flame_tables"] = StageFlameTables(roots, project, dependencies,
-                base / "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/FlameTableFields.h");
-            auto zone = StageAnimations(roots, project, dependencies, report);
-            StageAccuracy(roots, project, dependencies, report);
-            std::ranges::sort(zoneWeapons);
-            for (const auto& name : zoneWeapons)
-                zone += "weapon," + name + "\n";
-            files::WriteText(project / "weapons.zone.fragment", zone.empty() ? "\n" : zone);
-            for (auto& names : dependencies)
-                names = names.get<Names>();
-            report["dependencies"] = std::move(dependencies);
-            report["remaining"] = {"model/material conversion", "sound-bank conversion", "FX dependency linking",
-                "unsupported weapon field translation", "Zombies gameplay registration", "native roundtrip and in-game validation"};
-            return {{"report", std::move(report)}, {"worldModels", worldModels}};
-        }
     }
 
-    py::Json StageWeapons(const path& request)
+    WeaponStage StageWeapons(const std::vector<path>& roots, const path& project, const path& base, const std::vector<std::string>& requested)
     {
-        try
+        auto plan = PlanWeapons(roots, project, base);
+        const auto selected = SelectWeapons(plan, requested);
+        auto dependencies = Json::object();
+        Names outputNames, worldModels;
+        std::vector<std::string> zoneWeapons;
+        static const std::regex worldModel(R"(^worldModel([2-9]|1[0-6])?$)");
+        for (std::size_t i = 0; i < plan.weapons.size(); ++i)
         {
-            return Stage(Json::parse(files::ReadText(request)));
+            if (!selected.contains(plan.sources[i].name))
+                continue;
+            const auto& weapon = plan.weapons[i];
+            outputNames.insert(weapon.name);
+            zoneWeapons.push_back(weapon.name);
+            for (const auto& [kind, names] : weapon.dependencies.items())
+                for (const auto& asset : names)
+                    AddDependency(dependencies, kind, asset.get_ref<const std::string&>());
+            for (const auto& [key, value] : weapon.fields.items())
+                if (key.starts_with("worldModel") && std::regex_match(key, worldModel))
+                    worldModels.insert(value.get_ref<const std::string&>());
+            files::WriteText(project / "weapons" / files::FromUtf8(weapon.name), WriteInfo(weapon.fields));
         }
-        catch (const WeaponError& error)
-        {
-            return {{"error", error.what()}};
-        }
+        auto& report = plan.report;
+        auto weapons = Json::array();
+        for (auto& entry : report.at("weapons"))
+            if (outputNames.contains(entry.at("name").get_ref<const std::string&>()))
+                weapons.push_back(std::move(entry));
+        report["weapons"] = std::move(weapons);
+        report["status"] = "partial_source_stage";
+        report["flame_tables"] = StageFlameTables(roots, project, dependencies,
+            base / "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/FlameTableFields.h");
+        auto zone = StageAnimations(roots, project, dependencies, report);
+        StageAccuracy(roots, project, dependencies, report);
+        std::ranges::sort(zoneWeapons);
+        for (const auto& name : zoneWeapons)
+            zone += "weapon," + name + "\n";
+        files::WriteText(project / "weapons.zone.fragment", zone.empty() ? "\n" : zone);
+        for (auto& names : dependencies)
+            names = names.get<Names>();
+        report["dependencies"] = std::move(dependencies);
+        report["remaining"] = {"model/material conversion", "sound-bank conversion", "FX dependency linking",
+            "unsupported weapon field translation", "Zombies gameplay registration", "native roundtrip and in-game validation"};
+        return {std::move(report), std::move(worldModels)};
     }
 }

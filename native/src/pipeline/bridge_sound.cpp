@@ -69,7 +69,7 @@ namespace w2b::pipeline
 
     } // namespace
 
-    void StageBridgeSound(const Json& request, Json& report, Json& stockJson)
+    void StageBridgeSound(const Json& request, Json& report, extract::StockWaw* stock)
     {
         const auto& sounds = request.at("sounds");
         const auto project = request.at("project").get<std::string>();
@@ -90,25 +90,19 @@ namespace w2b::pipeline
                     break;
                 }
             }
-        const auto ents = sounds.at("ents");
+        const auto ents = files::FromUtf8(sounds.at("ents").get<std::string>());
         const auto found = Timed("Resolve sound dependencies", [&] {
-            return DiscoverSounds(Json{{"project_root", Str(projectRoot)}, {"roots", Paths(roots)}, {"stock_waw", stockJson},
-                                       {"zone_sounds", sounds.at("zone_sounds")}, {"compiled_sounds", sounds.at("compiled_sounds")},
-                                       {"ents", ents}, {"source_amb", PathOrNull(sourceAmb)}});
+            return DiscoverSounds({projectRoot, roots, stock, sounds.at("zone_sounds").get<std::vector<std::string>>(),
+                                   sounds.at("compiled_sounds").get<std::vector<std::string>>(), ents, sourceAmb});
         });
-        if (!stockJson.is_null() && found["stock_prepared"].is_object())
-            stockJson["prepared"] = found["stock_prepared"];
-        for (const auto& [k, v] : found["content"].items())
-            out[k] = v;
+        found.report.MergeInto(report);
         // sounds.stage over the resolver's roots (source roots, then stock zones by rank)
         std::vector<fs::path> soundRoots = roots;
         {
-            std::vector<std::pair<std::string, std::string>> stockRoots;
-            for (const auto& r : found["stock_roots"])
-                stockRoots.emplace_back(r.at(0).get<std::string>(), r.at(1).get<std::string>());
+            auto stockRoots = found.stockRoots;
             std::sort(stockRoots.begin(), stockRoots.end(), [](const auto& a, const auto& b) { return ZoneRank(a.first) < ZoneRank(b.first); });
             for (const auto& [_, root] : stockRoots)
-                soundRoots.push_back(files::FromUtf8(root));
+                soundRoots.push_back(root);
         }
         sound::StageInput input;
         for (const auto& r : soundRoots)
@@ -116,8 +110,7 @@ namespace w2b::pipeline
         for (const auto& d : sounds.at("iwd_dirs"))
             input.iwdDirs.push_back(d.get<std::string>());
         input.names = std::set<std::string>();
-        for (const auto& n : found["sound_names"])
-            input.names->insert(n.get<std::string>());
+        input.names->insert(found.soundNames.begin(), found.soundNames.end());
         // _globals_file: the map's driver globals, else the stock WaW driver's
         for (const auto& root : soundRoots)
         {
@@ -132,13 +125,9 @@ namespace w2b::pipeline
                 break;
             }
         }
-        if (!input.globalsFile && !stockJson.is_null())
-        {
-            auto stock = extract::StockWaw::FromJson(stockJson);
+        if (!input.globalsFile && stock)
             if (const auto hit = stock->RootFor("snddriverglobals", "singleton"))
                 input.globalsFile = Str(hit->second / "soundglobals/singleton.w2bsndglobals.json");
-            stockJson["prepared"] = stock->PreparedJson();
-        }
         input.project = content;
         fs::create_directories(content);
         Timed("Stage sound sources", [&] { return sound::Stage(input); });
@@ -152,27 +141,17 @@ namespace w2b::pipeline
         Timed("Decode audio", [&] { return audio::Stage(content, content / "pcm", decoder, tools); });
         const auto audioReport = mod::Json(content / "pcm" / "audio.stage.json");
         const auto bindingReport = Timed("Bind decoded audio", [&] { return sound::BindPcm(content, content / "pcm"); });
-        out["animation_sound_identities"] = found["animation_sound_identities"];
+        out["animation_sound_identities"] = found.animationSoundIdentities;
         const auto curveReport = Timed("Bind sound curves", [&] { return BindBridgeCurves(content, sounds); });
         const auto bank = "waw_" + project + ".all";
         const auto mix = Timed("Build sound bank", [&] {
-            return SoundMix(Json{{"project_root", Str(projectRoot)}, {"project", project}, {"bo2_root", request.at("bo2_root")}, {"stock_waw", stockJson},
-                                 {"script_sounds", found["script_sounds"]}, {"entity_sounds", found["entity_sounds"]}, {"source_amb", PathOrNull(sourceAmb)},
-                                 {"flac_encoder", tools.resampler ? Str(*tools.resampler) : std::string()}});
+            return SoundMix({projectRoot, project, OptionalPath(request.at("bo2_root")), stock, found.scriptSounds, found.entitySounds, sourceAmb,
+                             tools.resampler ? Str(*tools.resampler) : std::string()});
         });
-        if (!stockJson.is_null() && mix["stock_prepared"].is_object())
-            stockJson["prepared"] = mix["stock_prepared"];
-        for (const auto& w : mix["warnings"])
-            warnings.push_back(w);
-        for (const auto& [k, v] : mix["content"].items())
-            out[k] = v;
-        const auto& budget = mix["budget"];
-        const auto& bankReport = mix["bank_report"];
-        const auto amb = WriteAmbCsc(Json{{"project", project}, {"project_root", Str(projectRoot)}, {"source_amb", PathOrNull(sourceAmb)}, {"ents", ents}});
-        for (const auto& w : amb["warnings"])
-            warnings.push_back(w);
-        for (const auto& [k, v] : amb["content"].items())
-            out[k] = v;
+        mix.report.MergeInto(report);
+        const auto& budget = mix.budget;
+        const auto& bankReport = mix.bankReport;
+        WriteAmbCsc(project, projectRoot, sourceAmb, ents).MergeInto(report);
         if (!budget.is_null())
         {
             const auto mb = [&](const char* key) { return std::to_string(budget.at(key).get<long long>() / 1048576); };
@@ -195,7 +174,7 @@ namespace w2b::pipeline
                                  {"clamped_to_t6_range", bankReport.at("clamped").size()},
                                  {"errors", bankReport.at("errors").size()},
                                  {"report", "content_source/sounds.bank.json"}};
-        files::WriteText(content / "sounds.dependencies.json", py::JsonDumps(found["sound_graph"], 2) + "\n");
+        files::WriteText(content / "sounds.dependencies.json", py::JsonDumps(found.soundGraph, 2) + "\n");
         out["sound_aliases"] = Json{{"status", soundReport.at("status")}, {"aliases", soundReport.at("aliases").size()}, {"audio", soundReport.at("audio").size()},
                                     {"errors", soundReport.at("errors")}, {"report", "content_source/sounds.stage.json"}};
         long long pcm = 0;

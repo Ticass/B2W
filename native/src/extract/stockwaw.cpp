@@ -50,35 +50,6 @@ namespace w2b::extract
     {
     }
 
-    std::optional<StockWaw> StockWaw::FromJson(const py::Json& data)
-    {
-        if (data.is_null())
-            return std::nullopt;
-        StockWaw stock(files::FromUtf8(data["waw_root"].get<std::string>()), files::FromUtf8(data["unlinker"].get<std::string>()),
-                       files::FromUtf8(data["work"].get<std::string>()));
-        stock.Load();
-        if (data.contains("prepared"))
-            stock.ApplyPrepared(data["prepared"]);
-        return stock;
-    }
-
-    py::Json StockWaw::PreparedJson() const
-    {
-        py::Json out = py::Json::object();
-        for (const auto& [zone, folder] : prepared)
-            out[zone] = py::Json{{"folder", Str(folder)}, {"inputs", preparedSources.count(zone) ? preparedSources.at(zone) : py::Json::object()}};
-        return out;
-    }
-
-    void StockWaw::ApplyPrepared(const py::Json& data)
-    {
-        for (const auto& [zone, entry] : data.items())
-        {
-            prepared[zone] = files::FromUtf8(entry["folder"].get<std::string>());
-            preparedSources[zone] = entry["inputs"];
-        }
-    }
-
     fs::path StockWaw::ZoneDir() const
     {
         return wawRoot / "zone" / "english";

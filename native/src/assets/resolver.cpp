@@ -51,20 +51,12 @@ namespace w2b::assets
         class Resolver
         {
         public:
-            Resolver(const Json& request, StockLookup lookup, StockSounds sounds)
-                : lookup_(std::move(lookup)), stockSounds_(std::move(sounds)),
-                  reader_(files::FromUtf8(request.at("base").get_ref<const std::string&>()))
+            Resolver(const Path& base, std::vector<Path> sourceRoots, StockLookup lookup, StockSounds sounds)
+                : lookup_(std::move(lookup)), stockSounds_(std::move(sounds)), reader_(base), sourceRoots_(std::move(sourceRoots))
             {
-                for (const auto& root : request.at("sourceRoots"))
-                    sourceRoots_.push_back(files::FromUtf8(root.get_ref<const std::string&>()));
-                for (const auto& root : request.at("stockRoots"))
-                    stockRoots_.emplace_back(root.at(0).get<std::string>(), files::FromUtf8(root.at(1).get_ref<const std::string&>()));
-                for (const auto& node : request.at("nodes"))
-                    nodes_.emplace(Asset{node.at("kind").get<std::string>(), node.at("name").get<std::string>()}, node);
-                edges_ = request.at("edges").get<std::set<Edge>>();
             }
 
-            Json Run(AssetSet pending)
+            AssetGraph Run(AssetSet pending)
             {
                 while (!pending.empty())
                 {
@@ -97,14 +89,12 @@ namespace w2b::assets
                         missing.push_back(node);
                     rows.push_back(std::move(node));
                 }
-                auto roots = Json::array();
-                for (const auto& root : Roots())
-                    roots.push_back(files::Utf8(root));
-                auto stock = Json::array();
-                for (const auto& [zone, root] : stockRoots_)
-                    stock.push_back({zone, files::Utf8(root)});
-                return {{"report", {{"nodes", std::move(rows)}, {"edges", edges_}, {"roots", std::move(roots)},
-                                   {"missing", std::move(missing)}}}, {"stockRoots", std::move(stock)}};
+                auto roots = Roots();
+                auto rootsJson = Json::array();
+                for (const auto& root : roots)
+                    rootsJson.push_back(files::Utf8(root));
+                return {{{"nodes", std::move(rows)}, {"edges", edges_}, {"roots", std::move(rootsJson)}, {"missing", std::move(missing)}},
+                        std::move(roots), stockRoots_};
             }
 
         private:
@@ -258,8 +248,8 @@ namespace w2b::assets
         };
     }
 
-    Json Expand(const Json& request, StockLookup lookup, StockSounds sounds)
+    AssetGraph Expand(const Path& base, const std::vector<Path>& sourceRoots, const AssetSet& requests, StockLookup lookup, StockSounds sounds)
     {
-        return Resolver(request, std::move(lookup), std::move(sounds)).Run(request.at("requests").get<AssetSet>());
+        return Resolver(base, sourceRoots, std::move(lookup), std::move(sounds)).Run(requests);
     }
 }

@@ -93,12 +93,7 @@ namespace
 
     int WorldFbx(const std::vector<std::string>& args)
     {
-        if (args.size() == 1)
-        {
-            const auto report = w2b::world::StageWorldFbx(w2b::files::FromUtf8(args[0]));
-            std::puts(report.dump().c_str());
-            return 0;
-        }
+
         if (args.size() != 2 && (args.size() != 4 || args[2] != "--surface-limit"))
             return Usage();
         std::optional<std::size_t> limit;

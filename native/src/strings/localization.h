@@ -6,7 +6,14 @@
 
 #include <filesystem>
 #include <map>
+#include <optional>
+#include <vector>
 #include <string>
+
+namespace w2b::extract
+{
+    class StockWaw;
+}
 
 namespace w2b::strings
 {
@@ -16,6 +23,15 @@ namespace w2b::strings
     std::string Quote(const std::string& text);
     std::string Unquote(const std::string& text);
 
-    // localization.stage; request fields as the Python call's arguments
-    py::Json StageLocalization(const std::filesystem::path& request);
+    struct LocalizationRequest
+    {
+        std::filesystem::path project;
+        std::vector<std::filesystem::path> roots, iwdDirs, rawRoots;
+        std::optional<std::filesystem::path> unlinker, work, bo2Root, t6Unlinker, t6StockDump;
+        std::string language = "english";
+        const extract::StockWaw* stock = nullptr;
+    };
+
+    // localization.stage: the summary for the bridge report
+    py::Json StageLocalization(const LocalizationRequest& request);
 } // namespace w2b::strings

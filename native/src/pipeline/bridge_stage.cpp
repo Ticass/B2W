@@ -35,7 +35,6 @@
 namespace w2b::pipeline
 {
     using bridge::AppendZone;
-    using bridge::Call;
     using bridge::Extend;
     using bridge::Names;
     using bridge::PathOrNull;
@@ -134,17 +133,6 @@ namespace w2b::pipeline
             return file.parent_path() / files::FromUtf8(StemWithout(file, suffix) + extension);
         }
 
-        // a native step's error keys, raised as the Python errors they report
-        void RaiseReported(const Json& result)
-        {
-            static const std::pair<const char*, const char*> kinds[] = {{"stage_error", "StageError"}, {"weapon_error", "WeaponError"},
-                                                                        {"invalid", "ValueError"},     {"syntax_error", "GscSyntaxError"},
-                                                                        {"path_error", "PathError"}};
-            for (const auto& [key, kind] : kinds)
-                if (result.contains(key))
-                    throw StepError(kind, result[key].get<std::string>());
-        }
-
         // native_tree_xanims: the animation names of a native T6 animtree (leaves, not groups)
         std::vector<std::string> NativeTreeXanims(const std::string& atr)
         {
@@ -237,8 +225,8 @@ namespace w2b::pipeline
         // what the effects pass hands on (EffectsResult)
         struct Effects
         {
-            Json table = Json::object(); // script-loaded WaW effect -> converted name
-            Json zoneFx = Json::array();
+            std::map<std::string, std::string> table; // script-loaded WaW effect -> converted name
+            std::vector<std::string> zoneFx;
             Names models, sounds, techsets;
             std::vector<fs::path> extraRoots;
         };
@@ -268,7 +256,7 @@ namespace w2b::pipeline
                 Names used; // technique sets
             };
             StagedMaterials StageAllMaterials();
-            void StageLightmaps(const Json& wawMaterials);
+            void StageLightmaps(const Names& wawMaterials);
             std::vector<std::string> StageSkyAndImages(Names& used);
             Json Tail(Json scripts, const std::vector<std::string>& images, const Json& hudMaterials, const Names& zoneModels);
 
@@ -287,7 +275,9 @@ namespace w2b::pipeline
             Json recovered_ = Json::object(); // IWD images decoded so far (wavelet.recovered)
 
             // the geometry stage's results
-            Json surfaces_, staticModels_, mapDynents_, navigation_;
+            std::vector<GeometrySurface> surfaces_;
+            std::vector<world::WorldStaticModel> staticModels_;
+            Json mapDynents_, navigation_;
             bool shadowLights_ = false, hasWater_ = false, layeredVertexData_ = false;
             std::optional<std::string> skyImage_;
             std::size_t probeCount_ = 0;
@@ -349,21 +339,14 @@ namespace w2b::pipeline
             Json levelWeapons = Json::array();
             if (stock_ && stock_->Index().contains("common") && stock_->Index()["common"].contains("weapon"))
                 levelWeapons = stock_->Index()["common"]["weapon"];
-            const Json navigation{{"project", o_.project}, {"stage", Str(o_.stage)}, {"bo2_root", PathOrNull(o_.bo2)},
-                                  {"waw_map_script", PathOrNull(o_.wawMapScript)}, {"traversal_roots", Paths(traversalRoots)},
-                                  {"map_roots", Paths(o_.mapRoots)}, {"level_weapons", levelWeapons}, {"bo2_stock_perks", o_.bo2StockPerks},
-                                  {"respawn_exclusion", gsc::port::Api()["zombie_runtime"]["source_respawn"]["native_exclusion_tag"]}};
-            const Json request{{"gfx", Str(o_.gfx)}, {"clip", Str(o_.clip)}, {"project_root", Str(projectRoot_)}, {"roots", Paths(roots_)},
-                               {"stock_waw", bridge::StockRequest(stock_ ? &*stock_ : nullptr)}, {"compensated", true},
-                               {"probe_source", Str(Sibling(o_.gfx, ".gfx.bin", ".reflectionprobes.json"))},
-                               {"visibility_source", Str(Sibling(o_.gfx, ".gfx.bin", ".visibility.json"))},
-                               {"image_roots", Paths(ImageFolders(roots_))},
-                               {"dynents", Str(Sibling(o_.clip, ".clip.bin", ".dynents.json"))},
-                               {"constraints", Str(Sibling(o_.clip, ".clip.bin", ".constraints.json"))}, {"navigation", navigation}};
-            const auto staged = Timed("Convert world geometry", [&] { return StageBridgeGeometry(request); });
-            RaiseReported(staged);
-            bridge::AdoptPrepared(stock_ ? &*stock_ : nullptr, staged);
-            const auto& probes = staged["probes"];
+            NavigationRequest navigation{o_.project, o_.stage, o_.bo2, o_.wawMapScript, traversalRoots, o_.mapRoots, levelWeapons, o_.bo2StockPerks,
+                                         gsc::port::Api()["zombie_runtime"]["source_respawn"]["native_exclusion_tag"].get<std::string>()};
+            const GeometryRequest request{o_.gfx, o_.clip, projectRoot_, roots_, ImageFolders(roots_), stock_ ? &*stock_ : nullptr, true,
+                                          Sibling(o_.gfx, ".gfx.bin", ".reflectionprobes.json"), Sibling(o_.gfx, ".gfx.bin", ".visibility.json"),
+                                          Sibling(o_.clip, ".clip.bin", ".dynents.json"), Sibling(o_.clip, ".clip.bin", ".constraints.json"),
+                                          std::move(navigation)};
+            auto staged = Timed("Convert world geometry", [&] { return StageBridgeGeometry(request); });
+            const auto& probes = staged.probes;
             Extend(report_, "images", probes["images"]);
             Extend(report_, "warnings", probes["warnings"]);
             Extend(report_, "errors", probes["errors"]);
@@ -372,28 +355,28 @@ namespace w2b::pipeline
                 content["reflection_probes"] = probes["content"];
             const auto warningIndex = report_["warnings"].size();
             content["visibility"] = nullptr;
-            content["physics_constraints"] = staged["physics"]["constraints"];
-            layeredVertexData_ = staged["layered"].get<bool>();
-            for (const auto& [key, value] : staged["content"].items())
+            content["physics_constraints"] = staged.constraints;
+            layeredVertexData_ = staged.layered;
+            for (const auto& [key, value] : staged.content.items())
                 content[key] = value;
             if (content["visibility"].is_null())
                 content.erase("visibility");
-            report_["collision"] = staged["collision"];
-            Extend(report_, "warnings", staged["warnings"]);
-            if (Truthy(staged["visibility_warning"]))
-                report_["warnings"].insert(report_["warnings"].begin() + static_cast<std::ptrdiff_t>(warningIndex), staged["visibility_warning"]);
-            Extend(report_, "errors", staged["errors"]);
-            const auto& world = staged["world"];
-            surfaces_ = world["surfaces"];
-            staticModels_ = world["static_models"];
-            shadowLights_ = Truthy(world["shadow_lights"]);
-            if (staged["sky"].is_string())
-                skyImage_ = staged["sky"].get<std::string>();
+            report_["collision"] = std::move(staged.collision);
+            for (const auto& warning : staged.warnings)
+                report_["warnings"].push_back(warning);
+            if (staged.visibilityWarning)
+                report_["warnings"].insert(report_["warnings"].begin() + static_cast<std::ptrdiff_t>(warningIndex), *staged.visibilityWarning);
+            for (const auto& error : staged.errors)
+                report_["errors"].push_back(error);
+            surfaces_ = std::move(staged.surfaces);
+            staticModels_ = std::move(staged.staticModels);
+            shadowLights_ = staged.shadowLights;
+            skyImage_ = staged.sky;
             probeCount_ = probes.contains("kept") ? probes["kept"].size() : 0;
-            mapDynents_ = staged["physics"]["dynents"];
-            clipModels_ = NameSet(staged["clip_models"]);
-            hasWater_ = Truthy(staged["has_water"]);
-            navigation_ = staged["navigation"];
+            mapDynents_ = std::move(staged.dynents);
+            clipModels_ = {staged.clipModels.begin(), staged.clipModels.end()};
+            hasWater_ = staged.hasWater;
+            navigation_ = std::move(staged.navigation);
 
             const auto& inventory = navigation_["inventory"];
             compiledWeapons_ = NameSet(inventory["compiled_weapons"]);
@@ -436,28 +419,23 @@ namespace w2b::pipeline
                     report_["errors"].push_back("no stock WaW scripts (--waw-stock-scripts): cannot tell the map's scripts from the WaW framework");
                     return 0;
                 }
-                // the patch zone loads after the map zone (null marks its place) and replaces its scripts
-                Json scriptRoots = Paths(o_.wawPatchScriptRoots);
-                scriptRoots.push_back(nullptr);
-                for (const auto& root : o_.wawScriptRoots)
-                    scriptRoots.push_back(Str(root));
-                std::vector<fs::path> variantRoots;
+                // the patch zone loads after the map zone (nullopt marks its place) and replaces its scripts
+                ScriptPortRequest request{o_.stage, projectRoot_, *o_.wawMapScript, *o_.bo2, {}, o_.iwdDirs.value_or(std::vector<fs::path>{}), roots_, {},
+                                          *o_.wawStockScripts, stock_ ? &*stock_ : nullptr, source_ ? &*source_ : nullptr, o_.bo2StockPerks, o_.wawStockMap};
+                request.roots.assign(o_.wawPatchScriptRoots.begin(), o_.wawPatchScriptRoots.end());
+                request.roots.push_back(std::nullopt);
+                request.roots.insert(request.roots.end(), o_.wawScriptRoots.begin(), o_.wawScriptRoots.end());
                 if (o_.wawRoot)
-                    variantRoots.push_back(*o_.wawRoot / "raw");
-                const auto result = Call(pipeline::PortScripts,
-                                         Json{{"stage", Str(o_.stage)}, {"project_root", Str(projectRoot_)}, {"waw_map_script", Str(*o_.wawMapScript)},
-                                              {"bo2_root", Str(*o_.bo2)}, {"roots", scriptRoots}, {"iwd_dirs", Paths(o_.iwdDirs.value_or(std::vector<fs::path>{}))},
-                                              {"stock", Str(*o_.wawStockScripts)}, {"model_roots", Paths(roots_)},
-                                              {"stock_waw", bridge::StockRequest(stock_ ? &*stock_ : nullptr)}, {"source_waw", source_ ? source_->ToJson() : Json()},
-                                              {"bo2_stock_perks", o_.bo2StockPerks}, {"waw_stock_map", o_.wawStockMap},
-                                              {"stock_variant_roots", Paths(variantRoots)}});
-                if (Truthy(result["scripts"]))
-                    report_["scripts"] = result["scripts"];
-                Extend(report_, "warnings", result["warnings"]);
-                Extend(report_, "errors", result["errors"]);
-                roots_ = bridge::PathList(result["model_roots"]);
-                bridge::AdoptPrepared(stock_ ? &*stock_ : nullptr, result);
-                scriptModels_ = Union(scriptModels_, NameSet(result["models"]));
+                    request.stockVariantRoots.push_back(*o_.wawRoot / "raw");
+                auto result = pipeline::PortScripts(request);
+                if (Truthy(result.scripts))
+                    report_["scripts"] = std::move(result.scripts);
+                for (const auto& warning : result.warnings)
+                    report_["warnings"].push_back(warning);
+                for (const auto& error : result.errors)
+                    report_["errors"].push_back(error);
+                roots_ = std::move(result.modelRoots);
+                scriptModels_.insert(result.models.begin(), result.models.end());
                 return 0;
             });
         }
@@ -467,36 +445,31 @@ namespace w2b::pipeline
             auto iwdDirs = o_.iwdDirs.value_or(std::vector<fs::path>{});
             if (o_.wawRoot)
                 iwdDirs.push_back(*o_.wawRoot / "main");
-            auto result = StageEffectsStep(Json{{"names", names}, {"roots", Paths(roots_)}, {"project_root", Str(projectRoot_)},
-                                                {"stock_materials", Str(o_.stockMaterials)}, {"techset_dump", PathOrNull(o_.techsetDump)},
-                                                {"bo2_root", Str(*o_.bo2)}, {"iwd_dirs", Paths(iwdDirs)},
-                                                {"stock", bridge::StockRequest(stock_ ? &*stock_ : nullptr)},
-                                                {"source_waw", source_ ? source_->ToJson() : Json()},
-                                                {"layered_vertex_data", layeredVertexData_}, {"workers", bridge::WorkerCount(names.empty() ? 1 : names.size())}},
-                                           *recovery_);
-            bridge::AdoptPrepared(stock_ ? &*stock_ : nullptr, result);
-            const auto recoveredImages = result.value("recovered", Json::object());
-            for (const auto& [stem, metadata] : recoveredImages.items())
+            EffectsStageRequest request{names, roots_, projectRoot_, o_.stockMaterials, *o_.bo2, o_.techsetDump, iwdDirs,
+                                        stock_ ? &*stock_ : nullptr, source_ ? &*source_ : nullptr, layeredVertexData_,
+                                        bridge::WorkerCount(names.empty() ? 1 : names.size())};
+            auto result = StageEffectsStep(request, *recovery_);
+            for (const auto& [stem, metadata] : result.recovered.items())
                 recovered_[stem] = metadata;
-            Extend(report_, "warnings", result["warnings"]);
-            Extend(report_, "errors", result["errors"]);
-            Extend(report_, "materials", result["materials"]);
-            Extend(report_, "images", result["images"]);
-            effects_.table = result["table"];
-            effects_.zoneFx = result["zone_fx"];
-            effects_.models = NameSet(result["models"]);
-            effects_.sounds = NameSet(result["sounds"]);
-            effects_.extraRoots = bridge::PathList(result["extra_roots"]);
-            effects_.techsets = NameSet(result["techsets"]);
+            for (const auto& warning : result.warnings)
+                report_["warnings"].push_back(warning);
+            for (const auto& error : result.errors)
+                report_["errors"].push_back(error);
+            Extend(report_, "materials", result.materials);
+            Extend(report_, "images", result.images);
+            effects_.table = std::move(result.table);
+            effects_.zoneFx = std::move(result.zoneFx);
+            effects_.models = {result.models.begin(), result.models.end()};
+            effects_.sounds = {result.sounds.begin(), result.sounds.end()};
+            effects_.extraRoots = std::move(result.extraRoots);
+            effects_.techsets = {result.techsets.begin(), result.techsets.end()};
         }
 
         // stage_fx: the script table of the effects the scripts load; the
         // rest are UNSUPPORTED_FX (skipped at runtime)
         void BridgeStage::WriteEffectTable(const std::vector<std::string>& names)
         {
-            std::map<std::string, std::string> table;
-            for (const auto& [name, converted] : effects_.table.items())
-                table.emplace(name, converted.get<std::string>());
+            const auto& table = effects_.table;
             for (const auto& name : names)
                 if (!effects_.table.contains(name))
                     report_["warnings"].push_back("UNSUPPORTED_FX " + name + ": not converted (skipped at runtime)");
@@ -542,17 +515,20 @@ namespace w2b::pipeline
                 std::string atr;
                 if (config.is_object() && Truthy(config.value("owned_tree", Json())))
                 {
-                    const auto states = kind == "dog" ? dogStates_ : Json::object();
-                    const auto staged = Call(StageOwnedActorTreeRequest,
-                                             Json{{"project_root", Str(projectRoot_)}, {"bo2_root", Str(*o_.bo2)}, {"base", tree}, {"config", config},
-                                                  {"source_states", Truthy(states) ? states : Json::object()}, {"roots", Paths(roots_)},
-                                                  {"stock_waw", stock_ && Truthy(states) ? bridge::StockRequest(&*stock_) : Json()}});
-                    if (staged.contains("error"))
-                        throw StepError(staged["error_kind"] == "TraversalError" ? "TraversalError" : "StageError", staged["error"].get<std::string>());
-                    bridge::AdoptPrepared(stock_ ? &*stock_ : nullptr, staged);
-                    Extend(report_, "errors", staged["errors"]);
-                    tree = staged["name"].get<std::string>();
-                    atr = staged["tree"].get<std::string>();
+                    OwnedActorTreeRequest request{projectRoot_, *o_.bo2, tree, config.at("owned_tree").get<std::string>(), {}, {}, roots_, nullptr};
+                    const auto donors = config.value("add_states", Json::object());
+                    for (const auto& [donor, states] : donors.items())
+                        request.donorStates.emplace_back(donor, states.get<std::vector<std::string>>());
+                    if (kind == "dog" && Truthy(dogStates_))
+                    {
+                        request.sourceStates = dogStates_.get<std::map<std::string, std::string>>();
+                        request.stock = stock_ ? &*stock_ : nullptr;
+                    }
+                    auto staged = StageOwnedActorTree(request);
+                    for (const auto& error : staged.errors)
+                        report_["errors"].push_back(error);
+                    tree = std::move(staged.name);
+                    atr = std::move(staged.tree);
                 }
                 else
                     atr = mod::Read(*o_.bo2 / "raw/animtrees" / files::FromUtf8(tree + ".atr"));
@@ -571,12 +547,12 @@ namespace w2b::pipeline
             {
                 Json placements = Json::array();
                 for (const auto& model : staticModels_)
-                    placements.push_back(Json{{"name", model[0]}, {"origin", model[1]}, {"axis", model[2]}, {"scale", model[3]}, {"flags", model[4]},
-                                              {"cullDist", model[5]}, {"primaryLightIndex", model[6]}, {"reflectionProbeIndex", model[7]}});
-                const auto result = Call(models::Stage, Json{{"project", Str(projectRoot_)},
-                                                             {"partCsv", Str(extract::ResourceRoot() / "vendor/OpenAssetToolsT6/raw/t6/partclassification.csv")},
-                                                             {"placements", placements}, {"roots", Paths(roots_)}, {"extraModels", SortedNames(extra)},
-                                                             {"boxModels", SortedNames(entityBoxModels_)}});
+                    placements.push_back(Json{{"name", model.name}, {"origin", model.origin}, {"axis", model.axis}, {"scale", model.scale}, {"flags", model.flags},
+                                              {"cullDist", model.cullDistance}, {"primaryLightIndex", model.primaryLight},
+                                              {"reflectionProbeIndex", model.reflectionProbe}});
+                const auto result = models::StageModels(projectRoot_, extract::ResourceRoot() / "vendor/OpenAssetToolsT6/raw/t6/partclassification.csv",
+                                                        roots_, std::move(placements), {extra.begin(), extra.end()},
+                                                        {entityBoxModels_.begin(), entityBoxModels_.end()});
                 Extend(report_, "errors", result["errors"]);
                 Extend(report_, "warnings", result["warnings"]);
                 for (const auto& [name, entries] : result["content"].items())
@@ -605,18 +581,17 @@ namespace w2b::pipeline
                         if (!name.empty())
                             presets.insert(name);
                     }
-                Json stockRoots = Json::object();
+                std::map<std::string, fs::path> stockRoots;
                 if (stock_)
                     for (const auto& name : presets)
                         if (const auto hit = stock_->RootFor("physpreset", name))
-                            stockRoots[name] = Str(hit->second);
-                const auto response = Call(physics::Run, Json{{"operation", "stage-dynents"}, {"project", Str(projectRoot_)}, {"entries", mapDynents_},
-                                                              {"roots", Paths(roots_)}, {"stockRoots", stockRoots}, {"effectPrefix", FX_OUTPUT_PREFIX}});
-                if (response.contains("weaponError"))
-                    throw StepError("WeaponError", response["weaponError"].get<std::string>());
-                if (response.contains("invalid"))
-                    throw StepError("ValueError", response["invalid"].get<std::string>());
-                const auto& summary = response["result"];
+                            stockRoots.emplace(name, hit->second);
+                const auto lookup = [&](const std::string& name) -> std::optional<fs::path>
+                {
+                    const auto hit = stockRoots.find(name);
+                    return hit == stockRoots.end() ? std::nullopt : std::optional(hit->second);
+                };
+                const auto summary = bridge::Reported([&] { return physics::StageDynents(projectRoot_, mapDynents_, roots_, lookup, FX_OUTPUT_PREFIX); });
                 if (Truthy(summary.value("resting", Json())))
                 {
                     std::vector<std::string> resting;
@@ -634,12 +609,12 @@ namespace w2b::pipeline
         // projectilecollision.recover: collision-only placements for missile-blocking props
         Names BridgeStage::RecoverProjectileModels()
         {
-            const auto result = Call(models::RecoverProjectileCollision,
-                                     Json{{"gfx", Str(o_.gfx)}, {"clip", Str(o_.clip)}, {"project_root", Str(projectRoot_)}, {"roots", Paths(roots_)}});
-            Extend(report_, "warnings", result["warnings"]);
-            if (!result["entries"].is_null())
-                report_["content"]["projectile_prop_collision"] = result["entries"];
-            return NameSet(result["names"]);
+            const auto result = models::RecoverProjectileCollision({o_.gfx, o_.clip, projectRoot_, roots_});
+            for (const auto& warning : result.warnings)
+                report_["warnings"].push_back(warning);
+            if (result.entries)
+                report_["content"]["projectile_prop_collision"] = *result.entries;
+            return {result.names.begin(), result.names.end()};
         }
 
         // stage_fx_models: converted FX models under names of their own
@@ -650,12 +625,13 @@ namespace w2b::pipeline
                 report_["content"]["fx_model_assets"] = Json::array();
                 return {};
             }
-            const auto result = Call(models::StageEffectAssetsRequest, Json{{"project", Str(projectRoot_)}, {"names", SortedNames(effects_.models)}});
-            Extend(report_, "errors", result["errors"]);
-            report_["content"]["fx_model_assets"] = result["entries"];
+            const auto result = models::StageEffectAssets(projectRoot_, {effects_.models.begin(), effects_.models.end()});
+            for (const auto& error : result.errors)
+                report_["errors"].push_back(error);
+            report_["content"]["fx_model_assets"] = result.EntriesJson();
             Names names;
-            for (const auto& entry : result["entries"])
-                names.insert(entry["name"].get<std::string>());
+            for (const auto& entry : result.entries)
+                names.insert(entry.name);
             return names;
         }
 
@@ -666,7 +642,7 @@ namespace w2b::pipeline
             const auto hud = NameSet(hudList);
             Names names = Union(modelMaterials_, hud);
             for (const auto& surface : surfaces_)
-                names.insert(surface[0].get<std::string>());
+                names.insert(surface.material);
             names = Union(names, NameSet(report_["content"]["physics_constraints"]["materials"]));
             Names weaponMaterials;
             if (weaponReport_)
@@ -702,28 +678,31 @@ namespace w2b::pipeline
         }
 
         // lightmaps.stage: a shared dual-encoding image for every lightmap page
-        void BridgeStage::StageLightmaps(const Json& wawMaterials)
+        void BridgeStage::StageLightmaps(const Names& wawMaterials)
         {
             const auto result = Timed("Convert lightmaps", [&]
             {
-                std::map<long long, std::pair<long long, Names>> pages;
+                std::map<unsigned, textures::SurfacePage> pages;
                 for (const auto& surface : surfaces_)
                 {
-                    auto& [count, materials] = pages[surface[1].get<long long>()];
-                    ++count;
-                    materials.insert(surface[0].get<std::string>());
+                    auto& page = pages[surface.lightmap];
+                    page.index = surface.lightmap;
+                    ++page.surfaces;
+                    page.materials.insert(surface.material);
                 }
-                Json surfacePages = Json::array();
-                for (const auto& [index, page] : pages)
-                    surfacePages.push_back(Json::array({index, page.first, SortedNames(page.second)}));
                 const char* diagnostic = std::getenv("WAW2BO2_DIAG_PAGEID");
-                return Call(textures::StageLightmaps, Json{{"project", Str(projectRoot_)}, {"image_roots", Paths(ImageFolders(roots_))},
-                                                           {"waw_materials", wawMaterials}, {"surface_pages", surfacePages},
-                                                           {"diagnostic", diagnostic && *diagnostic}, {"workers", bridge::WorkerCount(61, true)}});
+                textures::LightmapRequest request{projectRoot_, ImageFolders(roots_), {wawMaterials.begin(), wawMaterials.end()}, {},
+                                                  diagnostic && *diagnostic, bridge::WorkerCount(61, true)};
+                for (auto& [_, page] : pages)
+                    request.surfacePages.push_back(std::move(page));
+                return textures::StageLightmaps(request);
             });
-            Extend(report_, "errors", result["errors"]);
-            Extend(report_, "warnings", result["warnings"]);
-            report_["content"]["lightmaps"] = Json{{"pages", result["pages"]}, {"waw_encoded_materials", wawMaterials.size()}};
+            for (const auto& warning : result.warnings)
+                report_["warnings"].push_back(warning);
+            Json pages = Json::array();
+            for (const auto& page : result.pages)
+                pages.push_back(page.ToJson());
+            report_["content"]["lightmaps"] = Json{{"pages", std::move(pages)}, {"waw_encoded_materials", wawMaterials.size()}};
         }
 
         // the sky (the map's own dome, else BO2's with the WaW sky cube), then every image
@@ -733,12 +712,10 @@ namespace w2b::pipeline
             const auto sourceSky = SourceSkyModel(entitiesSource_);
             if (sourceSky && o_.bo2 && o_.techsetDump)
             {
-                const auto sky = Call(StageSourceSkybox, Json{{"project", o_.project}, {"project_root", Str(projectRoot_)}, {"roots", Paths(roots_)},
-                                                              {"source_name", *sourceSky}, {"native_root", Str(*o_.techsetDump)}, {"bo2_root", Str(*o_.bo2)}});
-                RaiseReported(sky);
-                Extend(report_, "materials", sky["materials"]);
-                report_["content"]["sky"] = sky["sky"];
-                const auto skyMaterials = NameSet(sky["sky"]["materials"]);
+                const auto sky = StageSourceSkybox({o_.project, projectRoot_, roots_, *sourceSky, *o_.techsetDump, *o_.bo2});
+                Extend(report_, "materials", sky.materials);
+                report_["content"]["sky"] = sky.sky.ToJson();
+                const Names skyMaterials(sky.sky.materials.begin(), sky.sky.materials.end());
                 for (const auto& material : report_["materials"])
                     if (skyMaterials.contains(material["name"].get<std::string>()))
                     {
@@ -779,7 +756,7 @@ namespace w2b::pipeline
             for (const auto& [name, path] : nativeFallbacks_)
                 nativeFallbacks[name] = Str(path);
             Names convertedFx;
-            for (const auto& [name, _] : effects_.table.items())
+            for (const auto& [name, _] : effects_.table)
                 convertedFx.insert(name);
             std::vector<fs::path> rawRoots;
             if (o_.wawRoot)
@@ -811,7 +788,6 @@ namespace w2b::pipeline
                 {"waw_map_stem", o_.wawMapScript ? Json(files::Utf8(o_.wawMapScript->stem())) : Json()},
                 {"raw_roots", Paths(rawRoots)},
                 {"iwd_dirs", Paths(o_.iwdDirs.value_or(std::vector<fs::path>{}))},
-                {"stock_waw", bridge::StockRequest(stock_ ? &*stock_ : nullptr)},
                 {"images", images},
                 {"hud_materials", hudMaterials},
                 {"zone_models", SortedNames(zoneModels)},
@@ -840,8 +816,7 @@ namespace w2b::pipeline
                 {"lighting", Json{{"base", Str(Sibling(o_.gfx, ".gfx.bin", ""))}, {"clip_source", Str(o_.clip)}, {"shadow_lights", shadowLights_},
                                   {"script_render_dvars", Json::object()}}},
                 {"coverage_roots", Paths(Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots, Optional(o_.wawStockScripts)}))}};
-            auto tail = BridgeTail(request, *recovery_);
-            bridge::AdoptPrepared(stock_ ? &*stock_ : nullptr, tail);
+            auto tail = BridgeTail(request, stock_ ? &*stock_ : nullptr, *recovery_);
             return std::move(tail["report"]);
         }
 
@@ -891,7 +866,7 @@ namespace w2b::pipeline
                 clipModels_.insert(entry["xModel"].get<std::string>());
             Names worldModels;
             for (const auto& model : staticModels_)
-                worldModels.insert(model[0].get<std::string>());
+                worldModels.insert(model.name);
             // entity placements need the same complete lookup as script-only models
             resolved_ = bridge::RecoverScriptModels(report_["scripts"], report_["warnings"], Union(Union(Union(scriptModels_, shipped_), clipModels_), worldModels),
                                                     roots_, stock, source_ ? &*source_ : nullptr);
@@ -923,7 +898,7 @@ namespace w2b::pipeline
                 if (material.contains("shader_runtime") && material["shader_runtime"].is_object() &&
                     material["shader_runtime"].value("lightmap", Json()) == "waw")
                     wawLightmapMaterials.insert(material.value("source", material["name"]).get<std::string>());
-            StageLightmaps(SortedNames(wawLightmapMaterials));
+            StageLightmaps(wawLightmapMaterials);
             const auto images = StageSkyAndImages(used);
 
             Json scripts{{"used_techsets", SortedNames(used)},

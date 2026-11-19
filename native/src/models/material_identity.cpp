@@ -19,16 +19,15 @@ namespace w2b::models
                    name.starts_with("waw_material/") || name.starts_with("waw_fx/");
         }
 
-        Json CopyMaterials(const Path& project, const Path& stock, const Json& entries, Json& renamed)
+        std::vector<MaterialRename> CopyMaterials(const Path& project, const Path& stock, const std::vector<MaterialFile>& entries, RenameList& renamed)
         {
-            auto updates = Json::array();
+            std::vector<MaterialRename> updates;
             for (std::size_t i = 0; i < entries.size(); ++i)
             {
-                const auto& entry = entries.at(i);
-                const auto& name = entry.at("name").get_ref<const std::string&>();
+                const auto& name = entries[i].name;
                 if (OwnedName(name) || !files::fs::is_regular_file(stock / assets::MaterialPath(name)))
                     continue;
-                const auto source = project / files::FromUtf8(entry.at("file").get_ref<const std::string&>());
+                const auto source = project / files::FromUtf8(entries[i].file);
                 if (!files::fs::exists(source))
                     continue;
                 const auto material = weapons::ReadAssetJson(source);
@@ -38,8 +37,11 @@ namespace w2b::models
                 std::ranges::replace(output, '*', '_');
                 const auto relative = assets::MaterialPath(output);
                 weapons::CopySource(source, project / relative);
-                updates.push_back({{"index", i}, {"name", output}, {"file", weapons::PosixPath(relative)}, {"source_name", name}});
-                renamed[name] = std::move(output);
+                updates.push_back({i, output, weapons::PosixPath(relative), name});
+                if (const auto known = std::ranges::find(renamed, name, &RenameList::value_type::first); known != renamed.end())
+                    known->second = std::move(output);
+                else
+                    renamed.emplace_back(name, std::move(output));
             }
             return updates;
         }
@@ -75,11 +77,11 @@ namespace w2b::models
             }
         }
 
-        void RewriteHud(const Path& project, const Json& hudNames, const ModelNames& renamed)
+        void RewriteHud(const Path& project, const std::vector<std::string>& hudNames, const ModelNames& renamed)
         {
             std::map<std::string, std::string> hud;
             for (const auto& name : hudNames)
-                if (const auto it = renamed.find(name.get_ref<const std::string&>()); it != renamed.end())
+                if (const auto it = renamed.find(name); it != renamed.end())
                     hud.insert(*it);
             if (hud.empty())
                 return;
@@ -148,13 +150,14 @@ namespace w2b::models
         }
     }
 
-    Json IsolateMaterialNames(const Path& project, const Path& stock, const Json& materials, const Json& hudNames)
+    MaterialIsolation IsolateMaterialNames(const Path& project, const Path& stock, const std::vector<MaterialFile>& materials,
+                                           const std::vector<std::string>& hudNames)
     {
-        auto renamed = Json::object();
+        RenameList renamed;
         auto updates = CopyMaterials(project, stock, materials, renamed);
         if (!renamed.empty())
         {
-            const auto names = renamed.get<ModelNames>();
+            const ModelNames names(renamed.begin(), renamed.end());
             const auto bsp = project / "BSP";
             UpdateMapManifests(bsp, names);
             RewriteHud(project, hudNames, names);
@@ -165,19 +168,11 @@ namespace w2b::models
             for (const auto& path : files::RGlob(project / "fx", ".efx"))
             {
                 auto text = files::ReadText(path);
-                for (const auto& [old, value] : renamed.items())
-                    text = gsc::port::Replace(std::move(text), '"' + old + '"', '"' + value.get_ref<const std::string&>() + '"');
+                for (const auto& [old, value] : renamed)
+                    text = gsc::port::Replace(std::move(text), '"' + old + '"', '"' + value + '"');
                 ReplaceStagedText(path, text);
             }
         }
-        return {{"renamed", std::move(renamed)}, {"updates", std::move(updates)}};
-    }
-
-    Json IsolateMaterialNamesRequest(const Path& path)
-    {
-        const auto request = weapons::ReadAssetJson(path);
-        return IsolateMaterialNames(files::FromUtf8(request.at("project").get_ref<const std::string&>()),
-                                    files::FromUtf8(request.at("stock").get_ref<const std::string&>()),
-                                    request.at("materials"), request.at("hud"));
+        return {std::move(renamed), std::move(updates)};
     }
 }

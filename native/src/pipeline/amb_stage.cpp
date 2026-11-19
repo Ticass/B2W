@@ -432,12 +432,9 @@ namespace w2b::pipeline
         return out;
     }
 
-    Json WriteAmbCsc(const Json& request)
+    StepReport WriteAmbCsc(const std::string& project, const fs::path& projectRoot, const std::optional<fs::path>& sourceAmb,
+                           const std::optional<fs::path>& ents)
     {
-        const auto project = request["project"].get<std::string>();
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        const std::optional<fs::path> sourceAmb = request["source_amb"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["source_amb"].get<std::string>()));
-        const std::optional<fs::path> ents = request["ents"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["ents"].get<std::string>()));
         const auto dst = projectRoot / "clientscripts" / "mp" / files::FromUtf8(project + "_amb.csc");
         fs::create_directories(dst.parent_path());
         const auto content = projectRoot / "content_source";
@@ -544,6 +541,10 @@ namespace w2b::pipeline
             warnings.push_back("SOUND_DEFAULT_REVERB " + mix["status"].get<std::string>() + ": source baseline not translated");
         out["default_reverb"] = mix;
         files::WriteText(dst, text);
-        return Json{{"warnings", warnings}, {"content", out}};
+        StepReport report;
+        report.warnings = warnings.get<std::vector<std::string>>();
+        for (auto& [section, value] : out.items())
+            report.Add(section, std::move(value));
+        return report;
     }
 } // namespace w2b::pipeline

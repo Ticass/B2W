@@ -160,18 +160,18 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageEffectsStep(const Json& request, textures::IwdRecovery& recovery)
+    EffectsStage StageEffectsStep(const EffectsStageRequest& request, textures::IwdRecovery& recovery)
     {
-        const auto names = request["names"];
-        auto roots = Paths(request["roots"]);
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
+        const auto& names = request.names;
+        auto roots = request.roots;
+        const auto& projectRoot = request.projectRoot;
         shaders::FolderOutput projectOutput(projectRoot);
-        const auto stockMaterials = files::FromUtf8(request["stock_materials"].get<std::string>());
-        const std::optional<fs::path> techsetDump = request["techset_dump"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["techset_dump"].get<std::string>()));
-        const auto bo2Root = files::FromUtf8(request["bo2_root"].get<std::string>());
-        IwdFormats formats(Paths(request["iwd_dirs"]));
-        auto stock = extract::StockWaw::FromJson(request.value("stock", Json()));
-        auto modToolsSource = extract::WawSource::FromJson(request.value("source_waw", Json()));
+        const auto& stockMaterials = request.stockMaterials;
+        const auto& techsetDump = request.techsetDump;
+        const auto& bo2Root = request.bo2Root;
+        IwdFormats formats(request.iwdDirs);
+        auto* stock = request.stock;
+        auto* modToolsSource = request.source;
         Json warnings = Json::array(), errors = Json::array(), materialsReport = Json::array(), images = Json::array(), recovered = Json::object();
         std::vector<fs::path> extraRoots;
         std::set<std::string> techsets;
@@ -235,8 +235,7 @@ namespace w2b::pipeline
         Deps deps;
         {
             std::set<std::string> start;
-            for (const auto& n : names)
-                start.insert(n.get<std::string>());
+            start.insert(names.begin(), names.end());
             std::vector<std::pair<std::string, std::string>> stack;
             for (const auto& n : start)
                 stack.emplace_back(n, "script");
@@ -289,7 +288,8 @@ namespace w2b::pipeline
             return all;
         };
         auto all = allRoots();
-        Json materialNames = Json::object(), worldMaterials = Json::object();
+        effects::MaterialNames materialNames;
+        Json worldMaterials = Json::object();
         const auto donors = materials::IndexEffectDonors(stockMaterials, techsetDump ? &*techsetDump : nullptr, bo2Root / "raw");
         std::set<std::string> failedMaterials, effectImages;
         for (const auto& mat : deps.materials)
@@ -409,41 +409,25 @@ namespace w2b::pipeline
                     donorsJson[ts] = path;
             if (donorsJson.empty())
                 throw StepError("StageError", "no stock T6 material donors found under " + Str(stockMaterials));
-            Json names = Json::array();
-            for (const auto& [k, _] : worldMaterials.items())
-                names.push_back(k);
-            Json rootsJson = Json::array();
-            for (const auto& r : all)
-                rootsJson.push_back(Str(r));
-            const auto scratch = fs::temp_directory_path() / ("w2b_effect_materials_" + std::to_string(GetCurrentProcessId()));
-            const Json materialRequest{{"names", names},
-                                       {"roots", rootsJson},
-                                       {"stock_materials", Str(stockMaterials)},
-                                       {"project_root", Str(projectRoot)},
-                                       {"techset_root", techsetDump ? Json(Str(*techsetDump)) : Json()},
-                                       {"rename", worldMaterials},
-                                       {"image_prefix", "waw_world/"},
-                                       {"donors", donorsJson},
-                                       {"falloff_placement", nullptr},
-                                       {"light_shadows", true},
-                                       {"layered_vertex_data", request.value("layered_vertex_data", false)},
-                                       {"native_fallbacks", Json::object()}};
-            fs::create_directories(scratch);
-            files::WriteText(scratch / "request.json", py::JsonDumpsDefault(materialRequest));
-            const auto staged = StageMaterials(scratch / "request.json");
-            fs::remove_all(scratch, e);
-            for (const auto& result : staged["results"])
+            MaterialStageRequest materialRequest{{}, all, stockMaterials, projectRoot, techsetDump, "waw_world/", donorsJson, std::nullopt,
+                                                 true, request.layeredVertexData, {}, {}};
+            for (const auto& [name, staged] : worldMaterials.items())
             {
-                for (const auto& i : result["images"])
+                materialRequest.names.insert(name);
+                materialRequest.rename.emplace(name, staged.get<std::string>());
+            }
+            for (auto& result : StageMaterials(materialRequest))
+            {
+                for (const auto& i : result.images)
                     images.push_back(i);
-                for (const auto& w : result["warnings"])
+                for (const auto& w : result.warnings)
                     warnings.push_back(w);
-                for (const auto& x : result["errors"])
+                for (const auto& x : result.errors)
                     errors.push_back(x);
-                if (!result["entry"].is_null())
+                if (!result.entry.is_null())
                 {
-                    materialsReport.push_back(result["entry"]);
-                    techsets.insert(result["techset"].get<std::string>());
+                    materialsReport.push_back(std::move(result.entry));
+                    techsets.insert(result.techset);
                 }
             }
         }
@@ -457,35 +441,20 @@ namespace w2b::pipeline
             files::WriteText(path, py::JsonDumps(Json{{"streamingMode", modes}}, 2) + "\n");
         }
         // fx.stage_converted
-        Json converted = Json{{"converted", Json::array()}, {"failed", 0}, {"warnings", Json::array()}, {"models", Json::array()}, {"sounds", Json::array()}};
+        effects::EffectConversion converted;
         if (!effects.empty())
         {
-            Json list = Json::array();
-            for (const auto& [name, source] : effects)
-                list.push_back(Json{{"name", name}, {"source", Str(source)}});
-            Json absentList = Json::array();
+            effects::EffectRequest convert{projectRoot, {effects.begin(), effects.end()}, {}, materialNames, failedMaterials, request.workers};
             for (const auto& [name, _] : absent)
-                absentList.push_back(name);
-            const auto scratch = fs::temp_directory_path() / ("w2b_effects_" + std::to_string(GetCurrentProcessId()));
-            fs::create_directories(scratch);
-            files::WriteText(scratch / "convert.json", py::JsonDumpsDefault(Json{{"output", Str(projectRoot)},
-                                                                                  {"effects", list},
-                                                                                  {"absent", absentList},
-                                                                                  {"materialNames", materialNames},
-                                                                                  {"failedMaterials", std::vector<std::string>(failedMaterials.begin(), failedMaterials.end())},
-                                                                                  {"workers", request.value("workers", 1)}}));
-            converted = effects::StageEffects(scratch / "convert.json");
-            fs::remove_all(scratch, e);
+                convert.absent.insert(name);
+            converted = effects::StageEffects(convert);
         }
-        for (const auto& w : converted["warnings"])
+        for (const auto& w : converted.warnings)
             warnings.push_back(w);
-        std::set<std::string> done;
-        for (const auto& c : converted["converted"])
-            done.insert(c.get<std::string>());
-        Json table = Json::object(), zoneFx = Json::array();
-        std::set<std::string> scriptNames;
-        for (const auto& n : names)
-            scriptNames.insert(n.get<std::string>());
+        const auto& done = converted.converted;
+        std::map<std::string, std::string> table;
+        std::vector<std::string> zoneFx;
+        const std::set<std::string> scriptNames(names.begin(), names.end());
         for (const auto& name : scriptNames)
             if (done.count(name))
             {
@@ -495,21 +464,9 @@ namespace w2b::pipeline
         for (const auto& [key, zone] : stockUsed)
             warnings.push_back("WAW_STOCK_ASSET " + key.first + " " + key.second + ": the map only references it; ported from the stock WaW zone " + zone + ".ff");
         warnings.push_back("fx: " + std::to_string(done.size()) + " WaW effects converted (" + std::to_string(table.size()) + " loaded by scripts), " +
-                           std::to_string(converted["failed"].get<long long>()) + " failed, " + std::to_string(absent.size()) + " absent from WaW");
-        Json extra = Json::array();
-        for (const auto& r : extraRoots)
-            extra.push_back(Str(r));
-        return Json{{"warnings", warnings},
-                    {"errors", errors},
-                    {"materials", materialsReport},
-                    {"images", images},
-                    {"table", table},
-                    {"zone_fx", zoneFx},
-                    {"models", converted["models"]},
-                    {"sounds", converted["sounds"]},
-                    {"extra_roots", extra},
-                    {"techsets", std::vector<std::string>(techsets.begin(), techsets.end())},
-                    {"recovered", recovered},
-                    {"stock_prepared", stock ? stock->PreparedJson() : Json()}};
+                           std::to_string(converted.failed) + " failed, " + std::to_string(absent.size()) + " absent from WaW");
+        return {warnings.get<std::vector<std::string>>(), errors.get<std::vector<std::string>>(), std::move(materialsReport), std::move(images),
+                std::move(table), std::move(zoneFx), std::move(converted.models), std::move(converted.sounds), std::move(extraRoots),
+                std::move(techsets), std::move(recovered)};
     }
 } // namespace w2b::pipeline

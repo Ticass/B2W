@@ -27,5 +27,4 @@ namespace w2b::barriers
     Json AlignBoards(Json& entities, const Path& bo2, const world::CollisionWorld* clip);
     Json DropChunks(Json& entities);
     Json StageBoards(const Path& bsp, const Path& bo2, const world::CollisionWorld* clip);
-    Json Run(const Path& request);
 }

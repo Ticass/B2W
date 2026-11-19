@@ -267,23 +267,17 @@ namespace w2b::extract
             if (candidates.empty())
                 return;
             std::sort(candidates.rbegin(), candidates.rend());
-            py::Json query = py::Json::object();
-            query["staging"] = Str(staging);
-            query["prior"] = py::Json::array();
+            std::vector<fs::path> prior, relative;
             for (size_t i = 0; i < std::min<size_t>(2, candidates.size()); i++)
-                query["prior"].push_back(Str(std::get<2>(candidates[i])));
-            query["files"] = names;
-            wchar_t temp[MAX_PATH];
-            GetTempPathW(MAX_PATH, temp);
-            const auto file = fs::path(temp) / files::FromUtf8("waw2bo2_cache_share_" + Hex(12) + ".json");
-            files::WriteBytes(file, query.dump());
-            const auto shared = files::ShareIdenticalFiles(file);
-            fs::remove(file, e);
-            if (shared["files"].get<long long>())
+                prior.push_back(std::get<2>(candidates[i]));
+            for (const auto& name : names)
+                relative.push_back(files::FromUtf8(name));
+            const auto shared = files::ShareIdenticalFiles(staging, prior, relative);
+            if (shared.files)
             {
                 char text[64];
-                std::snprintf(text, sizeof text, "%.1f", shared["shared_bytes"].get<double>() / (1024.0 * 1024.0));
-                Print("Extract All: shared " + std::to_string(shared["files"].get<long long>()) + " identical dependency files (" + text + " MiB)");
+                std::snprintf(text, sizeof text, "%.1f", static_cast<double>(shared.bytes) / (1024.0 * 1024.0));
+                Print("Extract All: shared " + std::to_string(shared.files) + " identical dependency files (" + text + " MiB)");
             }
         }
     } // namespace

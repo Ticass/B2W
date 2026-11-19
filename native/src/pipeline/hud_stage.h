@@ -6,6 +6,14 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <map>
+#include <string>
+#include <vector>
+
+namespace w2b::extract
+{
+    class StockWaw;
+}
 
 namespace w2b::textures
 {
@@ -14,10 +22,18 @@ namespace w2b::textures
 
 namespace w2b::pipeline
 {
-    // request {project_root, roots, stock_waw}; returns {result, stock_prepared}
-    py::Json StageWawHud(const std::filesystem::path& request);
-    // wawmenu.stage_assets, served by the IWD recovery (its images resolve
-    // through it): request {project_root, roots, stock_waw, localized};
-    // returns {menus, materials, glyphs, missing, recovered, stock_prepared}
-    py::Json StageWawMenuArt(const py::Json& request, textures::IwdRecovery& recovery);
+    // the original WaW HUD sprites and glyphs; returns content_source/waw_hud.json as written
+    py::Json StageWawHud(const std::filesystem::path& project, const std::vector<std::filesystem::path>& roots, extract::StockWaw* stock);
+
+    struct MenuArt
+    {
+        std::size_t menus = 0, materials = 0, glyphs = 0;
+        std::vector<std::string> missing; // drawn empty
+        py::Json recovered;               // IWD images decoded for the menus (wavelet.recovered)
+    };
+
+    // wawmenu.stage_assets, served by the IWD recovery (its images resolve through it);
+    // localized: the map's localized strings, key -> text
+    MenuArt StageWawMenuArt(const std::filesystem::path& project, const std::vector<std::filesystem::path>& roots, extract::StockWaw* stock,
+                            const std::map<std::string, std::string>& localized, textures::IwdRecovery& recovery);
 } // namespace w2b::pipeline

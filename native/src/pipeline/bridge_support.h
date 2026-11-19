@@ -1,7 +1,9 @@
 #pragma once
 
 #include "core/timeline.h"
+#include "pipeline/finish.h"
 #include "pipeline/modutil.h"
+#include "weapons/weapon.h"
 
 #include <chrono>
 #include <optional>
@@ -80,38 +82,25 @@ namespace w2b::pipeline::bridge
             report[key].push_back(item);
     }
 
-    // a private folder under the temporary directory, removed with its contents
-    class TemporaryFolder
+    // runs a step, raising its weapon and value errors as the StepErrors the bridge reports
+    template <typename F> auto Reported(F&& step)
     {
-    public:
-        TemporaryFolder();
-        ~TemporaryFolder();
-        TemporaryFolder(const TemporaryFolder&) = delete;
-        TemporaryFolder& operator=(const TemporaryFolder&) = delete;
-        const fs::path& Path() const
+        try
         {
-            return folder_;
+            return step();
         }
-
-    private:
-        fs::path folder_;
-    };
-
-    // a native step's JsonRequest entry point, called in process: the request
-    // is written to a private temporary file the step reads
-    Json Call(Json (*step)(const fs::path&), const Json& request);
+        catch (const weapons::WeaponError& error)
+        {
+            throw StepError("WeaponError", error.what());
+        }
+        catch (const std::invalid_argument& error)
+        {
+            throw StepError("ValueError", error.what());
+        }
+        catch (const Json::exception& error)
+        {
+            throw StepError("ValueError", error.what());
+        }
+    }
 }
 
-namespace w2b::extract
-{
-    class StockWaw;
-}
-
-namespace w2b::pipeline::bridge
-{
-    // the request form of the stock WaW zones a native step continues from
-    // ({waw_root, unlinker, work, prepared}); null without them
-    Json StockRequest(const extract::StockWaw* stock);
-    // takes over the zone dumps a step prepared ({stock_prepared})
-    void AdoptPrepared(extract::StockWaw* stock, const Json& result);
-}

@@ -11,11 +11,6 @@ namespace w2b::paths
         constexpr std::string_view TraverseFolder = "maps/mp/animscripts/traverse/";
         constexpr std::string_view Shared = "waw2bo2_dog_shared.gsc";
 
-        Path ReadPath(const Json& request, std::string_view key)
-        {
-            return files::FromUtf8(request.at(key).get_ref<const std::string&>());
-        }
-
         void RemoveOld(const Path& folder)
         {
             if (!std::filesystem::is_directory(folder))
@@ -100,37 +95,5 @@ namespace w2b::paths
         return {{"summary", std::move(output.at("summary"))}, {"renamed", std::move(output.at("renamed"))},
                 {"dogs", {{"calls", std::move(dogs.calls)}, {"library", std::move(dogs.library)},
                          {"states", std::move(dogs.states)}, {"errors", std::move(dogs.errors)}}}};
-    }
-
-    Json Run(const Path& file)
-    {
-        const auto request = ReadManifest(file);
-        try
-        {
-            if (request.contains("windowBsp"))
-                return {{"notes", LinkWindowTraversals(ReadPath(request, "windowBsp"))}};
-            if (request.contains("source"))
-            {
-                std::optional<Path> asd;
-                if (!request.at("asd").is_null())
-                    asd = ReadPath(request, "asd");
-                std::vector<Path> roots;
-                for (const auto& root : request.at("roots"))
-                    roots.push_back(files::FromUtf8(root.get_ref<const std::string&>()));
-                return Stage(ReadPath(request, "source"), ReadPath(request, "bsp"), ReadPath(request, "project"), asd, roots);
-            }
-            std::optional<Names> substates;
-            if (!request.at("substates").is_null())
-                substates = request.at("substates").get<Names>();
-            return Convert(request.at("graph"), substates, request.at("dogCalls"));
-        }
-        catch (const Error& error)
-        {
-            return {{"pathError", error.what()}};
-        }
-        catch (const gsc::GscSyntaxError& error)
-        {
-            return {{"syntaxError", error.what()}};
-        }
     }
 }

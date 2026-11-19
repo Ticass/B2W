@@ -324,34 +324,21 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageMaterials(const fs::path& requestPath)
+    std::vector<MaterialOutcome> StageMaterials(const MaterialStageRequest& request)
     {
-        const auto request = ReadJson(requestPath);
         Context c;
-        for (const auto& r : request["roots"])
-            c.roots.push_back(files::FromUtf8(r.get<std::string>()));
-        c.stockMaterials = files::FromUtf8(request["stock_materials"].get<std::string>());
-        c.projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        if (!request["techset_root"].is_null())
-            c.techsetRoot = files::FromUtf8(request["techset_root"].get<std::string>());
-        for (const auto& [k, v] : request["rename"].items())
-            c.rename[k] = v.get<std::string>();
-        c.imagePrefix = request["image_prefix"].is_null() ? std::string() : request["image_prefix"].get<std::string>();
-        c.donorPaths = request["donors"];
-        if (!request["falloff_placement"].is_null())
-        {
-            std::array<double, 4> f{};
-            for (int i = 0; i < 4; i++)
-                f[i] = request["falloff_placement"][i].get<double>();
-            c.falloff = f;
-        }
-        c.lightShadows = request["light_shadows"].get<bool>();
-        c.layered = request["layered_vertex_data"].get<bool>();
-        for (const auto& [k, v] : request["native_fallbacks"].items())
-            c.fallbacks[k] = files::FromUtf8(v.get<std::string>());
-        std::vector<std::string> names;
-        for (const auto& n : request["names"])
-            names.push_back(n.get<std::string>());
+        c.roots = request.roots;
+        c.stockMaterials = request.stockMaterials;
+        c.projectRoot = request.projectRoot;
+        c.techsetRoot = request.techsetRoot;
+        c.imagePrefix = request.imagePrefix;
+        c.donorPaths = request.donors;
+        c.falloff = request.falloffPlacement;
+        c.lightShadows = request.lightShadows;
+        c.layered = request.layeredVertexData;
+        c.fallbacks = request.nativeFallbacks;
+        c.rename = request.rename;
+        std::vector<std::string> names(request.names.begin(), request.names.end());
         std::sort(names.begin(), names.end());
         materials::Donors donors(c.donorPaths);
         c.sources.emplace(c.roots);
@@ -369,7 +356,7 @@ namespace w2b::pipeline
                           if (!nativeName[i])
                               results[i] = StageWaw(c, donors, names[i]);
                       });
-        Json out = Json::array();
+        std::vector<MaterialOutcome> out;
         std::map<std::string, std::string> written;
         for (size_t i = 0; i < names.size(); i++)
         {
@@ -385,9 +372,9 @@ namespace w2b::pipeline
                 files::WriteBytes(dst, data);
                 written[key] = digest;
             }
-            out.push_back(Json{{"name", names[i]}, {"native", result.native}, {"entry", result.entry}, {"techset", result.techset.empty() ? Json() : Json(result.techset)},
-                               {"warnings", result.warnings}, {"errors", result.errors}, {"images", result.images}});
+            out.push_back({names[i], result.native, std::move(result.entry), std::move(result.techset), std::move(result.warnings),
+                           std::move(result.errors), std::move(result.images)});
         }
-        return Json{{"results", out}};
+        return out;
     }
 } // namespace w2b::pipeline

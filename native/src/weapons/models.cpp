@@ -173,25 +173,11 @@ namespace w2b::weapons
         }
     }
 
-    Json StageModels(const path& request)
+    Json StageModels(const std::vector<path>& roots, const path& project, const Names& names, const Names& worldModels)
     {
-        const auto inputs = ReadAssetJson(request);
-        const auto project = files::FromUtf8(inputs.at("project").get_ref<const std::string&>());
-        std::vector<path> roots;
-        for (const auto& root : inputs.at("roots"))
-            roots.push_back(files::FromUtf8(root.get_ref<const std::string&>()));
-        const auto names = inputs.at("names").get<Names>();
-        const auto worldModels = inputs.at("worldModels").get<Names>();
         ModelReport report;
-        try
-        {
-            for (const auto& name : names)
-                StageModel(roots, project, name, worldModels, report);
-        }
-        catch (const WeaponError& error)
-        {
-            return {{"error", error.what()}};
-        }
+        for (const auto& name : names)
+            StageModel(roots, project, name, worldModels, report);
         return {{"status", "source_models_staged_materials_not_translated"}, {"models", std::move(report.models)},
                 {"missing", std::move(report.missing)}, {"unsupported", std::move(report.unsupported)},
                 {"materials", report.materials}, {"physpresets", std::move(report.presets)},

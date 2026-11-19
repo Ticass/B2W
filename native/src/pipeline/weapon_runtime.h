@@ -7,15 +7,43 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <map>
+#include <optional>
+#include <set>
+#include <string>
+#include <vector>
 
 namespace w2b::pipeline
 {
-    // request {content, ipak, bo2_root, loaded {kind: [names]}, converted_fx,
-    // reserved}; returns weapons.stage_runtime's result
-    py::Json StageWeaponRuntime(const std::filesystem::path& request);
+    struct WeaponRuntimeRequest
+    {
+        std::filesystem::path content; // the project's content_source
+        std::string ipak;
+        std::optional<std::filesystem::path> bo2Root;
+        std::map<std::string, std::set<std::string>> loaded; // stock T6 assets by kind
+        std::set<std::string> convertedFx, reserved;         // reserved: names BO2's zones already define
+    };
+
+    // weapons.stage_runtime: content_source/weapons.runtime.json, as written
+    py::Json StageWeaponRuntime(const WeaponRuntimeRequest& request);
     // the rest of t6bridge._stage_weapon_runtime: the map's string tables
     // (stage_map_tables), maps/mp/waw/_waw2bo2_assets.gsc and the wall buys
     // (entities.map_wall_buys). request {project_root, fx_table, waw_map,
-    // weapons, map_table_roots, table_roots}; returns {map_tables, wall_buy_notes}
-    py::Json FinishWeaponRuntime(const std::filesystem::path& request);
+    // weapons, map_table_roots, table_roots}
+    struct WeaponFinishRequest
+    {
+        std::filesystem::path projectRoot;
+        std::map<std::string, std::string> fxTable;             // script-loaded WaW effect -> converted
+        std::optional<std::string> wawMap;
+        std::map<std::string, std::string> weapons;             // weapons.runtime.json table: WaW -> BO2 name
+        std::vector<std::filesystem::path> mapTableRoots, tableRoots;
+    };
+
+    struct WeaponRuntimeFinish
+    {
+        std::vector<std::string> mapTables;    // the map's own string tables, staged as waw/<path>
+        std::vector<std::string> wallBuyNotes; // UNSUPPORTED_WALLBUY lines
+    };
+
+    WeaponRuntimeFinish FinishWeaponRuntime(const WeaponFinishRequest& request);
 } // namespace w2b::pipeline

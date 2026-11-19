@@ -68,13 +68,6 @@ namespace w2b::gsc::port
             for (const auto& name : paths)
                 found.push_back(PosixPath(folder / name));
         }
-
-        std::optional<ScriptTemplate> GetTemplate(const Json& value)
-        {
-            if (value.is_null())
-                return std::nullopt;
-            return ScriptTemplate{files::FromUtf8(value.at("root").get<std::string>()), value.at("name").get<std::string>()};
-        }
     }
 
     void StageTemplateScripts(const fs::path& root, std::string_view project, const ScriptTemplate& source,
@@ -191,39 +184,5 @@ namespace w2b::gsc::port
             files::WriteText(path, Replace(text, "zm_test", project));
             diagnostics.warnings.push_back("template references renamed in " + script);
         }
-    }
-
-    Json StageScriptFilesRequest(const fs::path& path)
-    {
-        const auto request = Json::parse(files::ReadText(path));
-        const auto root = files::FromUtf8(request.at("root").get<std::string>());
-        const auto& project = request.at("project").get_ref<const std::string&>();
-        StageDiagnostics diagnostics;
-        if (const auto source = GetTemplate(request.value("bo2Template", Json{})); source)
-            StageTemplateScripts(root, project, *source, diagnostics);
-        if (const auto required = request.find("requiredTemplate"); required != request.end())
-            StageRequiredScripts(root, project, GetTemplate(*required), diagnostics);
-        if (request.value("rewriteTemplateReferences", false))
-            RewriteTemplateReferences(root, project, diagnostics);
-        if (const auto bo2 = request.find("rawfilesBo2"); bo2 != request.end())
-            StageScriptRawfiles(root, bo2->is_null() ? std::nullopt : std::optional{files::FromUtf8(bo2->get<std::string>())},
-                                diagnostics);
-        Json result{{"errors", std::move(diagnostics.errors)}, {"warnings", std::move(diagnostics.warnings)}};
-        if (const auto manager = request.find("dropZoneManager"); manager != request.end())
-        {
-            const auto main = root / "maps/mp" / files::FromUtf8(project + ".gsc");
-            if (fs::exists(main))
-            {
-                const auto edited = StageZoneMain(main, manager->get<bool>(), true);
-                result["zoneMain"] = {{"error", edited.error}, {"guardedSwitch", edited.guardedSwitch}};
-            }
-        }
-        return result;
-    }
-
-    Json MapScriptsRequest(const fs::path& path)
-    {
-        const auto request = Json::parse(files::ReadText(path));
-        return MapScripts(files::FromUtf8(request.at("root").get<std::string>()), request.at("project").get_ref<const std::string&>());
     }
 }

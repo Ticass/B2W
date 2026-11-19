@@ -259,16 +259,4 @@ namespace w2b::models
         return {{"materials", std::move(materials)}, {"errors", std::move(errors)},
                 {"warnings", std::move(warnings)}, {"content", std::move(content)}};
     }
-
-    Json Stage(const Path& request)
-    {
-        auto input = weapons::ReadAssetJson(request);
-        const auto project = files::FromUtf8(input.at("project").get_ref<const std::string&>());
-        const auto csv = files::FromUtf8(input.at("partCsv").get_ref<const std::string&>());
-        std::vector<Path> roots;
-        for (const auto& root : input.at("roots"))
-            roots.push_back(files::FromUtf8(root.get_ref<const std::string&>()));
-        return StageModels(project, csv, std::move(roots), std::move(input.at("placements")),
-                           input.at("extraModels").get<Names>(), input.at("boxModels").get<Names>());
-    }
 }

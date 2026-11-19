@@ -18,8 +18,6 @@ namespace w2b::extract
     {
     public:
         StockWaw(fs::path wawRoot, fs::path unlinker, fs::path work);
-        // the request form {"waw_root", "unlinker", "work"}; nullopt for null
-        static std::optional<StockWaw> FromJson(const py::Json& data);
 
         void Load();
         fs::path ZoneDir() const;
@@ -30,10 +28,6 @@ namespace w2b::extract
         // zones defining (kind, name), case-insensitive, zombie zones first
         std::vector<std::string> ZonesDefining(const std::string& kind, const std::string& name) const;
         fs::path Dump(const std::string& zone, const std::optional<std::string>& kind = std::nullopt);
-        // the zone dumps this instance prepared ({zone: {"folder", "inputs"}}),
-        // so a caller holding its own copy continues from the same state
-        py::Json PreparedJson() const;
-        void ApplyPrepared(const py::Json& prepared);
         // (zone, dump root) of the preferred zone defining the asset
         std::optional<std::pair<std::string, fs::path>> RootFor(const std::string& kind, const std::string& name);
 

@@ -16,23 +16,6 @@ namespace w2b::world
     {
         using py::Json;
 
-        void SelectSurfaces(RenderWorld& world, const Json& entries, bool assignedVisibility)
-        {
-            std::vector<WorldSurface> selected;
-            selected.reserve(entries.size());
-            for (const auto& row : entries)
-            {
-                auto surface = world.surfaces.at(row.at(0).get<std::size_t>());
-                surface.primaryLight = row.at(1).get<int>();
-                surface.reflectionProbe = row.at(2).get<int>();
-                surface.layerFormat = row.at(3).get<int>();
-                if (!assignedVisibility)
-                    surface.cell = row.at(4).get<int>();
-                selected.push_back(std::move(surface));
-            }
-            world.surfaces = std::move(selected);
-        }
-
         Json Export(const RenderWorld& world, const files::fs::path& path, const RenderMeshes& result,
                     std::size_t copies)
         {
@@ -64,26 +47,6 @@ namespace w2b::world
             report["shadow_geometry"] = WriteShadowGeometry(world, result, folder / "shadowgeom.json");
         }
         return report;
-    }
-
-    Json StageWorldFbx(const files::fs::path& request)
-    {
-        const auto args = Json::parse(files::ReadText(request));
-        auto world = ReadRenderWorld(files::FromUtf8(args.at("gfx").get<std::string>()),
-                                     args.at("compensated").get<bool>());
-        const bool assignedVisibility = args.contains("visibility_source");
-        Visibility visibility;
-        if (assignedVisibility)
-            visibility = AssignVisibility(world, files::FromUtf8(args.at("visibility_source").get<std::string>()),
-                                          args.value("cell_probes", std::vector<std::vector<int>>{}));
-        if (args.contains("surfaces"))
-            SelectSurfaces(world, args.at("surfaces"), assignedVisibility);
-        else if (const auto limit = args.value("surface_limit", std::numeric_limits<std::size_t>::max());
-                 limit < world.surfaces.size())
-            world.surfaces.resize(limit);
-        return WriteStagedWorld(world, request.parent_path() / "world.fbx", args.value("blend_materials", std::set<std::string>{}),
-                                args.value("shadow_materials", std::set<std::string>{}), args.value("own_light_casters", std::set<std::string>{}),
-                                assignedVisibility ? &visibility : nullptr);
     }
 
     Json ExportWorldFbx(const files::fs::path& source, const files::fs::path& output,

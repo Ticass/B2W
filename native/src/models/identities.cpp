@@ -12,9 +12,9 @@ namespace w2b::models
     {
         constexpr std::string_view Prefix = "waw_world_model/";
 
-        Json CopyAliases(const Path& folder)
+        RenameList CopyAliases(const Path& folder)
         {
-            auto renamed = Json::object();
+            RenameList renamed;
             for (const auto& path : files::RGlob(folder, ".json"))
             {
                 auto name = weapons::PosixPath(path.lexically_relative(folder));
@@ -27,7 +27,7 @@ namespace w2b::models
                 if (!files::ReadBytes(path, data))
                     throw std::runtime_error("cannot read " + files::Utf8(path));
                 files::WriteBytes(folder / files::FromUtf8(output + ".json"), data);
-                renamed[name] = output;
+                renamed.emplace_back(name, output);
             }
             return renamed;
         }
@@ -100,28 +100,30 @@ namespace w2b::models
         }, 4);
     }
 
-    Json IsolateModelNames(const Path& project)
+    py::Json RenamesJson(const RenameList& renamed)
+    {
+        auto json = Json::object();
+        for (const auto& [old, name] : renamed)
+            json[old] = name;
+        return json;
+    }
+
+    RenameList IsolateModelNames(const Path& project)
     {
         auto result = CopyAliases(project / "xmodel");
         if (result.empty())
             return result;
-        const auto names = result.get<ModelNames>();
+        const ModelNames names(result.begin(), result.end());
         RewriteCollisionAndRender(project / "BSP", names);
         RewriteStagedScripts(project, [&](std::string_view source) { return RewriteModelLiterals(source, names); });
         for (const auto& path : files::RGlob(project / "fx", ".efx"))
         {
             auto text = files::ReadText(path);
-            for (const auto& [old, value] : result.items())
-                text = gsc::port::Replace(std::move(text), '"' + old + '"', '"' + value.get_ref<const std::string&>() + '"');
+            for (const auto& [old, value] : result)
+                text = gsc::port::Replace(std::move(text), '"' + old + '"', '"' + value + '"');
             ReplaceStagedText(path, text);
         }
         ReplaceStagedText(project / "maps/mp/waw/_waw2bo2_models.gsc", ModelTable(names));
         return result;
-    }
-
-    Json IsolateModelNamesRequest(const Path& path)
-    {
-        const auto request = weapons::ReadAssetJson(path);
-        return IsolateModelNames(files::FromUtf8(request.at("project").get_ref<const std::string&>()));
     }
 }

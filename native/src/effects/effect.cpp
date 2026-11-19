@@ -110,7 +110,7 @@ namespace w2b::effects
         });
     }
 
-    ConvertedEffect ConvertEffect(const py::Json& source, const py::Json& materials)
+    ConvertedEffect ConvertEffect(const py::Json& source, const MaterialNames& materials)
     {
         const auto name = source.value("name", Json{});
         if (source.value("_type", Json{}) != "waw2bo2_fx" || source.value("_game", Json{}) != "T4")

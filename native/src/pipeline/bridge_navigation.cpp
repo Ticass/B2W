@@ -40,7 +40,7 @@ namespace w2b::pipeline
         }
 
         Json StagePaths(const fs::path& source, const fs::path& project, const std::optional<fs::path>& bo2,
-                        const Json& roots, Json& warnings, Json& errors)
+                        const std::vector<fs::path>& roots, Json& warnings, Json& errors)
         {
             if (!fs::exists(source))
             {
@@ -53,7 +53,7 @@ namespace w2b::pipeline
                 if (bo2)
                     if (auto path = *bo2 / "raw/animstatedefs/zm_nuked_basic.asd"; fs::exists(path))
                         states = std::move(path);
-                auto result = paths::Stage(source, project / "BSP", project, states, bridge::PathList(roots));
+                auto result = paths::Stage(source, project / "BSP", project, states, roots);
                 const auto& summary = result.at("summary");
                 for (const auto& error : result.at("dogs").at("errors"))
                     warnings.push_back("UNCONVERTED_TRAVERSAL " + error.get<std::string>());
@@ -109,31 +109,36 @@ namespace w2b::pipeline
         }
     }
 
-    Json StageBridgeNavigation(const Json& request, const fs::path& gfx, const fs::path& project,
+    Json StageBridgeNavigation(const NavigationRequest& request, const fs::path& gfx, const fs::path& project,
                                const std::vector<fs::path>& roots, const world::CollisionWorld& clip)
     {
         auto stem = files::Utf8(gfx.filename());
         if (stem.ends_with(".gfx.bin"))
             stem.resize(stem.size() - std::string_view(".gfx.bin").size());
         const auto bsp = project / "BSP";
-        const auto bo2 = bridge::OptionalPath(request.at("bo2_root"));
-        const auto source = SourceEntities(gfx, files::FromUtf8(request.at("stage").get<std::string>()), roots, stem);
+        const auto& bo2 = request.bo2Root;
+        const auto source = SourceEntities(gfx, request.stage, roots, stem);
         auto warnings = Json::array(), errors = Json::array();
-        const auto paths = StagePaths(gfx.parent_path() / files::FromUtf8(stem + ".paths.json"), project, bo2, request.at("traversal_roots"), warnings, errors);
-        const auto machines = bo2 && request.value("bo2_stock_perks", false) ? gsc::port::stockperks::MachineModels(*bo2) : std::set<std::string>{};
+        const auto paths = StagePaths(gfx.parent_path() / files::FromUtf8(stem + ".paths.json"), project, bo2, request.traversalRoots, warnings, errors);
+        const auto machines = bo2 && request.bo2StockPerks ? gsc::port::stockperks::MachineModels(*bo2) : std::set<std::string>{};
         auto result = Json{{"entity_source", mod::Str(source)}, {"entities", Json::object()}, {"script_models", Json::array()}, {"has_entities", false},
                            {"zone_graph", nullptr}, {"dog_states", paths.is_null() ? Json::object() : paths.at("dogs").at("states")},
                            {"bo2_machine_models", machines}};
         if (fs::exists(source))
         {
-            Json entityRequest{{"source", mod::Str(source)}, {"bsp", mod::Str(bsp)}, {"project", request.at("project")}, {"zoneNames", Json::array()},
-                               {"startZones", nullptr}, {"animscripts", paths.is_null() ? Json::object() : paths.at("renamed")},
-                               {"respawnExclusion", request.at("respawn_exclusion")}};
-            if (const auto script = bridge::OptionalPath(request.at("waw_map_script")); script && fs::exists(*script))
-                entityRequest["zoneScript"] = mod::Str(*script);
-            auto entities = mapents::ConvertRequest(entityRequest, &clip);
-            if (entities.contains("invalid"))
-                throw StepError("StageError", "map entities: " + entities.at("invalid").get<std::string>());
+            mapents::MapEntityRequest entityRequest{source, bsp, request.project, paths.is_null() ? Json::object() : paths.at("renamed"),
+                                                    std::nullopt, request.respawnExclusion, &clip};
+            if (request.wawMapScript && fs::exists(*request.wawMapScript))
+                entityRequest.zoneScript = request.wawMapScript;
+            Json entities;
+            try
+            {
+                entities = mapents::ConvertMapEntities(entityRequest);
+            }
+            catch (const std::invalid_argument& error)
+            {
+                throw StepError("StageError", "map entities: " + std::string(error.what()));
+            }
             auto& summary = entities.at("summary");
             if (bo2)
             {

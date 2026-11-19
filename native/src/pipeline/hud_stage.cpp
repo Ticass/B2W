@@ -239,15 +239,9 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageWawHud(const fs::path& requestPath)
+    Json StageWawHud(const fs::path& project, const std::vector<fs::path>& roots, extract::StockWaw* stock)
     {
-        const auto request = mod::Json(requestPath);
-        const auto project = files::FromUtf8(request["project_root"].get<std::string>());
-        std::vector<fs::path> roots;
-        for (const auto& r : request["roots"])
-            roots.push_back(files::FromUtf8(r.get<std::string>()));
-        auto stock = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
-        SourceFinder source(roots, stock ? &*stock : nullptr);
+        SourceFinder source(roots, stock);
         Stager stager(project, "waw_hud");
         std::vector<std::string> missing;
         for (const auto& name : ASSETS)
@@ -288,7 +282,7 @@ namespace w2b::pipeline
         files::WriteText(project / "zm/waw_hud_glyphs.csv", CsvText(glyphRows, "\n"));
         const Json result{{"materials", stager.materials}, {"fonts", fonts}, {"glyphs", glyphRows.size()}};
         files::WriteText(project / "content_source/waw_hud.json", py::JsonDumps(result, 2) + "\n");
-        return Json{{"result", result}, {"stock_prepared", stock ? stock->PreparedJson() : Json()}};
+        return result;
     }
 
     namespace
@@ -307,12 +301,12 @@ namespace w2b::pipeline
         }
 
         // wawmenu.glyph_sets: the characters each font role must carry
-        std::map<std::string, std::set<char32_t>> GlyphSets(const Json& required, const Json& localized)
+        std::map<std::string, std::set<char32_t>> GlyphSets(const Json& required, const std::map<std::string, std::string>& localized)
         {
             std::map<std::string, std::set<char32_t>> out;
             for (const auto& [key, enums] : required.at("strings").items())
             {
-                auto value = localized.contains(key) ? localized[key].get<std::string>() : key;
+                auto value = localized.contains(key) ? localized.at(key) : key;
                 std::string stripped;
                 for (size_t i = 0; i < value.size(); i++)
                 {
@@ -343,18 +337,14 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json StageWawMenuArt(const Json& request, textures::IwdRecovery& recovery)
+    MenuArt StageWawMenuArt(const fs::path& project, const std::vector<fs::path>& roots, extract::StockWaw* stock,
+                            const std::map<std::string, std::string>& localized, textures::IwdRecovery& recovery)
     {
-        const auto project = files::FromUtf8(request.at("project_root").get<std::string>());
-        std::vector<fs::path> roots;
-        for (const auto& r : request.at("roots"))
-            roots.push_back(files::FromUtf8(r.get<std::string>()));
-        auto stock = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
         const auto manifestPath = project / "content_source/waw_menu.json";
         auto manifest = mod::Json(manifestPath);
-        SourceFinder source(roots, stock ? &*stock : nullptr, &recovery);
+        SourceFinder source(roots, stock, &recovery);
         Stager stager(project, "waw_menu");
-        Json missing = Json::array();
+        std::vector<std::string> missing;
         for (const auto& item : manifest.at("materials"))
         {
             const auto name = item.get<std::string>();
@@ -367,7 +357,7 @@ namespace w2b::pipeline
             stager.Sprite(name, textures::DecodeDdsPillow(mod::Bytes(*path)));
         }
         std::vector<std::vector<std::string>> rows;
-        for (const auto& [role, chars] : GlyphSets(manifest, request.at("localized")))
+        for (const auto& [role, chars] : GlyphSets(manifest, localized))
         {
             try
             {
@@ -384,7 +374,6 @@ namespace w2b::pipeline
         manifest["missing"] = missing;
         manifest["glyphs"] = rows.size();
         files::WriteText(manifestPath, py::JsonDumps(manifest, 2) + "\n");
-        return Json{{"menus", manifest.at("menus").size()}, {"materials", stager.materials.size()}, {"glyphs", rows.size()}, {"missing", missing},
-                    {"recovered", source.recovered}, {"stock_prepared", stock ? stock->PreparedJson() : Json()}};
+        return {manifest.at("menus").size(), stager.materials.size(), rows.size(), std::move(missing), std::move(source.recovered)};
     }
 } // namespace w2b::pipeline

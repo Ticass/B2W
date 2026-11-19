@@ -806,12 +806,12 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json SoundMix(const Json& request)
+    SoundMixResult SoundMix(const SoundMixRequest& request)
     {
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        const auto project = request["project"].get<std::string>();
-        const std::optional<fs::path> bo2Root = request["bo2_root"].is_null() ? std::nullopt : std::optional(files::FromUtf8(request["bo2_root"].get<std::string>()));
-        auto stockWaw = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
+        const auto& projectRoot = request.projectRoot;
+        const auto& project = request.project;
+        const auto& bo2Root = request.bo2Root;
+        auto* stockWaw = request.stock;
         gsc::port::SetCompatDir(extract::ResourceRoot() / "src/waw2bo2/compat");
         const auto& api = gsc::port::Api();
         Json warnings = Json::array(), content = Json::object();
@@ -822,10 +822,8 @@ namespace w2b::pipeline
         {
             budget = [&] { const profile::Scope scope("sound mix: loaded budget"); return LoadedBudget(*bo2Root); }();
             std::set<std::string> played;
-            for (const auto& s : request["script_sounds"])
-                played.insert(s.get<std::string>());
-            for (const auto& s : request["entity_sounds"])
-                played.insert(s.get<std::string>());
+            played.insert(request.scriptSounds.begin(), request.scriptSounds.end());
+            played.insert(request.entitySounds.begin(), request.entitySounds.end());
             for (const auto& [actor, cats] : api["zombie_vocals"].items())
                 if (actor != "doc")
                     for (const auto& [_, a] : cats.items())
@@ -982,7 +980,7 @@ namespace w2b::pipeline
         Json remaster;
         if (bo2Root)
         {
-            const auto amb = request["source_amb"].is_null() ? std::string() : encoding::WawText(mod::Bytes(files::FromUtf8(request["source_amb"].get<std::string>())));
+            const auto amb = request.sourceAmb ? encoding::WawText(mod::Bytes(*request.sourceAmb)) : std::string();
             const auto eventsFile = projectRoot / "content_source/announcer_events.json";
             const auto& stingerStates = audio["music_stingers"];
             const auto& twin = audio["vocal_twins"];
@@ -1093,7 +1091,7 @@ namespace w2b::pipeline
                                    {"budget", budget},
                                    {"reverb_send", reverbSend},
                                    {"remaster", remaster},
-                                   {"flac_encoder", request.value("flac_encoder", std::string{})},
+                                   {"flac_encoder", request.flacEncoder},
                                    {"engine_names", templateCsv ? TemplateAliasNames(*templateCsv) : std::vector<std::string>{}}};
             const auto result = [&]
             {
@@ -1153,7 +1151,10 @@ namespace w2b::pipeline
             }
         }
         content["reverb_send"] = reverbSend;
-        return Json{{"warnings", warnings}, {"content", content}, {"bank_report", bankReport}, {"budget", budget}, {"reverb_send", reverbSend},
-                    {"stock_prepared", stockWaw ? stockWaw->PreparedJson() : Json()}};
+        SoundMixResult result{{}, std::move(bankReport), std::move(budget)};
+        result.report.warnings = warnings.get<std::vector<std::string>>();
+        for (auto& [section, value] : content.items())
+            result.report.Add(section, std::move(value));
+        return result;
     }
 } // namespace w2b::pipeline

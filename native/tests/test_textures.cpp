@@ -96,14 +96,11 @@ TEST_CASE("Bridge image staging distinguishes missing pixels from an unsearched 
     } fixture;
     REQUIRE(fixture.owned);
     const auto& root = fixture.root;
-    using w2b::files::Utf8;
     w2b::textures::IwdRecovery recovery({}, root / "recovered", std::nullopt, {}, {});
-    Json request{{"project_root", Utf8(root)}, {"image_roots", Json::array()}, {"iwd_dirs", Json::array()},
-                 {"materials", Json::array()}, {"extra_images", {"grey", "~$white-rgb&missing"}},
-                 {"native_images", Json::array()}, {"known_recovered", Json::object()}, {"workers", 1}};
+    w2b::pipeline::BridgeImagesRequest request{root, {}, std::vector<fs::path>{}, {"grey", "~$white-rgb&missing"}, {}, {}, Json::object(), false, false, 1};
     const auto invented = w2b::pipeline::StageBridgeImages(request, recovery);
-    CHECK(invented.at("written") == Json::array({"$outdoor", "grey", "lightmap0_secondary", "reflection_probe0", "~$white-rgb&missing"}));
-    CHECK(invented.at("errors").empty());
+    CHECK(invented.written == std::vector<std::string>{"$outdoor", "grey", "lightmap0_secondary", "reflection_probe0", "~$white-rgb&missing"});
+    CHECK(invented.errors.empty());
     std::string cube;
     REQUIRE(w2b::files::ReadBytes(root / "images/reflection_probe0.iwi", cube));
     REQUIRE(cube.size() == 64 + 4 * 4 * 4 * 6);
@@ -114,11 +111,11 @@ TEST_CASE("Bridge image staging distinguishes missing pixels from an unsearched 
     REQUIRE(pages.size() == 64 + 4 * 12 * 4);
     CHECK(pages.substr(64 + 4 * 4 * 4, 4) == std::string("\x84\xac\xbf\x6f", 4));
 
-    request["iwd_dirs"] = nullptr;
+    request.iwdDirs.reset();
     const auto unknown = w2b::pipeline::StageBridgeImages(request, recovery);
-    CHECK(unknown.at("errors") == Json::array({"image $outdoor: source $outdoor.dds missing from every image root",
-                                              "image grey: source grey.dds missing from every image root"}));
-    CHECK(unknown.at("written") == Json::array({"lightmap0_secondary", "reflection_probe0", "~$white-rgb&missing"}));
+    CHECK(unknown.errors == std::vector<std::string>{"image $outdoor: source $outdoor.dds missing from every image root",
+                                                     "image grey: source grey.dds missing from every image root"});
+    CHECK(unknown.written == std::vector<std::string>{"lightmap0_secondary", "reflection_probe0", "~$white-rgb&missing"});
 }
 
 TEST_CASE("Alpha wavelet cubemaps retain all six faces at both mip levels")

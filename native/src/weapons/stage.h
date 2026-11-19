@@ -18,7 +18,15 @@ namespace w2b::weapons
     void AddDependency(Json& dependencyLists, std::string_view kind, const std::string& value);
     Names GetDependencies(const Json& dependencyLists, std::string_view kind);
     Json StageFlameTables(const std::vector<path>& roots, const path& project, Json& dependencies, const path& schema);
-    Json StageWeapons(const path& request);
-    Json StageModels(const path& request);
+    struct WeaponStage
+    {
+        Json report;       // content_source/weapons.stage.json before its models section
+        Names worldModels; // the staged weapons' world models
+    };
+
+    // The compiled WaW weapons the map uses, with their dependency closure. Throws WeaponError.
+    WeaponStage StageWeapons(const std::vector<path>& roots, const path& project, const path& base, const std::vector<std::string>& names);
+    // The weapons' view and world models; returns the report's models section. Throws WeaponError.
+    Json StageModels(const std::vector<path>& roots, const path& project, const Names& names, const Names& worldModels);
     Json StageShadowVariants(const path& content);
 }

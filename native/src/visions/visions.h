@@ -5,8 +5,15 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
+
+namespace w2b::extract
+{
+    class StockWaw;
+}
 
 namespace w2b::visions
 {
@@ -16,6 +23,14 @@ namespace w2b::visions
     std::tuple<double, double, double> FilmTerms(const py::Json& fields);
     // visions.atlas: the IWI27 RGBA LUT atlas of the grades
     std::string Atlas(const py::Json& grades);
-    // visions.stage; request {project, roots, iwds, stock, source_root, techset_dump}
-    py::Json StageVisions(const std::filesystem::path& request);
+    struct VisionRequest
+    {
+        std::filesystem::path project;
+        std::vector<std::filesystem::path> roots, iwds;
+        extract::StockWaw* stock = nullptr;
+        std::optional<std::filesystem::path> donor, sourceRoot, techsetDump;
+    };
+
+    // visions.stage: the vision report (the LUTs, the glow overlay, the script render dvars)
+    py::Json StageVisions(const VisionRequest& request);
 } // namespace w2b::visions

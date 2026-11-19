@@ -204,40 +204,33 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    Json PortScripts(const fs::path& requestPath)
+    ScriptPort PortScripts(const ScriptPortRequest& request)
     {
-        const auto request = ReadJson(requestPath);
-        const auto stage = files::FromUtf8(request["stage"].get<std::string>());
-        const auto projectRoot = files::FromUtf8(request["project_root"].get<std::string>());
-        const auto mapScript = files::FromUtf8(request["waw_map_script"].get<std::string>());
-        const auto bo2Root = files::FromUtf8(request["bo2_root"].get<std::string>());
-        auto modelRoots = Paths(request["model_roots"]);
-        const bool stockPerks = request.value("bo2_stock_perks", false), stockMap = request.value("waw_stock_map", false);
-        auto stock = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
-        auto modToolsSource = extract::WawSource::FromJson(request.value("source_waw", Json()));
+        const auto& stage = request.stage;
+        const auto& projectRoot = request.projectRoot;
+        const auto& mapScript = request.mapScript;
+        const auto& bo2Root = request.bo2Root;
+        auto modelRoots = request.modelRoots;
+        const bool stockPerks = request.stockPerks, stockMap = request.stockMap;
+        auto* stock = request.stock;
+        auto* modToolsSource = request.source;
         const auto mapName = files::Utf8(mapScript.stem());
         Json warnings = Json::array(), errors = Json::array(), scripts = Json::object();
         const auto finish = [&](const std::set<std::string>& models)
         {
-            Json roots = Json::array();
-            for (const auto& r : modelRoots)
-                roots.push_back(Str(r));
-            return Json{{"scripts", scripts}, {"warnings", warnings}, {"errors", errors}, {"models", std::vector<std::string>(models.begin(), models.end())},
-                        {"model_roots", roots}, {"stock_prepared", stock ? stock->PreparedJson() : Json()}};
+            return ScriptPort{std::move(scripts), warnings.get<std::vector<std::string>>(), errors.get<std::vector<std::string>>(),
+                              {models.begin(), models.end()}, std::move(modelRoots)};
         };
-        // the map zone's own rawfiles first; None marks the map zone's place
+        // the map zone's own rawfiles first; nullopt marks the map zone's place
         std::vector<fs::path> scriptRoots;
-        bool marked = false;
-        for (const auto& r : request["roots"])
-            marked |= r.is_null();
-        if (!marked)
+        if (std::ranges::all_of(request.roots, [](const auto& root) { return root.has_value(); }))
             scriptRoots.push_back(mapScript.parent_path().parent_path());
-        for (const auto& r : request["roots"])
-            scriptRoots.push_back(r.is_null() ? mapScript.parent_path().parent_path() : files::FromUtf8(r.get<std::string>()));
+        for (const auto& r : request.roots)
+            scriptRoots.push_back(r ? *r : mapScript.parent_path().parent_path());
         std::vector<fs::path> iwds;
         {
             std::set<std::string> seen;
-            for (const auto& d : Paths(request["iwd_dirs"]))
+            for (const auto& d : request.iwdDirs)
             {
                 std::error_code e;
                 if (!IsDir(d))
@@ -248,9 +241,7 @@ namespace w2b::pipeline
             }
             std::sort(iwds.begin(), iwds.end(), [](const fs::path& a, const fs::path& b) { return Lower(Str(a)) < Lower(Str(b)); });
         }
-        std::optional<fs::path> stockScripts;
-        if (!request["stock"].is_null())
-            stockScripts = files::FromUtf8(request["stock"].get<std::string>());
+        const auto& stockScripts = request.stockScripts;
         std::error_code e;
         if (!stockScripts || !fs::exists(*stockScripts, e))
         {
@@ -259,7 +250,7 @@ namespace w2b::pipeline
         }
         port::SetCompatDir(extract::ResourceRoot() / "src/waw2bo2/compat");
         const auto api = port::T6Api::Load(extract::ResourceRoot() / "src/waw2bo2/compat/t6_script_api.json", stage / "t6api_cache.json");
-        port::Sources sources(scriptRoots, iwds, stockScripts, Paths(request.value("stock_variant_roots", Json::array())));
+        port::Sources sources(scriptRoots, iwds, stockScripts, request.stockVariantRoots);
         sources.BindZombieFramework("maps/" + mapName);
         const auto& definition = port::Api()["zombie_runtime"];
         const auto actorTypes = port::zombieappearance::SourceActorTypes(projectRoot);
@@ -299,7 +290,7 @@ namespace w2b::pipeline
                 for (const auto& [_, clips] : port::zombiebehavior::MeleeSets(sources, definition, mapName))
                     names.insert(clips.begin(), clips.end());
             }
-            Resolver resolver(modelRoots, stock ? &*stock : nullptr);
+            Resolver resolver(modelRoots, stock);
             for (const auto& [tree, wanted] : requirements)
             {
                 std::vector<std::string> found;
@@ -351,7 +342,7 @@ namespace w2b::pipeline
         options.stockMap = stockMap;
         options.clientPorted = mod::Truthy(Json{{"c", client}}, "c");
         // port_map rebuilds its source view from the arguments the sources were made with
-        port::Sources fresh(scriptRoots, iwds, stockScripts, Paths(request.value("stock_variant_roots", Json::array())));
+        port::Sources fresh(scriptRoots, iwds, stockScripts, request.stockVariantRoots);
         fresh.BindZombieFramework("maps/" + mapName);
         const auto portReport = port::PortMap(fresh, api, mapName, projectRoot, options);
         if (!actorTypes.empty())
@@ -378,7 +369,7 @@ namespace w2b::pipeline
         fs::remove(projectRoot / "maps/mp/waw/_waw2bo2_score_rules.gsc", e);
         if (!actorTypes.empty())
         {
-            Resolver resolver(modelRoots, stock ? &*stock : nullptr);
+            Resolver resolver(modelRoots, stock);
             const port::zombiebehavior::FindXanim find = [&](const std::string& name) { return resolver.Find("xanim", name); };
             const auto movement = port::zombiebehavior::StageActorMovement(sources, projectRoot, bo2Root, definition, mapName, &find);
             if (mod::Truthy(Json{{"m", movement}}, "m"))
@@ -504,7 +495,7 @@ namespace w2b::pipeline
             }
         }
         // recover_script_models: runtime model dependencies through the complete WaW lookup
-        const auto models = bridge::RecoverScriptModels(scripts, warnings, wanted, modelRoots, stock ? &*stock : nullptr, modToolsSource ? &*modToolsSource : nullptr);
+        const auto models = bridge::RecoverScriptModels(scripts, warnings, wanted, modelRoots, stock, modToolsSource);
         std::set<std::string> missing;
         for (const auto& name : wanted)
             if (!models.count(name) && !stockModels.count(Lower(name)))
@@ -584,14 +575,6 @@ namespace w2b::pipeline
         }
         scripts["hud_materials"] = hud;
         return finish(models);
-    }
-    Json LinkCheckStep(const fs::path& requestPath)
-    {
-        const auto request = mod::Json(requestPath);
-        port::SetCompatDir(extract::ResourceRoot() / "src/waw2bo2/compat");
-        const auto api = port::T6Api::Load(extract::ResourceRoot() / "src/waw2bo2/compat/t6_script_api.json",
-                                           files::FromUtf8(request["api_cache"].get<std::string>()));
-        return Json{{"problems", port::LinkCheck(files::FromUtf8(request["project_root"].get<std::string>()), api)}};
     }
 
 } // namespace w2b::pipeline

@@ -14,9 +14,30 @@
 
 namespace w2b::pipeline
 {
-    // request {project, project_root, roots, source_name, native_root, bo2_root};
-    // returns {materials (report entries), sky (report content)} or {stage_error}
-    py::Json StageSourceSkybox(const std::filesystem::path& request);
+    struct SourceSkyRequest
+    {
+        std::string project;
+        std::filesystem::path projectRoot;
+        std::vector<std::filesystem::path> roots;
+        std::string sourceName;                   // the worldspawn skyboxmodel
+        std::filesystem::path nativeRoot, bo2Root; // the stock T6 dump, the BO2 install
+    };
+
+    struct SourceSky
+    {
+        std::string sourceModel;
+        std::vector<std::string> materials;
+        py::Json ToJson() const;
+    };
+
+    struct SourceSkyStage
+    {
+        py::Json materials; // report material entries
+        SourceSky sky;
+    };
+
+    // Throws StepError("StageError") when the sky's model, geometry, materials or shaders are missing.
+    SourceSkyStage StageSourceSkybox(const SourceSkyRequest& request);
 
     struct TemplateSky
     {

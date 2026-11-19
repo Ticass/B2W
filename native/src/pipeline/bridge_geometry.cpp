@@ -141,16 +141,6 @@ namespace w2b::pipeline
                 warnings.push_back(std::to_string(editorSurfaces) + " WaW editor-only surfaces (" + JoinNames(materials.tools) + ") removed from the render world");
         }
 
-        Json WorldMetadata(const world::RenderWorld& world)
-        {
-            auto surfaces = Json::array(), models = Json::array();
-            for (const auto& surface : world.surfaces)
-                surfaces.push_back({surface.material, surface.lightmap});
-            for (const auto& model : world.staticModels)
-                models.push_back({model.name, model.origin, model.axis, model.scale, model.flags, model.cullDistance,
-                                  model.primaryLight, model.reflectionProbe});
-            return {{"surfaces", std::move(surfaces)}, {"static_models", std::move(models)}, {"shadow_lights", !world.shadowLights.empty()}};
-        }
 
         std::string SheetCounts(const Json& sheets)
         {
@@ -225,32 +215,35 @@ namespace w2b::pipeline
         }
     }
 
-    Json StageBridgeGeometry(const Json& request)
+    GeometryStage StageBridgeGeometry(const GeometryRequest& request)
     {
-        const auto path = [&](const char* key) { return FromUtf8(request.at(key).get_ref<const std::string&>()); };
-        const auto project = path("project_root");
+        const auto& project = request.projectRoot;
         const GeometryOutput output(project / "BSP");
-        auto render = world::ReadRenderWorld(path("gfx"), request.at("compensated").get<bool>());
-        const auto clip = world::ReadCollisionWorld(path("clip"));
-        auto physicsReport = physics::LoadMapPhysics(path("dynents"), path("constraints"), project);
+        auto render = world::ReadRenderWorld(request.gfx, request.compensated);
+        const auto clip = world::ReadCollisionWorld(request.clip);
+        auto physicsReport = physics::LoadMapPhysics(request.dynents, request.constraints, project);
         const bool hasWater = std::ranges::any_of(clip.brushes, [](const auto& brush) { return (brush.contents & world::waterContents) != 0; });
         std::set<std::string> clipModels;
         for (const auto& model : clip.staticModels)
             if (model.contents && !model.surfaces.empty())
                 clipModels.insert(model.name);
-        const auto roots = bridge::PathList(request.at("roots"));
-        std::optional<extract::StockWaw> stock;
-        if (!render.layerData.empty() && std::ranges::any_of(render.surfaces, [](const auto& surface) { return surface.layerFormat == 0xff; }))
-            stock = extract::StockWaw::FromJson(request.value("stock_waw", Json()));
-        auto warnings = Json::array(), errors = Json::array(), content = Json::object();
+        const auto& roots = request.roots;
+        // the stock zones resolve the WaW layered materials' sources (format 0xff)
+        auto* stock = !render.layerData.empty() && std::ranges::any_of(render.surfaces, [](const auto& surface) { return surface.layerFormat == 0xff; })
+                          ? request.stock : nullptr;
+        auto warnings = Json::array(), errors = Json::array();
+        GeometryStage staged;
+        auto& content = staged.content;
 
-        auto probes = world::StageProbes({{"source", request.at("probe_source")}, {"project", request.at("project_root")},
-                                         {"image_roots", request.at("image_roots")}, {"compensated", request.at("compensated")}}, &render);
-        auto visibility = world::AssignVisibility(render, path("visibility_source"), probes.value("cells", std::vector<std::vector<int>>{}));
+        auto probes = world::StageProbes({request.probeSource, project, request.imageRoots, request.compensated}, render);
+        auto visibility = world::AssignVisibility(render, request.visibilitySource, probes.value("cells", std::vector<std::vector<int>>{}));
         RemapProbes(render, probes);
-        const auto materials = PlanGeometryMaterials(render, roots, stock ? &*stock : nullptr, warnings);
+        const auto materials = PlanGeometryMaterials(render, roots, stock, warnings);
         SelectRenderSurfaces(render, clip.models.size(), materials, content, warnings);
-        auto metadata = WorldMetadata(render);
+        for (const auto& surface : render.surfaces)
+            staged.surfaces.push_back({surface.material, surface.lightmap});
+        staged.staticModels = render.staticModels;
+        staged.shadowLights = !render.shadowLights.empty();
         const auto shadowOnly = std::ranges::count_if(render.surfaces, [&](const auto& surface) { return materials.shadowOnly.contains(surface.material); });
         const auto meshes = world::WriteStagedWorld(render, output.Directory() / "world.fbx", materials.blendWeights, materials.shadowOnly, materials.ownLightCasters, &visibility);
         output.Publish("world.fbx", "map_gfx.fbx");
@@ -262,23 +255,26 @@ namespace w2b::pipeline
         content["shadow_only_surfaces"] = shadowOnly;
         if (!meshes.at("shadow_geometry").is_null())
             content["shadow_geometry"] = meshes.at("shadow_geometry");
-        auto collision = StageCollision(clip, output, warnings, errors);
-        Json result{{"content", std::move(content)}, {"collision", std::move(collision)}, {"warnings", std::move(warnings)}, {"errors", std::move(errors)},
-                {"visibility_warning", meshes.at("visibility_warning")}, {"world", std::move(metadata)}, {"probes", std::move(probes)},
-                {"sky", materials.skyImage ? Json(*materials.skyImage) : Json()},
-                {"layered", !render.layerData.empty()}, {"stock_prepared", nullptr},
-                {"physics", std::move(physicsReport)}, {"has_water", hasWater}, {"clip_models", std::move(clipModels)}};
-        if (const auto requestNavigation = request.find("navigation"); requestNavigation != request.end())
+        staged.collision = StageCollision(clip, output, warnings, errors);
+        staged.warnings = warnings.get<std::vector<std::string>>();
+        staged.errors = errors.get<std::vector<std::string>>();
+        if (const auto& warning = meshes.at("visibility_warning"); bridge::Truthy(warning))
+            staged.visibilityWarning = warning.get<std::string>();
+        staged.probes = std::move(probes);
+        staged.sky = materials.skyImage;
+        staged.layered = !render.layerData.empty();
+        staged.dynents = std::move(physicsReport["dynents"]);
+        staged.constraints = std::move(physicsReport["constraints"]);
+        staged.hasWater = hasWater;
+        staged.clipModels = std::move(clipModels);
+        if (request.navigation)
         {
-            auto navigation = StageBridgeNavigation(*requestNavigation, path("gfx"), project, roots, clip);
+            auto navigation = StageBridgeNavigation(*request.navigation, request.gfx, project, roots, clip);
             const auto entities = navigation.at("has_entities").get<bool>() ? std::optional(project / "BSP/entities.json") : std::nullopt;
-            auto inventory = BridgeInventory(roots, bridge::PathList(requestNavigation->at("map_roots")), entities,
-                                             requestNavigation->at("level_weapons"), navigation.at("warnings"));
+            auto inventory = BridgeInventory(roots, request.navigation->mapRoots, entities, request.navigation->levelWeapons, navigation.at("warnings"));
             navigation["inventory"] = std::move(inventory);
-            result["navigation"] = std::move(navigation);
+            staged.navigation = std::move(navigation);
         }
-        if (stock)
-            result["stock_prepared"] = stock->PreparedJson();
-        return result;
+        return staged;
     }
 }

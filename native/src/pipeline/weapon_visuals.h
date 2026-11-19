@@ -8,6 +8,10 @@
 #include "core/pytext.h"
 
 #include <filesystem>
+#include <map>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace w2b::textures
 {
@@ -16,7 +20,23 @@ namespace w2b::textures
 
 namespace w2b::pipeline
 {
-    // request {roots, project, stock_materials, techset_dump, native_fallbacks,
-    // bo2_raw, layered_vertex_data}; returns the visuals report plus "recovered"
-    py::Json StageWeaponVisuals(const py::Json& request, textures::IwdRecovery& recovery);
+    struct WeaponVisualsRequest
+    {
+        std::vector<std::filesystem::path> roots;
+        std::filesystem::path project; // the project's content_source
+        std::filesystem::path stockMaterials, techsetDump;
+        std::optional<std::filesystem::path> bo2Raw;
+        std::map<std::string, std::filesystem::path> nativeFallbacks; // material -> BO2 equivalent
+        bool layeredVertexData = false;
+    };
+
+    struct WeaponVisuals
+    {
+        std::vector<std::string> warnings;
+        std::size_t errors = 0;
+        py::Json recovered; // IWD images decoded for the weapons
+    };
+
+    // writes content_source/weapons.visuals.json
+    WeaponVisuals StageWeaponVisuals(const WeaponVisualsRequest& request, textures::IwdRecovery& recovery);
 } // namespace w2b::pipeline

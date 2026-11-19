@@ -93,16 +93,13 @@ namespace w2b::pipeline
 
         std::vector<fs::path> DependencyRoots(const std::vector<fs::path>& roots, extract::StockWaw* stock, const std::set<std::string>& names)
         {
-            Json requests = Json::array();
+            assets::AssetSet requests;
             for (const auto& name : names)
-                requests.push_back({"material", name});
-            const Json request{{"base", mod::Str(extract::ResourceRoot())}, {"sourceRoots", bridge::Paths(roots)},
-                               {"stockRoots", Json::array()}, {"nodes", Json::array()}, {"edges", Json::array()}, {"requests", requests}};
+                requests.emplace("material", name);
             assets::StockLookup lookup;
             if (stock)
                 lookup = [stock](const assets::Asset& asset) { return stock->RootFor(asset.first, asset.second); };
-            const auto graph = assets::Expand(request, std::move(lookup));
-            return bridge::PathList(graph.at("report").at("roots"));
+            return assets::Expand(extract::ResourceRoot(), roots, requests, std::move(lookup)).roots;
         }
 
         void ResolveFormats(world::RenderWorld& world, const std::vector<fs::path>& roots, extract::StockWaw* stock, Json& warnings)

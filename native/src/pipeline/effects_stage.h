@@ -4,6 +4,19 @@
 
 #include "core/pytext.h"
 
+#include <filesystem>
+#include <map>
+#include <optional>
+#include <set>
+#include <string>
+#include <vector>
+
+namespace w2b::extract
+{
+    class StockWaw;
+    class WawSource;
+}
+
 namespace w2b::textures
 {
     class IwdRecovery;
@@ -11,8 +24,31 @@ namespace w2b::textures
 
 namespace w2b::pipeline
 {
-    // request: the stage_effects arguments (see t6bridge._stage_effects_native);
-    // returns the report additions and the EffectsResult fields; "recovered"
-    // lists the IWD images recovery decoded for it
-    py::Json StageEffectsStep(const py::Json& request, textures::IwdRecovery& recovery);
+    struct EffectsStageRequest
+    {
+        std::vector<std::string> names; // the effects the map's scripts load
+        std::vector<std::filesystem::path> roots;
+        std::filesystem::path projectRoot, stockMaterials, bo2Root;
+        std::optional<std::filesystem::path> techsetDump;
+        std::vector<std::filesystem::path> iwdDirs;
+        extract::StockWaw* stock = nullptr;
+        extract::WawSource* source = nullptr; // --waw-source-fx
+        bool layeredVertexData = false;
+        unsigned workers = 1;
+    };
+
+    // what the effects pass adds to the report and hands on (EffectsResult)
+    struct EffectsStage
+    {
+        std::vector<std::string> warnings, errors;
+        py::Json materials, images;                // report records
+        std::map<std::string, std::string> table;  // script-loaded WaW effect -> converted name
+        std::vector<std::string> zoneFx;
+        std::set<std::string> models, sounds;      // what the converted effects spawn and play
+        std::vector<std::filesystem::path> extraRoots; // stock and source dumps the closure used
+        std::set<std::string> techsets;
+        py::Json recovered;                        // IWD images recovery decoded for it
+    };
+
+    EffectsStage StageEffectsStep(const EffectsStageRequest& request, textures::IwdRecovery& recovery);
 } // namespace w2b::pipeline

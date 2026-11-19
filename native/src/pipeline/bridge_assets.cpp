@@ -51,13 +51,8 @@ namespace w2b::pipeline::bridge
         }
 
         // assetresolve.Resolver.expand over the stock WaW zones
-        Json Expand(const std::vector<fs::path>& roots, extract::StockWaw* stock, const assets::AssetSet& requests)
+        assets::AssetGraph Expand(const std::vector<fs::path>& roots, extract::StockWaw* stock, const assets::AssetSet& requests)
         {
-            Json requestList = Json::array();
-            for (const auto& [kind, name] : requests)
-                requestList.push_back({kind, name});
-            const Json request{{"base", Str(extract::ResourceRoot())}, {"sourceRoots", Paths(roots)}, {"stockRoots", Json::array()},
-                               {"nodes", Json::array()}, {"edges", Json::array()}, {"requests", requestList}, {"hasStock", stock != nullptr}};
             assets::StockLookup lookup;
             assets::StockSounds sounds;
             if (stock)
@@ -75,7 +70,7 @@ namespace w2b::pipeline::bridge
             }
             try
             {
-                return assets::Expand(request, std::move(lookup), std::move(sounds)).at("report");
+                return assets::Expand(extract::ResourceRoot(), roots, requests, std::move(lookup), std::move(sounds));
             }
             catch (const weapons::WeaponError& error)
             {
@@ -96,13 +91,6 @@ namespace w2b::pipeline::bridge
             }
         }
 
-        // the result of a weapon step: {error} raises WeaponError
-        Json Checked(Json result)
-        {
-            if (result.contains("error"))
-                throw StepError("WeaponError", result["error"].get<std::string>());
-            return result;
-        }
 
         // sorted(dict.items())
         std::map<std::string, Json> SortedItems(const Json& object)
@@ -125,7 +113,7 @@ namespace w2b::pipeline::bridge
         Json StageWeaponAssets(std::vector<fs::path> roots, const fs::path& content, const Names& weapons, const Names& scriptModels,
                                extract::StockWaw* stock)
         {
-            std::optional<Json> graph;
+            std::optional<assets::AssetGraph> graph;
             if (stock)
             {
                 // only map and companion weapons are initial roots: a stock dump
@@ -136,20 +124,17 @@ namespace w2b::pipeline::bridge
                 for (const auto& name : scriptModels)
                     requests.emplace("xmodel", name);
                 graph = Expand(roots, stock, requests);
-                roots = PathList((*graph)["roots"]);
+                roots = graph->roots;
             }
-            const auto staged = Checked(Call(weapons::StageWeapons, Json{{"roots", Paths(roots)}, {"project", Str(content)},
-                                                                       {"base", Str(extract::ResourceRoot())}, {"names", SortedNames(weapons)}}));
-            auto report = staged["report"];
-            const auto models = NameSet(report["dependencies"].value("xmodel", Json::array()));
-            const auto worldModels = NameSet(staged["worldModels"]);
-            report["models"] = Checked(Call(weapons::StageModels, Json{{"roots", Paths(roots)}, {"project", Str(content)},
-                                                                     {"names", SortedNames(models)}, {"worldModels", SortedNames(worldModels)}}));
+            auto staged = Reported([&] { return weapons::StageWeapons(roots, content, extract::ResourceRoot(), {weapons.begin(), weapons.end()}); });
+            auto& report = staged.report;
+            const auto models = report["dependencies"].value("xmodel", Json::array()).get<weapons::Names>();
+            report["models"] = Reported([&] { return weapons::StageModels(roots, content, models, staged.worldModels); });
             if (graph)
             {
                 report["dependency_graph"] = "weapons.dependencies.json";
-                report["resolved_roots"] = (*graph)["roots"];
-                files::WriteText(content / "weapons.dependencies.json", py::JsonDumps(*graph, 2) + "\n");
+                report["resolved_roots"] = graph->report["roots"];
+                files::WriteText(content / "weapons.dependencies.json", py::JsonDumps(graph->report, 2) + "\n");
             }
             files::WriteText(content / "weapons.stage.json", py::JsonDumps(report, 2) + "\n");
             return report;
@@ -310,8 +295,9 @@ namespace w2b::pipeline::bridge
         assets::AssetSet requests;
         for (const auto& name : names)
             requests.emplace("material", name);
-        auto closure = Expand(roots, stock, requests);
-        roots = PathList(closure["roots"]);
+        auto graph = Expand(roots, stock, requests);
+        roots = std::move(graph.roots);
+        auto& closure = graph.report;
         const auto equivalents = mod::Json(extract::ResourceRoot() / "src/waw2bo2/compat/bo2_equivalents.json").value("material", Json::object());
         std::map<std::string, std::size_t> nodeIndex;
         for (std::size_t i = 0; i < closure["nodes"].size(); ++i)
@@ -366,27 +352,19 @@ namespace w2b::pipeline::bridge
             const auto donors = Donors(stockMaterials, techsetRoot);
             if (donors.empty())
                 throw StepError("StageError", "no stock T6 material donors found under " + Str(stockMaterials));
-            Json fallbacks = Json::object();
-            for (const auto& [name, path] : options.nativeFallbacks)
-                fallbacks[name] = Str(path);
-            const Json request{{"names", SortedNames(names)}, {"roots", Paths(roots)}, {"stock_materials", Str(stockMaterials)},
-                               {"project_root", Str(projectRoot)}, {"techset_root", PathOrNull(techsetRoot)}, {"rename", Json::object()},
-                               {"image_prefix", "waw_world/"}, {"donors", donors},
-                               {"falloff_placement", options.falloffPlacement ? Json(*options.falloffPlacement) : Json()},
-                               {"light_shadows", options.lightShadows}, {"layered_vertex_data", options.layeredVertexData},
-                               {"native_fallbacks", fallbacks}};
-            const auto data = Call(pipeline::StageMaterials, request);
+            MaterialStageRequest request{{names.begin(), names.end()}, roots, stockMaterials, projectRoot, techsetRoot, "waw_world/", donors,
+                                         options.falloffPlacement, options.lightShadows, options.layeredVertexData, options.nativeFallbacks};
             Names used;
-            for (const auto& result : data["results"])
+            for (auto& result : pipeline::StageMaterials(request))
             {
-                Extend(report, "images", result["images"]);
-                Extend(report, "warnings", result["warnings"]);
-                if (!result["native"].get<bool>())
-                    Extend(report, "errors", result["errors"]);
-                if (!result["entry"].is_null())
+                Extend(report, "images", result.images);
+                Extend(report, "warnings", result.warnings);
+                if (!result.native)
+                    Extend(report, "errors", result.errors);
+                if (!result.entry.is_null())
                 {
-                    report["materials"].push_back(result["entry"]);
-                    used.insert(result["techset"].get<std::string>());
+                    report["materials"].push_back(std::move(result.entry));
+                    used.insert(result.techset);
                 }
             }
             return used;
@@ -399,32 +377,29 @@ namespace w2b::pipeline::bridge
     {
         return Timed("Convert images", [&]
         {
-            Json materials = Json::array(), nativeImages = Json::array();
+            std::vector<std::string> materials;
+            std::set<std::string> nativeImages;
             for (const auto& material : report["materials"])
-                materials.push_back(material["file"]);
+                materials.push_back(material["file"].get<std::string>());
             for (const auto& image : report["images"])
                 if (image.value("source_kind", Json()) == "t6_equivalent")
-                    nativeImages.push_back(image["name"]);
+                    nativeImages.insert(image["name"].get<std::string>());
             const auto flag = [](const char* name)
             {
                 const char* value = std::getenv(name);
                 return value && *value;
             };
-            auto result = StageBridgeImages(Json{{"project_root", Str(projectRoot)}, {"image_roots", Paths(imageRoots)},
-                                                 {"iwd_dirs", iwdDirs ? Paths(*iwdDirs) : Json()}, {"extra_images", extraImages},
-                                                 {"materials", materials}, {"native_images", nativeImages}, {"known_recovered", recovered},
-                                                 {"diagnostic_lightmap", flag("WAW2BO2_DIAG_FALLBACK_MAGENTA")},
-                                                 {"diagnostic_probes", flag("WAW2BO2_DIAG_PROBES")}, {"workers", WorkerCount(0x7FFFFFFF)}},
-                                            recovery);
-            if (result.contains("stage_error"))
-                throw StepError("StageError", result["stage_error"].get<std::string>());
-            const auto recoveredImages = result.value("recovered", Json::object());
-            for (const auto& [stem, metadata] : recoveredImages.items())
+            const BridgeImagesRequest request{projectRoot, imageRoots, iwdDirs, extraImages, materials, nativeImages, recovered,
+                                              flag("WAW2BO2_DIAG_FALLBACK_MAGENTA"), flag("WAW2BO2_DIAG_PROBES"), WorkerCount(0x7FFFFFFF)};
+            auto result = StageBridgeImages(request, recovery);
+            for (const auto& [stem, metadata] : result.recovered.items())
                 recovered[stem] = metadata;
-            Extend(report, "images", result["images"]);
-            Extend(report, "warnings", result["warnings"]);
-            Extend(report, "errors", result["errors"]);
-            return result["written"].get<std::vector<std::string>>();
+            Extend(report, "images", result.images);
+            for (const auto& warning : result.warnings)
+                report["warnings"].push_back(warning);
+            for (const auto& error : result.errors)
+                report["errors"].push_back(error);
+            return std::move(result.written);
         });
     }
 
@@ -445,8 +420,9 @@ namespace w2b::pipeline::bridge
         assets::AssetSet requests;
         for (const auto& name : names)
             requests.emplace("material", name);
-        const auto closure = Expand(roots, stock, requests);
-        const auto resolvedRoots = PathList(closure["roots"]);
+        const auto graph = Expand(roots, stock, requests);
+        const auto& resolvedRoots = graph.roots;
+        const auto& closure = graph.report;
         const auto output = projectRoot / "content_source/impact_materials";
         fs::create_directories(output);
         Json report{{"project", "source_impact_materials"}, {"materials", Json::array()}, {"images", Json::array()}, {"techsets", Json::array()},

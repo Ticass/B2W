@@ -58,23 +58,12 @@ namespace w2b::world
             return usage;
         }
 
-        ProbeUsage RequestProbeUsage(const Json& request)
-        {
-            if (request.contains("surface_counts"))
-            {
-                ProbeUsage usage{request.at("static_model_count").get<std::size_t>(), {}};
-                for (const auto& row : request.at("surface_counts"))
-                    usage.counts[row.at(0).get<int>()] = row.at(1).get<int>();
-                return usage;
-            }
-            const auto gfx = files::FromUtf8(request.at("gfx").get<std::string>());
-            return WorldProbeUsage(ReadRenderWorld(gfx, request.at("compensated").get<bool>()));
-        }
+
     }
 
-    py::Json StageProbes(const Json& args, const RenderWorld* world)
+    py::Json StageProbes(const ProbeRequest& request, const RenderWorld& world)
     {
-        const auto source = files::FromUtf8(args.at("source").get<std::string>());
+        const auto& source = request.source;
         auto report = Json{{"warnings", Json::array()}, {"errors", Json::array()}, {"images", Json::array()}};
         if (!files::fs::is_regular_file(source))
         {
@@ -83,7 +72,7 @@ namespace w2b::world
             return report;
         }
         const auto data = Json::parse(files::ReadText(source));
-        auto usage = world ? WorldProbeUsage(*world) : RequestProbeUsage(args);
+        auto usage = WorldProbeUsage(world);
         const auto staticProbes = data.value("smodelProbes", std::vector<int>{});
         if (!staticProbes.empty() && staticProbes.size() != usage.staticModels)
         {
@@ -92,9 +81,7 @@ namespace w2b::world
             return report;
         }
 
-        std::vector<path> roots;
-        for (const auto& root : args.at("image_roots"))
-            roots.push_back(files::FromUtf8(root.get<std::string>()));
+        const auto& roots = request.imageRoots;
         std::vector<std::array<double, 3>> origins;
         std::vector<std::string> names;
         std::vector<path> images;
@@ -121,8 +108,8 @@ namespace w2b::world
 
         for (const auto probe : staticProbes)
             ++usage.counts[probe];
-        const auto plan = PlanProbes(origins, usage.counts, baked, args.at("compensated").get<bool>());
-        const auto project = files::FromUtf8(args.at("project").get<std::string>());
+        const auto plan = PlanProbes(origins, usage.counts, baked, request.compensated);
+        const auto& project = request.project;
         auto entries = Json::array();
         for (std::size_t t6 = 0; t6 < plan.kept.size(); ++t6)
         {

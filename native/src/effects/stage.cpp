@@ -37,12 +37,11 @@ namespace w2b::effects
             return result + "]";
         }
 
-        StagedEffect Prepare(const Json& entry, const Json& materials, const Names& failedMaterials)
+        StagedEffect Prepare(const std::pair<std::string, files::fs::path>& entry, const MaterialNames& materials, const Names& failedMaterials)
         {
             StagedEffect effect;
-            effect.name = entry.at("name").get<std::string>();
-            const auto path = files::FromUtf8(entry.at("source").get<std::string>());
-            const auto source = Json::parse(files::ReadText(path));
+            effect.name = entry.first;
+            const auto source = Json::parse(files::ReadText(entry.second));
             effect.deps = FindDependencies(source);
             Names missing;
             std::ranges::set_intersection(effect.deps.materials, failedMaterials, std::inserter(missing, missing.end()));
@@ -89,18 +88,15 @@ namespace w2b::effects
         }
     }
 
-    py::Json StageEffects(const files::fs::path& requestPath)
+    EffectConversion StageEffects(const EffectRequest& request)
     {
-        const auto request = Json::parse(files::ReadText(requestPath));
-        const auto output = files::FromUtf8(request.at("output").get<std::string>());
-        const auto& entries = request.at("effects");
-        const auto& materials = request.at("materialNames");
-        const auto failedMaterials = request.at("failedMaterials").get<Names>();
+        const auto& output = request.output;
+        const auto& entries = request.effects;
         std::vector<StagedEffect> staged(entries.size());
         parallel::For(staged.size(), [&](std::size_t i)
         {
-            staged[i] = Prepare(entries[i], materials, failedMaterials);
-        }, request.at("workers").get<unsigned>());
+            staged[i] = Prepare(entries[i], request.materialNames, request.failedMaterials);
+        }, request.workers);
 
         Names sounds, models;
         std::vector<std::string> warnings;
@@ -117,7 +113,7 @@ namespace w2b::effects
             for (const auto& note : effect.notes)
                 warnings.push_back("fx " + effect.name + ": " + note);
         }
-        RejectBrokenLinks(staged, failures, request.at("absent").get<Names>());
+        RejectBrokenLinks(staged, failures, request.absent);
         for (const auto& [name, reason] : failures)
             warnings.push_back("UNSUPPORTED_FX " + name + ": not converted: " + reason);
 
@@ -129,7 +125,6 @@ namespace w2b::effects
             files::WriteText(output / "fx" / files::FromUtf8(effect.outputName + ".w2bfx.json"), effect.serialized);
             converted.insert(effect.name);
         }
-        return {{"converted", converted}, {"failed", failures.size()}, {"warnings", warnings},
-                {"models", models}, {"sounds", sounds}};
+        return {std::move(converted), failures.size(), std::move(warnings), std::move(models), std::move(sounds)};
     }
 }
