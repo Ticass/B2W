@@ -161,7 +161,7 @@ namespace w2b::pipeline
         for (const auto& name : py::Json::parse(files::ReadText(runtime)).value("weapons", py::Json::array()))
         {
             const auto file = project / "content_source/weapons" / files::FromUtf8(name.get<std::string>());
-            if (fs::is_regular_file(file, e) && weapons::ReadInfo(file).value("overheatWeapon", std::string()) == "1")
+            if (fs::is_regular_file(file, e) && weapons::ReadInfo(file).Get("overheatWeapon") == "1")
             {
                 overheats = true;
                 break;

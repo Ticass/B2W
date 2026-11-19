@@ -53,9 +53,9 @@ namespace w2b::pipeline
             files::WriteBytes(path, bytes);
         }
 
-        std::string Field(const py::Json& info, const char* key, const std::string& fallback)
+        std::string Field(const weapons::InfoFields& info, const char* key, const std::string& fallback)
         {
-            return info.contains(key) && info[key].is_string() ? info[key].get<std::string>() : fallback;
+            return std::string(info.Get(key, fallback));
         }
     } // namespace
 

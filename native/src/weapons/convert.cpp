@@ -87,7 +87,7 @@ namespace w2b::weapons
             return rewritten;
         }
 
-        std::string AmmoCapacity(const Json& source)
+        std::string AmmoCapacity(const InfoFields& source)
         {
             const auto& value = Field(source, "sharedAmmoCap");
             if (value.empty())
@@ -108,7 +108,7 @@ namespace w2b::weapons
         }
 
         void RewriteReference(Weapon& weapon, std::string_view name, std::string_view key, std::string_view type,
-                              std::string& value, const Json& source)
+                              std::string& value, const InfoFields& source)
         {
             if (value.empty())
                 return;
@@ -153,13 +153,13 @@ namespace w2b::weapons
         }
     }
 
-    Weapon Convert(std::string_view name, const Json& source, const Schema& t4, const Schema& t6)
+    Weapon Convert(std::string_view name, const InfoFields& source, const Schema& t4, const Schema& t6)
     {
         Weapon weapon;
         weapon.name = OutputName("weapon", std::string(name));
-        for (const auto& [key, field] : source.items())
+        for (const auto& [key, field] : source)
         {
-            auto value = field.get<std::string>();
+            auto value = field;
             const auto& src = Field(t4, key);
             const bool zoom = key == "adsZoomFov" && src == "CSPFT_FLOAT";
             const std::string_view target = zoom ? std::string_view("adsZoomFov1") : std::string_view(key);

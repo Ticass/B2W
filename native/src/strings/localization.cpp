@@ -307,7 +307,7 @@ namespace w2b::strings
         std::set<std::tuple<std::string, std::string, int, int>> seenConflicts;
         std::set<std::string> requested, strings, hintKeys, formattedHintKeys;
         std::vector<std::pair<fs::path, std::vector<gsc::Token>>> scripts;
-        std::vector<std::pair<fs::path, Json>> weaponFiles;
+        std::vector<std::pair<fs::path, weapons::InfoFields>> weaponFiles;
         for (const auto& [folder, ext] : {std::pair<const char*, const char*>{"maps/mp/waw", ".gsc"}, {"clientscripts/mp/waw", ".csc"}})
         {
             auto found = files::RGlob(project / folder, ext);
@@ -358,8 +358,8 @@ namespace w2b::strings
                     continue; // nested simulation data, not a weapon display name
                 auto fields = weapons::ReadInfo(p);
                 for (const char* key : {"displayName", "AIOverlayDescription", "modeName"})
-                    if (fields.contains(key) && !fields[key].get<std::string>().empty())
-                        requested.insert(original(fields[key].get<std::string>()));
+                    if (const auto value = fields.Get(key); !value.empty())
+                        requested.insert(original(std::string(value)));
                 weaponFiles.emplace_back(p, std::move(fields));
             }
         }
@@ -614,7 +614,7 @@ namespace w2b::strings
         {
             for (const char* field : {"displayName", "AIOverlayDescription", "modeName"})
             {
-                const auto key = original(fields.contains(field) ? fields[field].get<std::string>() : std::string());
+                const auto key = original(std::string(fields.Get(field)));
                 if (mapping.count(key))
                     fields[field] = mapping[key];
             }

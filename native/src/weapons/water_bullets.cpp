@@ -43,7 +43,7 @@ namespace w2b::weapons
             return depths;
         }
 
-        double Number(const Json& fields, std::string_view field)
+        double Number(const InfoFields& fields, std::string_view field)
         {
             double value = 0;
             return py::ParseFloat(Field(fields, field), value) ? value : 0;
@@ -59,7 +59,7 @@ namespace w2b::weapons
             text.append(buffer.data(), end);
         }
 
-        std::string WeaponRow(const std::string& name, const Json& fields, double depth)
+        std::string WeaponRow(const std::string& name, const InfoFields& fields, double depth)
         {
             std::string row = "    level.waw_water_bullets[\"" + name + "\"] = waw_water_row( ";
             for (const auto field : spreadFields)

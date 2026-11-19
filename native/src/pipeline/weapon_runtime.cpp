@@ -54,9 +54,9 @@ namespace w2b::pipeline
             return out;
         }
 
-        std::string Field(const Json& fields, const std::string& key)
+        std::string Field(const weapons::InfoFields& fields, const std::string& key)
         {
-            return fields.contains(key) && fields[key].is_string() ? fields[key].get<std::string>() : std::string();
+            return std::string(fields.Get(key));
         }
 
         // str -> its Latin-1 bytes (None when a code point is past 0xFF)
@@ -205,7 +205,7 @@ namespace w2b::pipeline
                 if (soundMap.empty())
                     continue;
                 std::vector<std::string> keys;
-                for (const auto& [key, _] : fields.items())
+                for (const auto& [key, _] : fields)
                     keys.push_back(key);
                 for (const auto& key : keys)
                 {
@@ -392,12 +392,12 @@ namespace w2b::pipeline
             return v;
         }
 
-        double FlameStreamRange(const Json& fields)
+        double FlameStreamRange(const weapons::InfoFields& fields)
         {
             return std::max(FloatOr0(Field(fields, "flameVar_streamFuelLength")), FloatOr0(Field(fields, "flameVar_streamFlameLength")));
         }
 
-        Json ReadFlameTable(const fs::path& path)
+        weapons::InfoFields ReadFlameTable(const fs::path& path)
         {
             return weapons::ReadInfo(path, "FLAMETABLEFILE");
         }
@@ -439,8 +439,8 @@ namespace w2b::pipeline
         Bo2Equivalents equivalents(bo2, loaded);
 
         Json excluded = Json::object(), notes = Json::array(), table = Json::object(), replacements = Json::object();
-        std::vector<std::pair<std::string, Json>> fieldsByWeapon;
-        const auto fieldsOf = [&](const std::string& name) -> Json* {
+        std::vector<std::pair<std::string, weapons::InfoFields>> fieldsByWeapon;
+        const auto fieldsOf = [&](const std::string& name) -> weapons::InfoFields* {
             for (auto& [n, f] : fieldsByWeapon)
                 if (n == name)
                     return &f;
@@ -471,7 +471,7 @@ namespace w2b::pipeline
             if (reserved.count(Lower(table[name].get<std::string>())))
                 reasons.push_back("BO2 already has weapons named " + name + " and " + table[name].get<std::string>());
             std::vector<std::string> keys;
-            for (const auto& [key, _] : fields.items())
+            for (const auto& [key, _] : fields)
                 keys.push_back(key);
             for (const auto& key : keys)
             {
@@ -623,21 +623,20 @@ namespace w2b::pipeline
             // An absent string or anim-name field stays a NULL pointer, which T6
             // dereferences: the linker turns "" into a valid empty string.
             for (const auto& [key, kind] : t6Schema)
-                if (POINTER_STRING_FIELDS.count(kind) && !fields.contains(key))
+                if (POINTER_STRING_FIELDS.count(kind) && !fields.Has(key))
                     fields[key] = "";
             // weapons.separate_alt_ammo: an alternate keeping its own ammo
             if (Field(fields, "inventoryType") == "altmode")
                 if (const auto* primary = fieldsOf(Field(fields, "altWeapon")); primary && Field(*primary, "ammoName") != Field(fields, "ammoName"))
                     fields["ignoreAttachments"] = "1";
-            if (fields.contains("altWeapon") && table.contains(Field(fields, "altWeapon")))
-                fields["altWeapon"] = table[Field(fields, "altWeapon")];
+            if (fields.Has("altWeapon") && table.contains(Field(fields, "altWeapon")))
+                fields["altWeapon"] = table[Field(fields, "altWeapon")].get<std::string>();
             const auto target = table[name].get<std::string>();
             if (target != name)
                 fs::remove(project / "weapons" / files::FromUtf8(name));
             files::WriteText(project / "weapons" / files::FromUtf8(target), weapons::WriteInfo(fields));
-            for (const auto& [key, v] : fields.items())
+            for (const auto& [key, value] : fields)
             {
-                const auto value = v.get<std::string>();
                 if (StartsWith(value, "waw_xanim/"))
                     anims.insert(value);
                 else if (StartsWith(value, "waw/") && typeOf(key) == "CSPFT_FX")

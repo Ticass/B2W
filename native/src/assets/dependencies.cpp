@@ -19,6 +19,12 @@ namespace w2b::assets
                 assets.emplace(kind, value->get_ref<const std::string&>());
         }
 
+        void AddField(AssetSet& assets, std::string_view kind, const weapons::InfoFields& fields, std::string_view key)
+        {
+            if (const auto* value = fields.Find(key); value && !value->empty())
+                assets.emplace(kind, *value);
+        }
+
         AssetSet ReadFlameTable(const Path& source)
         {
             const auto fields = weapons::ReadInfo(source, "FLAMETABLEFILE");
@@ -117,9 +123,8 @@ namespace w2b::assets
             schema_ = weapons::ReadSchema(base_ / "vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h");
         const auto fields = weapons::ReadInfo(source);
         AssetSet dependencies;
-        for (const auto& [key, item] : fields.items())
+        for (const auto& [key, value] : fields)
         {
-            const auto& value = item.get_ref<const std::string&>();
             if (value.empty())
                 continue;
             const auto& type = weapons::Field(schema_, key);

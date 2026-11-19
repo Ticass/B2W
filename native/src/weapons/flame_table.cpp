@@ -9,10 +9,10 @@ namespace w2b::weapons
 {
     namespace
     {
-        void ClampTravel(Json& fields)
+        void ClampTravel(InfoFields& fields)
         {
             for (const std::string_view key : {"flameVar_fireBrightness", "flameVar_dripsBrightness"})
-                if (!fields.contains(key))
+                if (!fields.Has(key))
                     fields[key] = "1";
             const auto reach = std::max(NumericField(fields, "flameVar_streamFuelLength"),
                                         NumericField(fields, "flameVar_streamFlameLength"));
@@ -41,7 +41,7 @@ namespace w2b::weapons
                 throw WeaponError("missing compiled flame table: " + name);
             auto fields = ReadInfo(source, "FLAMETABLEFILE");
             Names unknown;
-            for (const auto& [key, value] : fields.items())
+            for (const auto& [key, value] : fields)
                 if (!fieldsAllowed.contains(key))
                     unknown.insert(key);
             if (!unknown.empty())

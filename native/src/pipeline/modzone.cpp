@@ -254,9 +254,8 @@ namespace w2b::pipeline
                 continue;
             const auto fields = weapons::ReadInfo(*source);
             for (const char* key : {"altWeapon", "DualWieldWeapon", "grenadeWeapon", "parentWeaponName"})
-                if (fields.contains(key) && fields[key].is_string() && !fields[key].get<std::string>().empty())
+                if (const auto dependency = std::string(fields.Get(key)); !dependency.empty())
                 {
-                    const auto dependency = fields[key].get<std::string>();
                     needed.insert(dependency);
                     queue.push_back(dependency);
                 }

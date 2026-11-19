@@ -20,7 +20,7 @@ namespace w2b::weapons
         const auto parts = py::Split(text, "\\");
         if (parts.front() != "PHYSIC" || parts.size() % 2 != 1)
             throw WeaponError("physics preset " + name + ": not a PHYSIC infostring");
-        auto fields = Json::object();
+        InfoFields fields;
         for (std::size_t i = 1; i < parts.size(); i += 2)
             fields[parts[i]] = parts[i + 1];
         if (const auto& prefix = Field(fields, "sndAliasPrefix"); !prefix.empty())

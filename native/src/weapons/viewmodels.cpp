@@ -75,9 +75,9 @@ namespace w2b::weapons
                 bool changed = false;
                 static const std::regex gunSlot(R"(^gunModel([2-9]|1[0-6])?$)");
                 static const auto prefix = OutputName("xmodel", std::string(VariantPrefix));
-                for (auto& [key, value] : fields.items())
+                for (auto& [key, value] : fields)
                 {
-                    const auto& name = value.get_ref<const std::string&>();
+                    const auto name = value;
                     if (!key.starts_with("gunModel") || !std::regex_match(key, gunSlot) || name.starts_with(prefix))
                         continue;
                     const auto model = models_.find(name);

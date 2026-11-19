@@ -2,58 +2,28 @@
 
 #include "core/files.h"
 
-#include <algorithm>
 #include <stdexcept>
 
 namespace w2b::mapents
 {
-    const std::string* MapEntity::Find(std::string_view key) const
-    {
-        const auto found = std::ranges::find_if(fields, [&](const auto& field) { return field.first == key; });
-        return found == fields.end() ? nullptr : &found->second;
-    }
-
-    void MapEntity::Set(std::string_view key, std::string value)
-    {
-        const auto found = std::ranges::find_if(fields, [&](const auto& field) { return field.first == key; });
-        if (found != fields.end())
-            found->second = std::move(value);
-        else
-            fields.emplace_back(std::string(key), std::move(value));
-    }
-
-    void MapEntity::Erase(std::string_view key)
-    {
-        std::erase_if(fields, [&](const auto& field) { return field.first == key; });
-    }
-
-    py::Json ToJson(const MapEntity& entity)
-    {
-        auto out = py::Json::object();
-        for (const auto& [key, value] : entity.fields)
-            out[key] = value;
-        return out;
-    }
-
     py::Json ToJson(const MapEntities& entities)
     {
         auto out = py::Json::array();
         for (const auto& entity : entities)
-            out.push_back(ToJson(entity));
+            out.push_back(w2b::ToJson(entity));
         return out;
     }
 
     MapEntity MapEntityFromJson(const py::Json& entity)
     {
-        MapEntity out;
-        out.fields.reserve(entity.size());
-        for (const auto& [key, value] : entity.items())
+        try
         {
-            if (!value.is_string())
-                throw std::invalid_argument("map entity field " + key + " is not text");
-            out.fields.emplace_back(key, value.get<std::string>());
+            return KeyValuesFromJson(entity);
         }
-        return out;
+        catch (const std::invalid_argument& error)
+        {
+            throw std::invalid_argument("map entity " + std::string(error.what()));
+        }
     }
 
     MapEntities ReadMapEntities(const std::filesystem::path& path)

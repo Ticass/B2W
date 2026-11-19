@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/key_values.h"
 #include "core/pytext.h"
 #include <array>
 
@@ -12,6 +13,7 @@ namespace w2b::weapons
     using py::Json;
     using std::filesystem::path;
     using Schema = std::map<std::string, std::string, std::less<>>;
+    using InfoFields = KeyValues; // a WaW infostring: weapon, flame table, physics preset
 
     class WeaponError : public std::runtime_error
     {
@@ -22,7 +24,7 @@ namespace w2b::weapons
     struct Weapon
     {
         std::string name;
-        Json fields = Json::object();
+        InfoFields fields;
         Json dependencies = Json::object();
         Json unsupported = Json::object();
         Json translations = Json::object();
@@ -31,11 +33,12 @@ namespace w2b::weapons
         void AddDependency(std::string_view kind, const std::string& name);
     };
 
+    const std::string& Field(const InfoFields& fields, std::string_view key);
     const std::string& Field(const Json& fields, std::string_view key);
     const std::string& Field(const Schema& fields, std::string_view key);
-    double NumericField(const Json& fields, std::string_view key);
-    Json ReadInfo(const path& source, std::string_view signature = "WEAPONFILE");
-    std::string WriteInfo(const Json& fields, std::string_view signature = "WEAPONFILE");
+    double NumericField(const InfoFields& fields, std::string_view key);
+    InfoFields ReadInfo(const path& source, std::string_view signature = "WEAPONFILE");
+    std::string WriteInfo(const InfoFields& fields, std::string_view signature = "WEAPONFILE");
     Schema ReadSchema(const path& header);
     std::string_view DependencyKind(std::string_view type);
     std::vector<std::string> NotetrackWords(std::string_view line);
@@ -45,6 +48,6 @@ namespace w2b::weapons
     inline constexpr std::array<std::string_view, 4> FlameSoundKeys{"flameOffLoopSound", "flameIgniteSound",
                                                                    "flameOnLoopSound", "flameCooldownSound"};
     std::string OutputName(std::string_view kind, std::string name);
-    Weapon Convert(std::string_view name, const Json& source, const Schema& t4, const Schema& t6);
-    void ApplyWeaponDefaults(Weapon& weapon, const Json& source, const Schema& t6);
+    Weapon Convert(std::string_view name, const InfoFields& source, const Schema& t4, const Schema& t6);
+    void ApplyWeaponDefaults(Weapon& weapon, const InfoFields& source, const Schema& t6);
 }

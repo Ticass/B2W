@@ -102,9 +102,9 @@ namespace w2b::weapons
             for (const auto& [kind, names] : weapon.dependencies.items())
                 for (const auto& asset : names)
                     AddDependency(dependencies, kind, asset.get_ref<const std::string&>());
-            for (const auto& [key, value] : weapon.fields.items())
+            for (const auto& [key, value] : weapon.fields)
                 if (key.starts_with("worldModel") && std::regex_match(key, worldModel))
-                    worldModels.insert(value.get_ref<const std::string&>());
+                    worldModels.insert(value);
             files::WriteText(project / "weapons" / files::FromUtf8(weapon.name), WriteInfo(weapon.fields));
         }
         auto& report = plan.report;

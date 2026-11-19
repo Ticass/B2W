@@ -30,9 +30,8 @@ namespace w2b::pipeline
                 if (!fs::is_regular_file(source))
                     continue;
                 const auto fields = weapons::ReadInfo(source);
-                for (const auto& [key, value] : fields.items())
+                for (const auto& [key, profile] : fields)
                 {
-                    const auto& profile = value.get_ref<const std::string&>();
                     if (!profile.empty() && gsc::Lower(key).ends_with("rumble"))
                         names.insert(profile);
                 }

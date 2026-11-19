@@ -14,9 +14,9 @@ namespace w2b::weapons
             weapon.translations[key] = {{"source", source}, {"target", target}, {"reason", reason}};
         }
 
-        void SetOverlayAndKick(Weapon& weapon, const Json& source, const Schema& t6)
+        void SetOverlayAndKick(Weapon& weapon, const InfoFields& source, const Schema& t6)
         {
-            if (!Field(weapon.fields, "adsOverlayShader").empty() && !source.contains("adsOverlayAlphaScale") &&
+            if (!Field(weapon.fields, "adsOverlayShader").empty() && !source.Has("adsOverlayAlphaScale") &&
                 t6.contains("adsOverlayAlphaScale"))
                 SetField(weapon, "adsOverlayAlphaScale", nullptr, "1",
                          "T6-only overlay alpha scale; WaW draws the scope overlay opaque");
@@ -25,14 +25,14 @@ namespace w2b::weapons
                 "hipViewKickPitchMin", "hipViewKickPitchMax", "hipViewKickYawMin", "hipViewKickYawMax"};
             if (std::ranges::any_of(kick, [&](auto key) { return NumericField(source, key) != 0; }))
                 for (const std::string_view key : {"adsViewKickCenterDuckedScale", "adsViewKickCenterProneScale"})
-                    if (!source.contains(key) && t6.contains(key))
+                    if (!source.Has(key) && t6.contains(key))
                         SetField(weapon, key, nullptr, "1",
                                  "T6-only stance scale on view-kick recentering; WaW recentres unscaled");
         }
 
-        void SetOffhand(Weapon& weapon, const Json& source)
+        void SetOffhand(Weapon& weapon, const InfoFields& source)
         {
-            if (source.contains("offhandSlot"))
+            if (source.Has("offhandSlot"))
                 return;
             const auto& offhand = Field(source, "offhandClass");
             std::string_view slot;
@@ -44,13 +44,13 @@ namespace w2b::weapons
                 SetField(weapon, "offhandSlot", offhand, slot, "T4 offhand class -> T6 required inventory slot");
         }
 
-        void SetProjectileDamage(Weapon& weapon, const Json& source, const Schema& t6)
+        void SetProjectileDamage(Weapon& weapon, const InfoFields& source, const Schema& t6)
         {
             const auto& type = Field(source, "weaponType");
             if (type != "projectile" && type != "grenade")
                 return;
             std::vector<std::string_view> locations;
-            for (const auto& [key, value] : source.items())
+            for (const auto& [key, value] : source)
                 if (key.starts_with("loc") && Field(t6, key) == "CSPFT_FLOAT")
                     locations.push_back(key);
             if (locations.empty() || !std::ranges::all_of(locations, [&](auto key)
@@ -62,17 +62,17 @@ namespace w2b::weapons
                 {"reason", "WaW ignores hit-location multipliers on projectiles/grenades; T6 applies them"}};
         }
 
-        void SetHeldMelee(Weapon& weapon, const Json& source)
+        void SetHeldMelee(Weapon& weapon, const InfoFields& source)
         {
             const auto& animation = Field(source, "meleeAnim");
             if (Field(source, "inventoryType") == "item" && !animation.empty() &&
                 animation != Field(source, "idleAnim") && animation != Field(source, "emptyIdleAnim") &&
-                NumericField(source, "meleeDamage") > 0 && !source.contains("useAsMelee"))
+                NumericField(source, "meleeDamage") > 0 && !source.Has("useAsMelee"))
                 SetField(weapon, "useAsMelee", "inventoryType item + meleeAnim", "1",
                          "T4 held item melee swings itself; T6 needs useAsMelee");
         }
 
-        void SetProjectileImpact(Weapon& weapon, const Json& source)
+        void SetProjectileImpact(Weapon& weapon, const InfoFields& source)
         {
             if (Field(source, "weaponType") != "projectile")
                 return;
@@ -87,7 +87,7 @@ namespace w2b::weapons
         }
     }
 
-    void ApplyWeaponDefaults(Weapon& weapon, const Json& source, const Schema& t6)
+    void ApplyWeaponDefaults(Weapon& weapon, const InfoFields& source, const Schema& t6)
     {
         SetOverlayAndKick(weapon, source, t6);
         SetOffhand(weapon, source);

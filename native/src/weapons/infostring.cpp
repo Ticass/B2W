@@ -32,6 +32,13 @@ namespace w2b::weapons
         names.push_back(asset);
     }
 
+    const std::string& Field(const InfoFields& fields, std::string_view key)
+    {
+        static const std::string missing;
+        const auto* found = fields.Find(key);
+        return found ? *found : missing;
+    }
+
     const std::string& Field(const Json& fields, std::string_view key)
     {
         static const std::string missing;
@@ -46,7 +53,7 @@ namespace w2b::weapons
         return found == fields.end() ? missing : found->second;
     }
 
-    double NumericField(const Json& fields, std::string_view key)
+    double NumericField(const InfoFields& fields, std::string_view key)
     {
         const auto& text = Field(fields, key);
         double value = 0;
@@ -55,7 +62,7 @@ namespace w2b::weapons
         return value;
     }
 
-    Json ReadInfo(const path& source, std::string_view signature)
+    InfoFields ReadInfo(const path& source, std::string_view signature)
     {
         std::string bytes;
         if (!files::ReadBytes(source, bytes))
@@ -67,22 +74,22 @@ namespace w2b::weapons
         if (parts[0] != signature || parts.size() % 2 != 1)
             throw WeaponError("invalid WEAPONFILE key/value stream");
 
-        auto fields = Json::object();
+        InfoFields fields;
+        fields.fields.reserve(parts.size() / 2);
         for (std::size_t i = 1; i < parts.size(); i += 2)
         {
-            if (fields.contains(parts[i]))
+            if (fields.Has(parts[i]))
                 throw WeaponError("duplicate weapon field " + std::string(parts[i]));
-            fields[parts[i]] = parts[i + 1];
+            fields.fields.emplace_back(std::string(parts[i]), std::string(parts[i + 1]));
         }
         return fields;
     }
 
-    std::string WriteInfo(const Json& fields, std::string_view signature)
+    std::string WriteInfo(const InfoFields& fields, std::string_view signature)
     {
         std::string result(signature);
-        for (const auto& [key, field] : fields.items())
+        for (const auto& [key, value] : fields)
         {
-            const auto& value = field.get_ref<const std::string&>();
             if (key.find('\\') != key.npos || value.find('\\') != value.npos)
                 throw WeaponError("infostring field contains a separator");
             result += '\\';

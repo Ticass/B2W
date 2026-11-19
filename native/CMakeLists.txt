@@ -25,6 +25,7 @@ endif()
 
 add_library(w2b_core STATIC
     src/core/pytext.cpp
+    src/core/key_values.cpp
     src/core/asset_paths.cpp
     src/core/files.cpp
     src/core/share_files.cpp
