@@ -2,13 +2,13 @@
 
 #include "assets/resolver.h"
 #include "core/files.h"
+#include "core/pyre.h"
 #include "extract/stockwaw.h"
 #include "gsc/port/rewrites.h"
 #include "pipeline/finish.h"
 #include "pipeline/modutil.h"
 
 #include <algorithm>
-#include <regex>
 #include <set>
 #include <sstream>
 
@@ -18,30 +18,26 @@ namespace w2b::pipeline
     {
         using py::Json;
         using files::FromUtf8;
-        constexpr auto multiline = std::regex::ECMAScript | std::regex::multiline;
-
-        std::string EscapePattern(std::string_view word)
+        // pyre reports code point offsets; std::string::insert wants bytes
+        std::size_t ByteOffset(std::string_view text, long long codePoints)
         {
-            std::string escaped;
-            for (const auto c : word)
-            {
-                if (std::string_view(R"(\^$.|?*+()[]{})").find(c) != std::string_view::npos)
-                    escaped += '\\';
-                escaped += c;
-            }
-            return escaped;
+            long long seen = 0;
+            for (std::size_t byte = 0; byte < text.size(); ++byte)
+                if ((static_cast<unsigned char>(text[byte]) & 0xC0) != 0x80 && seen++ == codePoints)
+                    return byte;
+            return text.size();
         }
 
         void InsertBodyAnimations(std::string& tree, const std::vector<std::string>& animations, const std::string& kind, const std::string& message)
         {
-            static const std::regex body(R"(^body\s*\n\{)", multiline);
-            std::smatch match;
-            if (!std::regex_search(tree, match, body))
+            static const pyre::Regex body(R"(^body\s*\n\{)", pyre::MULTILINE);
+            const auto match = body.Search(tree);
+            if (!match)
                 throw StepError(kind, message);
             std::string extra = "\n";
             for (const auto& animation : animations)
                 extra += '\t' + animation + '\n';
-            tree.insert(static_cast<std::size_t>(match.position() + match.length()), extra);
+            tree.insert(ByteOffset(tree, match->End()), extra);
         }
 
         std::vector<std::string> AddDonorStates(const fs::path& raw, const Json& donors, std::string& states, const std::string& tree)
@@ -55,14 +51,13 @@ namespace w2b::pipeline
                 for (const auto& entry : donorStates)
                 {
                     const auto& state = entry.get_ref<const std::string&>();
-                    const auto header = "^" + EscapePattern(state) + R"(\s*:)";
-                    if (std::regex_search(states, std::regex(header, multiline)))
+                    const auto header = "^" + pyre::Escape(state) + R"(\s*:)";
+                    if (pyre::Regex(header, pyre::MULTILINE).Search(states))
                         continue;
-                    const std::regex block(header + R"([^\n]*\n\{[\s\S]*?^\})", multiline);
-                    std::smatch match;
-                    if (!std::regex_search(text, match, block))
+                    const auto match = pyre::Regex(header + R"([^\n]*\n\{[\s\S]*?^\})", pyre::MULTILINE).Search(text);
+                    if (!match)
                         throw StepError("StageError", donor + ".asd has no state " + state);
-                    const auto definition = match.str();
+                    const auto definition = (*match)[0];
                     states.resize(py::RStrip(states, "\n").size());
                     states += "\n\n" + definition + '\n';
                     const auto lines = py::SplitLines(definition);
@@ -113,10 +108,9 @@ namespace w2b::pipeline
                 names.insert(translated);
                 lines += '\t' + state + "\t\t\t" + translated + '\n';
             }
-            static const std::regex traverse(R"(^zm_traverse\s*:[^\n]*\n\{([\s\S]*?)^\})", multiline);
-            std::smatch match;
-            if (std::regex_search(states, match, traverse))
-                states.insert(static_cast<std::size_t>(match.position(1) + match.length(1)), lines);
+            static const pyre::Regex traverse(R"(^zm_traverse\s*:[^\n]*\n\{([\s\S]*?)^\})", pyre::MULTILINE);
+            if (const auto match = traverse.Search(states))
+                states.insert(ByteOffset(states, match->End(1)), lines);
             else
             {
                 states.resize(py::RStrip(states, "\n").size());
@@ -160,11 +154,11 @@ namespace w2b::pipeline
 
     std::vector<std::string> NativeTreeAnimations(std::string_view tree)
     {
-        static const std::regex comment(R"(//[^\n]*)"), groups(R"(^\s*([A-Za-z0-9_]+)\s*\n\s*\{)", multiline);
-        const auto clean = std::regex_replace(std::string(tree), comment, "");
+        static const pyre::Regex comment(R"(//[^\n]*)"), groups(R"(^\s*([A-Za-z0-9_]+)\s*\n\s*\{)", pyre::MULTILINE);
+        const auto clean = comment.Sub("", tree);
         std::set<std::string> seen;
-        for (auto match = std::sregex_iterator(clean.begin(), clean.end(), groups); match != std::sregex_iterator(); ++match)
-            seen.insert((*match)[1].str());
+        for (const auto& match : groups.FindIter(clean))
+            seen.insert(match[1]);
         std::vector<std::string> animations;
         for (auto line : py::SplitLines(clean))
         {

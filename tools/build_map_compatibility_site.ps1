@@ -63,7 +63,7 @@ function Write-Text([string]$Path, [string]$Text) { [IO.File]::WriteAllText($Pat
 # a field of a parsed JSON object, $Default when absent
 function Get-Field($Object, [string]$Name, $Default = $null) {
     if ($null -eq $Object) { return $Default }
-    if ($Object -is [Collections.IDictionary]) { if ($Object.Contains($Name)) { return $Object[$Name] } else { return $Default } }
+    if ($Object -is [Collections.IDictionary]) { if (([Collections.IDictionary]$Object).Contains($Name)) { return $Object[$Name] } else { return $Default } }
     $property = $Object.PSObject.Properties[$Name]
     if ($property) { $property.Value } else { $Default }
 }

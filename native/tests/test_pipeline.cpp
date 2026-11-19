@@ -1,5 +1,6 @@
 // build-mod helpers against CPython's csv module and modzone.py.
 #include "core/files.h"
+#include "pipeline/actor_trees.h"
 #include "pipeline/bridge_inventory.h"
 #include "pipeline/csvtable.h"
 #include "pipeline/geometry_materials.h"
@@ -108,4 +109,11 @@ TEST_CASE("mod ipak range opens after the header", "[pipeline]")
 {
     CHECK(OpenModIpakFirst(">game,T6\n// c\nweapon,a\n", {">ipak,pack"}) == ">game,T6\n// c\n>level.ipak_read,pack\n>ipak,pack\nweapon,a\n");
     CHECK(OpenModIpakFirst("x\n", {}) == "x\n");
+}
+
+TEST_CASE("native tree animations skip groups and comments", "[pipeline]")
+{
+    // Group names open a block; comments and repeats are dropped; order is kept.
+    const std::string tree = "// header comment\nbody\n{\n\tzombie_walk // trailing\n\tzombie_run\n\tzombie_walk\n}\nlegs\n  {\n\tdog_idle\n}\n";
+    CHECK(NativeTreeAnimations(tree) == std::vector<std::string>{"zombie_walk", "zombie_run", "dog_idle"});
 }
