@@ -258,7 +258,7 @@ namespace w2b::pipeline
             StagedMaterials StageAllMaterials();
             void StageLightmaps(const Names& wawMaterials);
             std::vector<std::string> StageSkyAndImages(Names& used);
-            Json Tail(Json scripts, const std::vector<std::string>& images, const Json& hudMaterials, const Names& zoneModels);
+            Json Tail(TailScripts scripts, std::vector<std::string> images, const Json& hudMaterials, const Names& zoneModels);
 
             std::vector<fs::path> MapScriptFolder() const
             {
@@ -749,18 +749,9 @@ namespace w2b::pipeline
             return images;
         }
 
-        Json BridgeStage::Tail(Json scripts, const std::vector<std::string>& images, const Json& hudMaterials, const Names& zoneModels)
+        Json BridgeStage::Tail(TailScripts scripts, std::vector<std::string> images, const Json& hudMaterials, const Names& zoneModels)
         {
             const auto wawRoots = MapScriptFolder();
-            Json nativeFallbacks = Json::object();
-            for (const auto& [name, path] : nativeFallbacks_)
-                nativeFallbacks[name] = Str(path);
-            Names convertedFx;
-            for (const auto& [name, _] : effects_.table)
-                convertedFx.insert(name);
-            std::vector<fs::path> rawRoots;
-            if (o_.wawRoot)
-                rawRoots.push_back(*o_.wawRoot / "raw");
             std::optional<fs::path> xwma = o_.xwmaDecoder.value_or(extract::ResourceRoot() / "tools/bin/xaudio_wma_decoder.exe");
             xwma = mod::IsFile(*xwma) ? std::optional(extract::Resolve(*xwma)) : std::nullopt;
             const auto resampler = audio::FindFfmpeg();
@@ -774,52 +765,55 @@ namespace w2b::pipeline
                     throw StepError("SoundError", "missing requested audio decoder: " + Str(*o_.audioDecoder));
                 audioDecoder = extract::Resolve(*o_.audioDecoder);
             }
-            const Json request{
-                {"scripts", std::move(scripts)},
-                {"report", report_},
-                {"project", o_.project},
-                {"project_root", Str(projectRoot_)},
-                {"stage", Str(o_.stage)},
-                {"roots", Paths(roots_)},
-                {"bo2_root", PathOrNull(o_.bo2)},
-                {"techset_dump", PathOrNull(o_.techsetDump)},
-                {"t4_unlinker", PathOrNull(o_.t4Unlinker)},
-                {"t6_unlinker", PathOrNull(o_.t6Unlinker)},
-                {"waw_map_stem", o_.wawMapScript ? Json(files::Utf8(o_.wawMapScript->stem())) : Json()},
-                {"raw_roots", Paths(rawRoots)},
-                {"iwd_dirs", Paths(o_.iwdDirs.value_or(std::vector<fs::path>{}))},
-                {"images", images},
-                {"hud_materials", hudMaterials},
-                {"zone_models", SortedNames(zoneModels)},
-                {"zone_fx", effects_.zoneFx},
-                {"ipak", !o_.noIpak},
-                {"bo2_stock_perks", o_.bo2StockPerks},
-                {"weapons", Json{{"staged", weaponReport_.has_value()}, {"stock_materials", Str(o_.stockMaterials)}, {"native_fallbacks", nativeFallbacks},
-                                 {"layered_vertex_data", layeredVertexData_}, {"converted_fx", SortedNames(convertedFx)},
-                                 {"table_roots", Paths(Concat({o_.wawPatchScriptRoots, roots_}))},
-                                 {"map_table_roots", Paths(Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots}))}}},
-                {"visuals", Json{{"iwd_dirs", Paths(o_.iwdDirs.value_or(std::vector<fs::path>{}))},
-                                 {"vision_roots", Paths(Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots, roots_, Optional(o_.wawStockScripts)}))}}},
-                {"client", Json{{"has_water", hasWater_}}},
-                {"sounds", Json{{"map_stem", o_.wawMapScript ? Json(files::Utf8(o_.wawMapScript->stem())) : Json()},
-                                {"amb_roots", o_.wawMapScript ? Paths(Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots, roots_})) : Json::array()},
-                                {"ents", Str(entitiesSource_)},
-                                {"zone_sounds", SortedNames(zoneSounds_)},
-                                {"compiled_sounds", SortedNames(compiledSounds_)},
-                                {"iwd_dirs", Paths(imageIwds_)},
-                                {"audio_decoder", PathOrNull(audioDecoder)},
-                                {"xwma_helper", PathOrNull(xwma)},
-                                {"resampler", resampler.empty() ? Json() : Json(Str(resampler))},
-                                {"t6_sound_driver", PathOrNull(soundDriver)},
-                                {"approximate_sound_curves", o_.approximateSoundCurves},
-                                {"vision_report", nullptr}}},
-                {"lighting", Json{{"base", Str(Sibling(o_.gfx, ".gfx.bin", ""))}, {"clip_source", Str(o_.clip)}, {"shadow_lights", shadowLights_},
-                                  {"script_render_dvars", Json::object()}}},
-                {"coverage_roots", Paths(Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots, Optional(o_.wawStockScripts)}))}};
-            auto tail = BridgeTail(request, stock_ ? &*stock_ : nullptr, *recovery_);
-            return std::move(tail["report"]);
-        }
+            const auto mapStem = o_.wawMapScript ? std::optional(files::Utf8(o_.wawMapScript->stem())) : std::nullopt;
+            const auto iwdDirs = o_.iwdDirs.value_or(std::vector<fs::path>{});
 
+            TailInput input;
+            input.project = o_.project;
+            input.projectRoot = projectRoot_;
+            input.stage = o_.stage;
+            input.roots = roots_;
+            if (o_.wawRoot)
+                input.rawRoots.push_back(*o_.wawRoot / "raw");
+            input.iwdDirs = iwdDirs;
+            input.coverageRoots = Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots, Optional(o_.wawStockScripts)});
+            input.bo2Root = o_.bo2;
+            input.techsetDump = o_.techsetDump;
+            input.t4Unlinker = o_.t4Unlinker;
+            input.t6Unlinker = o_.t6Unlinker;
+            input.wawMapStem = mapStem;
+            input.images = std::move(images);
+            input.hudMaterials = hudMaterials.get<std::vector<std::string>>();
+            input.zoneModels.assign(zoneModels.begin(), zoneModels.end());
+            input.zoneFx = effects_.zoneFx;
+            input.ipak = !o_.noIpak;
+            input.bo2StockPerks = o_.bo2StockPerks;
+            input.hasWater = hasWater_;
+            input.scripts = std::move(scripts);
+            input.weapons = {weaponReport_.has_value(), o_.stockMaterials, nativeFallbacks_, layeredVertexData_, {}, Concat({o_.wawPatchScriptRoots, roots_}),
+                             Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots})};
+            for (const auto& [name, _] : effects_.table)
+                input.weapons.convertedFx.insert(name);
+            input.visionIwdDirs = iwdDirs;
+            input.visionRoots = Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots, roots_, Optional(o_.wawStockScripts)});
+            auto& sounds = input.sounds;
+            sounds.mapStem = mapStem;
+            if (o_.wawMapScript)
+                sounds.ambRoots = Concat({o_.wawPatchScriptRoots, wawRoots, o_.wawScriptRoots, roots_});
+            sounds.ents = entitiesSource_;
+            sounds.zoneSounds.assign(zoneSounds_.begin(), zoneSounds_.end());
+            sounds.compiledSounds.assign(compiledSounds_.begin(), compiledSounds_.end());
+            sounds.iwdDirs = imageIwds_;
+            sounds.audioDecoder = audioDecoder;
+            sounds.xwmaHelper = xwma;
+            if (!resampler.empty())
+                sounds.resampler = resampler;
+            sounds.t6SoundDriver = soundDriver;
+            sounds.approximateCurves = o_.approximateSoundCurves;
+            input.lighting = {Sibling(o_.gfx, ".gfx.bin", ""), o_.clip, shadowLights_};
+            BridgeTail(std::move(input), report_, stock_ ? &*stock_ : nullptr, *recovery_);
+            return report_;
+        }
         Json BridgeStage::Run()
         {
             OpenSources();
@@ -901,13 +895,14 @@ namespace w2b::pipeline
             StageLightmaps(wawLightmapMaterials);
             const auto images = StageSkyAndImages(used);
 
-            Json scripts{{"used_techsets", SortedNames(used)},
-                         {"waw_map_script", Str(*o_.wawMapScript)},
-                         {"required_template", o_.scriptTemplate && o_.scriptTemplateName
-                                                   ? Json{{"root", Str(*o_.scriptTemplate)}, {"name", *o_.scriptTemplateName}}
-                                                   : Json()},
-                         {"drop_zone_manager", zoneGraph_.is_null() ? Json() : Json(true)},
-                         {"zone_graph", zoneGraph_.is_null() ? Json() : Json{{"initial", zoneGraph_["initial"]}, {"adjacency", zoneGraph_["adjacency"]}}}};
+            TailScripts scripts{{used.begin(), used.end()}, *o_.wawMapScript, std::nullopt, std::nullopt, std::nullopt};
+            if (o_.scriptTemplate && o_.scriptTemplateName)
+                scripts.requiredTemplate = gsc::port::ScriptTemplate{*o_.scriptTemplate, *o_.scriptTemplateName};
+            if (!zoneGraph_.is_null())
+            {
+                scripts.dropZoneManager = true;
+                scripts.zoneGraph = gsc::port::ZoneGraph{zoneGraph_["initial"].get<std::vector<std::string>>(), zoneGraph_["adjacency"].get<std::vector<std::string>>()};
+            }
             const auto zoneModels = Union(Union(Union(scriptModels_, Intersection(shipped_, resolved_)), fxModels), projectileModels);
             return Tail(std::move(scripts), images, hudMaterials, zoneModels);
         }

@@ -1,14 +1,10 @@
 #pragma once
 
 #include "core/pytext.h"
-
-namespace w2b::extract
-{
-    class StockWaw;
-}
+#include "pipeline/bridge_tail.h"
 
 namespace w2b::pipeline
 {
     // the bridge's sounds: dependencies, sources, decoded audio, curves, the bank and the ambient script
-    void StageBridgeSound(const py::Json& request, py::Json& report, extract::StockWaw* stock);
+    void StageBridgeSound(const TailInput& input, py::Json& report, extract::StockWaw* stock);
 }

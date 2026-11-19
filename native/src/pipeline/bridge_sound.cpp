@@ -54,12 +54,12 @@ namespace w2b::pipeline
             return out + "}";
         }
 
-        Json BindBridgeCurves(const fs::path& content, const Json& sounds)
+        Json BindBridgeCurves(const fs::path& content, const TailSounds& sounds)
         {
-            const auto driver = OptionalPath(sounds.at("t6_sound_driver")).value_or(fs::path{});
+            const auto driver = sounds.t6SoundDriver.value_or(fs::path{});
             try
             {
-                return sound::BindCurves(content, driver, sounds.value("approximate_sound_curves", false));
+                return sound::BindCurves(content, driver, sounds.approximateCurves);
             }
             catch (const sound::SoundError& error)
             {
@@ -69,31 +69,30 @@ namespace w2b::pipeline
 
     } // namespace
 
-    void StageBridgeSound(const Json& request, Json& report, extract::StockWaw* stock)
+    void StageBridgeSound(const TailInput& input, Json& report, extract::StockWaw* stock)
     {
-        const auto& sounds = request.at("sounds");
-        const auto project = request.at("project").get<std::string>();
-        const auto projectRoot = files::FromUtf8(request.at("project_root").get<std::string>());
-        const auto roots = PathList(request.at("roots"));
+        const auto& sounds = input.sounds;
+        const auto& project = input.project;
+        const auto& projectRoot = input.projectRoot;
+        const auto& roots = input.roots;
         const auto content = projectRoot / "content_source";
         auto& warnings = report["warnings"];
         auto& out = report["content"];
         // source_amb_script: the WaW map's clientscripts/<map>_amb.csc
         std::optional<fs::path> sourceAmb;
-        if (sounds.at("map_stem").is_string())
-            for (const auto& root : PathList(sounds.at("amb_roots")))
+        if (sounds.mapStem)
+            for (const auto& root : sounds.ambRoots)
             {
-                const auto candidate = root / "clientscripts" / files::FromUtf8(sounds["map_stem"].get<std::string>() + "_amb.csc");
+                const auto candidate = root / "clientscripts" / files::FromUtf8(*sounds.mapStem + "_amb.csc");
                 if (mod::IsFile(candidate))
                 {
                     sourceAmb = candidate;
                     break;
                 }
             }
-        const auto ents = files::FromUtf8(sounds.at("ents").get<std::string>());
+        const auto& ents = sounds.ents;
         const auto found = Timed("Resolve sound dependencies", [&] {
-            return DiscoverSounds({projectRoot, roots, stock, sounds.at("zone_sounds").get<std::vector<std::string>>(),
-                                   sounds.at("compiled_sounds").get<std::vector<std::string>>(), ents, sourceAmb});
+            return DiscoverSounds({projectRoot, roots, stock, sounds.zoneSounds, sounds.compiledSounds, ents, sourceAmb});
         });
         found.report.MergeInto(report);
         // sounds.stage over the resolver's roots (source roots, then stock zones by rank)
@@ -104,13 +103,13 @@ namespace w2b::pipeline
             for (const auto& [_, root] : stockRoots)
                 soundRoots.push_back(root);
         }
-        sound::StageInput input;
+        sound::StageInput stageInput;
         for (const auto& r : soundRoots)
-            input.roots.push_back(Str(r));
-        for (const auto& d : sounds.at("iwd_dirs"))
-            input.iwdDirs.push_back(d.get<std::string>());
-        input.names = std::set<std::string>();
-        input.names->insert(found.soundNames.begin(), found.soundNames.end());
+            stageInput.roots.push_back(Str(r));
+        for (const auto& d : sounds.iwdDirs)
+            stageInput.iwdDirs.push_back(Str(d));
+        stageInput.names = std::set<std::string>();
+        stageInput.names->insert(found.soundNames.begin(), found.soundNames.end());
         // _globals_file: the map's driver globals, else the stock WaW driver's
         for (const auto& root : soundRoots)
         {
@@ -121,23 +120,21 @@ namespace w2b::pipeline
                     direct.push_back(g);
             if (!direct.empty())
             {
-                input.globalsFile = Str(direct.front());
+                stageInput.globalsFile = Str(direct.front());
                 break;
             }
         }
-        if (!input.globalsFile && stock)
+        if (!stageInput.globalsFile && stock)
             if (const auto hit = stock->RootFor("snddriverglobals", "singleton"))
-                input.globalsFile = Str(hit->second / "soundglobals/singleton.w2bsndglobals.json");
-        input.project = content;
+                stageInput.globalsFile = Str(hit->second / "soundglobals/singleton.w2bsndglobals.json");
+        stageInput.project = content;
         fs::create_directories(content);
-        Timed("Stage sound sources", [&] { return sound::Stage(input); });
+        Timed("Stage sound sources", [&] { return sound::Stage(stageInput); });
         const auto soundReport = mod::Json(content / "sounds.stage.json");
         audio::Tools tools;
-        if (sounds.at("xwma_helper").is_string())
-            tools.xwmaHelper = files::FromUtf8(sounds["xwma_helper"].get<std::string>());
-        if (sounds.at("resampler").is_string())
-            tools.resampler = files::FromUtf8(sounds["resampler"].get<std::string>());
-        const auto decoder = sounds.at("audio_decoder").is_string() ? sounds["audio_decoder"].get<std::string>() : std::string();
+        tools.xwmaHelper = sounds.xwmaHelper;
+        tools.resampler = sounds.resampler;
+        const auto decoder = sounds.audioDecoder ? Str(*sounds.audioDecoder) : std::string();
         Timed("Decode audio", [&] { return audio::Stage(content, content / "pcm", decoder, tools); });
         const auto audioReport = mod::Json(content / "pcm" / "audio.stage.json");
         const auto bindingReport = Timed("Bind decoded audio", [&] { return sound::BindPcm(content, content / "pcm"); });
@@ -145,7 +142,7 @@ namespace w2b::pipeline
         const auto curveReport = Timed("Bind sound curves", [&] { return BindBridgeCurves(content, sounds); });
         const auto bank = "waw_" + project + ".all";
         const auto mix = Timed("Build sound bank", [&] {
-            return SoundMix({projectRoot, project, OptionalPath(request.at("bo2_root")), stock, found.scriptSounds, found.entitySounds, sourceAmb,
+            return SoundMix({projectRoot, project, input.bo2Root, stock, found.scriptSounds, found.entitySounds, sourceAmb,
                              tools.resampler ? Str(*tools.resampler) : std::string()});
         });
         mix.report.MergeInto(report);
@@ -181,7 +178,7 @@ namespace w2b::pipeline
         for (const auto& a : audioReport.at("audio"))
             pcm += a.contains("output");
         out["audio"] = Json{{"status", audioReport.at("status")}, {"pcm_files", pcm}, {"errors", audioReport.at("errors")}, {"report", "content_source/pcm/audio.stage.json"}};
-        out["visions"] = sounds.at("vision_report");
+        out["visions"] = sounds.visionReport;
         out["sound_bindings"] = Json{{"status", bindingReport.at("status")}, {"bound_variants", bindingReport.at("bound_variants")}, {"errors", bindingReport.at("errors")},
                                      {"report", "content_source/sounds.bindings.json"}};
         out["sound_curves"] = Json{{"status", curveReport.at("status")}, {"complete_variants", curveReport.at("complete_variants")},
