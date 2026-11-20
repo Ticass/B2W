@@ -10,6 +10,7 @@
 #include "bridge_support.h"
 #include "bridge_tail.h"
 #include "core/pyre.h"
+#include "core/zip.h"
 #include "materials/t6_material.h"
 #include "core/timeline.h"
 #include "effects_stage.h"
@@ -32,6 +33,7 @@
 #include <cstdio>
 #include <functional>
 #include <map>
+#include <set>
 
 namespace w2b::pipeline
 {
@@ -239,6 +241,7 @@ namespace w2b::pipeline
 
         private:
             void OpenSources();
+            void StageIwdWeapons(const std::vector<fs::path>& mapIwdDirs);
             void StageGeometry();
             void OpenModToolsSources();
             void PortScripts();
@@ -330,6 +333,57 @@ namespace w2b::pipeline
                 modTools = extract::ResourceRoot() / "wawModTools";
             const auto wavelet = modTools ? std::optional(*modTools / "bin/AssetViewer.exe") : std::nullopt;
             recovery_ = std::make_unique<textures::IwdRecovery>(imageIwds_, projectRoot_ / "wavelet_src", wavelet, sourceImages, overrides);
+            StageIwdWeapons(overrides);
+        }
+
+        // A weapon file in the map's own IWDs (weapons/sp/<name>) is the one WaW
+        // runs, over the copy linked into the map's zones: Clinic of Evil links
+        // the stock Colt as zombie_colt and ships the Enforcer under that name in
+        // sanatorium.iwd, and players spawn with the Enforcer. The files go to a
+        // root ahead of the zone dumps (weapon sources resolve first root first);
+        // within a folder the later archive wins, as WaW searches it first.
+        void BridgeStage::StageIwdWeapons(const std::vector<fs::path>& mapIwdDirs)
+        {
+            const auto root = projectRoot_ / "iwd_weapons";
+            std::error_code e;
+            fs::remove_all(root, e);
+            std::set<std::string> seen;
+            std::vector<std::string> overridden;
+            for (const auto& directory : mapIwdDirs)
+            {
+                if (!fs::is_directory(directory, e))
+                    continue;
+                std::vector<fs::path> archives;
+                for (const auto& entry : fs::directory_iterator(directory, e))
+                    if (mod::Lower(files::Utf8(entry.path().filename())).ends_with(".iwd"))
+                        archives.push_back(entry.path());
+                std::ranges::stable_sort(archives, std::ranges::greater{}, [](const fs::path& path) { return mod::Lower(files::Utf8(path.filename())); });
+                for (const auto& path : archives)
+                {
+                    zip::Archive archive(path);
+                    for (const auto& entry : archive.Entries())
+                    {
+                        const auto name = mod::Lower(entry.name);
+                        if (entry.IsDir() || !name.starts_with("weapons/sp/") || name.find('/', 11) != std::string::npos)
+                            continue;
+                        const auto weapon = name.substr(11);
+                        if (weapon.empty() || !seen.insert(weapon).second)
+                            continue;
+                        auto bytes = archive.Read(entry);
+                        if (!bytes.starts_with("WEAPONFILE"))
+                            continue;
+                        files::WriteBytes(root / "weapons" / files::FromUtf8(weapon), bytes);
+                        overridden.push_back(weapon);
+                    }
+                }
+            }
+            if (overridden.empty())
+                return;
+            roots_.insert(roots_.begin(), root);
+            std::string names;
+            for (const auto& weapon : overridden)
+                names += (names.empty() ? "" : ", ") + weapon;
+            report_.Warn("IWD_WEAPONS " + std::to_string(overridden.size()) + " weapon files from the map's IWDs take precedence over its zones: " + names);
         }
 
         void BridgeStage::StageGeometry()

@@ -66,7 +66,9 @@ Copy-Into 'tools/bin/ffmpeg.exe'
 Copy-Into 'vendor/OpenAssetTools/build/bin/Release_x64/Unlinker.exe'
 Copy-Into 'vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h'
 foreach ($name in 'Linker.exe', 'Unlinker.exe') { Copy-Into "vendor/OpenAssetToolsT6/build/bin/Release_x86/$name" }
-foreach ($name in 'WeaponFields.h', 'FlameTableFields.h') { Copy-Into "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/$name" }
+foreach ($name in 'WeaponFields.h', 'FlameTableFields.h', 'WeaponStrings.h') { Copy-Into "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/$name" }
+# T6 enum value spellings: the weapon loader's field-type switch names the tables
+Copy-Into 'vendor/OpenAssetToolsT6/src/ObjLoading/Game/T6/Weapon/WeaponInfoStringLoaderT6.cpp'
 Copy-Into 'vendor/OpenAssetToolsT6/raw/t6'
 
 # The bundled BO2 linker is large-address aware (it runs out of 2 GB on big maps).

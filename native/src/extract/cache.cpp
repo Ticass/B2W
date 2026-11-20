@@ -27,7 +27,7 @@
 namespace w2b::extract
 {
     const char* const WAW_ASSETS = "clipmap,mapents,gfxworld,gameworldsp,material,techniqueset,image,fx,xmodel,weapon,xanim,sound,"
-                                   "loadedsound,rawfile,comworld,lightdef,physpreset,physconstraints,snddriverglobals,localize,stringtable";
+                                   "loadedsound,rawfile,comworld,lightdef,physpreset,physconstraints,snddriverglobals,localize,stringtable,font";
 
     namespace
     {

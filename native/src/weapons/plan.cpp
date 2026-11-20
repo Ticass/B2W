@@ -80,10 +80,12 @@ namespace w2b::weapons
     {
         const auto t4 = ReadSchema(base / "vendor/OpenAssetTools/src/ObjCommon/Game/T4/Weapon/WeaponFields.h");
         const auto t6 = ReadSchema(base / "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/WeaponFields.h");
+        const auto t6Enums = ReadEnumValues(base / "vendor/OpenAssetToolsT6/src/ObjLoading/Game/T6/Weapon/WeaponInfoStringLoaderT6.cpp",
+                                            base / "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/WeaponStrings.h");
         Plan plan;
         plan.sources = Discover(roots);
         for (const auto& source : plan.sources)
-            plan.weapons.push_back(Convert(source.name, ReadInfo(source.file), t4, t6));
+            plan.weapons.push_back(Convert(source.name, ReadInfo(source.file), t4, t6, &t6Enums));
         if (std::ranges::any_of(plan.weapons, [](const Weapon& weapon) { return !Field(weapon.fields, "bounceSound").empty(); }))
         {
             const auto aliases = FindSoundAliases(roots);
