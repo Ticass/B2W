@@ -57,6 +57,12 @@ init()
     // own init_dvars and any authored overrides. T6 uses 128/300 instead.
     setdvar( "bg_fallDamageMinHeight", 200 );
     setdvar( "bg_fallDamageMaxHeight", 350 );
+    // WaW's menus start every zombies session with zombiemode 1 (ui/settings.menu:
+    // gametype zom -> "set zombiemode 1"), before any map script runs. Map
+    // scripts branch on it before their own init_dvars: _loadout gives a map
+    // without the nazi_zombie_ prefix (Clinic of Evil's sanatorium) its
+    // zombie loadout only through this dvar. T6 never sets it.
+    setdvar( "zombiemode", "1" );
     // Opt-in console fixes (compat/waw_fixes.json), all off by default.
     maps\mp\waw\_waw2bo2_fixes::register();
     // Converted maps run on Plutonium T6. WaW scorebar libraries use this

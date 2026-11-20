@@ -7,6 +7,7 @@
 #include "extract/stockwaw.h"
 #include "menu_artwork.h"
 #include "modutil.h"
+#include "textures/block_compress.h"
 #include "textures/iwd_recovery.h"
 #include "textures/iwi.h"
 #include "textures/pillow_decode.h"
@@ -168,14 +169,28 @@ namespace w2b::pipeline
             {
             }
 
-            // write_sprite: a lossless RGBA 2D material
+            // write_sprite: a lossless RGBA 2D material. T6 refuses to load an image
+            // of 16 MiB or more ("Needed to allocate at least 16.0 MB to load
+            // images"), so one that big (a 2048 x 2048 WaW loadscreen) is block-
+            // compressed instead: DXT1 when fully opaque, else DXT5.
             std::string Sprite(const std::string& shortName, const textures::RgbaImage& image)
             {
                 const auto name = folder_ + "/" + shortName;
                 auto file = name;
                 std::replace(file.begin(), file.end(), '*', '_');
                 const auto target = project_ / "content_source" / "images" / files::FromUtf8(file + ".iwi");
-                files::WriteBytes(target, textures::RgbaToIwi(image.width, image.height, image.pixels).bytes);
+                constexpr std::size_t imageLimit = 16u * 1024 * 1024;
+                if (image.pixels.size() + 64 >= imageLimit && image.width % 4 == 0 && image.height % 4 == 0)
+                {
+                    bool opaque = true;
+                    for (std::size_t i = 3; opaque && i < image.pixels.size(); i += 4)
+                        opaque = static_cast<unsigned char>(image.pixels[i]) == 255;
+                    const std::span pixels(reinterpret_cast<const std::uint8_t*>(image.pixels.data()), image.pixels.size());
+                    files::WriteBytes(target, textures::EncodeMenuTexture(pixels, image.width, image.height,
+                                                                          opaque ? textures::Format::dxt1 : textures::Format::dxt5).bytes);
+                }
+                else
+                    files::WriteBytes(target, textures::RgbaToIwi(image.width, image.height, image.pixels).bytes);
                 const auto material = project_ / "content_source" / assets::SourcePath({"material", name});
                 files::WriteText(material, py::JsonDumpsDefault(MenuMaterial(name)));
                 materials.push_back(name);
@@ -188,6 +203,36 @@ namespace w2b::pipeline
             fs::path project_;
             std::string folder_;
         };
+
+        // The atlas rectangle (x, y, rw, rh in texels) bilinearly resampled to
+        // w x h at the top left of a cleared cw x ch image.
+        textures::RgbaImage ResampleGlyph(const textures::RgbaImage& atlas, const double x, const double y, const double rw, const double rh,
+                                          const unsigned w, const unsigned h, const unsigned cw, const unsigned ch)
+        {
+            textures::RgbaImage out(cw, ch);
+            const auto texel = [&](long long tx, long long ty, unsigned channel) -> double
+            {
+                if (tx < 0 || ty < 0 || tx >= atlas.width || ty >= atlas.height)
+                    return 0.0;
+                return static_cast<unsigned char>(atlas.pixels[(static_cast<std::size_t>(ty) * atlas.width + static_cast<std::size_t>(tx)) * 4 + channel]);
+            };
+            for (unsigned row = 0; row < h && row < ch; ++row)
+                for (unsigned col = 0; col < w && col < cw; ++col)
+                {
+                    const auto sx = x + (col + 0.5) * rw / w - 0.5, sy = y + (row + 0.5) * rh / h - 0.5;
+                    const auto fx = std::floor(sx), fy = std::floor(sy);
+                    const auto ax = sx - fx, ay = sy - fy;
+                    const auto ix = static_cast<long long>(fx), iy = static_cast<long long>(fy);
+                    for (unsigned channel = 0; channel < 4; ++channel)
+                    {
+                        const auto top = texel(ix, iy, channel) * (1 - ax) + texel(ix + 1, iy, channel) * ax;
+                        const auto bottom = texel(ix, iy + 1, channel) * (1 - ax) + texel(ix + 1, iy + 1, channel) * ax;
+                        out.pixels[(static_cast<std::size_t>(row) * cw + col) * 4 + channel] =
+                            static_cast<char>(static_cast<unsigned char>(std::clamp(std::lround(top * (1 - ay) + bottom * ay), 0L, 255L)));
+                    }
+                }
+            return out;
+        }
 
         // font_glyphs: glyph table rows of a source font
         std::vector<std::vector<std::string>> FontGlyphs(SourceFinder& source, const std::string& fontName, const std::string& role, Stager& stager,
@@ -224,12 +269,26 @@ namespace w2b::pipeline
                 long long pw = 0, ph = 0;
                 if (w && h)
                 {
-                    const auto x = static_cast<long long>(std::nearbyint(glyph.at("s0").get<double>() * atlas.width));
-                    const auto y = static_cast<long long>(std::nearbyint(glyph.at("t0").get<double>() * atlas.height));
+                    const auto s0 = glyph.at("s0").get<double>(), t0 = glyph.at("t0").get<double>();
+                    const auto x = static_cast<long long>(std::nearbyint(s0 * atlas.width));
+                    const auto y = static_cast<long long>(std::nearbyint(t0 * atlas.height));
                     pw = std::max(4LL, 1LL << BitLength(w - 1));
                     ph = std::max(4LL, 1LL << BitLength(h - 1));
-                    const auto cell = atlas.Cell(static_cast<unsigned>(x), static_cast<unsigned>(y), static_cast<unsigned>(w), static_cast<unsigned>(h),
-                                                 static_cast<unsigned>(pw), static_cast<unsigned>(ph));
+                    // T4 draws the s0..s1 x t0..t1 atlas rectangle on a pixelWidth x
+                    // pixelHeight quad. Stock atlases hold one texel per pixel; a map
+                    // font may be denser (Clinic of Evil: about 4x), so the sprite keeps
+                    // that many texels per pixel and the rectangle is resampled into it.
+                    const auto rw = (glyph.at("s1").get<double>() - s0) * atlas.width;
+                    const auto rh = (glyph.at("t1").get<double>() - t0) * atlas.height;
+                    const auto scale = std::max(1LL, std::llround(rh / static_cast<double>(h)));
+                    const auto gw = w * scale, gh = h * scale;
+                    textures::RgbaImage cell;
+                    if (scale == 1 || (std::llround(rw) == gw && std::llround(rh) == gh))
+                        cell = atlas.Cell(static_cast<unsigned>(x), static_cast<unsigned>(y), static_cast<unsigned>(gw), static_cast<unsigned>(gh),
+                                          static_cast<unsigned>(pw * scale), static_cast<unsigned>(ph * scale));
+                    else
+                        cell = ResampleGlyph(atlas, s0 * atlas.width, t0 * atlas.height, rw, rh, static_cast<unsigned>(gw), static_cast<unsigned>(gh),
+                                             static_cast<unsigned>(pw * scale), static_cast<unsigned>(ph * scale));
                     name = stager.Sprite(role + "_" + Hex4(static_cast<unsigned>(code)), cell);
                 }
                 rows.push_back({role + ":" + std::to_string(static_cast<unsigned long>(code)), name, Cell(glyph.at("x0")), Cell(glyph.at("y0")),

@@ -116,6 +116,30 @@ namespace w2b::weapons
         return fields;
     }
 
+    EnumValues ReadEnumValues(const path& loader, const path& strings)
+    {
+        std::map<std::string, std::vector<std::string>, std::less<>> tables;
+        const auto stringText = files::ReadText(strings);
+        static const std::regex table(R"(const\s+char\s*\*\s*(\w+)\s*\[\s*\]\s*\{([^}]*)\})");
+        static const std::regex quoted(R"x("([^"]*)")x");
+        for (std::sregex_iterator it(stringText.begin(), stringText.end(), table), end; it != end; ++it)
+        {
+            auto& values = tables[(*it)[1].str()];
+            const auto body = (*it)[2].str();
+            for (std::sregex_iterator q(body.begin(), body.end(), quoted); q != end; ++q)
+                values.push_back((*q)[1].str());
+        }
+        EnumValues out;
+        const auto loaderText = files::ReadText(loader);
+        static const std::regex use(R"(case\s+(WFT_\w+)\s*:\s*return\s+ConvertEnumInt\([^,]+,[^,]+,[^,]+,\s*(\w+))");
+        for (std::sregex_iterator it(loaderText.begin(), loaderText.end(), use), end; it != end; ++it)
+            if (const auto found = tables.find((*it)[2].str()); found != tables.end())
+                out[(*it)[1].str()] = found->second;
+        if (out.size() < 10)
+            throw WeaponError("weapon enum tables incomplete: " + files::Utf8(loader));
+        return out;
+    }
+
     std::string OutputName(std::string_view kind, std::string name)
     {
         if (name.empty())
