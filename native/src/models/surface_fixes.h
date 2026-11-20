@@ -21,8 +21,8 @@ namespace w2b::models
     {
         std::vector<std::pair<std::string, std::size_t>> opacity; // glTF -> additive vertices made opaque
         std::vector<SortKeyChange> sortKeys;
-        py::Json OpacityJson() const;
-        py::Json SortKeysJson() const;
+        util::Json OpacityJson() const;
+        util::Json SortKeysJson() const;
     };
 
     // a staged material as the surface fixes see it

@@ -1,10 +1,10 @@
 #pragma once
-// Small helpers the build-mod modules share: Python's text reads and writes,
+// Small helpers the build-mod modules share: text reads and writes,
 // str(Path), shutil copies and the list repr of error messages.
 
 #include "core/encoding.h"
 #include "core/files.h"
-#include "core/pytext.h"
+#include "core/text.h"
 #include "finish.h"
 
 #include <filesystem>
@@ -82,21 +82,21 @@ namespace w2b::pipeline::mod
         return text;
     }
 
-    inline py::Json Json(const fs::path& p)
+    inline util::Json Json(const fs::path& p)
     {
-        return py::Json::parse(Read(p));
+        return util::Json::parse(Read(p));
     }
 
     // json.loads(path.read_text())[key], owned: a range-for over
     // Json(path)["key"] would iterate a destroyed temporary
-    inline py::Json Member(const fs::path& p, const char* key)
+    inline util::Json Member(const fs::path& p, const char* key)
     {
         auto data = Json(p);
         return std::move(data.at(key));
     }
 
-    // bool(data.get(key)) as Python tests a JSON value
-    inline bool Truthy(const py::Json& data, const char* key)
+    // a JSON value's truth: null, false, 0, "" and empty containers are false
+    inline bool Truthy(const util::Json& data, const char* key)
     {
         if (!data.is_object() || !data.contains(key))
             return false;
@@ -132,7 +132,7 @@ namespace w2b::pipeline::mod
     inline std::vector<std::string> Lines(std::string_view text)
     {
         std::vector<std::string> out;
-        for (const auto line : py::SplitLines(text))
+        for (const auto line : util::SplitLines(text))
             out.emplace_back(line);
         return out;
     }
@@ -147,7 +147,7 @@ namespace w2b::pipeline::mod
 
     inline std::string Strip(std::string_view s)
     {
-        return std::string(py::Strip(s));
+        return std::string(util::Strip(s));
     }
 
     inline bool StartsWith(std::string_view s, std::string_view prefix)
@@ -163,7 +163,7 @@ namespace w2b::pipeline::mod
     inline std::string LStrip(std::string_view s)
     {
         size_t i = 0;
-        while (i < s.size() && py::IsSpace(s[i]))
+        while (i < s.size() && util::IsSpace(s[i]))
             i++;
         return std::string(s.substr(i));
     }
@@ -172,7 +172,7 @@ namespace w2b::pipeline::mod
     inline std::vector<std::string> SplitComma(std::string_view s)
     {
         std::vector<std::string> out;
-        for (const auto part : py::Split(s, ","))
+        for (const auto part : util::Split(s, ","))
             out.emplace_back(part);
         return out;
     }
@@ -208,6 +208,6 @@ namespace w2b::pipeline::mod
     void WriteIfChanged(const fs::path& path, const std::string& data);
     // text_bytes: the bytes Path.write_text writes on Windows
     std::string TextBytes(std::string_view text);
-    // the progress print of the Python steps
+    // the progress print of the build steps
     void Print(const std::string& line);
 } // namespace w2b::pipeline::mod

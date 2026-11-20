@@ -115,8 +115,8 @@ namespace w2b::world
         return grid;
     }
 
-    py::Json WriteLightGrid(const LightGrid& grid, const files::fs::path& path,
-                            std::span<const std::uint8_t> extraColors, py::Json modelReport)
+    util::Json WriteLightGrid(const LightGrid& grid, const files::fs::path& path,
+                            std::span<const std::uint8_t> extraColors, util::Json modelReport)
     {
         const auto count = (grid.colors.size() + extraColors.size()) / gridPaletteSize;
         if (!modelReport.is_null() && count > 0xffff)

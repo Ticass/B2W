@@ -1,4 +1,4 @@
-// build-mod helpers against CPython's csv module and modzone.py.
+// build-mod helpers against expected csv parses and mod zones.
 #include "core/files.h"
 #include "pipeline/actor_trees.h"
 #include "pipeline/bridge_inventory.h"
@@ -17,7 +17,7 @@ TEST_CASE("Bridge inventory preserves weapon include matching and source names",
 {
     namespace fs = std::filesystem;
     using w2b::files::WriteText;
-    using w2b::py::Json;
+    using w2b::util::Json;
     struct Fixture
     {
         fs::path root = fs::temp_directory_path() / ("w2b-inventory-" + std::to_string(std::random_device{}()));
@@ -66,14 +66,14 @@ TEST_CASE("Bridge geometry resolves vertex layers by stride and generated layer 
     };
     world.surfaces = {surface(0, "inferred", 0), surface(1, "*20_21_22", 8),
                       surface(2, "*30_31_32_33", 32), surface(3, "unresolved", 56)};
-    auto warnings = w2b::py::Json::array();
+    auto warnings = w2b::util::Json::array();
     const auto materials = PlanGeometryMaterials(world, {}, nullptr, warnings);
     CHECK(world.surfaces[0].layerFormat == 1);
     CHECK(world.surfaces[1].layerFormat == 5);
     CHECK(world.surfaces[2].layerFormat == 6);
     CHECK(world.surfaces[3].layerFormat == 0xff);
     CHECK(materials.blendWeights.empty());
-    CHECK(warnings == w2b::py::Json::array({"world vertex format unknown for ['unresolved']; layers dropped"}));
+    CHECK(warnings == w2b::util::Json::array({"world vertex format unknown for ['unresolved']; layers dropped"}));
 }
 
 TEST_CASE("csv.writer QUOTE_MINIMAL", "[pipeline]")

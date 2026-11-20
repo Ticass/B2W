@@ -1,5 +1,5 @@
 // The build pipeline (see driver.h). Order, messages and receipts follow
-// builddriver.py; "== N." banners drive the launcher's step tracking.
+// the build driver; "== N." banners drive the launcher's step tracking.
 #include "driver.h"
 
 #include "audit.h"
@@ -157,9 +157,9 @@ namespace w2b::pipeline
             return hash::Sha256Hex(data);
         }
 
-        py::Json EditableFiles(const fs::path& projectRoot)
+        util::Json EditableFiles(const fs::path& projectRoot)
         {
-            py::Json files = py::Json::object();
+            util::Json files = util::Json::object();
             std::error_code e;
             if (!fs::is_directory(projectRoot, e))
                 return files;
@@ -182,7 +182,7 @@ namespace w2b::pipeline
                 const auto summary = timeline::Summarize(timeline::Load(source));
                 auto target = source;
                 target.replace_extension(".json");
-                files::WriteText(target, py::JsonDumps(summary, 1));
+                files::WriteText(target, util::JsonDumps(summary, 1));
                 char wall[32];
                 std::snprintf(wall, sizeof wall, "%.1f", summary.value("wall", 0.0));
                 Say(std::string("== build timeline: ") + wall + "s total; " + S(target));
@@ -199,9 +199,9 @@ namespace w2b::pipeline
             {
                 const auto stage = root ? extract::Resolve(*root) / "stage" : l::BuildPaths::ForSettings(settings).stage;
                 const auto reportFile = stage / "zone_raw" / files::FromUtf8(settings.project) / knowledge::REPORT_NAME;
-                std::optional<py::Json> report;
+                std::optional<util::Json> report;
                 if (IsFile(reportFile) && (settings.resume || extract::Stamp(reportFile)[1].get<long long>() / 1e9 >= since))
-                    report = py::Json::parse(files::ReadText(reportFile));
+                    report = util::Json::parse(files::ReadText(reportFile));
                 std::optional<std::string> step;
                 {
                     std::lock_guard lock(stepMutex);
@@ -321,7 +321,7 @@ namespace w2b::pipeline
             if (settings.source_fx)
                 args.insert(args.end(), {"--waw-source-fx", "--waw-source-dumps", S(caches.waw / "source")});
             const wchar_t* flac = _wgetenv(L"WAW2BO2_STREAM_FLAC");
-            const auto fingerprint = hash::Sha256Hex(py::JsonDumpsDefault(py::Json::array({ConverterDigest(), args, flac && std::wstring(flac) == L"1"})));
+            const auto fingerprint = hash::Sha256Hex(util::JsonDumpsDefault(util::Json::array({ConverterDigest(), args, flac && std::wstring(flac) == L"1"})));
             const auto receiptPath = stage / "stage_receipt.json";
             bool reuse = false;
             std::string reason;
@@ -329,7 +329,7 @@ namespace w2b::pipeline
             {
                 try
                 {
-                    const auto receipt = py::Json::parse(files::ReadText(receiptPath));
+                    const auto receipt = util::Json::parse(files::ReadText(receiptPath));
                     if (receipt.value("project", std::string()) != project)
                         reason = "the last staging was for another map name";
                     else if (receipt.value("fingerprint", std::string()) != fingerprint)
@@ -346,7 +346,7 @@ namespace w2b::pipeline
             }
             if (reuse)
             {
-                const auto recorded = py::Json::parse(files::ReadText(receiptPath)).value("files", py::Json::object());
+                const auto recorded = util::Json::parse(files::ReadText(receiptPath)).value("files", util::Json::object());
                 const auto current = EditableFiles(stage / "zone_raw" / l::Path(project));
                 std::vector<std::string> changed, added, removed;
                 for (const auto& [name, stamp] : current.items())
@@ -378,7 +378,7 @@ namespace w2b::pipeline
                     timeline::Span span("2 stage-bridge");
                     StageBridgeStep(args);
                 }
-                files::WriteText(receiptPath, py::JsonDumpsDefault(py::Json{{"project", project}, {"fingerprint", fingerprint}, {"files", EditableFiles(stage / "zone_raw" / l::Path(project))}}));
+                files::WriteText(receiptPath, util::JsonDumpsDefault(util::Json{{"project", project}, {"fingerprint", fingerprint}, {"files", EditableFiles(stage / "zone_raw" / l::Path(project))}}));
             }
             EnsureLaa(linker);
             Say("== 3a. linking gameplay mod.ff with the BO2 mod tools linker");
@@ -509,7 +509,7 @@ namespace w2b::pipeline
         {
             int result;
             {
-                timeline::Span span("build", py::Json{{"project", settings.project}});
+                timeline::Span span("build", util::Json{{"project", settings.project}});
                 result = LockedBuild(settings, options, caches);
             }
             if (owned)

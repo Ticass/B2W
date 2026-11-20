@@ -53,14 +53,14 @@ namespace w2b::barriers
             Vec3 factors{};
             for (std::size_t i = 0; i < factors.size(); ++i)
                 factors[i] = (point[i] - origin[i]) * forward[i];
-            return py::Sum(factors);
+            return util::Sum(factors);
         }
 
         double RepairDepth(const mapents::MapEntity& native, const Path& bo2, Json& poses)
         {
             long long count{};
             bool overflow{};
-            if (!py::ParseInt(Field(native, "zbarriernumboards"), count, overflow) || overflow || count <= 0)
+            if (!util::ParseInt(Field(native, "zbarriernumboards"), count, overflow) || overflow || count <= 0)
                 throw Error("invalid barricade board count");
             std::vector<double> depths;
             for (long long i = 1; i <= count; ++i)
@@ -73,7 +73,7 @@ namespace w2b::barriers
                     poses[name] = RepairedTranslation(Animation(bo2, name));
                 depths.push_back(poses.at(name).at(0).get<double>());
             }
-            return py::Sum(depths) / static_cast<double>(depths.size());
+            return util::Sum(depths) / static_cast<double>(depths.size());
         }
 
         struct Window
@@ -122,7 +122,7 @@ namespace w2b::barriers
             for (const auto index : group->second.boards)
                 depths.push_back(BoardDepth(entities.at(index), origin, forward));
             auto& native = entities.at(group->second.native.front());
-            const auto sourceDepth = py::Sum(depths) / static_cast<double>(depths.size());
+            const auto sourceDepth = util::Sum(depths) / static_cast<double>(depths.size());
             const auto nativeDepth = RepairDepth(native, bo2, poses);
             const auto shift = sourceDepth - nativeDepth;
             Vec3 root{};

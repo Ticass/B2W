@@ -31,7 +31,7 @@ namespace w2b::pipeline
     using mod::Lower;
     using mod::StartsWith;
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -439,7 +439,7 @@ namespace w2b::pipeline
                 modes[image] = EFFECT_IMAGE_STREAMING;
             const auto path = projectRoot / "images" / "streaming.json";
             fs::create_directories(path.parent_path());
-            files::WriteText(path, py::JsonDumps(Json{{"streamingMode", modes}}, 2) + "\n");
+            files::WriteText(path, util::JsonDumps(Json{{"streamingMode", modes}}, 2) + "\n");
         }
         // fx.stage_converted
         effects::EffectConversion converted;

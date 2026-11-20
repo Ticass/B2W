@@ -1,8 +1,8 @@
-// Program contracts (see runtime_contracts.h), ported from shaderruntime.py.
+// Program contracts (see runtime_contracts.h).
 #include "runtime_contracts.h"
 
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "d3d.h"
 #include "gsc/tokens.h"
 #include "materials/techsets.h"
@@ -51,7 +51,7 @@ namespace w2b::shaders::runtime
 
         std::string F(const double v)
         {
-            return py::FloatRepr(v);
+            return util::FloatRepr(v);
         }
 
         long long I(const Json& v)
@@ -82,7 +82,7 @@ namespace w2b::shaders::runtime
 
         std::string Escape(const std::string& s)
         {
-            return pyre::Escape(s);
+            return regex::Escape(s);
         }
 
         // re.search(pattern, text, flags) is not None, memoized: the same native
@@ -97,7 +97,7 @@ namespace w2b::shaders::runtime
                 if (const auto it = found.find(key); it != found.end())
                     return it->second;
             }
-            const bool result = pyre::Regex(pattern, flags).Search(text).has_value();
+            const bool result = regex::Regex(pattern, flags).Search(text).has_value();
             const std::lock_guard guard(lock);
             found.emplace(key, result);
             return result;
@@ -208,7 +208,7 @@ namespace w2b::shaders::runtime
 
         bool NativeSqrtHdrOutput(const std::string& ps)
         {
-            return Search("float4 hdrControl0;\\s*// Offset:\\s*320 Size:\\s*16\\s*\\n", ps) && Search("^sqrt o0\\.xyz", ps, pyre::MULTILINE);
+            return Search("float4 hdrControl0;\\s*// Offset:\\s*320 Size:\\s*16\\s*\\n", ps) && Search("^sqrt o0\\.xyz", ps, regex::MULTILINE);
         }
 
         void EnsureCodeConstantArg(T6Pass& nativePass, const std::string& field, const int location)
@@ -351,7 +351,7 @@ namespace w2b::shaders::runtime
                     used.insert(a.location & 255), used.insert(a.location >> 8);
             for (const auto& [slot, _] : ResourceNames(nativePs))
                 used.insert(slot);
-            static const pyre::Regex sampler("^dcl_sampler s(\\d+),", pyre::MULTILINE);
+            static const regex::Regex sampler("^dcl_sampler s(\\d+),", regex::MULTILINE);
             for (const auto& m : sampler.FindAll(nativePs))
                 used.insert(std::stoll(m[0]));
             for (int i = 0; i < 16; i++)
@@ -404,21 +404,21 @@ namespace w2b::shaders::runtime
 
         double SoftParticleDepthScale(const std::string& assembly)
         {
-            const auto position = pyre::Regex("^\\s*mov (o\\d+), (r\\d+)\\s*$", pyre::MULTILINE).Search(assembly);
+            const auto position = regex::Regex("^\\s*mov (o\\d+), (r\\d+)\\s*$", regex::MULTILINE).Search(assembly);
             if (!position)
                 return 1.0;
-            const auto depth = pyre::Regex("^\\s*mul o\\d+\\.zw, " + (*position)[2] + "\\.w, (c\\d+)\\.xyyz\\s*$", pyre::MULTILINE).Search(assembly);
+            const auto depth = regex::Regex("^\\s*mul o\\d+\\.zw, " + (*position)[2] + "\\.w, (c\\d+)\\.xyyz\\s*$", regex::MULTILINE).Search(assembly);
             if (!depth)
                 return 1.0;
-            const auto literal = pyre::Regex("^\\s*def " + (*depth)[1] + ", ([^\\n]+)", pyre::MULTILINE).Search(assembly);
+            const auto literal = regex::Regex("^\\s*def " + (*depth)[1] + ", ([^\\n]+)", regex::MULTILINE).Search(assembly);
             if (!literal)
                 return 1.0;
             std::vector<double> values;
             const auto listed = (*literal)[1];
-            for (const auto part : py::Split(listed, ","))
+            for (const auto part : util::Split(listed, ","))
             {
                 double v = 0;
-                if (!py::ParseFloat(py::Strip(part), v))
+                if (!util::ParseFloat(util::Strip(part), v))
                     throw std::runtime_error("could not convert string to float");
                 values.push_back(v);
             }
@@ -451,11 +451,11 @@ namespace w2b::shaders::runtime
         std::map<std::string, std::pair<int, std::string>> CompiledSignature(const std::string& code, const std::string& kind)
         {
             const auto text = Disassemble(code);
-            const auto match = pyre::Regex("// " + kind + " signature:\\s*\\n//\\s*\\n// Name.*?\\n// -.*?\\n(.*?)//\\s*\\n", pyre::DOTALL).Search(text);
+            const auto match = regex::Regex("// " + kind + " signature:\\s*\\n//\\s*\\n// Name.*?\\n// -.*?\\n(.*?)//\\s*\\n", regex::DOTALL).Search(text);
             std::map<std::string, std::pair<int, std::string>> out;
             if (!match)
                 return out;
-            static const pyre::Regex row("^//\\s+(\\w+)\\s+(\\d+)\\s+([xyzw]+)\\s+(\\d+)", pyre::MULTILINE);
+            static const regex::Regex row("^//\\s+(\\w+)\\s+(\\d+)\\s+([xyzw]+)\\s+(\\d+)", regex::MULTILINE);
             for (const auto& m : row.FindAll((*match)[1]))
                 out[Upper(m[0]) + "\x1f" + m[1]] = {std::stoi(m[3]), m[2]};
             return out;
@@ -741,7 +741,7 @@ namespace w2b::shaders::runtime
         for (const auto& a : sourcePass.args)
             if (a.type == 2 || a.type == 4)
                 sourceSamplers["s" + std::to_string(a.dest)] = &a;
-        const auto hasSampler = [&](const int slot, const std::string& suffix) { return Search("^dcl_sampler s" + std::to_string(slot) + suffix, ps, pyre::MULTILINE); };
+        const auto hasSampler = [&](const int slot, const std::string& suffix) { return Search("^dcl_sampler s" + std::to_string(slot) + suffix, ps, regex::MULTILINE); };
         for (const auto& [reg, dimJson] : ir["samplers"].items())
         {
             const auto dim = dimJson.get<std::string>();
@@ -939,8 +939,8 @@ namespace w2b::shaders::runtime
                 std::set<long long> removed;
                 for (size_t i = 1; i < scorch.size(); i++)
                 {
-                    assembly = pyre::Regex("^\\s*dcl_2d " + Escape(scorch[i]) + "\\s*$", pyre::MULTILINE).Sub("", assembly);
-                    assembly = pyre::Regex("\\b" + Escape(scorch[i]) + "\\b").Sub([&](const pyre::Match&) { return scorch[0]; }, assembly);
+                    assembly = regex::Regex("^\\s*dcl_2d " + Escape(scorch[i]) + "\\s*$", regex::MULTILINE).Sub("", assembly);
+                    assembly = regex::Regex("\\b" + Escape(scorch[i]) + "\\b").Sub([&](const regex::Match&) { return scorch[0]; }, assembly);
                     removed.insert(std::stoll(scorch[i].substr(1)));
                 }
                 std::erase_if(adapted.args, [&](const WawPassArg& a) { return a.type == 4 && removed.count(a.dest); });
@@ -951,7 +951,7 @@ namespace w2b::shaders::runtime
         const auto pattern = "(\\bmad(?:_pp)?\\s+(r\\d+)\\.xy,\\s*r\\d+\\.[xyzw],\\s*" + Escape(*placement) + ",\\s*" + Escape(*placement) +
                              "\\.zwzw\\s*\\n\\s*texld(?:_pp)?\\s+r\\d+,\\s*\\2,\\s*)" + Escape(*sampler) + "\\b";
         size_t count = 0;
-        assembly = pyre::Regex(pattern).Sub([&](const pyre::Match& m) { return m[1] + *unused; }, assembly, 0, &count);
+        assembly = regex::Regex(pattern).Sub([&](const regex::Match& m) { return m[1] + *unused; }, assembly, 0, &count);
         if (count != 1)
             throw ShaderError("ambiguous local light ramp lookup");
         assembly = "// attenuationSampler " + *unused + " 1\n" + assembly;
@@ -974,7 +974,7 @@ namespace w2b::shaders::runtime
         if (scale == 1.0 || !reads)
             return {assembly, false};
         size_t count = 0;
-        auto adapted = pyre::Regex("(^\\s*)mul (o\\d+)\\.zw, (r\\d+)\\.w, c\\d+\\.xyyz\\s*$", pyre::MULTILINE).Sub("\\1mov \\2.zw, \\3.w", assembly, 0, &count);
+        auto adapted = regex::Regex("(^\\s*)mul (o\\d+)\\.zw, (r\\d+)\\.w, c\\d+\\.xyyz\\s*$", regex::MULTILINE).Sub("\\1mov \\2.zw, \\3.w", assembly, 0, &count);
         if (count != 1)
             throw ShaderError("ambiguous packed soft-particle depth varying");
         return {adapted, true};
@@ -1002,23 +1002,23 @@ namespace w2b::shaders::runtime
         if (paired && sky)
         {
             // source sky fog uses a normalized direction at a shader-defined distance
-            const auto match = pyre::Regex("nrm (r\\d+)\\.xyz, v\\d+\\s*\\n\\s*mul \\1\\.xyz, \\1, (c\\d+)\\.([xyzw])").Search(sourceAssembly);
+            const auto match = regex::Regex("nrm (r\\d+)\\.xyz, v\\d+\\s*\\n\\s*mul \\1\\.xyz, \\1, (c\\d+)\\.([xyzw])").Search(sourceAssembly);
             if (match)
-                if (const auto literal = pyre::Regex("def " + (*match)[2] + ", ([^\\n]+)").Search(sourceAssembly))
+                if (const auto literal = regex::Regex("def " + (*match)[2] + ", ([^\\n]+)").Search(sourceAssembly))
                 {
-                    const auto parts = py::Split((*literal)[1], ",");
+                    const auto parts = util::Split((*literal)[1], ",");
                     double v = 0;
-                    py::ParseFloat(py::Strip(parts.at(std::string("xyzw").find((*match)[3]))), v);
+                    util::ParseFloat(util::Strip(parts.at(std::string("xyzw").find((*match)[3]))), v);
                     contract["sky_fog_distance"] = v;
                 }
         }
         const auto readsOf = [&](const std::string& reg, const std::vector<std::string>& skip)
         {
             std::vector<std::string> reads;
-            const pyre::Regex word("\\b" + Escape(reg) + "\\b");
-            for (const auto raw : py::SplitLines(sourceAssembly))
+            const regex::Regex word("\\b" + Escape(reg) + "\\b");
+            for (const auto raw : util::SplitLines(sourceAssembly))
             {
-                const auto line = std::string(py::Strip(raw));
+                const auto line = std::string(util::Strip(raw));
                 if (std::any_of(skip.begin(), skip.end(), [&](const std::string& s) { return StartsWith(line, s); }))
                     continue;
                 if (word.Search(std::string(raw)))
@@ -1062,7 +1062,7 @@ namespace w2b::shaders::runtime
                 else
                 {
                     const auto reads = readsOf(reg, {"//", "dcl_"});
-                    const pyre::Regex form("(?:mov\\s+o\\d+\\.xy,\\s*|add\\s+r\\d+\\.xy,\\s*r\\d+(?:\\.xy)?,\\s*-?)" + Escape(reg) + "(?:\\.xy)?");
+                    const regex::Regex form("(?:mov\\s+o\\d+\\.xy,\\s*|add\\s+r\\d+\\.xy,\\s*r\\d+(?:\\.xy)?,\\s*-?)" + Escape(reg) + "(?:\\.xy)?");
                     const auto t1 = incoming.find("TEXCOORD1");
                     if (!reads.empty() && std::all_of(reads.begin(), reads.end(), [&](const std::string& l) { return form.FullMatch(l).has_value(); }))
                         entry["width"] = 2, entry["adapter"] = "waw_uv";
@@ -1161,7 +1161,7 @@ namespace w2b::shaders::runtime
                 const auto row = rowOf();
                 const auto reads = readsOf(reg, {"//", "def"});
                 const auto wm = fields.find("worldMatrix"), iv = fields.find("inverseViewMatrix");
-                const pyre::Regex form("mov\\s+r\\d+\\.[xyzw],\\s*" + Escape(reg) + "\\.w");
+                const regex::Regex form("mov\\s+r\\d+\\.[xyzw],\\s*" + Escape(reg) + "\\.w");
                 if (row >= 3 || reads.empty() || !std::all_of(reads.begin(), reads.end(), [&](const std::string& l) { return form.FullMatch(l).has_value(); }))
                     throw ShaderError("inverse world-view matrix needs a full matrix adapter");
                 if (wm == fields.end() || iv == fields.end() || wm->second.size != 64 || iv->second.size != 64)

@@ -21,7 +21,7 @@ namespace w2b::sound
     namespace
     {
         namespace fs = std::filesystem;
-        using py::Json;
+        using util::Json;
         using Candidates = std::map<std::string, std::vector<const Json*>, std::less<>>;
         constexpr std::string_view Status = "pcm_bound_semantic_ir_not_T6_bank";
 
@@ -29,7 +29,7 @@ namespace w2b::sound
         {
             const auto value = row.find(key);
             if (value == row.end())
-                throw SoundError(py::StringRepr(key));
+                throw SoundError(util::StringRepr(key));
             return *value;
         }
 
@@ -104,7 +104,7 @@ namespace w2b::sound
                     return;
                 std::string bytes;
                 if (!files::ReadBytes(path, bytes))
-                    throw SoundError("[Errno 2] No such file or directory: " + py::StringRepr(PathText(path)));
+                    throw SoundError("[Errno 2] No such file or directory: " + util::StringRepr(PathText(path)));
                 const auto chunks = audio::ViewChunks(bytes);
                 const auto header = *chunks.Find("fmt ");
                 if (header.size() != 16)
@@ -186,7 +186,7 @@ namespace w2b::sound
             }
             document["status"] = Status;
             const auto output = fs::path("sound_bound_ir") / relative;
-            files::WriteText(project / output, py::JsonDumps(document, 2) + "\n");
+            files::WriteText(project / output, util::JsonDumps(document, 2) + "\n");
             result.entry = {{"name", document.at("name")}, {"output", PosixPath(output)}};
             return result;
         }
@@ -199,7 +199,7 @@ namespace w2b::sound
         }
     }
 
-    py::Json BindPcm(const fs::path& project, const fs::path& pcmRoot)
+    util::Json BindPcm(const fs::path& project, const fs::path& pcmRoot)
     {
         const auto decoded = Json::parse(files::ReadText(pcmRoot / "audio.stage.json"));
         const auto staged = Json::parse(files::ReadText(project / "sounds.stage.json"));
@@ -237,7 +237,7 @@ namespace w2b::sound
         }
         Json report{{"status", Status}, {"aliases", std::move(aliases)}, {"errors", std::move(errors)},
                     {"bound_variants", bound}, {"runtime_validated", false}};
-        files::WriteText(project / "sounds.bindings.json", py::JsonDumps(report, 2) + "\n");
+        files::WriteText(project / "sounds.bindings.json", util::JsonDumps(report, 2) + "\n");
         return report;
     }
 }

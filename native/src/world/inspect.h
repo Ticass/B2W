@@ -1,11 +1,11 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 
 namespace w2b::world
 {
-    py::Json InspectWorld(const std::filesystem::path& gfx, const std::filesystem::path& clip);
-    py::Json InspectStaticModels(const std::filesystem::path& gfx, const std::filesystem::path& models);
+    util::Json InspectWorld(const std::filesystem::path& gfx, const std::filesystem::path& clip);
+    util::Json InspectStaticModels(const std::filesystem::path& gfx, const std::filesystem::path& models);
 }

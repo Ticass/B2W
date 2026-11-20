@@ -4,7 +4,7 @@
 // report as framework_coverage.json/.md, with a FRAMEWORK_BO2 warning for
 // each function BO2 runs without a documented glue reason.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <string>
@@ -17,9 +17,9 @@ namespace w2b::pipeline
     {
         std::vector<std::pair<std::string, long long>> totals; // status -> functions
         std::vector<std::string> warnings;                     // FRAMEWORK_BO2 rows without a glue reason
-        py::Json TotalsJson() const
+        util::Json TotalsJson() const
         {
-            auto json = py::Json::object();
+            auto json = util::Json::object();
             for (const auto& [status, count] : totals)
                 json[status] = count;
             return json;
@@ -28,5 +28,5 @@ namespace w2b::pipeline
 
     // scripts: the bridge report's scripts section
     CoverageSummary FrameworkCoverage(const std::string& project, const std::filesystem::path& projectRoot,
-                                      const std::vector<std::filesystem::path>& roots, const py::Json& scripts);
+                                      const std::vector<std::filesystem::path>& roots, const util::Json& scripts);
 } // namespace w2b::pipeline

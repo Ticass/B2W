@@ -7,7 +7,7 @@
 #include "core/hash.h"
 #include "core/parallel.h"
 #include "core/process.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/zip.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
@@ -20,7 +20,7 @@
 namespace w2b::strings
 {
     namespace fs = std::filesystem;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -72,7 +72,7 @@ namespace w2b::strings
         // KEY.fullmatch: [A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+
         bool IsKey(const std::string& s)
         {
-            static const pyre::Regex key("[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\\Z");
+            static const regex::Regex key("[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\\Z");
             return key.FullMatch(s).has_value();
         }
 
@@ -126,7 +126,7 @@ namespace w2b::strings
             const auto marker = out / "localization.cache.json";
             const auto ffStamp = extract::Stamp(ff), toolStamp = extract::Stamp(unlinker);
             const Json identity{{"ff_size", ffStamp[0]}, {"ff_mtime", ffStamp[1]}, {"tool_mtime", toolStamp[1]}, {"version", 1}};
-            if (IsFile(marker) && py::SortKeys(ReadJson(marker)) == py::SortKeys(identity))
+            if (IsFile(marker) && util::SortKeys(ReadJson(marker)) == util::SortKeys(identity))
                 return out;
             std::error_code e;
             fs::remove_all(out, e);
@@ -138,14 +138,14 @@ namespace w2b::strings
             files::WriteBytes(out / "extract.log", result.out);
             if (result.exitCode)
                 throw std::runtime_error("localization extraction failed: " + Str(ff) + "; see " + Str(out / "extract.log"));
-            files::WriteText(marker, py::JsonDumpsDefault(identity));
+            files::WriteText(marker, util::JsonDumpsDefault(identity));
             return out;
         }
 
         // price_variant: an authored stock hint family extended to the map's price
         std::optional<std::pair<std::string, std::string>> PriceVariant(const std::string& key, const std::map<std::string, std::pair<std::string, std::string>>& sources)
         {
-            static const pyre::Regex family("(ZOMBIE_BUTTON_BUY_(?:OPEN_DOOR|OPEN_AREA|CLEAR_DEBRIS)_)([0-9]+)");
+            static const regex::Regex family("(ZOMBIE_BUTTON_BUY_(?:OPEN_DOOR|OPEN_AREA|CLEAR_DEBRIS)_)([0-9]+)");
             const auto match = family.FullMatch(key);
             if (!match)
                 return std::nullopt;
@@ -158,10 +158,10 @@ namespace w2b::strings
                 const auto oldCost = candidate.substr(prefix.size());
                 if (oldCost.empty() || !std::all_of(oldCost.begin(), oldCost.end(), [](const char c) { return c >= '0' && c <= '9'; }))
                     continue;
-                const pyre::Regex pattern("(?<![0-9])" + pyre::Escape(oldCost) + "(?![0-9])");
+                const regex::Regex pattern("(?<![0-9])" + regex::Escape(oldCost) + "(?![0-9])");
                 if (pattern.FindAll(hit.first).size() != 1)
                     continue;
-                const auto templ = pattern.Sub([](const pyre::Match&) { return std::string("{waw_cost}"); }, hit.first);
+                const auto templ = pattern.Sub([](const regex::Match&) { return std::string("{waw_cost}"); }, hit.first);
                 if (std::none_of(templates.begin(), templates.end(), [&](const auto& t) { return t.first == templ; }))
                     templates.emplace_back(templ, hit.second);
             }
@@ -218,10 +218,10 @@ namespace w2b::strings
 
     namespace
     {
-        // parse(): ordered key -> value, conflicts as Python lists them
+        // parse(): ordered key -> value, conflicts in source order
         Ordered Parse(const std::string& text, const std::string& language, Json* conflicts)
         {
-            static const pyre::Regex word("//[^\\n]*|/\\*.*?\\*/|\"(?:\\\\.|[^\"\\\\])*\"|[^\\s]+", pyre::DOTALL);
+            static const regex::Regex word("//[^\\n]*|/\\*.*?\\*/|\"(?:\\\\.|[^\"\\\\])*\"|[^\\s]+", regex::DOTALL);
             // newline counts by code point offset
             std::vector<int> lines;
             lines.reserve(text.size() + 1);
@@ -637,7 +637,7 @@ namespace w2b::strings
                           {"errors", Json::array()}, {"conflicts", conflicts}, {"warnings", warnings}};
         const auto output = project / "content_source/localization.stage.json";
         fs::create_directories(output.parent_path());
-        files::WriteText(output, py::JsonDumps(report, 2) + "\n");
+        files::WriteText(output, util::JsonDumps(report, 2) + "\n");
         return report;
     }
 } // namespace w2b::strings

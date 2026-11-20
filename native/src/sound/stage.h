@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -17,7 +17,7 @@ namespace w2b::sound
         using std::runtime_error::runtime_error;
     };
 
-    std::string AudioName(const py::Json& file);
+    std::string AudioName(const util::Json& file);
     void CheckOutputName(const std::string& kind, std::string name);
 
     struct StageInput
@@ -30,5 +30,5 @@ namespace w2b::sound
     };
 
     // sounds.stage: alias IR files, original audio payloads and sounds.stage.json
-    py::Json Stage(const StageInput& input);
+    util::Json Stage(const StageInput& input);
 } // namespace w2b::sound

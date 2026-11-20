@@ -3,7 +3,7 @@
 // definitions with their attenuation ramps, the source lighting copies, and
 // the stock T6 window barrier with the map's board repair timing.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/step_report.h"
 
 #include <filesystem>
@@ -24,5 +24,5 @@ namespace w2b::pipeline
                              const std::set<std::string>& definitions);
     // timing: the map's replace_chunk motion (scripts.window_repair_timing), null without one
     StepReport StageZbarrier(const std::filesystem::path& projectRoot, const std::optional<std::filesystem::path>& techsetDump,
-                             const std::optional<std::filesystem::path>& bo2Root, const py::Json& timing);
+                             const std::optional<std::filesystem::path>& bo2Root, const util::Json& timing);
 } // namespace w2b::pipeline

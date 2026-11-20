@@ -1,8 +1,8 @@
 #pragma once
-// Port of localization.py: the map's localized UI text from its zones, IWDs,
+// The map's localized UI text from its zones, IWDs,
 // stock WaW and raw WaW, isolated from BO2's string keys (WAW2BO2_ prefix).
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>
@@ -19,7 +19,7 @@ namespace w2b::strings
 {
     // StringEd text -> key -> value (the last definition of a repeated key);
     // conflicts, when given, receive the repeated keys whose text differs
-    std::map<std::string, std::string> ParseStringEd(const std::string& text, const std::string& language, py::Json* conflicts = nullptr);
+    std::map<std::string, std::string> ParseStringEd(const std::string& text, const std::string& language, util::Json* conflicts = nullptr);
     std::string Quote(const std::string& text);
     std::string Unquote(const std::string& text);
 
@@ -33,5 +33,5 @@ namespace w2b::strings
     };
 
     // localization.stage: the summary for the bridge report
-    py::Json StageLocalization(const LocalizationRequest& request);
+    util::Json StageLocalization(const LocalizationRequest& request);
 } // namespace w2b::strings

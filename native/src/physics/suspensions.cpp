@@ -59,7 +59,7 @@ namespace w2b::physics
                 block += "    suspension.point = " + ScriptVector(JointPosition(joint, endpoint)) + ";\n";
                 block += "    suspension.length = " + FormatNumber(joint.at("distance").get<double>()) + ";\n";
                 block += "    suspension.damp = " + FormatNumber(joint.at("damp").get<double>()) + ";\n";
-                block += "    level.waw_rope_suspensions[" + py::JsonDumps(name, -1) + "] = suspension;\n";
+                block += "    level.waw_rope_suspensions[" + util::JsonDumps(name, -1) + "] = suspension;\n";
                 ++count;
             }
             block += End;

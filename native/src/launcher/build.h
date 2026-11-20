@@ -1,5 +1,5 @@
 #pragma once
-// Port of launcher.py's preflight, BuildPaths, ProcessRunner and the build,
+// The preflight, BuildPaths, ProcessRunner and the build,
 // extract, install and launch flows the desktop UI starts.
 
 #include "settings.h"
@@ -75,7 +75,7 @@ namespace w2b::launcher
     int PerformInstall(const Settings& settings, ProcessRunner& runner);
     bool Installed(const Settings& settings);
     void LaunchMap(const Settings& settings);
-    py::Json InputStamp(const Settings& settings);
+    util::Json InputStamp(const Settings& settings);
 
     fs::path PlutoniumRoot();
 } // namespace w2b::launcher

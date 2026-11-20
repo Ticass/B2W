@@ -10,7 +10,7 @@ namespace w2b::materials
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using Sorted = nlohmann::json; // std::map objects: the dumper's sorted key order
 
         template <typename T> std::optional<T> Optional(const Json& data, const char* key)
@@ -290,6 +290,6 @@ namespace w2b::materials
 
     std::string T6MaterialText(const T6Material& material)
     {
-        return py::JsonDumps(ToJson(material), 2) + "\n";
+        return util::JsonDumps(ToJson(material), 2) + "\n";
     }
 } // namespace w2b::materials

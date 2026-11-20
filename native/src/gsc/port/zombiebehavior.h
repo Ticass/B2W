@@ -1,5 +1,5 @@
 #pragma once
-// Port of zombiebehavior.py: WaW speed selection and plain spawner locations
+// WaW speed selection and plain spawner locations
 // on the BO2 AI runtime.
 
 #include "sources.h"
@@ -34,24 +34,24 @@ namespace w2b::gsc::port::zombiebehavior
     // speed -> clips, in the order the source first assigns each speed
     using MovementSets = std::vector<std::pair<std::string, std::vector<std::string>>>;
 
-    std::optional<std::string> SourceChasePolicy(Sources& sources, const py::Json& definition);
-    std::optional<std::string> SourceSpeedState(Sources& sources, const py::Json& definition, bool rounds = true);
-    std::optional<std::string> SourceSelection(Sources& sources, const py::Json& definition);
+    std::optional<std::string> SourceChasePolicy(Sources& sources, const util::Json& definition);
+    std::optional<std::string> SourceSpeedState(Sources& sources, const util::Json& definition, bool rounds = true);
+    std::optional<std::string> SourceSelection(Sources& sources, const util::Json& definition);
     // speed -> picked variants; nullopt = every authored entry reachable
-    std::vector<std::pair<std::string, std::optional<std::set<long long>>>> ReachableVariants(Sources& sources, const py::Json& definition);
-    std::optional<LastZombie> SourceLastZombie(Sources& sources, const py::Json& definition);
+    std::vector<std::pair<std::string, std::optional<std::set<long long>>>> ReachableVariants(Sources& sources, const util::Json& definition);
+    std::optional<LastZombie> SourceLastZombie(Sources& sources, const util::Json& definition);
     std::optional<bool> FoldLevelGuard(const std::vector<std::string>& words, const std::string& mapName, const std::set<std::string>* assigned);
-    std::pair<std::optional<std::string>, MovementSets> MovementSetsOf(Sources& sources, const py::Json& definition,
+    std::pair<std::optional<std::string>, MovementSets> MovementSetsOf(Sources& sources, const util::Json& definition,
                                                                        const std::optional<std::string>& mapName = std::nullopt);
-    MovementSets MeleeSets(Sources& sources, const py::Json& definition, const std::optional<std::string>& mapName = std::nullopt);
+    MovementSets MeleeSets(Sources& sources, const util::Json& definition, const std::optional<std::string>& mapName = std::nullopt);
 
     using FindXanim = std::function<std::optional<std::filesystem::path>(const std::string&)>;
     std::tuple<std::string, std::vector<std::string>, std::vector<std::string>> SourceTraversalClips(std::string asd, const FindXanim& find,
                                                                                                       const std::filesystem::path& outRoot);
-    py::Json StageActorMovement(Sources& sources, const std::filesystem::path& outRoot, const std::filesystem::path& bo2Root, const py::Json& definition,
+    util::Json StageActorMovement(Sources& sources, const std::filesystem::path& outRoot, const std::filesystem::path& bo2Root, const util::Json& definition,
                                 const std::optional<std::string>& mapName = std::nullopt, const FindXanim* find = nullptr);
 
-    std::string RuntimeSource(const py::Json& definition, const std::optional<std::string>& speedFunction,
+    std::string RuntimeSource(const util::Json& definition, const std::optional<std::string>& speedFunction,
                               const std::optional<std::string>& selectionFunction = std::nullopt,
                               const std::optional<std::string>& speedStateFunction = std::nullopt, bool sourceMembership = false,
                               const std::optional<std::string>& respawnFunction = std::nullopt,
@@ -60,7 +60,7 @@ namespace w2b::gsc::port::zombiebehavior
 
     std::string WawQuoteRules(std::string text, const std::string& native, const std::string& coreText);
     std::string WawDropRules(std::string text, const std::string& native);
-    void StageNativeSupport(const std::filesystem::path& outRoot, const std::filesystem::path& bo2Root, const py::Json& definition);
+    void StageNativeSupport(const std::filesystem::path& outRoot, const std::filesystem::path& bo2Root, const util::Json& definition);
 
     // f-string style template: {key} from values, {{ and }} literal braces
     std::string Format(std::string_view text, const std::map<std::string, std::string>& values);

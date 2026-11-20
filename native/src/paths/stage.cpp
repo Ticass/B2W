@@ -90,7 +90,7 @@ namespace w2b::paths
                 throw Error(files::Utf8(*asd) + ": no zm_traverse substates with _crawl twins");
         }
         auto output = Convert(source, substates, dogs.calls);
-        files::WriteText(bsp / "paths.json", py::JsonDumps(output.at("manifest"), -1) + "\n");
+        files::WriteText(bsp / "paths.json", util::JsonDumps(output.at("manifest"), -1) + "\n");
         WriteScripts(project, output.at("renamed"), dogs, output.at("summary"));
         return {std::move(output.at("summary")), output.at("renamed").get<Renames>(), std::move(dogs)};
     }

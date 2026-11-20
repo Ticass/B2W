@@ -5,7 +5,7 @@
 // (resolved through the IWD recovery that serves this operation) and the
 // technique sets and shader programs they use; content_source/weapons.visuals.json.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>
@@ -34,7 +34,7 @@ namespace w2b::pipeline
     {
         std::vector<std::string> warnings;
         std::size_t errors = 0;
-        py::Json recovered; // IWD images decoded for the weapons
+        util::Json recovered; // IWD images decoded for the weapons
     };
 
     // writes content_source/weapons.visuals.json

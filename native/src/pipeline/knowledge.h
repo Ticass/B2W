@@ -4,7 +4,7 @@
 // ranked across every map it has seen. Evidence only: no conversion decision
 // reads it.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -19,16 +19,16 @@ namespace w2b::pipeline::knowledge
     std::pair<std::string, std::string> Classify(const std::string& entry);
     std::string ErrorKind(const std::string& text);
     std::string MapKey(const std::string& source);
-    py::Json Observation(const py::Json* report, const std::string& source, const std::string& project, const std::string& version, const std::string& outcome,
+    util::Json Observation(const util::Json* report, const std::string& source, const std::string& project, const std::string& version, const std::string& outcome,
                          const std::optional<std::string>& step, const std::string& error);
-    std::filesystem::path Record(const std::filesystem::path& ledger, const py::Json& observation);
+    std::filesystem::path Record(const std::filesystem::path& ledger, const util::Json& observation);
 
     // the last "== N. step" banner of a build console
     std::optional<std::string> FailedStep(const std::string& log);
     // every map's observation in the ledgers, a map's newest record winning
-    std::vector<py::Json> Load(const std::vector<std::filesystem::path>& ledgers);
+    std::vector<util::Json> Load(const std::vector<std::filesystem::path>& ledgers);
     // gaps ranked by the number of maps sharing them, failed steps, stage errors
-    py::Json Aggregate(const std::vector<py::Json>& observations);
+    util::Json Aggregate(const std::vector<util::Json>& observations);
     // the observation a failure bundle (diagnostics) carries
-    std::optional<py::Json> FromBundle(const std::filesystem::path& bundle);
+    std::optional<util::Json> FromBundle(const std::filesystem::path& bundle);
 } // namespace w2b::pipeline::knowledge

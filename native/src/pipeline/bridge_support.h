@@ -12,7 +12,7 @@
 namespace w2b::pipeline::bridge
 {
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     // progress.timed's lines, and the step's span in the build timeline
     template <typename F> auto Timed(const std::string& label, F&& f)

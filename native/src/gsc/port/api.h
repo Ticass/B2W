@@ -1,7 +1,7 @@
 #pragma once
 // gscport's module constants and compat/gsc_api.json.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <string>
@@ -31,7 +31,7 @@ namespace w2b::gsc::port
     const std::filesystem::path& CompatDir();
 
     // gscport.API: compat/gsc_api.json
-    const py::Json& Api();
+    const util::Json& Api();
 
     // gscport.norm
     std::string Norm(std::string path);

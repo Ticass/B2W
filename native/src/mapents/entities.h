@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "gsc/port/zone_scripts.h"
 #include "mapents/map_entity.h"
 
@@ -16,7 +16,7 @@ namespace w2b::world { struct CollisionWorld; }
 
 namespace w2b::mapents
 {
-    using py::Json;
+    using util::Json;
     using Path = std::filesystem::path;
 
     MapEntities Parse(std::string_view text);

@@ -2,7 +2,7 @@
 // t6bridge.stage_effects: the effects the map's scripts load, their closure,
 // effect materials, world-technique materials and the converted effects.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/material_record.h"
 
 #include <filesystem>
@@ -43,13 +43,13 @@ namespace w2b::pipeline
     {
         std::vector<std::string> warnings, errors;
         std::vector<MaterialRecord> materials;
-        py::Json images;                           // report image records
+        util::Json images;                           // report image records
         std::map<std::string, std::string> table;  // script-loaded WaW effect -> converted name
         std::vector<std::string> zoneFx;
         std::set<std::string> models, sounds;      // what the converted effects spawn and play
         std::vector<std::filesystem::path> extraRoots; // stock and source dumps the closure used
         std::set<std::string> techsets;
-        py::Json recovered;                        // IWD images recovery decoded for it
+        util::Json recovered;                        // IWD images recovery decoded for it
     };
 
     EffectsStage StageEffectsStep(const EffectsStageRequest& request, textures::IwdRecovery& recovery);

@@ -10,7 +10,7 @@ namespace w2b::world
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         std::string Problem(const Json& visibility, std::size_t surfaceCount)
         {
@@ -128,7 +128,7 @@ namespace w2b::world
             output.push_back({{"mins", cell.at("mins")}, {"maxs", cell.at("maxs")}, {"meshes", std::move(meshes[i])},
                               {"smodels", std::move(models)}, {"probes", cell.at("probes")}, {"portals", cell.at("portals")}});
         }
-        files::WriteText(path, py::JsonDumps({{"planes", source.at("planes")}, {"nodes", source.at("nodes")},
+        files::WriteText(path, util::JsonDumps({{"planes", source.at("planes")}, {"nodes", source.at("nodes")},
                                             {"cells", std::move(output)}}, -1) + "\n");
         visibility.summary["meshes"] = visibleMeshes;
     }

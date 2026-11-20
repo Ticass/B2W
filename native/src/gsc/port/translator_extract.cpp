@@ -1,8 +1,8 @@
-// Port of the Translator extraction methods (gscport.py 1958-2552, 2636-2879).
+// The Translator's extraction methods.
 #include "translator.h"
 
 #include "api.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "rewrites.h"
 
 #include <algorithm>
@@ -407,7 +407,7 @@ namespace w2b::gsc::port
         std::vector<Span> rules(mapSpans.begin(), mapSpans.begin() + static_cast<long long>(lead));
         if (bo2StockPerks)
         {
-            static const pyre::Regex perk(R"(\bhasperk \()");
+            static const regex::Regex perk(R"(\bhasperk \()");
             std::vector<Span> perkRules, rest;
             for (const auto& span : rules)
                 (perk.Search(header(toks, span)) ? perkRules : rest).push_back(span);
@@ -766,7 +766,7 @@ namespace w2b::gsc::port
         std::vector<std::string> missing;
         for (const auto& [label, pattern] : Anchors())
         {
-            const pyre::Regex re(Replace(pattern, "ROUND_WAIT", "round_wait"), pyre::IGNORECASE);
+            const regex::Regex re(Replace(pattern, "ROUND_WAIT", "round_wait"), regex::IGNORECASE);
             if (re.FindIter(body).size() != 1)
                 missing.push_back(label);
         }
@@ -802,11 +802,11 @@ namespace w2b::gsc::port
         {
             for (const auto& [label, pattern] : Anchors())
             {
-                const pyre::Regex re(Replace(pattern, "ROUND_WAIT", R"(\w*round_wait)"), pyre::IGNORECASE);
+                const regex::Regex re(Replace(pattern, "ROUND_WAIT", R"(\w*round_wait)"), regex::IGNORECASE);
                 const auto [before, after] = GlueCalls(label);
                 size_t count = 0;
                 text = re.Sub(
-                    [&, label = label, before = before, after = after](const pyre::Match& m)
+                    [&, label = label, before = before, after = after](const regex::Match& m)
                     {
                         const std::string mirror =
                             label == "advance" && Lower(m[1]) != "round_number" ? "\n\t\tlevel.round_number = level." + m[1] + ";" : std::string();
@@ -817,7 +817,7 @@ namespace w2b::gsc::port
                 if (count != 1)
                     throw std::runtime_error(where + ": " + function + " translated without anchor " + label);
             }
-            static const pyre::Regex local(R"((?<![.\w])round_spawn_func\s*=\s*[^;]+;)");
+            static const regex::Regex local(R"((?<![.\w])round_spawn_func\s*=\s*[^;]+;)");
             size_t made = 0;
             text = local.Sub("round_spawn_func = level.round_spawn_func;", text, 0, &made);
             if (made)

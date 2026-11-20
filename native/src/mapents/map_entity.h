@@ -3,7 +3,7 @@
 // the WaW .ents dump and the project's BSP/entities.json.
 
 #include "core/key_values.h"
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <vector>
@@ -13,9 +13,9 @@ namespace w2b::mapents
     using MapEntity = KeyValues;
     using MapEntities = std::vector<MapEntity>;
 
-    py::Json ToJson(const MapEntities& entities);
+    util::Json ToJson(const MapEntities& entities);
     // throws std::invalid_argument on a value that is not text
-    MapEntity MapEntityFromJson(const py::Json& entity);
+    MapEntity MapEntityFromJson(const util::Json& entity);
 
     // the "entities" list of BSP/entities.json
     MapEntities ReadMapEntities(const std::filesystem::path& path);

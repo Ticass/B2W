@@ -10,7 +10,7 @@ namespace w2b::textures
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         std::optional<files::fs::path> FindPage(const std::vector<files::fs::path>& roots, unsigned index,
                                                std::string_view kind)
@@ -26,7 +26,7 @@ namespace w2b::textures
         }
     }
 
-    py::Json LightmapPage::ToJson() const
+    util::Json LightmapPage::ToJson() const
     {
         return {{"index", index}, {"width", width}, {"height", height}, {"layout", "t6_left_waw_right"}, {"waw", name}, {"t6", name}};
     }
@@ -93,7 +93,7 @@ namespace w2b::textures
                                    "directional term, hdrControl0.x assumed 1");
         }
         files::WriteText(project / "BSP" / "lightmaps.json",
-                         py::JsonDumps({{"pages", std::move(manifestPages)}, {"wawMaterials", materials}}, 1) + "\n");
+                         util::JsonDumps({{"pages", std::move(manifestPages)}, {"wawMaterials", materials}}, 1) + "\n");
         return {std::move(reportPages), std::move(warnings)};
     }
 }

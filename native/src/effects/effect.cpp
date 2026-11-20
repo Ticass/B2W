@@ -11,7 +11,7 @@ namespace w2b::effects
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using Names = std::set<std::string>;
 
         constexpr std::array<std::string_view, 3> linkedEffects{"effectOnImpact", "effectOnDeath", "effectEmitted"};
@@ -54,7 +54,7 @@ namespace w2b::effects
         }
     }
 
-    Dependencies FindDependencies(const py::Json& source)
+    Dependencies FindDependencies(const util::Json& source)
     {
         Dependencies deps;
         for (const auto& element : source.at("elemDefs"))
@@ -78,7 +78,7 @@ namespace w2b::effects
         return deps;
     }
 
-    std::size_t AllocationSize(const py::Json& effect)
+    std::size_t AllocationSize(const util::Json& effect)
     {
         std::size_t size = 76;
         Names strings{effect.at("name").get<std::string>()};
@@ -110,7 +110,7 @@ namespace w2b::effects
         });
     }
 
-    ConvertedEffect ConvertEffect(const py::Json& source, const MaterialNames& materials)
+    ConvertedEffect ConvertEffect(const util::Json& source, const MaterialNames& materials)
     {
         const auto name = source.value("name", Json{});
         if (source.value("_type", Json{}) != "waw2bo2_fx" || source.value("_game", Json{}) != "T4")

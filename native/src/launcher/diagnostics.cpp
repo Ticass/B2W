@@ -4,7 +4,7 @@
 #include "build.h"
 #include "core/encoding.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/zipwrite.h"
 
 #include <windows.h>
@@ -75,7 +75,7 @@ namespace w2b::launcher
             files::ReadBytes(*build / "build.log", bytes);
             logs += "\n" + encoding::UniversalNewlines(encoding::Utf8Replace(bytes));
         }
-        static const pyre::Regex logRef(R"(\blog: (.*?)(?=\[tool\]|\r|\n|$))");
+        static const regex::Regex logRef(R"(\blog: (.*?)(?=\[tool\]|\r|\n|$))");
         for (const auto& row : logRef.FindAll(logs))
         {
             auto value = row[0];
@@ -89,14 +89,14 @@ namespace w2b::launcher
         fs::create_directories(directory);
         const auto stamp = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         const auto destination = directory / Path((settings.project.empty() ? std::string("extraction") : settings.project) + "-failure-" + std::to_string(stamp) + ".zip");
-        py::Json manifest = py::Json::array();
+        util::Json manifest = util::Json::array();
         zip::Writer archive(destination);
-        py::Json summary = py::Json::object();
+        util::Json summary = util::Json::object();
         summary["version"] = Version();
         summary["platform"] = Platform();
         summary["error"] = error;
         summary["settings"] = settings.ToJson();
-        archive.Add("summary.json", py::JsonDumps(summary, 2));
+        archive.Add("summary.json", util::JsonDumps(summary, 2));
         archive.Add("console.log", console);
         for (const auto& path : found)
         {
@@ -121,7 +121,7 @@ namespace w2b::launcher
             archive.Add(name, data);
             manifest.push_back({{"file", name}, {"original_bytes", size}, {"included_bytes", data.size()}});
         }
-        archive.Add("manifest.json", py::JsonDumps(manifest, 2));
+        archive.Add("manifest.json", util::JsonDumps(manifest, 2));
         archive.Close();
         return destination;
     }

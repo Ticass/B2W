@@ -184,7 +184,7 @@ namespace w2b::extract
     {
         // the linker resolves ../raw, ../zone_source, ../zone and the game files
         // (main/iw_00.iwd holds fileSysCheck.cfg) relative to its working folder
-        const auto workspace = work_ / "linker" / files::FromUtf8(Key(py::Json(Str(Resolve(raw)))));
+        const auto workspace = work_ / "linker" / files::FromUtf8(Key(util::Json(Str(Resolve(raw)))));
         for (const char* folder : {"bin", "zone_source", "zone/english"})
             fs::create_directories(workspace / folder);
         CreateJunction(workspace / "raw", raw);
@@ -259,9 +259,9 @@ namespace w2b::extract
         if (!files::ReadBytes(work_ / files::FromUtf8(SourceZoneName(kind, name) + ".link.log"), text))
             return {};
         std::vector<std::string> warnings;
-        for (const auto line : py::SplitLines(text))
+        for (const auto line : util::SplitLines(text))
         {
-            const auto stripped = std::string(py::Strip(line));
+            const auto stripped = std::string(util::Strip(line));
             if (line.find("failed loading") != std::string_view::npos || stripped.ends_with("not found"))
                 warnings.push_back(stripped);
         }

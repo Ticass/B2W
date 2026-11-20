@@ -1,7 +1,7 @@
 #pragma once
-// gscport.PortReport, with Python's dict/Counter insertion order.
+// gscport.PortReport, with entries in insertion order.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <string>
 #include <unordered_map>
@@ -44,7 +44,7 @@ namespace w2b::gsc::port
         OrderedMap<std::vector<std::string>> animtrees;
         std::vector<std::string> errors;
         bool characters = false;
-        py::Json weaponRegistration = py::Json::object();
+        util::Json weaponRegistration = util::Json::object();
         std::vector<std::string> wawHudMaterials;
         OrderedMap<std::string> nativeActorTrees;
         std::vector<std::string> clientListenerStrings;
@@ -54,6 +54,6 @@ namespace w2b::gsc::port
             unsupported[key].push_back(where);
         }
 
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 } // namespace w2b::gsc::port

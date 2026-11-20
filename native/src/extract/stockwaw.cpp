@@ -40,7 +40,7 @@ namespace w2b::extract
         std::set<std::string> SplitComma(const std::string& text)
         {
             std::set<std::string> out;
-            for (const auto part : py::Split(text, ","))
+            for (const auto part : util::Split(text, ","))
                 out.emplace(part);
             return out;
         }
@@ -91,27 +91,27 @@ namespace w2b::extract
             if (Lower(files::Utf8(entry.path().extension())) == ".ff")
                 zones.push_back(entry.path());
         std::sort(zones.begin(), zones.end(), [](const fs::path& a, const fs::path& b) { return Lower(Str(a)) < Lower(Str(b)); });
-        py::Json out = py::Json::object();
+        util::Json out = util::Json::object();
         for (const auto& ff : zones)
         {
             const auto result = RunUnlinker({Str(unlinker), "--no-color", "--list", Str(ff)});
-            py::Json types = py::Json::object();
+            util::Json types = util::Json::object();
             const auto listing = encoding::Utf8Replace(result.out);
-            for (const auto line : py::SplitLines(listing))
+            for (const auto line : util::SplitLines(listing))
             {
                 const auto comma = line.find(',');
-                const auto kind = std::string(py::Strip(line.substr(0, comma)));
-                const auto name = comma == std::string_view::npos ? std::string() : std::string(py::Strip(line.substr(comma + 1)));
+                const auto kind = std::string(util::Strip(line.substr(0, comma)));
+                const auto name = comma == std::string_view::npos ? std::string() : std::string(util::Strip(line.substr(comma + 1)));
                 if (name.empty() || name[0] == ',') // a reference, not a definition
                     continue;
                 if (!types.contains(kind))
-                    types[kind] = py::Json::array();
+                    types[kind] = util::Json::array();
                 types[kind].push_back(name);
             }
             out[files::Utf8(ff.stem())] = types;
         }
         fs::create_directories(work);
-        files::WriteText(cache, py::JsonDumpsDefault(py::Json{{"version", 1}, {"zones", out}}));
+        files::WriteText(cache, util::JsonDumpsDefault(util::Json{{"version", 1}, {"zones", out}}));
         index = out;
     }
 
@@ -138,7 +138,7 @@ namespace w2b::extract
     {
         if (prepared.count(zone))
         {
-            const auto inputs = preparedSources.count(zone) ? preparedSources[zone] : py::Json::object();
+            const auto inputs = preparedSources.count(zone) ? preparedSources[zone] : util::Json::object();
             const bool unknown = !inputs.contains("assets") || inputs["assets"].is_null();
             const auto available = SplitComma(unknown ? std::string() : inputs["assets"].get<std::string>());
             const auto requested = SplitComma(kind.value_or(DUMP_ASSETS));
@@ -152,11 +152,11 @@ namespace w2b::extract
             for (const auto& a : all)
                 assets += (assets.empty() ? "" : ",") + a;
             const auto ff = files::FromUtf8(inputs["file"].get<std::string>());
-            const auto root = work / "dependencies" / Key(py::Json(Str(ff)));
+            const auto root = work / "dependencies" / Key(util::Json(Str(ff)));
             CacheLock lock(root);
             std::fprintf(stderr, "Extracting referenced WaW stock zone: %s (%s)\n", files::Utf8(ff.filename()).c_str(), assets.c_str());
             ZoneRequest request{ff, unlinker, root, SearchPaths({ff.parent_path(), wawRoot / "main", wawRoot}), assets, "DDS"};
-            request.dependencies = inputs.value("dependencies", py::Json());
+            request.dependencies = inputs.value("dependencies", util::Json());
             request.base = prepared[zone];
             const auto extraction = ExtractZone(request);
             prepared[zone] = extraction.folder;

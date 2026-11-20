@@ -12,13 +12,13 @@ namespace w2b::pipeline
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         namespace fs = std::filesystem;
 
         double Coordinate(std::string_view value, std::string_view label, int limit)
         {
             double number = 0;
-            if (!py::ParseFloat(value, number) || !std::isfinite(number) || std::abs(number) > limit)
+            if (!util::ParseFloat(value, number) || !std::isfinite(number) || std::abs(number) > limit)
                 throw std::invalid_argument(std::string(label) + " must be a number between " +
                                             std::to_string(-limit) + " and " + std::to_string(limit) + ".");
             return number;
@@ -99,7 +99,7 @@ namespace w2b::pipeline
         auto song = StageMenuSong(settings, root, decoder);
         if (!song.empty())
             data["loading_song"] = std::move(song);
-        files::WriteText(file, py::JsonDumps(data, 2) + "\n");
+        files::WriteText(file, util::JsonDumps(data, 2) + "\n");
         return warning;
     }
 }

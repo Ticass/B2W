@@ -5,7 +5,7 @@
 namespace w2b::weapons
 {
     inline constexpr std::string_view waterBulletsScript = R"gsc(// waw2bo2: WaW bullets go on through water; T6 never damages what stands in it.
-// See waw2bo2/waterbullets.py. Each row: hip stand/ducked/prone min, hip
+// Each row: hip stand/ducked/prone min, hip
 // stand/ducked/prone max, decay rate, fire add, move add, ADS spread, pellets,
 // WaW water penetration depth.
 

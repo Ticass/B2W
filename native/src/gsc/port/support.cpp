@@ -1,10 +1,10 @@
-// Ports of zombieappearance.py, stockperks.py, hintdefaults.py, perktable.py
-// and the script sources of oneway.py / waterbullets.py (see support.h).
+// Zombie appearance, stock perks, hint defaults, the perk table and the
+// one-way clip and water bullet script sources (see support.h).
 #include "support.h"
 
 #include "core/encoding.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "gsc/parse.h"
 #include "mapents/map_entity.h"
 #include "util.h"
@@ -20,12 +20,12 @@ namespace w2b::gsc::port
 
     namespace
     {
-        py::Json LoadJson(const fs::path& path)
+        util::Json LoadJson(const fs::path& path)
         {
-            return py::Json::parse(files::ReadText(path));
+            return util::Json::parse(files::ReadText(path));
         }
 
-        bool Truthy(const py::Json* value)
+        bool Truthy(const util::Json* value)
         {
             if (!value || value->is_null())
                 return false;
@@ -38,7 +38,7 @@ namespace w2b::gsc::port
             return !value->empty();
         }
 
-        const py::Json* Get(const py::Json& object, const std::string& key)
+        const util::Json* Get(const util::Json& object, const std::string& key)
         {
             if (!object.is_object())
                 return nullptr;
@@ -46,7 +46,7 @@ namespace w2b::gsc::port
             return it == object.end() ? nullptr : &*it;
         }
 
-        std::string GetString(const py::Json& object, const std::string& key)
+        std::string GetString(const util::Json& object, const std::string& key)
         {
             const auto* v = Get(object, key);
             return v && v->is_string() ? v->get<std::string>() : std::string();
@@ -146,7 +146,7 @@ namespace w2b::gsc::port
             tokens[start].text = sourcePath + "::main();\n    self setcharacterindex( 0 );";
             for (size_t k = start + 1; k < main.bodyClose; k++)
                 tokens[k].text = tokens[k].pre = "";
-            static const pyre::Regex characterInclude(R"(#include\s+character\\)", pyre::IGNORECASE);
+            static const regex::Regex characterInclude(R"(#include\s+character\\)", regex::IGNORECASE);
             for (auto& token : tokens)
                 if (token.kind == Kind::Directive && characterInclude.MatchAt(token.text))
                     token.text = "";
@@ -180,7 +180,7 @@ namespace w2b::gsc::port
 
         std::string TemplateTree(const std::string& tmpl)
         {
-            static const pyre::Regex tree(R"re(#using_animtree\(\s*"([^"]+)"\s*\))re");
+            static const regex::Regex tree(R"re(#using_animtree\(\s*"([^"]+)"\s*\))re");
             const auto match = tree.Search(tmpl);
             if (!match)
                 throw std::runtime_error("T6 actor template has no #using_animtree");
@@ -337,7 +337,7 @@ namespace w2b::gsc::port
         std::set<std::string> MachineModels(const fs::path& bo2Root)
         {
             std::set<std::string> names;
-            static const pyre::Regex precache(R"re(precachemodel\(\s*"([^"\n]+)")re", pyre::IGNORECASE);
+            static const regex::Regex precache(R"re(precachemodel\(\s*"([^"\n]+)")re", regex::IGNORECASE);
             std::vector<std::string> modules{"perks"};
             for (const char* m : MODULES)
                 modules.push_back(std::string("perk_") + m);
@@ -440,7 +440,7 @@ namespace w2b::gsc::port
                 paths.push_back(p);
             for (const auto& p : GlobFolder(outRoot / "clientscripts/mp/waw", "_waw2bo2_perk_", ".csc"))
                 paths.push_back(p);
-            static const pyre::Regex call(R"re(\b(precacheitem|precachemodel|precacheshader|loadfx)\s*\(\s*"([^"\n]+)")re", pyre::IGNORECASE);
+            static const regex::Regex call(R"re(\b(precacheitem|precachemodel|precacheshader|loadfx)\s*\(\s*"([^"\n]+)")re", regex::IGNORECASE);
             for (const auto& path : paths)
                 for (const auto& row : call.FindAll(files::ReadText(path)))
                 {
@@ -480,7 +480,7 @@ namespace w2b::gsc::port
                 lines.push_back("    precachestring(&\"PLATFORM_HOLD_TO_USE\");");
             for (const auto& name : names)
             {
-                lines.push_back("    triggers = getentarray(" + py::JsonDumps(py::Json(name), 2) + ", \"targetname\");");
+                lines.push_back("    triggers = getentarray(" + util::JsonDumps(util::Json(name), 2) + ", \"targetname\");");
                 lines.push_back("    for (i = 0; i < triggers.size; i++)");
                 lines.push_back("        if (triggers[i].classname == \"trigger_use\")");
                 lines.push_back("            triggers[i] sethintstring(&\"PLATFORM_HOLD_TO_USE\");");
@@ -547,7 +547,7 @@ namespace w2b::gsc::port
                 files::ReadBytes(entities, bytes);
                 texts.push_back(encoding::UniversalNewlines(encoding::Utf8Replace(bytes)));
             }
-            static const pyre::Regex literal(R"re("(specialty_[A-Za-z0-9_]+)")re");
+            static const regex::Regex literal(R"re("(specialty_[A-Za-z0-9_]+)")re");
             std::set<std::string> perks;
             for (const auto& text : texts)
                 for (const auto& row : literal.FindAll(text))
@@ -560,14 +560,14 @@ namespace w2b::gsc::port
             std::string lines;
             for (const auto& perk : emulated)
                 lines += "    level.waw2bo2_emulated_perks[\"" + perk + "\"] = 1;\n";
-            return "// waw2bo2: the map's perk names T6's perk table lacks (perktable.py)\ninit()\n{\n    level.waw2bo2_emulated_perks = [];\n" + lines + "}\n";
+            return "// waw2bo2: the map's perk names T6's perk table lacks\ninit()\n{\n    level.waw2bo2_emulated_perks = [];\n" + lines + "}\n";
         }
 
-        py::Json Stage(const fs::path& projectRoot, const std::optional<fs::path>& executable)
+        util::Json Stage(const fs::path& projectRoot, const std::optional<fs::path>& executable)
         {
             const auto scriptDir = projectRoot / "maps/mp/waw";
             const auto exe = executable ? executable : T6Executable();
-            py::Json result = py::Json::object();
+            util::Json result = util::Json::object();
             if (!exe)
             {
                 files::WriteText(scriptDir / SCRIPT, Source({}));
@@ -602,7 +602,7 @@ namespace w2b::gsc::port
         namespace
         {
             constexpr std::string_view WATER_BULLETS_GSC = R"GSC(// waw2bo2: WaW bullets go on through water; T6 never damages what stands in it.
-// See waw2bo2/waterbullets.py. Each row: hip stand/ducked/prone min, hip
+// Each row: hip stand/ducked/prone min, hip
 // stand/ducked/prone max, decay rate, fire add, move add, ADS spread, pellets,
 // WaW water penetration depth.
 
@@ -712,7 +712,7 @@ waw_water_spread( row )
 
         std::map<std::string, double> WaterDepths(const std::string& tableText)
         {
-            const auto values = py::Split(py::Strip(tableText), "\\");
+            const auto values = util::Split(util::Strip(tableText), "\\");
             std::map<std::string, std::string> pairs;
             for (size_t i = 1; i + 1 < values.size(); i += 2)
                 pairs[std::string(values[i])] = std::string(values[i + 1]);
@@ -721,7 +721,7 @@ waw_water_spread( row )
                 if (const auto it = pairs.find(std::string(kind) + "_water"); it != pairs.end())
                 {
                     double value = 0;
-                    if (!py::ParseFloat(it->second, value))
+                    if (!util::ParseFloat(it->second, value))
                         throw std::invalid_argument("could not convert string to float: '" + it->second + "'");
                     depths[kind] = value;
                 }

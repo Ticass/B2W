@@ -1,7 +1,7 @@
 #include "d3d.h"
 
 #include "core/cache.h"
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 
@@ -73,7 +73,7 @@ namespace w2b::shaders
         const auto hr = Load().disassemble(bytecode.data(), bytecode.size(), 0, nullptr, &blob);
         if (FAILED(hr))
             throw ShaderError("D3DDisassemble failed: " + Hex(hr));
-        std::string text(py::RStrip(BlobBytes(blob), std::string_view("\0", 1)));
+        std::string text(util::RStrip(BlobBytes(blob), std::string_view("\0", 1)));
         cache::Store("sm3_disassembly", key, text);
         return text;
     }

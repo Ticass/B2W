@@ -1,7 +1,7 @@
 #include "textures/iwd_recovery.h"
 
 #include "core/files.h"
-#include "core/pytext.h"
+#include "core/text.h"
 #include "textures/dds.h"
 #include "textures/iwi6.h"
 
@@ -74,7 +74,7 @@ namespace w2b::textures
             if (relative.has_root_path() || std::ranges::find(relative, fs::path("..")) != relative.end() ||
                 !IsRelativeTo(Resolved(target), Resolved(root)))
                 throw TextureError(std::string(wavelet ? "unsafe wavelet image name " : "unsafe image name ") +
-                                   py::StringRepr(stem));
+                                   util::StringRepr(stem));
             return target;
         }
     }

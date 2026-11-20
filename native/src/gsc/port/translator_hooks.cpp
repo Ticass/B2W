@@ -1,9 +1,9 @@
-// Port of the Translator hook generators (gscport.py 2881-3642).
+// The Translator's hook generators.
 #include "translator.h"
 
 #include "api.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "rewrites.h"
 
 #include <algorithm>
@@ -32,16 +32,16 @@ namespace w2b::gsc::port
         }
 
         // str() of a JSON number in an f-string
-        std::string Number(const py::Json& value)
+        std::string Number(const util::Json& value)
         {
             if (value.is_number_float())
-                return py::FloatRepr(value.get<double>());
+                return util::FloatRepr(value.get<double>());
             if (value.is_string())
                 return value.get<std::string>();
             return value.dump();
         }
 
-        bool Truthy(const py::Json& value)
+        bool Truthy(const util::Json& value)
         {
             if (value.is_null())
                 return false;
@@ -69,7 +69,7 @@ namespace w2b::gsc::port
     {
         std::vector<std::string> calls;
         const auto* perksText = sources.text->Find(std::string(PERKS) + ".gsc");
-        static const pyre::Regex maxhealth(R"(\bplayer\.maxhealth\s*=\s*(\d+)\s*;)", pyre::IGNORECASE);
+        static const regex::Regex maxhealth(R"(\bplayer\.maxhealth\s*=\s*(\d+)\s*;)", regex::IGNORECASE);
         std::vector<long long> health;
         if (perksText)
             for (const auto& row : maxhealth.FindAll(*perksText))
@@ -343,12 +343,12 @@ namespace w2b::gsc::port
         std::filesystem::remove(events, error);
         if (lines.empty())
             return {};
-        py::Json json = py::Json::object();
+        util::Json json = util::Json::object();
         for (const auto& [label, aliases] : lines)
             json[label] = aliases;
-        files::WriteText(events, py::JsonDumps(json, 2) + "\n");
+        files::WriteText(events, util::JsonDumps(json, 2) + "\n");
         const auto prefix = Api()["audio_remaster"]["announcer_alias_prefix"].get<std::string>();
-        static const pyre::Regex nonword(R"(\W)");
+        static const regex::Regex nonword(R"(\W)");
         std::sort(lines.begin(), lines.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         std::string body;
         for (const auto& [label, aliases] : lines)
@@ -426,7 +426,7 @@ namespace w2b::gsc::port
         if (script->Find(dogs["health"].get<std::string>()))
             health = std::string(CORE) + "::" + ExtractEntry(source, dogs["health"].get<std::string>()).value_or("None");
         const auto fog = ClientFogMonitors(dogs["client_notifies"]);
-        static const pyre::Regex loadfx(R"re(\bloadfx\s*\(\s*"([^"]+)")re", pyre::IGNORECASE);
+        static const regex::Regex loadfx(R"re(\bloadfx\s*\(\s*"([^"]+)")re", regex::IGNORECASE);
         if (const auto* text = sources.text->Find(source + ".gsc"))
             for (const auto& row : loadfx.FindAll(*text))
                 report.fx.push_back(row[0]);
@@ -440,7 +440,7 @@ namespace w2b::gsc::port
                + ", " + health + ", " + owned + "::enable_dog_rounds );" + threads + " }";
     }
 
-    std::vector<std::string> Translator::ClientFogMonitors(const py::Json& moments)
+    std::vector<std::string> Translator::ClientFogMonitors(const util::Json& moments)
     {
         std::vector<std::string> made;
         for (const auto& key : SortedKeys(*sources.text, ".csc"))
@@ -676,7 +676,7 @@ namespace w2b::gsc::port
             for (const auto& ref : References(script.tokens, fn.bodyOpen, fn.bodyClose))
             {
                 const auto low = Lower(ref.name);
-                const py::Json* rule = !ref.qualifier ? ApiGet(calls, low) : nullptr;
+                const util::Json* rule = !ref.qualifier ? ApiGet(calls, low) : nullptr;
                 if (!ref.qualifier && script.Find(low))
                     pending.push_back(low);
                 else if (rule && rule->contains("skip") && Truthy((*rule)["skip"]))
@@ -717,7 +717,7 @@ namespace w2b::gsc::port
                 auto& t = At(toks, i);
                 const auto low = t.Low();
                 const bool call = t.kind == Kind::Ident && At(toks, i + 1).text == "(" && (i == 0 || At(toks, i - 1).text != "::");
-                const py::Json* rule = call && i ? ApiGet(calls, low) : nullptr;
+                const util::Json* rule = call && i ? ApiGet(calls, low) : nullptr;
                 if (call && i && std::find(names.begin(), names.end(), low) != names.end())
                     t.text = prefix + low;
                 else if (rule)

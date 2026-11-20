@@ -6,7 +6,7 @@
 
 using namespace w2b;
 
-TEST_CASE("Translate lowers a small pixel program like shaders.py")
+TEST_CASE("Translate lowers a small pixel program")
 {
     const auto result = shaders::Translate("ps_3_0\n"
                                            "def c1, 0.5, 1, 0, 2\n"
@@ -15,7 +15,7 @@ TEST_CASE("Translate lowers a small pixel program like shaders.py")
                                            "texld r0, v0, s0\n"
                                            "mad_sat oC0, r0, c0, c1\n",
                                            nullptr);
-    // expected text from shaders._translate (Python) for the same input
+    // the expected translation of this input
     CHECK(result.hlsl
           == "cbuffer WawBuffer0 : register(b0) { float4 t6_cb0[1]; };\n"
              "static const float4 c1 = float4(0.5, 1.0, 0.0, 2.0);\n"
@@ -34,11 +34,11 @@ TEST_CASE("Translate lowers a small pixel program like shaders.py")
              "output.oC0 = oC0.xyzw;\n"
              "return output;\n"
              "}\n");
-    CHECK(result.report["constants"] == py::Json::array({"c0"}));
-    CHECK(result.report["outputs"]["oC0"] == py::Json::array({"SV_Target0", 4}));
+    CHECK(result.report["constants"] == util::Json::array({"c0"}));
+    CHECK(result.report["outputs"]["oC0"] == util::Json::array({"SV_Target0", 4}));
 }
 
-TEST_CASE("Translate errors carry the Python messages")
+TEST_CASE("Translate errors carry their messages")
 {
     CHECK_THROWS_WITH(shaders::Translate("vs_2_0\n", nullptr), "requires ps_3_0 or vs_3_0 bytecode");
     CHECK_THROWS_WITH(shaders::Translate("ps_3_0\nmov oC0, r9.q\n", nullptr), "unsupported operand r9.q");

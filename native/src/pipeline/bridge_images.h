@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -19,7 +19,7 @@ namespace w2b::pipeline
         std::optional<std::vector<std::filesystem::path>> iwdDirs;
         std::vector<std::string> extraImages, materialFiles; // materialFiles: the staged materials' JSON, project-relative
         std::set<std::string> nativeImages;                  // images taken from T6 equivalents
-        py::Json knownRecovered;                             // IWD images recovery already decoded
+        util::Json knownRecovered;                             // IWD images recovery already decoded
         bool diagnosticLightmap = false, diagnosticProbes = false;
         unsigned workers = 1;
     };
@@ -27,9 +27,9 @@ namespace w2b::pipeline
     struct BridgeImages
     {
         std::vector<std::string> written;
-        py::Json images; // report image records
+        util::Json images; // report image records
         std::vector<std::string> warnings, errors;
-        py::Json recovered;
+        util::Json recovered;
     };
 
     BridgeImages StageBridgeImages(const BridgeImagesRequest& request, textures::IwdRecovery& recovery);

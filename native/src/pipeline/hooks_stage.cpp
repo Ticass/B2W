@@ -12,7 +12,7 @@
 
 namespace w2b::pipeline
 {
-    using py::Json;
+    using util::Json;
     namespace port = gsc::port;
 
     StepReport HookMapScripts(const MapHookRequest& request)

@@ -2,7 +2,7 @@
 // Port of wawassets.StockWawAssets: the stock WaW zones of the install, their
 // asset index and dumps of the zones that define assets a map only references.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>
@@ -21,7 +21,7 @@ namespace w2b::extract
 
         void Load();
         fs::path ZoneDir() const;
-        const py::Json& Index() const
+        const util::Json& Index() const
         {
             return index;
         }
@@ -34,9 +34,9 @@ namespace w2b::extract
         fs::path wawRoot, unlinker, work;
 
     private:
-        py::Json index = py::Json::object(); // zone -> type -> names
+        util::Json index = util::Json::object(); // zone -> type -> names
         std::map<std::string, fs::path> prepared;
-        std::map<std::string, py::Json> preparedSources;
+        std::map<std::string, util::Json> preparedSources;
         mutable std::map<std::pair<std::string, std::string>, std::vector<std::string>> lookup;
     };
 } // namespace w2b::extract

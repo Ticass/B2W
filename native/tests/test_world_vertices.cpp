@@ -8,7 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 
-TEST_CASE("World vertices retain Python's packed color and normal semantics")
+TEST_CASE("World vertices keep their packed color and normal semantics")
 {
     constexpr auto bits = [](float value) { return std::bit_cast<std::uint32_t>(value); };
     constexpr std::array packed{bits(1.25f), bits(-2.0f), bits(3.0f), 0x80302010u,

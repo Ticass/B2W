@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <functional>
@@ -9,7 +9,7 @@
 namespace w2b::physics
 {
     using Path = std::filesystem::path;
-    using py::Json;
+    using util::Json;
     using PresetLookup = std::function<std::optional<Path>(const std::string&)>;
 
     Json ReadDynents(const Path& source);

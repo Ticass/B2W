@@ -6,15 +6,15 @@
 
 namespace w2b::mapents
 {
-    py::Json ToJson(const MapEntities& entities)
+    util::Json ToJson(const MapEntities& entities)
     {
-        auto out = py::Json::array();
+        auto out = util::Json::array();
         for (const auto& entity : entities)
             out.push_back(w2b::ToJson(entity));
         return out;
     }
 
-    MapEntity MapEntityFromJson(const py::Json& entity)
+    MapEntity MapEntityFromJson(const util::Json& entity)
     {
         try
         {
@@ -28,7 +28,7 @@ namespace w2b::mapents
 
     MapEntities ReadMapEntities(const std::filesystem::path& path)
     {
-        const auto data = py::Json::parse(files::ReadText(path));
+        const auto data = util::Json::parse(files::ReadText(path));
         MapEntities out;
         const auto& entities = data.at("entities");
         out.reserve(entities.size());
@@ -39,6 +39,6 @@ namespace w2b::mapents
 
     void WriteMapEntities(const std::filesystem::path& path, const MapEntities& entities)
     {
-        files::WriteText(path, py::JsonDumps({{"entities", ToJson(entities)}}, 1) + "\n");
+        files::WriteText(path, util::JsonDumps({{"entities", ToJson(entities)}}, 1) + "\n");
     }
 } // namespace w2b::mapents

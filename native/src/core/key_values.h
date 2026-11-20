@@ -3,7 +3,7 @@
 // infostring (weapon, flame table, physics preset). Lookups are linear, as
 // the files list each key once and hold a few hundred at most.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <initializer_list>
 #include <string>
@@ -45,8 +45,8 @@ namespace w2b
     };
 
     // no implicit JSON conversion (nlohmann would make an array of pairs): use ToJson
-    void to_json(py::Json&, const KeyValues&) = delete;
-    py::Json ToJson(const KeyValues& values);
+    void to_json(util::Json&, const KeyValues&) = delete;
+    util::Json ToJson(const KeyValues& values);
     // throws std::invalid_argument on a value that is not text
-    KeyValues KeyValuesFromJson(const py::Json& object);
+    KeyValues KeyValuesFromJson(const util::Json& object);
 } // namespace w2b

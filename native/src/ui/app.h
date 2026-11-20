@@ -1,6 +1,6 @@
 #pragma once
 // The desktop launcher: state and actions (app.cpp), drawn by views.cpp.
-// Same workflows as the former tkinter launcher (gui.py, gui_artwork.py).
+// The launcher's workflows.
 
 #include "gpu.h"
 #include "previews.h"

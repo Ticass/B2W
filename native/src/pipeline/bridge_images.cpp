@@ -16,7 +16,7 @@ namespace w2b::pipeline
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using Color = std::array<unsigned char, 4>;
         using files::FromUtf8;
 

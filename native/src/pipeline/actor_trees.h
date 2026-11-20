@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>

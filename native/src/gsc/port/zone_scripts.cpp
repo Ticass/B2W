@@ -2,7 +2,7 @@
 
 #include "core/encoding.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 
 namespace w2b::gsc::port
 {
@@ -23,11 +23,11 @@ namespace w2b::gsc::port
         {
             if (script.find(Gone) != script.npos && script.find("_zm_zonemgr::manage_zones") == script.npos)
                 return true;
-            static const pyre::Regex pattern(
+            static const regex::Regex pattern(
                 R"re(^\s*level\.zone_manager_init_func = ::\w+_zone_init;\n)re"
                 R"re(\s*init_zones = \[\];\n(?:\s*init_zones\[\d+\] = "[^"]*";\n)+)re"
                 R"re(\s*level thread maps\\mp\\zombies\\_zm_zonemgr::manage_zones\( init_zones \);\n)re",
-                pyre::MULTILINE);
+                regex::MULTILINE);
             std::size_t count = 0;
             auto output = pattern.Sub("    " + std::string(Gone) + "\n", script, 1, &count);
             if (count == 0)

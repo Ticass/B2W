@@ -17,7 +17,7 @@ namespace w2b::weapons
 
         void WriteJson(const path& target, const Json& data)
         {
-            files::WriteText(target, py::JsonDumps(data, 2) + "\n");
+            files::WriteText(target, util::JsonDumps(data, 2) + "\n");
         }
 
         std::string OriginalMaterial(std::string name)
@@ -161,7 +161,7 @@ namespace w2b::weapons
                             clonedMaterials.insert(OriginalMaterial(entry.get_ref<const std::string&>()));
                         }
                     const auto relative = "model_export/" + cloneName + "_lod" + std::to_string(i) + ".gltf";
-                    files::WriteBytes(content_ / files::FromUtf8(relative), py::JsonDumps(geometry, -1));
+                    files::WriteBytes(content_ / files::FromUtf8(relative), util::JsonDumps(geometry, -1));
                     lod["file"] = relative;
                 }
                 WriteJson(content_ / "xmodel" / files::FromUtf8(cloneName + ".json"), model);

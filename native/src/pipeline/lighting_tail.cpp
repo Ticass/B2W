@@ -14,7 +14,7 @@ namespace w2b::pipeline
 {
     using mod::StartsWith;
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -33,7 +33,7 @@ namespace w2b::pipeline
             if (v.is_number_integer())
                 return std::to_string(v.get<long long>());
             if (v.is_number_float())
-                return py::FloatRepr(v.get<double>());
+                return util::FloatRepr(v.get<double>());
             return v.is_string() ? v.get<std::string>() : v.dump();
         }
 
@@ -79,7 +79,7 @@ namespace w2b::pipeline
                 attenuation.insert(output);
             }
             definition["name"] = "waw_light/" + name;
-            files::WriteText(projectRoot / "lightdef/waw_light" / files::FromUtf8(name + ".json"), py::JsonDumps(definition, 1) + "\n");
+            files::WriteText(projectRoot / "lightdef/waw_light" / files::FromUtf8(name + ".json"), util::JsonDumps(definition, 1) + "\n");
         }
         // A light def's ramp is a code texture no material requests: stream it as effect images are
         if (!attenuation.empty())
@@ -94,7 +94,7 @@ namespace w2b::pipeline
             Json ordered = Json::object();
             for (const auto& [k, v] : sorted)
                 ordered[k] = v;
-            files::WriteText(path, py::JsonDumps(Json{{"streamingMode", ordered}}, 2) + "\n");
+            files::WriteText(path, util::JsonDumps(Json{{"streamingMode", ordered}}, 2) + "\n");
         }
         return staged;
     }

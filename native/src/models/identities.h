@@ -13,7 +13,7 @@ namespace w2b::models
 
     std::string RewriteModelLiterals(std::string_view source, const ModelNames& renamed);
     void RewriteStagedScripts(const Path& project, const std::function<std::string(std::string_view)>& transform);
-    py::Json RenamesJson(const RenameList& renamed);
+    util::Json RenamesJson(const RenameList& renamed);
     // Gives every converted model a name of its own; returns the renames.
     RenameList IsolateModelNames(const Path& project);
 }

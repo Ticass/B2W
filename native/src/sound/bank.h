@@ -2,7 +2,7 @@
 // Port of sounds.write_t6_bank with the audioremaster mix it applies: the
 // official BO2 alias CSV of every PCM- and curve-bound WaW alias.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "sound/remaster_tables.h"
 
 #include <filesystem>
@@ -30,7 +30,7 @@ namespace w2b::sound
             long long weaponFilesLoaded = 0, weaponFilesStreamed = 0, playedFilesLoaded = 0, playedFilesStreamed = 0;
         };
         std::optional<Fit> fit;
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 
     struct BankRequest
@@ -39,7 +39,7 @@ namespace w2b::sound
         std::string bank;                  // waw_<project>.all
         std::filesystem::path destination; // the project's soundbank folder
         std::optional<SoundBudget> budget; // none without BO2
-        py::Json reverbSend;               // the measured stock reverb send, null when unmeasured
+        util::Json reverbSend;               // the measured stock reverb send, null when unmeasured
         std::optional<RemasterTables> remaster; // the stock BO2 mix, none without BO2
         std::vector<std::string> engineNames;
         std::string flacEncoder;
@@ -48,13 +48,13 @@ namespace w2b::sound
 
     struct BankResult
     {
-        py::Json report; // content_source/sounds.bank.json
+        util::Json report; // content_source/sounds.bank.json
         std::optional<SoundBudget> budget; // the budget as fit
     };
 
     BankResult WriteT6Bank(const BankRequest& request);
     // sounds.default_reverb_mix(content_source)
-    py::Json DefaultReverbMixOf(const std::filesystem::path& project);
+    util::Json DefaultReverbMixOf(const std::filesystem::path& project);
     // animnotes.notification_offset: where a raw v17 xanim's note count sits
     size_t NotificationOffsetOf(const std::string& raw);
 } // namespace w2b::sound

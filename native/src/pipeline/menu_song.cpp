@@ -84,7 +84,7 @@ namespace w2b::pipeline
             if (command.exitCode || !files::ReadBytes(scratch.Path(), bytes))
             {
                 const auto decoded = encoding::Utf8Replace(command.out);
-                const auto message = py::Strip(decoded);
+                const auto message = util::Strip(decoded);
                 throw std::invalid_argument("Cannot decode loading song: " + std::string(message.substr(message.size() > 1000
                     ? message.size() - 1000 : 0)));
             }
@@ -121,7 +121,7 @@ namespace w2b::pipeline
             throw std::invalid_argument("Choose an existing, nonempty loading-song audio file.");
     }
 
-    py::Json StageMenuSong(const launcher::Settings& settings, const fs::path& root, const fs::path& decoder)
+    util::Json StageMenuSong(const launcher::Settings& settings, const fs::path& root, const fs::path& decoder)
     {
         const auto bank = "waw_" + settings.project + "_menu.all";
         const auto aliases = root / "soundbank" / files::FromUtf8(bank + ".aliases.csv");
@@ -131,7 +131,7 @@ namespace w2b::pipeline
         {
             fs::remove(aliases);
             fs::remove(wave);
-            return py::Json::object();
+            return util::Json::object();
         }
         const auto data = ReadSong(files::FromUtf8(settings.loading_song), decoder);
         const std::vector<std::string> names{"mus_load_" + settings.project, "mus_load_" + settings.project + "_patch"};

@@ -4,7 +4,7 @@
 // (PC defined), every menuDef parsed, and the closure reachable from
 // pausedmenu encoded as zm/waw_menus.csv with content_source/waw_menu.json.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -15,7 +15,7 @@ namespace w2b::pipeline
 {
     struct MenuStage
     {
-        py::Json result;                  // content_source/waw_menu.json, as written
+        util::Json result;                  // content_source/waw_menu.json, as written
         std::optional<std::string> error; // the WaW menu sources are missing or incomplete
     };
 

@@ -102,7 +102,7 @@ namespace w2b::physics
         }
         if (ropes > 300)
             throw std::invalid_argument("map rope count exceeds T6 limit 300");
-        files::WriteText(target, py::JsonDumps(data, 2) + "\n");
+        files::WriteText(target, util::JsonDumps(data, 2) + "\n");
         return {{"count", joints.size()}, {"ropes", ropes}, {"materials", materials}, {"exported", true}};
     }
 }

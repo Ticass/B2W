@@ -4,7 +4,7 @@
 // entities, scripts and content summaries, its effect table, and the
 // warnings and errors of every pass.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/material_record.h"
 
 #include <map>
@@ -17,12 +17,12 @@ namespace w2b::pipeline
     {
         std::string project;
         std::vector<MaterialRecord> materials;
-        py::Json images = py::Json::array();      // staged image records
+        util::Json images = util::Json::array();      // staged image records
         std::vector<std::string> techsets;
-        py::Json collision = py::Json::object();
-        py::Json entities = py::Json::object();
-        py::Json scripts = py::Json::object();    // the ported scripts' report, empty without scripts
-        py::Json content = py::Json::object();    // per-pass content sections, in pass order
+        util::Json collision = util::Json::object();
+        util::Json entities = util::Json::object();
+        util::Json scripts = util::Json::object();    // the ported scripts' report, empty without scripts
+        util::Json content = util::Json::object();    // per-pass content sections, in pass order
         std::map<std::string, std::string> fxTable; // script-loaded WaW effect -> converted name
         std::vector<std::string> errors, warnings;
 
@@ -35,10 +35,10 @@ namespace w2b::pipeline
             errors.push_back(std::move(text));
         }
         // the scripts section's value for `key`, `fallback` when the map has no scripts or no such entry
-        py::Json Script(const char* key, py::Json fallback = py::Json::array()) const
+        util::Json Script(const char* key, util::Json fallback = util::Json::array()) const
         {
             return scripts.is_object() && scripts.contains(key) ? scripts[key] : fallback;
         }
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 } // namespace w2b::pipeline

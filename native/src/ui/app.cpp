@@ -1,8 +1,8 @@
-// Launcher actions (port of gui.py's Launcher methods; see app.h).
+// Launcher actions (see app.h).
 #include "app.h"
 
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "launcher/diagnostics.h"
 #include "shell.h"
 #include "steps.h"
@@ -302,7 +302,7 @@ namespace w2b::ui
         }
         if (line.starts_with("[staging]"))
             status = "Step " + std::to_string(currentStep + 1) + " of " + std::to_string(STEP_COUNT) + " \xE2\x80\x94 " + line.substr(std::min<size_t>(10, line.size()));
-        static const pyre::Regex stage(R"(^==\s+(\d+[a-z]?)\.)");
+        static const regex::Regex stage(R"(^==\s+(\d+[a-z]?)\.)");
         if (const auto m = stage.MatchAt(line))
             if (const int index = StageIndex((*m)[1]); index >= 0)
             {
@@ -310,8 +310,8 @@ namespace w2b::ui
                 status = "Step " + std::to_string(currentStep + 1) + " of " + std::to_string(STEP_COUNT) + " \xE2\x80\x94 " + STEPS[currentStep];
             }
         const auto lower = l::Lower(line);
-        static const pyre::Regex error(R"(\b(error|exception|traceback)\b)");
-        static const pyre::Regex warning(R"(\bwarning\b)");
+        static const regex::Regex error(R"(\b(error|exception|traceback)\b)");
+        static const regex::Regex warning(R"(\bwarning\b)");
         Tag tag = line.starts_with("==") ? Tag::Info : Tag::Plain;
         if (error.Search(lower) && lower.find("0 errors") == std::string::npos)
         {
@@ -505,11 +505,11 @@ namespace w2b::ui
             return;
         try
         {
-            const auto data = py::Json::parse(files::ReadText(file));
-            const auto errorsList = data.value("errors", py::Json::array()), warningsList = data.value("warnings", py::Json::array());
+            const auto data = util::Json::parse(files::ReadText(file));
+            const auto errorsList = data.value("errors", util::Json::array()), warningsList = data.value("warnings", util::Json::array());
             std::string text = settings.project + "\n" + std::to_string(errorsList.size()) + " staging errors \xC2\xB7 " + std::to_string(warningsList.size())
                                + " staging warnings\n\n";
-            for (const auto& [title, items] : {std::pair<const char*, const py::Json*>{"ERRORS", &errorsList}, {"WARNINGS / COMPATIBILITY", &warningsList}})
+            for (const auto& [title, items] : {std::pair<const char*, const util::Json*>{"ERRORS", &errorsList}, {"WARNINGS / COMPATIBILITY", &warningsList}})
             {
                 std::string body;
                 for (const auto& item : *items)

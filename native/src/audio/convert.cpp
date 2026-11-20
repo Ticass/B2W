@@ -20,7 +20,7 @@ namespace w2b::audio
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         namespace fs = std::filesystem;
 
         constexpr unsigned T6_RATES[] = {8000, 12000, 16000, 24000, 32000, 44100, 48000, 96000, 192000};

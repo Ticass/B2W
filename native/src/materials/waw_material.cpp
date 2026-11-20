@@ -7,7 +7,7 @@ namespace w2b::materials
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using SortedJson = nlohmann::json; // OAT writes its files with sorted keys
 
         std::string TextOrEmpty(const Json& value)

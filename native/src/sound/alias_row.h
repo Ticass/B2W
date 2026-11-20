@@ -3,7 +3,7 @@
 // sixty T6 columns as text, as the linker reads them, and the WaW falloff the
 // row was mixed from (not written; the bank report and remaster read it).
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "sound/bank_schema.h"
 
 #include <algorithm>
@@ -25,7 +25,7 @@ namespace w2b::sound
     struct T6AliasRow
     {
         std::array<std::string, T6AliasColumns.size()> columns;
-        py::Json waw; // the WaW falloff descriptor (standard, falloff, wet_ratio, ...)
+        util::Json waw; // the WaW falloff descriptor (standard, falloff, wet_ratio, ...)
 
         std::string& operator[](std::string_view column)
         {

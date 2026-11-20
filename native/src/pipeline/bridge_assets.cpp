@@ -78,7 +78,7 @@ namespace w2b::pipeline::bridge
             }
         }
 
-        // WawSource::Compile; a failed compile fails the stage like the Python step
+        // WawSource::Compile; a failed compile fails the stage
         std::optional<fs::path> CompileSource(extract::WawSource& source, const std::string& kind, const std::string& name)
         {
             try
@@ -134,9 +134,9 @@ namespace w2b::pipeline::bridge
             {
                 report["dependency_graph"] = "weapons.dependencies.json";
                 report["resolved_roots"] = graph->report["roots"];
-                files::WriteText(content / "weapons.dependencies.json", py::JsonDumps(graph->report, 2) + "\n");
+                files::WriteText(content / "weapons.dependencies.json", util::JsonDumps(graph->report, 2) + "\n");
             }
-            files::WriteText(content / "weapons.stage.json", py::JsonDumps(report, 2) + "\n");
+            files::WriteText(content / "weapons.stage.json", util::JsonDumps(report, 2) + "\n");
             return report;
         }
 
@@ -439,7 +439,7 @@ namespace w2b::pipeline::bridge
             const std::vector<std::string> first(report.errors.begin(), report.errors.begin() + static_cast<long long>(std::min<std::size_t>(8, report.errors.size())));
             throw StepError("ValueError", "source impact materials: " + mod::Join(first, "; "));
         }
-        files::WriteText(output / "stage.json", py::JsonDumps(Json{{"materials", ToJson(report.materials)}, {"images", report.images}}, 1));
+        files::WriteText(output / "stage.json", util::JsonDumps(Json{{"materials", ToJson(report.materials)}, {"images", report.images}}, 1));
         return Json{{"materials", report.materials.size()}, {"report", "content_source/impact_materials/stage.json"},
                     {"missing_dependencies", closure["missing"]}};
     }
@@ -494,6 +494,6 @@ namespace w2b::pipeline::bridge
         Json sorted = Json::object();
         for (const auto& [name, mode] : modes)
             sorted[name] = mode;
-        files::WriteText(path, py::JsonDumps(Json{{"streamingMode", sorted}}, 2) + "\n");
+        files::WriteText(path, util::JsonDumps(Json{{"streamingMode", sorted}}, 2) + "\n");
     }
 } // namespace w2b::pipeline::bridge

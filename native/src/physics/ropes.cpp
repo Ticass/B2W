@@ -125,7 +125,7 @@ namespace w2b::physics
                 if (!targets.empty())
                     targets += ", ";
                 const auto& name = weapons::Field(joint, JointField("target_ent", endpoint));
-                targets += name.empty() ? "dynent " + py::JsonDumps(joint.at(JointField("target_index", endpoint)), -1) : name;
+                targets += name.empty() ? "dynent " + util::JsonDumps(joint.at(JointField("target_index", endpoint)), -1) : name;
             }
             return std::format("{} joint {} ({})", JointTypes.at(joint.at("type").get<std::size_t>()), index,
                                targets.empty() ? "world" : targets);
@@ -134,10 +134,10 @@ namespace w2b::physics
         Json MakeRope(const Json& joint, const Vector& anchor)
         {
             return {{"classname", "rope"}, {"origin", FormatVector(anchor, " ")},
-                    {"length", py::JsonDumps(joint.at("distance"), -1)}, {"force_scale", py::JsonDumps(joint.at("scale").at(0), -1)},
-                    {"length_scale", py::JsonDumps(joint.at("scale").at(1), -1)}, {"width", py::JsonDumps(joint.at("minAngle"), -1)},
-                    {"damp", py::JsonDumps(joint.at("damp"), -1)}, {"spawnflags", py::JsonDumps(joint.at("flags"), -1)},
-                    {"timeout", py::FloatRepr(joint.at("timeout").get<double>() / 1000.0)}};
+                    {"length", util::JsonDumps(joint.at("distance"), -1)}, {"force_scale", util::JsonDumps(joint.at("scale").at(0), -1)},
+                    {"length_scale", util::JsonDumps(joint.at("scale").at(1), -1)}, {"width", util::JsonDumps(joint.at("minAngle"), -1)},
+                    {"damp", util::JsonDumps(joint.at("damp"), -1)}, {"spawnflags", util::JsonDumps(joint.at("flags"), -1)},
+                    {"timeout", util::FloatRepr(joint.at("timeout").get<double>() / 1000.0)}};
         }
 
         void AddMaterial(const Path& project, const Json& joint, Json& rope, Names& materials)

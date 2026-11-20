@@ -1,8 +1,8 @@
 #pragma once
-// Program contracts of shaderruntime.py: how a translated WaW program reads
+// Program contracts: how a translated WaW program reads
 // its inputs, constants and textures from a native T6 pass.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "materials/t6_material.h"
 #include "materials/waw_material.h"
 #include "shaders/techsets.h"
@@ -14,7 +14,7 @@
 
 namespace w2b::shaders::runtime
 {
-    using Json = py::Json;
+    using Json = util::Json;
     namespace fs = std::filesystem;
 
     const std::string& NativeProgram(const fs::path& root, const std::string& stage, const T6Pass& pass);

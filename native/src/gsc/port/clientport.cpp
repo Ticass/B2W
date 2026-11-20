@@ -1,8 +1,8 @@
-// Port of clientport.py (see clientport.h).
+// See clientport.h.
 #include "clientport.h"
 
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "rewrites.h"
 
 #include <algorithm>
@@ -32,9 +32,9 @@ namespace w2b::gsc::port::clientport
                                                                  {"prof_end", "waw_prof"},
                                                                  {"spawnfx", "waw_spawnfx"},
                                                                  {"triggerfx", "waw_triggerfx"}};
-        const pyre::Regex& IncludeRe()
+        const regex::Regex& IncludeRe()
         {
-            static const pyre::Regex include(R"(#include\s+([\w\\/]+)\s*;?)", pyre::IGNORECASE);
+            static const regex::Regex include(R"(#include\s+([\w\\/]+)\s*;?)", regex::IGNORECASE);
             return include;
         }
 
@@ -74,7 +74,7 @@ namespace w2b::gsc::port::clientport
             return {start, end};
         }
 
-        bool InList(const py::Json& list, const std::string& value)
+        bool InList(const util::Json& list, const std::string& value)
         {
             for (const auto& v : list)
                 if (v.get<std::string>() == value)
@@ -192,16 +192,16 @@ namespace w2b::gsc::port::clientport
                 {"clientscripts\\_ambientpackage", "clientscripts\\mp\\_ambientpackage"}};
     }
 
-    py::Json PortMapClient(Sources& sources, const std::string& mapName, const fs::path& outRoot, const std::map<std::string, std::string>& staged,
+    util::Json PortMapClient(Sources& sources, const std::string& mapName, const fs::path& outRoot, const std::map<std::string, std::string>& staged,
                            const std::set<std::string>& builtins, const std::map<std::string, std::set<std::string>>& declared)
     {
         const auto mainPath = CLIENT_PREFIX + Lower(mapName);
         if (!sources.Get(mainPath, ".csc"))
-            return py::Json::object();
-        py::Json report = py::Json::object();
+            return util::Json::object();
+        util::Json report = util::Json::object();
         report["entry"] = Ported(mainPath);
         for (const char* key : {"modules", "events", "fx", "dropped", "missing", "runtime", "compat", "renamed"})
-            report[key] = py::Json::array();
+            report[key] = util::Json::array();
         std::set<std::string> skip;
         for (const auto& [k, _] : CLIENT_RUNTIME)
             skip.insert(k);
@@ -285,7 +285,7 @@ namespace w2b::gsc::port::clientport
                 tokens[ownMain->bodyOpen].text += "\n\t// waw2bo2: the " + std::to_string(count)
                                                   + " room, package and music declarations run from the generated _amb script on BO2's audio runtime";
                 if (!report.contains("declared"))
-                    report["declared"] = py::Json::object();
+                    report["declared"] = util::Json::object();
                 report["declared"][path] = count;
             }
             for (const auto& ref : refs)
@@ -480,7 +480,7 @@ on_connect( localclientnum, late )
 @HANDLERS@)GSC";
     } // namespace
 
-    std::string FinishMapClient(const fs::path& projectRoot, py::Json& report, const std::map<std::string, std::string>& effects,
+    std::string FinishMapClient(const fs::path& projectRoot, util::Json& report, const std::map<std::string, std::string>& effects,
                                 const std::map<std::string, std::string>& weapons, const std::set<std::string>& soundNames)
     {
         std::set<std::string> unbound;
@@ -489,7 +489,7 @@ on_connect( localclientnum, late )
                 if (!effects.count(f.get<std::string>()))
                     unbound.insert(f.get<std::string>());
         report["unbound_fx"] = std::vector<std::string>(unbound.begin(), unbound.end());
-        const auto modules = report.contains("modules") ? report["modules"] : py::Json::array();
+        const auto modules = report.contains("modules") ? report["modules"] : util::Json::array();
         for (const auto& module : modules)
         {
             const auto dest = projectRoot / files::FromUtf8(Replace(module.get<std::string>(), "\\", "/") + ".csc");

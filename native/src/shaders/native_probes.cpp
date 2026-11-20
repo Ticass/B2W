@@ -1,4 +1,4 @@
-// nativeprobes.py: native T6 probe readers adapted to the original WaW RGBA
+// Native T6 probe readers adapted to the original WaW RGBA
 // cube images (see runtime.h).
 #include "runtime.h"
 
@@ -6,7 +6,7 @@
 #include "core/hash.h"
 #include "core/profile.h"
 #include "shaders/techsets.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "d3d.h"
 #include "pipeline/finish.h"
 
@@ -43,9 +43,9 @@ namespace w2b::shaders
             return data;
         }
 
-        py::Json Json(const fs::path& p)
+        util::Json Json(const fs::path& p)
         {
-            return py::Json::parse(files::ReadText(p));
+            return util::Json::parse(files::ReadText(p));
         }
 
         void MakeParent(const fs::path& p)
@@ -216,7 +216,7 @@ namespace w2b::shaders
         // shaderruntime.resource_names: texture slot -> name
         std::map<long long, std::string> ResourceNames(const std::string& assembly)
         {
-            static const pyre::Regex resource("^//\\s+(\\w+)\\s+texture\\s+\\w+\\s+(\\w+)\\s+t?(\\d+)\\s+\\d+", pyre::MULTILINE);
+            static const regex::Regex resource("^//\\s+(\\w+)\\s+texture\\s+\\w+\\s+(\\w+)\\s+t?(\\d+)\\s+\\d+", regex::MULTILINE);
             std::map<long long, std::string> out;
             for (const auto& m : resource.FindAll(assembly))
                 out[std::stoll(m[2])] = m[0];
@@ -231,7 +231,7 @@ namespace w2b::shaders
             return std::nullopt;
         }
 
-        // what Python's lru_caches keep across materials: parsed technique
+        // what the caches keep across materials: parsed technique
         // sets, probe slots per shader file and adapted programs
         struct ProbeCache
         {
@@ -261,7 +261,7 @@ namespace w2b::shaders
             if (!cache.techniques.count(fileKey))
             {
                 const profile::Scope scope("probes: read technique set");
-                cache.techniques[fileKey] = file->second.empty() ? ReadT6TechniqueSet(stock / "techniquesets" / files::FromUtf8(name + ".json")) : T6TechniqueSetFromJson(py::Json::parse(file->second));
+                cache.techniques[fileKey] = file->second.empty() ? ReadT6TechniqueSet(stock / "techniquesets" / files::FromUtf8(name + ".json")) : T6TechniqueSetFromJson(util::Json::parse(file->second));
             }
             auto data = cache.techniques[fileKey];
             int count = 0;
@@ -311,7 +311,7 @@ namespace w2b::shaders
             }
             if (count)
             {
-                const auto identity = "waw/runtime_" + hash::Sha256Hex(py::JsonDumpsSorted(ToJson(data))).substr(0, 16);
+                const auto identity = "waw/runtime_" + hash::Sha256Hex(util::JsonDumpsSorted(ToJson(data))).substr(0, 16);
                 data.name = identity;
                 size_t i = 0;
                 for (auto& slot : data.techniques)
@@ -320,7 +320,7 @@ namespace w2b::shaders
                         slot.technique->name = identity + "_" + std::to_string(i);
                     i++;
                 }
-                output.Write(fs::path("techniquesets") / files::FromUtf8(identity + ".json"), py::JsonDumpsDefault(ToJson(data)), true);
+                output.Write(fs::path("techniquesets") / files::FromUtf8(identity + ".json"), util::JsonDumpsDefault(ToJson(data)), true);
                 material.techniqueSet = identity;
             }
             return count;

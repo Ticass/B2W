@@ -1,6 +1,6 @@
 #pragma once
-// Port of builddriver.py and cli._build_map: the desktop build pipeline. Steps
-// that are native run in this process; the ones still in Python run as CLI
+// The desktop build pipeline. Steps
+// that are native run in this process; the others run as CLI
 // steps of the conversion worker (stage-art, stage-bridge, build-mod).
 
 #include "launcher/build.h"

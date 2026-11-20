@@ -115,7 +115,7 @@ namespace w2b::barriers
             Quaternion products{};
             for (std::size_t i = 0; i < products.size(); ++i)
                 products[i] = a[i] * b[i];
-            auto dot = py::Sum(products);
+            auto dot = util::Sum(products);
             if (dot < 0)
             {
                 for (auto& value : b)
@@ -135,7 +135,7 @@ namespace w2b::barriers
             }
             for (std::size_t i = 0; i < products.size(); ++i)
                 products[i] = result[i] * result[i];
-            const auto length = std::sqrt(py::Sum(products));
+            const auto length = std::sqrt(util::Sum(products));
             for (auto& value : result)
                 value /= length;
             if (result[3] < 0)
@@ -196,7 +196,7 @@ namespace w2b::barriers
             char text[64];
             const auto [end, error] = std::to_chars(text, text + sizeof(text), duration, std::chars_format::fixed, 3);
             double result{};
-            if (error != std::errc{} || !py::ParseFloat(std::string_view(text, end), result))
+            if (error != std::errc{} || !util::ParseFloat(std::string_view(text, end), result))
                 throw Error("invalid barricade repair duration");
             return result;
         }
@@ -253,7 +253,7 @@ namespace w2b::barriers
 
     Json StageRepairs(std::string_view asset, const Path& bo2, const Json& timing, const Path& destination)
     {
-        const auto fields = py::Split(asset, "\\");
+        const auto fields = util::Split(asset, "\\");
         std::map<std::string_view, std::string_view, std::less<>> pairs;
         for (std::size_t i = 1; i + 1 < fields.size(); i += 2)
             pairs[fields[i]] = fields[i + 1];

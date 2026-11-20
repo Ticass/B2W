@@ -57,8 +57,8 @@ namespace w2b::weapons
     {
         const auto& text = Field(fields, key);
         double value = 0;
-        if (!text.empty() && !py::ParseFloat(text, value))
-            throw WeaponError("could not convert string to float: " + py::StringRepr(text));
+        if (!text.empty() && !util::ParseFloat(text, value))
+            throw WeaponError("could not convert string to float: " + util::StringRepr(text));
         return value;
     }
 
@@ -68,7 +68,7 @@ namespace w2b::weapons
         if (!files::ReadBytes(source, bytes))
             throw std::runtime_error("cannot read " + files::Utf8(source));
         const auto text = encoding::WawText(bytes);
-        const auto parts = py::Split(text, "\\");
+        const auto parts = util::Split(text, "\\");
         if (signature == "FLAMETABLEFILE" && (parts.size() < 2 || parts[0] != signature))
             throw WeaponError(files::Utf8(source) + ": expected compiled FLAMETABLEFILE");
         if (parts[0] != signature || parts.size() % 2 != 1)
@@ -105,7 +105,7 @@ namespace w2b::weapons
         Schema fields;
         const auto text = files::ReadText(header);
         static const std::regex pattern(R"schema(\{"([^"]+)".*?([A-Z_0-9]+)\s*\})schema");
-        for (const auto line : py::SplitLines(text))
+        for (const auto line : util::SplitLines(text))
         {
             std::match_results<std::string_view::const_iterator> match;
             if (std::regex_search(line.begin(), line.end(), match, pattern))
@@ -116,6 +116,30 @@ namespace w2b::weapons
         return fields;
     }
 
+    EnumValues ReadEnumValues(const path& loader, const path& strings)
+    {
+        std::map<std::string, std::vector<std::string>, std::less<>> tables;
+        const auto stringText = files::ReadText(strings);
+        static const std::regex table(R"(const\s+char\s*\*\s*(\w+)\s*\[\s*\]\s*\{([^}]*)\})");
+        static const std::regex quoted(R"x("([^"]*)")x");
+        for (std::sregex_iterator it(stringText.begin(), stringText.end(), table), end; it != end; ++it)
+        {
+            auto& values = tables[(*it)[1].str()];
+            const auto body = (*it)[2].str();
+            for (std::sregex_iterator q(body.begin(), body.end(), quoted); q != end; ++q)
+                values.push_back((*q)[1].str());
+        }
+        EnumValues out;
+        const auto loaderText = files::ReadText(loader);
+        static const std::regex use(R"(case\s+(WFT_\w+)\s*:\s*return\s+ConvertEnumInt\([^,]+,[^,]+,[^,]+,\s*(\w+))");
+        for (std::sregex_iterator it(loaderText.begin(), loaderText.end(), use), end; it != end; ++it)
+            if (const auto found = tables.find((*it)[2].str()); found != tables.end())
+                out[(*it)[1].str()] = found->second;
+        if (out.size() < 10)
+            throw WeaponError("weapon enum tables incomplete: " + files::Utf8(loader));
+        return out;
+    }
+
     std::string OutputName(std::string_view kind, std::string name)
     {
         if (name.empty())
@@ -123,8 +147,8 @@ namespace w2b::weapons
         std::ranges::replace(name, '\\', '/');
         constexpr std::string_view invalid(":,\r\n\0", 5);
         if (name.starts_with('/') || name.find_first_of(invalid) != name.npos ||
-            std::ranges::any_of(py::Split(name, "/"), [](auto part) { return part == ".."; }))
-            throw WeaponError("unsafe " + std::string(kind) + " name: " + py::StringRepr(name));
+            std::ranges::any_of(util::Split(name, "/"), [](auto part) { return part == ".."; }))
+            throw WeaponError("unsafe " + std::string(kind) + " name: " + util::StringRepr(name));
         std::string output;
         if (kind != "weapon")
             output = "waw_" + std::string(kind) + "/";

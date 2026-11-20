@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <array>
 #include <filesystem>
@@ -17,5 +17,5 @@ namespace w2b::sound
     };
 
     std::vector<Curve> ReadDriverCurves(const std::filesystem::path& driver);
-    py::Json TranslateCurves(const py::Json& sources, const std::vector<Curve>& stock, bool approximate);
+    util::Json TranslateCurves(const util::Json& sources, const std::vector<Curve>& stock, bool approximate);
 }

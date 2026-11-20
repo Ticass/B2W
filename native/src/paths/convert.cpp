@@ -89,7 +89,7 @@ namespace w2b::paths
                 {
                     if (!tooLong.empty())
                         tooLong += ", ";
-                    tooLong += py::StringRepr(name);
+                    tooLong += util::StringRepr(name);
                 }
             if (!tooLong.empty())
                 throw Error(std::format("traversal script names over T6's {} characters: [{}]", MaxScriptName, tooLong));

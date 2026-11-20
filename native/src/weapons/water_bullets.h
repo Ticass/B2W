@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -14,7 +14,7 @@ namespace w2b::weapons
     {
         std::vector<std::pair<std::string, double>> depths; // penetrateType -> depth, table order
         std::vector<std::string> weapons;                   // bullet weapons that cross water
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 
     struct WaterBulletStage

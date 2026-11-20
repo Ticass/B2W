@@ -1,8 +1,8 @@
-// Port of launcher.py Settings / discover / naming (see settings.h).
+// Settings, discovery and naming (see settings.h).
 #include "settings.h"
 
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 
 #include <windows.h>
 
@@ -181,9 +181,9 @@ namespace w2b::launcher
         return nullptr;
     }
 
-    py::Json Settings::ToJson() const
+    util::Json Settings::ToJson() const
     {
-        py::Json data = py::Json::object();
+        util::Json data = util::Json::object();
         for (const auto& f : Fields())
         {
             if (f.text)
@@ -194,7 +194,7 @@ namespace w2b::launcher
         return data;
     }
 
-    Settings Settings::FromJson(const py::Json& data)
+    Settings Settings::FromJson(const util::Json& data)
     {
         Settings settings;
         if (!data.is_object())
@@ -216,7 +216,7 @@ namespace w2b::launcher
     {
         try
         {
-            return FromJson(py::Json::parse(files::ReadText(path.value_or(UserDirectory() / "settings.json"))));
+            return FromJson(util::Json::parse(files::ReadText(path.value_or(UserDirectory() / "settings.json"))));
         }
         catch (const std::exception&)
         {
@@ -237,7 +237,7 @@ namespace w2b::launcher
         }
         auto temp = target;
         temp.replace_extension(".tmp");
-        files::WriteText(temp, py::JsonDumps(data, 2));
+        files::WriteText(temp, util::JsonDumps(data, 2));
         if (!MoveFileExW(temp.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING))
             throw std::runtime_error("cannot save " + Utf8(target));
     }
@@ -260,7 +260,7 @@ namespace w2b::launcher
         const auto programs = Env(L"ProgramFiles(x86)");
         steamPaths.push_back(fs::path(programs.empty() ? L"C:/Program Files (x86)" : programs) / "Steam");
         std::vector<fs::path> libraries = steamPaths;
-        static const pyre::Regex library(R"re("path"\s+"([^"]+)")re");
+        static const regex::Regex library(R"re("path"\s+"([^"]+)")re");
         for (const auto& steam : steamPaths)
         {
             try
@@ -344,8 +344,8 @@ namespace w2b::launcher
         auto stem = Utf8(path.stem());
         if (Lower(stem) == "mod")
             stem = Utf8(path.parent_path().filename());
-        static const pyre::Regex prefix(R"(^(?:nazi_zombie_|zm_))", pyre::IGNORECASE);
-        static const pyre::Regex other(R"([^a-z0-9_]+)");
+        static const regex::Regex prefix(R"(^(?:nazi_zombie_|zm_))", regex::IGNORECASE);
+        static const regex::Regex other(R"([^a-z0-9_]+)");
         auto name = prefix.Sub("", stem, 1);
         name = other.Sub("_", Lower(name));
         const auto first = name.find_first_not_of('_');
@@ -357,7 +357,7 @@ namespace w2b::launcher
 
     std::string ValidateProject(const std::string& name)
     {
-        static const pyre::Regex valid(R"(zm_[a-z0-9_]{1,58})");
+        static const regex::Regex valid(R"(zm_[a-z0-9_]{1,58})");
         if (valid.FullMatch(name))
             return "";
         return "Map name must start with zm_ and use lowercase letters, numbers, and underscores (up to 61 characters).";

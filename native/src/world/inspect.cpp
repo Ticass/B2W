@@ -21,7 +21,7 @@ namespace w2b::world
         }
     }
 
-    py::Json InspectWorld(const std::filesystem::path& gfx, const std::filesystem::path& clip)
+    util::Json InspectWorld(const std::filesystem::path& gfx, const std::filesystem::path& clip)
     {
         const auto world = ReadRenderWorld(gfx, true);
         const auto collision = ReadCollisionWorld(clip);
@@ -41,7 +41,7 @@ namespace w2b::world
                 {"collision_materials", collision.materials.size()}};
     }
 
-    py::Json InspectStaticModels(const std::filesystem::path& gfx, const std::filesystem::path& models)
+    util::Json InspectStaticModels(const std::filesystem::path& gfx, const std::filesystem::path& models)
     {
         const auto world = ReadRenderWorld(gfx, true);
         std::unordered_set<std::string> available;

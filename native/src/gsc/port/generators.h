@@ -1,6 +1,6 @@
 #pragma once
-// Port of gscport.py's generated scripts and BO2 template hooks
-// (assets_source ... hook_bo2_perk_client, gscport.py 4133-5363).
+// Generated scripts and BO2 template hooks
+// (assets_source ... hook_bo2_perk_client).
 
 #include "sources.h"
 

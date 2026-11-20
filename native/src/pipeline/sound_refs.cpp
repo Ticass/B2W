@@ -5,7 +5,7 @@
 #include "amb_stage.h"
 #include "assets/resolver.h"
 #include "core/encoding.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "csvtable.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
@@ -25,7 +25,7 @@ namespace w2b::pipeline
     using mod::Lower;
     using mod::StartsWith;
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -67,9 +67,9 @@ namespace w2b::pipeline
         std::string Strip(const std::string& s)
         {
             size_t a = 0, b = s.size();
-            while (a < b && py::IsSpace(s[a]))
+            while (a < b && util::IsSpace(s[a]))
                 a++;
-            while (b > a && py::IsSpace(s[b - 1]))
+            while (b > a && util::IsSpace(s[b - 1]))
                 b--;
             return s.substr(a, b - a);
         }
@@ -91,7 +91,7 @@ namespace w2b::pipeline
             }
             catch (const gsc::GscSyntaxError&)
             {
-                static const pyre::Regex string("(\\+\\s*)?\"((?:\\\\.|[^\"\\\\\\n])*)\"(\\s*\\+)?");
+                static const regex::Regex string("(\\+\\s*)?\"((?:\\\\.|[^\"\\\\\\n])*)\"(\\s*\\+)?");
                 for (const auto& m : string.FindIter(source))
                     out.push_back({*m.Group(2), m.Group(1).has_value(), m.Group(3).has_value()});
                 return out;
@@ -195,7 +195,7 @@ namespace w2b::pipeline
         // entities.parse_entities: dict(KV_RE.findall(body)) per entity
         std::vector<std::vector<std::pair<std::string, std::string>>> ParseEntities(const std::string& text)
         {
-            static const pyre::Regex entity("\\{([^{}]*)\\}"), kv("\"([^\"]*)\"\\s+\"([^\"]*)\"");
+            static const regex::Regex entity("\\{([^{}]*)\\}"), kv("\"([^\"]*)\"\\s+\"([^\"]*)\"");
             std::vector<std::vector<std::pair<std::string, std::string>>> out;
             for (const auto& body : entity.FindAll(text))
             {
@@ -289,9 +289,9 @@ namespace w2b::pipeline
                     names[k] = v;
             if (names.empty())
                 return 0;
-            static const pyre::Regex compare("(?P<lead>\\bscript_sound\\s*[!=]=\\s*)\"(?P<a>[^\"\\\\\\n]+)\"|\"(?P<b>[^\"\\\\\\n]+)\"(?P<tail>\\s*[!=]=\\s*[\\w.\\[\\]]*\\bscript_sound\\b)");
+            static const regex::Regex compare("(?P<lead>\\bscript_sound\\s*[!=]=\\s*)\"(?P<a>[^\"\\\\\\n]+)\"|\"(?P<b>[^\"\\\\\\n]+)\"(?P<tail>\\s*[!=]=\\s*[\\w.\\[\\]]*\\bscript_sound\\b)");
             long long count = 0;
-            const auto swap = [&](const pyre::Match& m) -> std::string
+            const auto swap = [&](const regex::Match& m) -> std::string
             {
                 const auto a = m.Group(std::string("a"));
                 const auto literal = a ? *a : *m.Group(std::string("b"));
@@ -448,7 +448,7 @@ namespace w2b::pipeline
             if (!soundNames.count(n))
                 unreferenced.push_back(n);
         fs::create_directories(projectRoot / "content_source");
-        files::WriteText(projectRoot / "content_source/sounds.unreferenced.json", py::JsonDumps(Json(unreferenced), 2) + "\n");
+        files::WriteText(projectRoot / "content_source/sounds.unreferenced.json", util::JsonDumps(Json(unreferenced), 2) + "\n");
         content["unreferenced_sound_aliases"] = Json{{"count", unreferenced.size()}, {"defined", zoneSounds.size()}, {"report", "content_source/sounds.unreferenced.json"}};
         SoundDiscovery found;
         found.scriptSounds.assign(scriptSounds.begin(), scriptSounds.end());

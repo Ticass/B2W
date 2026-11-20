@@ -21,7 +21,7 @@
 namespace w2b::models
 {
     namespace fs = std::filesystem;
-    using py::Json;
+    using util::Json;
     using V = std::array<double, 3>;
     using Tri = std::array<V, 3>;
 
@@ -349,7 +349,7 @@ namespace w2b::models
                                                                                           {"indices", 3},
                                                                                           {"material", 0}}})}}})}};
             fs::create_directories(path.parent_path());
-            files::WriteText(path, py::JsonDumpsDefault(data) + "\n");
+            files::WriteText(path, util::JsonDumpsDefault(data) + "\n");
         }
 
         // round(v, 5): the double nearest the correctly rounded decimal
@@ -448,7 +448,7 @@ namespace w2b::models
                     Json chunkRecords = Json::array();
                     for (const auto i : chunk)
                         chunkRecords.push_back(records[i]);
-                    const auto digest = hash::Sha256Hex(py::JsonDumpsSorted(chunkRecords)).substr(0, 16);
+                    const auto digest = hash::Sha256Hex(util::JsonDumpsSorted(chunkRecords)).substr(0, 16);
                     const auto name = "waw_projectile/cell_" + std::to_string(cell[0]) + "_" + std::to_string(cell[1]) + "_" + std::to_string(cell[2]) + "_" + digest;
                     const auto lod = "model_export/" + name + ".gltf";
                     const auto carrier = ReadJson(projectRoot / files::FromUtf8(model["lods"][0]["file"].get<std::string>()));
@@ -459,7 +459,7 @@ namespace w2b::models
                     CollisionLod(projectRoot / files::FromUtf8(lod), *corners, carrier["materials"][0]["name"].get<std::string>());
                     model["lods"] = Json::array({Json{{"file", lod}, {"distance", 100000}}});
                     model["collSurfs"] = surfaces;
-                    files::WriteText(projectRoot / "xmodel" / files::FromUtf8(name + ".json"), py::JsonDumps(model, 1) + "\n");
+                    files::WriteText(projectRoot / "xmodel" / files::FromUtf8(name + ".json"), util::JsonDumps(model, 1) + "\n");
                     Json absmin = Json::array(), absmax = Json::array();
                     for (int k = 0; k < 3; k++)
                     {
@@ -635,7 +635,7 @@ namespace w2b::models
             Json keyJson = Json::array();
             for (const auto& k : keys)
                 keyJson.push_back(Json(std::vector<double>(k.begin(), k.end())));
-            const auto digest = hash::Sha256Hex(py::JsonDumpsDefault(keyJson)).substr(0, 16);
+            const auto digest = hash::Sha256Hex(util::JsonDumpsDefault(keyJson)).substr(0, 16);
             const auto output = "waw_projectile/" + name + "_" + digest;
             std::vector<V> points;
             for (const auto& [_, tri] : recovered)
@@ -663,7 +663,7 @@ namespace w2b::models
             proxy["collSurfs"] = Json::array({Json{{"bone", "tag_origin"}, {"contents", MISSILECLIP}, {"surfFlags", 0}, {"mins", lo}, {"maxs", hi}, {"tris", tris}}});
             const auto target = projectRoot / "xmodel" / files::FromUtf8(output + ".json");
             fs::create_directories(target.parent_path());
-            files::WriteText(target, py::JsonDumps(proxy, 1) + "\n");
+            files::WriteText(target, util::JsonDumps(proxy, 1) + "\n");
             Json absmin = Json::array(), absmax = Json::array();
             for (int k = 0; k < 3; k++)
             {
@@ -698,7 +698,7 @@ namespace w2b::models
         for (const auto& r : batched)
             all.push_back(r);
         records["staticModels"] = all;
-        files::WriteText(recordsPath, py::JsonDumps(records, 1) + "\n");
+        files::WriteText(recordsPath, util::JsonDumps(records, 1) + "\n");
         warnings.push_back("PROJECTILE_PROP_COLLISION_RECOVERED " + std::to_string(entries.size()) +
                            " placements: hard render surfaces complete two-sided hard meshes qualified by source movement brushes; missile only, source masks unchanged");
         return {{names.begin(), names.end()}, std::move(entries), std::move(warnings)};

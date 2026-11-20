@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "effects/effect.h"
 
 #include <filesystem>
@@ -37,7 +37,7 @@ namespace w2b::effects
     {
         std::string source, model, variant;
     };
-    py::Json ToJson(const std::vector<ModelOverlay>& overlays);
+    util::Json ToJson(const std::vector<ModelOverlay>& overlays);
 
     // effects: script-loaded WaW effect -> converted name
     std::vector<ModelOverlay> StageModelOverlayRuntime(const std::filesystem::path& project, const std::map<std::string, std::string>& effects);

@@ -3,7 +3,7 @@
 
 #include "core/files.h"
 #include "core/parallel.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/sum.h"
 #include "sound/alias_row.h"
 #include "sound/bank_csv.h"
@@ -19,7 +19,7 @@
 namespace w2b::sound
 {
     namespace fs = std::filesystem;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -119,7 +119,7 @@ namespace w2b::sound
         std::string Dbspl(const double gain)
         {
             if (!std::isfinite(gain) || gain < 0 || gain > 1)
-                throw Error("invalid linear sound gain " + py::FloatRepr(gain));
+                throw Error("invalid linear sound gain " + util::FloatRepr(gain));
             return gain ? Num(std::max(0.0, 100 + 20 * std::log10(gain))) : "0";
         }
 
@@ -131,7 +131,7 @@ namespace w2b::sound
         std::optional<double> Number(const T6AliasRow& row, const char* key)
         {
             double out = 0;
-            if (py::ParseFloat(row[key], out))
+            if (util::ParseFloat(row[key], out))
                 return out;
             return std::nullopt;
         }
@@ -144,12 +144,12 @@ namespace w2b::sound
             if (v.is_number())
                 return v.get<double>();
             double out = 0;
-            if (v.is_string() && py::ParseFloat(v.get<std::string>(), out))
+            if (v.is_string() && util::ParseFloat(v.get<std::string>(), out))
                 return out;
             return std::nullopt;
         }
 
-        // _median, keeping Python's int 0 for an empty list
+        // the median, an integer 0 for an empty list
         Json Median(std::vector<double> values)
         {
             if (values.empty())
@@ -186,7 +186,7 @@ namespace w2b::sound
             std::vector<double> terms;
             for (size_t i = 0; i + 1 < p.size(); i++)
                 terms.push_back((p[i + 1][0] - p[i][0]) * (p[i][1] + p[i + 1][1]) / 2);
-            return py::Sum(terms);
+            return util::Sum(terms);
         }
 
         bool IsFalloff(const std::vector<std::vector<double>>& p)
@@ -339,7 +339,7 @@ namespace w2b::sound
                 out["DistMaxWet"] = Num(D(source["distReverbMax"]));
                 for (const auto& [k, v] : curves.items())
                     out[k] = v["t6"].get<std::string>();
-                const auto str = [](const Json& v) { return v.is_number_integer() ? std::to_string(v.get<long long>()) : (v.is_string() ? v.get<std::string>() : py::FloatRepr(v.get<double>())); };
+                const auto str = [](const Json& v) { return v.is_number_integer() ? std::to_string(v.get<long long>()) : (v.is_string() ? v.get<std::string>() : util::FloatRepr(v.get<double>())); };
                 out["LimitCount"] = str(source["limitCount"]);
                 out["EntityLimitCount"] = str(source["entityLimitCount"]);
                 out["LimitType"] = T6_LIMIT_TYPES.at(limits[0]);
@@ -389,7 +389,7 @@ namespace w2b::sound
                 for (const auto& column : intColumns)
                 {
                     double value = 0;
-                    if (!py::ParseFloat(row[column], value))
+                    if (!util::ParseFloat(row[column], value))
                         throw Error("could not convert string to float: " + Json(row[column]).dump());
                     const auto it = ranges.find(column);
                     const double low = it == ranges.end() ? -INFINITY : it->second.first, high = it == ranges.end() ? INFINITY : it->second.second;
@@ -409,7 +409,7 @@ namespace w2b::sound
         {
             for (const auto& [pattern, targets] : ENGINE_SOUND_FAMILIES)
             {
-                const pyre::Regex full("\\A(?:" + pattern + ")\\Z");
+                const regex::Regex full("\\A(?:" + pattern + ")\\Z");
                 if (!full.Search(low))
                     continue;
                 for (const auto& t : targets)
@@ -577,7 +577,7 @@ namespace w2b::sound
 
         Json AnnouncerCopies(std::vector<T6AliasRow>& rows, std::map<std::string, std::string>& roles, const Json& events, const std::string& prefix)
         {
-            static const pyre::Regex unsafe("[^a-z0-9_]");
+            static const regex::Regex unsafe("[^a-z0-9_]");
             std::map<std::string, std::string> wanted;
             for (const auto& [_, aliases] : events.items())
                 for (const auto& alias : aliases)
@@ -950,8 +950,8 @@ namespace w2b::sound
         // animnotes.actor_sound_aliases: sound notes owned by actors, through their animation trees
         std::set<std::string> ActorSoundAliases(const fs::path& project)
         {
-            static const pyre::Regex usingTree("#using_animtree\\s*\\(\\s*\"([^\"]+)\"");
-            static const pyre::Regex clip("[\\w/]+");
+            static const regex::Regex usingTree("#using_animtree\\s*\\(\\s*\"([^\"]+)\"");
+            static const regex::Regex clip("[\\w/]+");
             std::set<std::string> trees, clips, aliases;
             std::error_code e;
             if (fs::is_directory(project / "aitype", e))
@@ -1229,7 +1229,7 @@ namespace w2b::sound
         }
         report["variants"] = rows.size();
         WriteAliasCsv(destination / files::FromUtf8(bank + ".aliases.csv"), rows);
-        files::WriteText(project / "sounds.bank.json", py::JsonDumps(report, 2) + "\n");
+        files::WriteText(project / "sounds.bank.json", util::JsonDumps(report, 2) + "\n");
         return {std::move(report), std::move(budget)};
     }
     Json DefaultReverbMixOf(const fs::path& project)

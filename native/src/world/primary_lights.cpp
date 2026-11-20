@@ -9,7 +9,7 @@ namespace w2b::world
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         void AddLightFields(Json& light)
         {
@@ -49,7 +49,7 @@ namespace w2b::world
         }
     }
 
-    py::Json StagePrimaryLights(const files::fs::path& source, const files::fs::path& destination, bool keepShadows)
+    util::Json StagePrimaryLights(const files::fs::path& source, const files::fs::path& destination, bool keepShadows)
     {
         auto data = Json::parse(files::ReadText(source));
         std::set<std::string> definitions;
@@ -84,7 +84,7 @@ namespace w2b::world
                 light["defName"] = "waw_light/" + name;
             }
         }
-        files::WriteText(destination, py::JsonDumps(data, 1) + "\n");
+        files::WriteText(destination, util::JsonDumps(data, 1) + "\n");
         return {{"definitions", definitions}, {"unshadowed", std::move(unshadowed)}};
     }
 }

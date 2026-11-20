@@ -1,9 +1,9 @@
 #pragma once
-// Port of modzone.py and cli build-mod: the gameplay zone (mod.ff) linked by
+// cli build-mod: the gameplay zone (mod.ff) linked by
 // the BO2 mod tools from the zm_test template, the converted map's extras and
 // its frontend tables, then the frontend-only lobby zone (mod_load.ff).
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -25,7 +25,7 @@ namespace w2b::pipeline
     std::vector<std::string> ScriptClosure(const std::string& zoneText, const fs::path& raw, const std::set<std::string>& stock);
     std::vector<std::string> CharacterModels(const std::string& zoneText, const fs::path& raw);
 
-    py::Json MenuMetadata(const fs::path& projectRoot);
+    util::Json MenuMetadata(const fs::path& projectRoot);
     std::string MapNameKey(const std::string& project);
     std::vector<std::string> StageMenuAssets(const fs::path& projectRoot, const std::string& project);
     fs::path StageLobbyMapTable(const fs::path& stock, const fs::path& projectRoot, const std::string& project);

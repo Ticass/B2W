@@ -4,7 +4,7 @@
 #include "mapents/map_entity.h"
 #include "core/encoding.h"
 #include "core/hash.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/unicode.h"
 #include "csvtable.h"
 #include "extract/cache.h"
@@ -25,7 +25,7 @@ namespace w2b::pipeline
     using mod::IsFile;
     using mod::Lower;
     using mod::StartsWith;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -188,7 +188,7 @@ namespace w2b::pipeline
                 auto fields = weapons::ReadInfo(weapon);
                 std::vector<std::pair<std::string, std::string>> soundMap;
                 const auto soundMapText = Field(fields, "notetrackSoundMap"); // SplitLines views into it
-                for (const auto& line : py::SplitLines(soundMapText))
+                for (const auto& line : util::SplitLines(soundMapText))
                 {
                     const auto words = SplitWords(std::string(line));
                     if (words.empty())
@@ -228,16 +228,16 @@ namespace w2b::pipeline
                 files::WriteText(weapon, weapons::WriteInfo(fields));
             }
             stage["animation_sound_events"] = report;
-            files::WriteText(path, py::JsonDumps(stage, 2) + "\n");
+            files::WriteText(path, util::JsonDumps(stage, 2) + "\n");
         }
 
         // weapons.field_schema in header order
         std::vector<std::pair<std::string, std::string>> FieldSchema(const fs::path& header)
         {
-            static const pyre::Regex field("\\{\"([^\"]+)\".*?([A-Z_0-9]+)\\s*\\}");
+            static const regex::Regex field("\\{\"([^\"]+)\".*?([A-Z_0-9]+)\\s*\\}");
             std::vector<std::pair<std::string, std::string>> result;
             const auto text = encoding::UniversalNewlines(encoding::Utf8Replace(mod::Bytes(header))); // SplitLines views into it
-            for (const auto& line : py::SplitLines(text))
+            for (const auto& line : util::SplitLines(text))
                 if (const auto m = field.Search(line))
                 {
                     const auto key = *m->Group(1);
@@ -387,8 +387,8 @@ namespace w2b::pipeline
             double v = 0;
             if (text.empty())
                 return 0;
-            if (!py::ParseFloat(text, v))
-                throw StepError("ValueError", "could not convert string to float: " + py::StringRepr(text));
+            if (!util::ParseFloat(text, v))
+                throw StepError("ValueError", "could not convert string to float: " + util::StringRepr(text));
             return v;
         }
 
@@ -412,7 +412,7 @@ namespace w2b::pipeline
         const auto& convertedFx = request.convertedFx;
         StageWeaponEvents(project);
 
-        static const pyre::Regex variantModelSlot("^(gunModel|worldModel)([2-9]|1[0-6])$");
+        static const regex::Regex variantModelSlot("^(gunModel|worldModel)([2-9]|1[0-6])$");
         const auto t6Schema = FieldSchema(extract::ResourceRoot() / "vendor/OpenAssetToolsT6/src/ObjCommon/Game/T6/Weapon/WeaponFields.h");
         const std::map<std::string, std::string> t6Types(t6Schema.begin(), t6Schema.end());
         const auto typeOf = [&](const std::string& key) { const auto it = t6Types.find(key); return it == t6Types.end() ? std::string() : it->second; };
@@ -703,7 +703,7 @@ namespace w2b::pipeline
                     {"images", images.size()},
                     {"xanims", anims.size()},
                     {"fx_references", std::vector<std::string>(effects.begin(), effects.end())}};
-        files::WriteText(project / "weapons.runtime.json", py::JsonDumps(result, 2) + "\n");
+        files::WriteText(project / "weapons.runtime.json", util::JsonDumps(result, 2) + "\n");
         return result;
     }
 

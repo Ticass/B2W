@@ -1,7 +1,7 @@
 #include "pipeline/bridge_inventory.h"
 
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "mapents/entities.h"
 #include "paths/paths.h"
 #include "pipeline/modutil.h"
@@ -14,7 +14,7 @@ namespace w2b::pipeline
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using Names = std::set<std::string>;
 
         Names SoundAliases(const std::vector<fs::path>& roots)
@@ -57,7 +57,7 @@ namespace w2b::pipeline
             // Unicode text needs Python's case folding and word-boundary rules.
             if (std::ranges::any_of(source, [](unsigned char c) { return c >= 0x80; }))
             {
-                static const pyre::Regex include("\\b[iI\xC4\xB0\xC4\xB1]" R"re(nclude_weapon\s*\(\s*"([^"]+)")re", pyre::IGNORECASE);
+                static const regex::Regex include("\\b[iI\xC4\xB0\xC4\xB1]" R"re(nclude_weapon\s*\(\s*"([^"]+)")re", regex::IGNORECASE);
                 for (const auto& match : include.FindAll(source))
                     names.insert(match[0]);
                 return;
@@ -69,7 +69,7 @@ namespace w2b::pipeline
                 if (position == std::string::npos)
                     break;
                 start = position + token.size();
-                if (position && py::IsWord(source[position - 1]))
+                if (position && util::IsWord(source[position - 1]))
                     continue;
                 const auto paren = source.find_first_not_of(whitespace, start);
                 if (paren == std::string::npos || source[paren] != '(')

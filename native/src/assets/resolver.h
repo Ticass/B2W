@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <functional>
@@ -24,7 +24,7 @@ namespace w2b::assets
     // the dependency closure of the requested assets
     struct AssetGraph
     {
-        py::Json report;                // {nodes, edges, roots, missing}: the *.dependencies.json document
+        util::Json report;                // {nodes, edges, roots, missing}: the *.dependencies.json document
         std::vector<Path> roots;        // the source roots, then the stock roots the closure used
         std::vector<StockRoot> stockRoots;
     };

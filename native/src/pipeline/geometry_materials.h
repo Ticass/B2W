@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -25,5 +25,5 @@ namespace w2b::pipeline
     };
 
     GeometryMaterials PlanGeometryMaterials(world::RenderWorld& world, const std::vector<std::filesystem::path>& roots,
-                                            extract::StockWaw* stock, py::Json& warnings);
+                                            extract::StockWaw* stock, util::Json& warnings);
 }

@@ -34,7 +34,7 @@ namespace w2b::world
         return world.surfaces.size() - originalCount;
     }
 
-    py::Json WriteShadowGeometry(const RenderWorld& world, const RenderMeshes& result, const std::filesystem::path& path)
+    util::Json WriteShadowGeometry(const RenderWorld& world, const RenderMeshes& result, const std::filesystem::path& path)
     {
         if (world.shadowLights.empty())
             return {};
@@ -42,7 +42,7 @@ namespace w2b::world
         for (const auto& [surface, mesh] : result.surfaceToMesh)
             surfaceToMesh[surface] = mesh;
         std::size_t dropped = 0, castingMeshes = 0, castingModels = 0;
-        auto lights = py::Json::array();
+        auto lights = util::Json::array();
         for (const auto& light : world.shadowLights)
         {
             std::set<int> meshes;
@@ -57,10 +57,10 @@ namespace w2b::world
             const std::set models(light.staticModels.begin(), light.staticModels.end());
             castingMeshes += meshes.size();
             castingModels += models.size();
-            auto hulls = py::Json::array();
+            auto hulls = util::Json::array();
             for (const auto& hull : light.hulls)
             {
-                auto axes = py::Json::array();
+                auto axes = util::Json::array();
                 for (const auto& [x, y, z, mid, half] : hull.axes)
                     axes.push_back({{"dir", {x, y, z}}, {"midPoint", mid}, {"halfSize", half}});
                 hulls.push_back({{"kdopMidPoint", hull.midpoint}, {"kdopHalfSize", hull.halfSize},
@@ -69,7 +69,7 @@ namespace w2b::world
             lights.push_back({{"meshes", std::move(meshes)}, {"smodels", models}, {"hulls", std::move(hulls)}});
         }
         const auto lightCount = lights.size();
-        files::WriteText(path, py::JsonDumps({{"lights", std::move(lights)}}, -1) + "\n");
+        files::WriteText(path, util::JsonDumps({{"lights", std::move(lights)}}, -1) + "\n");
         return {{"lights", lightCount}, {"casting_meshes", castingMeshes}, {"casting_smodels", castingModels},
                 {"removed_source_surfaces", dropped}};
     }

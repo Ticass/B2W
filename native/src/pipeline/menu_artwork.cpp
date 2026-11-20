@@ -17,7 +17,7 @@ namespace w2b::pipeline
     namespace
     {
         using launcher::Image;
-        using py::Json;
+        using util::Json;
         namespace fs = std::filesystem;
 
         bool SameCanvas(const Image& a, const Image& b)
@@ -80,9 +80,9 @@ namespace w2b::pipeline
         {
             if (input.empty())
                 return DensestBox(blit);
-            const auto values = py::Split(input, ",");
+            const auto values = util::Split(input, ",");
             double x = 0, y = 0;
-            if (values.size() != 2 || !py::ParseFloat(values[0], x) || !py::ParseFloat(values[1], y) ||
+            if (values.size() != 2 || !util::ParseFloat(values[0], x) || !util::ParseFloat(values[1], y) ||
                 !std::isfinite(x) || !std::isfinite(y))
                 throw std::invalid_argument("Start location must be a pair of pixel coordinates.");
             return {Round(std::clamp(x / blit.width * GridWidth - BoxWidth / 2.0, 0.0, double(GridWidth - BoxWidth))),
@@ -150,7 +150,7 @@ namespace w2b::pipeline
             void Bind(std::string_view variant, std::string_view role, bool loading = false)
             {
                 const auto name = "materials/" + (loading ? loading_ : prefix_) + std::string(variant) + ".json";
-                files::WriteText(root_ / files::FromUtf8(name), py::JsonDumps(Material(prefix_ + std::string(role)), 2));
+                files::WriteText(root_ / files::FromUtf8(name), util::JsonDumps(Material(prefix_ + std::string(role)), 2));
                 names.push_back(name);
             }
 

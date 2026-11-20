@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "mapents/map_entity.h"
 
 #include <array>
@@ -10,7 +10,7 @@ namespace w2b::world { struct CollisionWorld; }
 
 namespace w2b::barriers
 {
-    using py::Json;
+    using util::Json;
     using Path = std::filesystem::path;
     using Vec3 = std::array<double, 3>;
 

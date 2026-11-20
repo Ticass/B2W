@@ -3,7 +3,7 @@
 
 #include "core/hash.h"
 #include "d3d.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "gsc/tokens.h"
 
 #include <algorithm>
@@ -17,7 +17,7 @@ namespace w2b::shaders::runtime
     {
         std::mutex lock;
 
-        // results per assembly text, as the Python lru_caches keep them
+        // results per assembly text, cached
         template <typename T> using Cache = std::unordered_map<std::string, T>;
 
         template <typename T> T& Cached(Cache<T>& cache, const std::string& assembly, const std::function<T()>& make)
@@ -46,7 +46,7 @@ namespace w2b::shaders::runtime
 
         std::string Strip(std::string_view s)
         {
-            return std::string(py::Strip(s));
+            return std::string(util::Strip(s));
         }
     } // namespace
 
@@ -55,7 +55,7 @@ namespace w2b::shaders::runtime
         static Cache<Ordered<Register>> cache;
         return Cached<Ordered<Register>>(cache, assembly, [&]
                                          {
-                                             static const pyre::Regex pattern("^//\\s+(\\w+)\\s+([cs])(\\d+)\\s+(\\d+)\\s*$", pyre::MULTILINE);
+                                             static const regex::Regex pattern("^//\\s+(\\w+)\\s+([cs])(\\d+)\\s+(\\d+)\\s*$", regex::MULTILINE);
                                              Ordered<Register> result;
                                              for (const auto& m : pattern.FindAll(assembly))
                                                  for (int row = 0; row < Int(m[3]); row++)
@@ -71,11 +71,11 @@ namespace w2b::shaders::runtime
             cache, kind + '\0' + assembly,
             [&]
             {
-                const pyre::Regex block("// " + kind + " signature:(.*?)(?:// (?:Input|Output) signature:|\\n(?:ps|vs)_\\d)", pyre::DOTALL);
+                const regex::Regex block("// " + kind + " signature:(.*?)(?:// (?:Input|Output) signature:|\\n(?:ps|vs)_\\d)", regex::DOTALL);
                 const auto match = block.Search(assembly);
                 if (!match)
                     throw ShaderError("no native " + kind + " signature");
-                static const pyre::Regex row("^//\\s+(\\w+)\\s+(\\d+)\\s+([xyzw]+)\\s+\\d+\\s+\\w+\\s+(float|uint|int)", pyre::MULTILINE);
+                static const regex::Regex row("^//\\s+(\\w+)\\s+(\\d+)\\s+([xyzw]+)\\s+\\d+\\s+\\w+\\s+(float|uint|int)", regex::MULTILINE);
                 std::map<std::string, std::pair<int, std::string>> result;
                 for (const auto& m : row.FindAll((*match)[1]))
                 {
@@ -96,9 +96,9 @@ namespace w2b::shaders::runtime
         return Cached<std::map<std::string, Field>>(cache, assembly, [&]
                                                     {
                                                         // the SDK compiler prints "cb3", the Windows 8.1 one a bare slot
-                                                        static const pyre::Regex resource("^//\\s+(\\w+)\\s+cbuffer\\s+NA\\s+NA\\s+(?:cb)?(\\d+)\\s+\\d+", pyre::MULTILINE);
-                                                        static const pyre::Regex cbuffer("// cbuffer (\\w+)\\s*\\n// \\{(.*?)// \\}", pyre::DOTALL);
-                                                        static const pyre::Regex variable(
+                                                        static const regex::Regex resource("^//\\s+(\\w+)\\s+cbuffer\\s+NA\\s+NA\\s+(?:cb)?(\\d+)\\s+\\d+", regex::MULTILINE);
+                                                        static const regex::Regex cbuffer("// cbuffer (\\w+)\\s*\\n// \\{(.*?)// \\}", regex::DOTALL);
+                                                        static const regex::Regex variable(
                                                             "//\\s+(?:float\\d?(?:x\\d)?|int\\d?|uint\\d?)\\s+(\\w+)(?:\\[(\\d+)\\])?;\\s*// Offset:\\s*(\\d+)\\s+Size:\\s*(\\d+)");
                                                         std::map<std::string, int> resources;
                                                         for (const auto& m : resource.FindAll(assembly))
@@ -121,7 +121,7 @@ namespace w2b::shaders::runtime
         static Cache<Resources> cache;
         return Cached<Resources>(cache, assembly, [&]
                                  {
-                                     static const pyre::Regex pattern("^//\\s+(\\w+)\\s+texture\\s+\\w+\\s+(\\w+)\\s+t?(\\d+)\\s+\\d+", pyre::MULTILINE);
+                                     static const regex::Regex pattern("^//\\s+(\\w+)\\s+texture\\s+\\w+\\s+(\\w+)\\s+t?(\\d+)\\s+\\d+", regex::MULTILINE);
                                      Resources out;
                                      for (const auto& m : pattern.FindAll(assembly))
                                      {
@@ -138,11 +138,11 @@ namespace w2b::shaders::runtime
 
     std::set<std::pair<std::string, char>> TaintedOutputs(const std::string& assembly, const std::set<std::string>& sources)
     {
-        static const pyre::Regex reg("^(r\\d+|v\\d+|c\\d+|oC\\d+|o\\d+|oDepth)(?:\\.([xyzwrgba]{1,4}))?$");
-        static const pyre::Regex absCall("^abs\\((.*)\\)$");
+        static const regex::Regex reg("^(r\\d+|v\\d+|c\\d+|oC\\d+|o\\d+|oDepth)(?:\\.([xyzwrgba]{1,4}))?$");
+        static const regex::Regex absCall("^abs\\((.*)\\)$");
         static const std::set<std::string> elementwise{"mov", "add", "sub", "mul", "mad", "min", "max", "slt", "sge", "frc", "abs", "cmp", "lrp", "dsx", "dsy"};
         std::map<std::string, std::set<char>> taint;
-        for (const auto rawLine : py::SplitLines(assembly))
+        for (const auto rawLine : util::SplitLines(assembly))
         {
             std::string line(rawLine);
             if (const auto at = line.find("//"); at != std::string::npos)
@@ -155,7 +155,7 @@ namespace w2b::shaders::runtime
             if (tail.empty() || op == "def" || op == "defi" || op.rfind("dcl", 0) == 0 || op == "vs" || op == "ps")
                 continue;
             std::vector<std::string> args;
-            for (const auto part : py::Split(tail, ","))
+            for (const auto part : util::Split(tail, ","))
                 args.push_back(Strip(part));
             const auto dst = reg.FullMatch(args[0]);
             if (!dst)
@@ -218,18 +218,18 @@ namespace w2b::shaders::runtime
 
     bool WritesComponent(const std::string& assembly, const std::string& reg, const char component)
     {
-        for (const auto rawLine : py::SplitLines(assembly))
+        for (const auto rawLine : util::SplitLines(assembly))
         {
             const std::string line(rawLine);
             // line.split(None, 1)
             size_t i = 0;
-            while (i < line.size() && py::IsSpace(line[i]))
+            while (i < line.size() && util::IsSpace(line[i]))
                 i++;
             size_t j = i;
-            while (j < line.size() && !py::IsSpace(line[j]))
+            while (j < line.size() && !util::IsSpace(line[j]))
                 j++;
             const auto first = line.substr(i, j - i);
-            while (j < line.size() && py::IsSpace(line[j]))
+            while (j < line.size() && util::IsSpace(line[j]))
                 j++;
             if (first.empty() || j >= line.size())
                 continue;

@@ -2,7 +2,7 @@
 #include "amb_stage.h"
 
 #include "core/encoding.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "csvtable.h"
 #include "gsc/parse.h"
 #include "modutil.h"
@@ -21,7 +21,7 @@ namespace w2b::pipeline
     using mod::Lower;
     using mod::StartsWith;
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -152,7 +152,7 @@ namespace w2b::pipeline
                     for (const auto* t : arg)
                         text += t->text;
                     double v = 0;
-                    if (py::ParseFloat(text, v))
+                    if (util::ParseFloat(text, v))
                         values.emplace_back(v);
                     else
                         values.emplace_back(std::monostate{});
@@ -236,7 +236,7 @@ namespace w2b::pipeline
             bool first = true;
             for (const auto& [k, v] : item.items())
             {
-                out += (first ? "" : ", ") + py::StringRepr(k) + ": " + py::StringRepr(v.get<std::string>());
+                out += (first ? "" : ", ") + util::StringRepr(k) + ": " + util::StringRepr(v.get<std::string>());
                 first = false;
             }
             return out + "}";
@@ -474,7 +474,7 @@ namespace w2b::pipeline
             std::set<std::string> triggerRooms;
             if (ents && IsFile(*ents))
             {
-                static const pyre::Regex entity("\\{([^{}]*)\\}"), kv("\"([^\"]*)\"\\s+\"([^\"]*)\"");
+                static const regex::Regex entity("\\{([^{}]*)\\}"), kv("\"([^\"]*)\"\\s+\"([^\"]*)\"");
                 const auto entsText = encoding::WawText(mod::Bytes(*ents));
                 for (const auto& body : entity.FindAll(entsText))
                 {
@@ -490,7 +490,7 @@ namespace w2b::pipeline
             auto ambient = PortAmbient(source, mod::Json(globalsPath), aliases, triggerRooms, ambientLines);
             std::string body;
             for (const auto& block : ambientLines)
-                for (const auto& line : py::Split(block, "\n"))
+                for (const auto& line : util::Split(block, "\n"))
                     body += "    " + std::string(line) + "\n";
             auto music = PortMusic(source, aliases, musicLines);
             const auto ambName = files::Utf8(sourceAmb->filename());

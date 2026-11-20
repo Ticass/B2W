@@ -1,6 +1,6 @@
 #pragma once
-// Small build-mod steps: ipakfix.py (move ipak blocks off streaming window
-// ends) and overheathud.py (the stock overheat HUD with its typos repaired).
+// Small build-mod steps: the ipak fix (move ipak blocks off streaming window
+// ends) and the overheat HUD (the stock one with its typos repaired).
 
 #include <filesystem>
 #include <string>

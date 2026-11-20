@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <string>
 #include <string_view>
@@ -10,11 +10,11 @@ namespace w2b::shaders
     struct Translation
     {
         std::string hlsl;
-        py::Json report; // the dict shaders._translate returns, in its key order
+        util::Json report; // the dict shaders._translate returns, in its key order
     };
 
     // shaders._translate(assembly, bindings): SM3 assembly -> SM5 HLSL.
     // bindings == nullptr is the unbound validation ABI. Throws ShaderError
-    // with the Python message on anything it cannot translate.
-    Translation Translate(std::string_view assembly, const py::Json* bindings);
+    // with a message on anything it cannot translate.
+    Translation Translate(std::string_view assembly, const util::Json* bindings);
 } // namespace w2b::shaders

@@ -68,7 +68,7 @@ namespace w2b::audio
             return false;
         }
 
-        py::Json Encode(const std::string& encoder, const py::Json& task)
+        util::Json Encode(const std::string& encoder, const util::Json& task)
         {
             const auto source = task.at("source").get<std::string>();
             const auto target = task.at("target").get<std::string>();
@@ -92,9 +92,9 @@ namespace w2b::audio
         }
     }
 
-    py::Json EncodeFlacBatch(const std::string& encoder, const py::Json& tasks, unsigned workers)
+    util::Json EncodeFlacBatch(const std::string& encoder, const util::Json& tasks, unsigned workers)
     {
-        std::vector<py::Json> results(tasks.size());
+        std::vector<util::Json> results(tasks.size());
         parallel::For(tasks.size(), [&](std::size_t i) { results[i] = Encode(encoder, tasks[i]); }, workers);
         return results;
     }

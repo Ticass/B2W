@@ -1,5 +1,5 @@
 #pragma once
-// SM3 register syntax as shaders.py matches it with regular expressions:
+// SM3 register syntax, matched with regular expressions:
 //   REG = ^(r\d+|v\d+|c\d+|oC\d+|o\d+|oDepth)(?:\.([xyzwrgba]{1,4}))?$
 // Hand-written matchers with the same alternation/backtracking results.
 

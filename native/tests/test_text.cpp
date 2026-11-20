@@ -1,5 +1,5 @@
-// Expectations printed by Python itself: tests/make_expectations.py
-#include "core/pytext.h"
+// Expectations are Python's own output for each case (repr, json.dumps, float).
+#include "core/text.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -9,15 +9,15 @@ using namespace w2b;
 
 TEST_CASE("Python string repr preserves quote ordering and escapes non-printable code points")
 {
-    CHECK(py::StringRepr("test's") == "\"test's\"");
-    CHECK(py::StringRepr("\"test's\"") == "'\"test\\'s\"'");
-    CHECK(py::StringRepr("line\n\t\\\xC2\xA0é") == "'line\\n\\t\\\\\\xa0é'");
+    CHECK(util::StringRepr("test's") == "\"test's\"");
+    CHECK(util::StringRepr("\"test's\"") == "'\"test\\'s\"'");
+    CHECK(util::StringRepr("line\n\t\\\xC2\xA0é") == "'line\\n\\t\\\\\\xa0é'");
 }
 
 TEST_CASE("Compact JSON keeps Python float text and escaping")
 {
-    const py::Json value{{"a", {-0.0, 1.0, 1e-7}}, {"b", "é"}};
-    CHECK(py::JsonDumps(value, -1) == "{\"a\":[-0.0,1.0,1e-07],\"b\":\"\\u00e9\"}");
+    const util::Json value{{"a", {-0.0, 1.0, 1e-7}}, {"b", "é"}};
+    CHECK(util::JsonDumps(value, -1) == "{\"a\":[-0.0,1.0,1e-07],\"b\":\"\\u00e9\"}");
 }
 
 TEST_CASE("FloatRepr matches Python repr(float)")
@@ -47,46 +47,46 @@ TEST_CASE("FloatRepr matches Python repr(float)")
     for (const auto& [hex, expected] : cases)
     {
         INFO(hex);
-        CHECK(py::FloatRepr(std::strtod(hex, nullptr)) == expected);
+        CHECK(util::FloatRepr(std::strtod(hex, nullptr)) == expected);
     }
 }
 
 TEST_CASE("JsonDumps matches json.dumps(indent=2)")
 {
-    py::Json doc = py::Json::object();
-    doc["a"] = py::Json::array({1, py::Json::object({{"b", "x\xc3\xa9\x7f\"\\"}})});
-    doc["c"] = py::Json::object();
-    doc["d"] = py::Json::array();
+    util::Json doc = util::Json::object();
+    doc["a"] = util::Json::array({1, util::Json::object({{"b", "x\xc3\xa9\x7f\"\\"}})});
+    doc["c"] = util::Json::object();
+    doc["d"] = util::Json::array();
     doc["e"] = 0.5;
     doc["f"] = true;
     doc["g"] = nullptr;
     doc["h"] = "\xf0\x9f\x98\x80";
     doc["i"] = -3;
-    CHECK(py::JsonDumps(doc, 2)
+    CHECK(util::JsonDumps(doc, 2)
           == "{\n  \"a\": [\n    1,\n    {\n      \"b\": \"x\\u00e9\\u007f\\\"\\\\\"\n    }\n  ],\n  \"c\": {},\n  \"d\": [],\n  \"e\": 0.5,\n  \"f\": "
              "true,\n  \"g\": null,\n  \"h\": \"\\ud83d\\ude00\",\n  \"i\": -3\n}");
 }
 
 TEST_CASE("str helpers follow Python")
 {
-    CHECK(py::SplitLines("a\r\nb\rc\n\nd") == std::vector<std::string_view>{"a", "b", "c", "", "d"});
-    CHECK(py::SplitLines("a\n") == std::vector<std::string_view>{"a"});
-    CHECK(py::Strip("  x y \t") == "x y");
-    CHECK(py::Split("a,,b", ",") == std::vector<std::string_view>{"a", "", "b"});
-    CHECK(py::Split("", ",") == std::vector<std::string_view>{""});
+    CHECK(util::SplitLines("a\r\nb\rc\n\nd") == std::vector<std::string_view>{"a", "b", "c", "", "d"});
+    CHECK(util::SplitLines("a\n") == std::vector<std::string_view>{"a"});
+    CHECK(util::Strip("  x y \t") == "x y");
+    CHECK(util::Split("a,,b", ",") == std::vector<std::string_view>{"a", "", "b"});
+    CHECK(util::Split("", ",") == std::vector<std::string_view>{""});
     double v = 0;
-    CHECK(py::ParseFloat(" -1.5e-3 ", v));
+    CHECK(util::ParseFloat(" -1.5e-3 ", v));
     CHECK(v == -1.5e-3);
-    CHECK(py::ParseFloat("1_0", v));
+    CHECK(util::ParseFloat("1_0", v));
     CHECK(v == 10.0);
-    CHECK_FALSE(py::ParseFloat("0x10", v));
-    CHECK_FALSE(py::ParseFloat("1.#INF", v));
-    CHECK(py::ParseFloat("inf", v));
+    CHECK_FALSE(util::ParseFloat("0x10", v));
+    CHECK_FALSE(util::ParseFloat("1.#INF", v));
+    CHECK(util::ParseFloat("inf", v));
     long long i = 0;
     bool overflow = false;
-    CHECK(py::ParseInt("+42", i, overflow));
+    CHECK(util::ParseInt("+42", i, overflow));
     CHECK(i == 42);
-    CHECK_FALSE(py::ParseInt("4.2", i, overflow));
-    CHECK(py::ParseInt("99999999999999999999999", i, overflow));
+    CHECK_FALSE(util::ParseInt("4.2", i, overflow));
+    CHECK(util::ParseInt("99999999999999999999999", i, overflow));
     CHECK(overflow);
 }

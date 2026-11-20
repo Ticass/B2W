@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include <filesystem>
 #include <optional>
 #include <set>
@@ -15,5 +15,5 @@ namespace w2b::pipeline
     };
 
     Inventory BridgeInventory(const std::vector<std::filesystem::path>& roots, const std::vector<std::filesystem::path>& mapRoots,
-                              const std::optional<std::filesystem::path>& entities, const py::Json& levelWeapons, std::vector<std::string>& warnings);
+                              const std::optional<std::filesystem::path>& entities, const util::Json& levelWeapons, std::vector<std::string>& warnings);
 }

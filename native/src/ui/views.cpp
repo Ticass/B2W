@@ -1,5 +1,5 @@
 // Launcher drawing: the T6 Mod Tools Launcher layout (sidebar, tabs, right
-// column, process box and console) with the workflows of the old gui.py.
+// column, process box and console) with the launcher's workflows.
 #include "app.h"
 
 #include "launcher/diagnostics.h"

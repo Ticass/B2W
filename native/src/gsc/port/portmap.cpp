@@ -3,7 +3,7 @@
 
 #include "api.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "generators.h"
 #include "rewrites.h"
 #include "support.h"
@@ -30,7 +30,7 @@ namespace w2b::gsc::port
             return value && !value->empty();
         }
 
-        std::string S(const py::Json& value)
+        std::string S(const util::Json& value)
         {
             return value.get<std::string>();
         }
@@ -392,7 +392,7 @@ namespace w2b::gsc::port
         else
             report.errors.push_back(std::string(LOADOUT) + ".gsc with init_loadout/give_model not found (map or stock): players keep the BO2 template's characters");
         std::vector<std::string> coreParts;
-        static const pyre::Regex loadfx(R"re(loadfx\s*\(\s*"([^"]+)")re", pyre::IGNORECASE);
+        static const regex::Regex loadfx(R"re(loadfx\s*\(\s*"([^"]+)")re", regex::IGNORECASE);
         const auto drain = [&]
         {
             while (!tr.queue.empty() || !tr.coreQueue.empty())
@@ -482,8 +482,8 @@ namespace w2b::gsc::port
         for (const auto& [_, text] : tr.done)
             texts.push_back(text);
         texts.insert(texts.end(), coreParts.begin(), coreParts.end());
-        static const pyre::Regex effectRead(R"re(level\.waw_effect\[\s*"([^"]+)"\s*\])re");
-        static const pyre::Regex effectSet(R"re(level\.waw_effect\[\s*"([^"]+)"\s*\]\s*=[^=])re");
+        static const regex::Regex effectRead(R"re(level\.waw_effect\[\s*"([^"]+)"\s*\])re");
+        static const regex::Regex effectSet(R"re(level\.waw_effect\[\s*"([^"]+)"\s*\]\s*=[^=])re");
         std::set<std::string> effectReads, effectSets;
         for (const auto& t : texts)
         {
@@ -508,7 +508,7 @@ namespace w2b::gsc::port
                 }
         drain();
         append(coreParts, tr.levelStateParts);
-        static const pyre::Regex wawLoadfx(R"re(waw_loadfx\s*\(\s*"([^"]+)")re", pyre::IGNORECASE);
+        static const regex::Regex wawLoadfx(R"re(waw_loadfx\s*\(\s*"([^"]+)")re", regex::IGNORECASE);
         for (const auto& row : wawLoadfx.FindAll(Join(coreParts, "\n")))
             report.fx.push_back(row[0]);
         std::string calls;
@@ -560,10 +560,10 @@ namespace w2b::gsc::port
                                                        sourceMembership,
                                                        Ok(respawnFunction) ? std::optional<std::string>(std::string(CORE) + "::" + *respawnFunction) : std::nullopt,
                                                        Ok(chaseFunction) ? chaseFunction : std::nullopt, lastZombie, scripted));
-        report.weaponRegistration = py::Json::object();
+        report.weaponRegistration = util::Json::object();
         for (const auto& [role, fns] : registration)
         {
-            py::Json list = py::Json::array();
+            util::Json list = util::Json::array();
             for (const auto& f : fns)
                 if (Ok(f))
                     list.push_back(*f);

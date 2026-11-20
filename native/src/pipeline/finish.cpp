@@ -5,8 +5,8 @@
 #include "core/files.h"
 #include "core/hash.h"
 #include "core/process.h"
-#include "core/pyre.h"
-#include "core/pytext.h"
+#include "core/regex.h"
+#include "core/text.h"
 #include "core/timeline.h"
 #include "gsc/parse.h"
 #include "gsc/port/generators.h"
@@ -89,7 +89,7 @@ namespace w2b::pipeline
             return found;
         }
 
-        // equal SHA-256 digests, as package.py compares them: equal bytes
+        // equal SHA-256 digests: equal bytes
         bool SameBytes(const fs::path& a, const fs::path& b)
         {
             std::ifstream x(a, std::ios::binary), y(b, std::ios::binary);
@@ -121,7 +121,7 @@ namespace w2b::pipeline
         std::vector<std::string> SplitLines(const std::string& text)
         {
             std::vector<std::string> lines;
-            for (const auto line : py::SplitLines(text))
+            for (const auto line : util::SplitLines(text))
                 lines.emplace_back(line);
             return lines;
         }
@@ -185,8 +185,8 @@ namespace w2b::pipeline
 
     std::pair<std::vector<std::string>, std::vector<std::string>> ParseScriptLinkerLog(const std::string& log)
     {
-        static const pyre::Regex bspError(R"re(ERROR: Could not open BSP "[^"\n]*" for map "[^"\n]*"\r?\n?)re");
-        static const pyre::Regex compiledLine(R"re(Compiled GSC script "([^"]+)")re");
+        static const regex::Regex bspError(R"re(ERROR: Could not open BSP "[^"\n]*" for map "[^"\n]*"\r?\n?)re");
+        static const regex::Regex compiledLine(R"re(Compiled GSC script "([^"]+)")re");
         const auto clean = bspError.Sub("", log);
         std::set<std::string> compiled;
         for (const auto& row : compiledLine.FindAll(clean))
@@ -371,14 +371,14 @@ namespace w2b::pipeline
             fs::copy_file(f, target, fs::copy_options::overwrite_existing);
             fs::last_write_time(target, fs::last_write_time(f, error), error);
         }
-        py::Json metadata = py::Json::object();
+        util::Json metadata = util::Json::object();
         if (const auto path = modOut / "menu_metadata.json"; IsFile(path))
-            metadata = py::Json::parse(files::ReadText(path));
-        py::Json mod = py::Json::object();
-        mod["name"] = metadata.contains("title") ? metadata["title"] : py::Json(project + " (B2W)");
-        mod["description"] = metadata.contains("description") ? metadata["description"] : py::Json(project + ": World at War custom map converted by waw2bo2");
+            metadata = util::Json::parse(files::ReadText(path));
+        util::Json mod = util::Json::object();
+        mod["name"] = metadata.contains("title") ? metadata["title"] : util::Json(project + " (B2W)");
+        mod["description"] = metadata.contains("description") ? metadata["description"] : util::Json(project + ": World at War custom map converted by waw2bo2");
         mod["version"] = W2B_VERSION;
-        files::WriteText(dest / "mod.json", py::JsonDumps(mod, 2) + "\n");
+        files::WriteText(dest / "mod.json", util::JsonDumps(mod, 2) + "\n");
         return dest;
     }
 

@@ -6,7 +6,7 @@
 #include "core/timeline.h"
 
 #include "core/encoding.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/sum.h"
 #include "csvtable.h"
 #include "extract/cache.h"
@@ -33,7 +33,7 @@ namespace w2b::pipeline
     using mod::Lower;
     using mod::StartsWith;
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -115,7 +115,7 @@ namespace w2b::pipeline
         std::optional<double> Number(const std::string& text)
         {
             double v = 0;
-            return py::ParseFloat(text, v) ? std::optional<double>(v) : std::nullopt;
+            return util::ParseFloat(text, v) ? std::optional<double>(v) : std::nullopt;
         }
 
         double Median(std::vector<double> values)
@@ -184,7 +184,7 @@ namespace w2b::pipeline
             std::vector<double> terms;
             for (size_t i = 0; i + 1 < p.size(); i++)
                 terms.push_back((p[i + 1][0] - p[i][0]) * (p[i][1] + p[i + 1][1]) / 2);
-            return py::Sum(terms);
+            return util::Sum(terms);
         }
 
         bool IsFalloff(const Points& p)
@@ -734,9 +734,9 @@ namespace w2b::pipeline
             if (!IsFile(stockFile))
                 return {};
             std::map<std::string, std::string> stock;
-            for (const auto& m : pyre::Regex(reg + "\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)").FindAll(mod::ReadReplace(stockFile)))
+            for (const auto& m : regex::Regex(reg + "\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)").FindAll(mod::ReadReplace(stockFile)))
                 stock[m[0]] = m[1];
-            static const pyre::Regex table("level\\.zombie_sounds\\[\"([^\"]+)\"\\]\\s*=\\s*\"(waw/[^\"]+)\"");
+            static const regex::Regex table("level\\.zombie_sounds\\[\"([^\"]+)\"\\]\\s*=\\s*\"(waw/[^\"]+)\"");
             std::vector<std::pair<std::string, std::set<std::string>>> found;
             auto scripts = files::RGlob(projectRoot / "maps", ".gsc");
             std::sort(scripts.begin(), scripts.end(), [](const fs::path& a, const fs::path& b) { return Lower(Str(a)) < Lower(Str(b)); });
@@ -761,7 +761,7 @@ namespace w2b::pipeline
 
         std::set<std::string> MusicTableAliases(const std::string& amb)
         {
-            static const pyre::Regex call("\\bmusicAlias(?:loop)?\\s*\\(\\s*\"([^\"]+)\"", pyre::IGNORECASE);
+            static const regex::Regex call("\\bmusicAlias(?:loop)?\\s*\\(\\s*\"([^\"]+)\"", regex::IGNORECASE);
             std::set<std::string> out;
             for (const auto& m : call.FindAll(amb))
                 out.insert(Lower(m[0]));
@@ -770,7 +770,7 @@ namespace w2b::pipeline
 
         std::map<std::string, std::string> MusicStingers(const std::string& amb, const Json& states)
         {
-            static const pyre::Regex call("\\b(declareMusicState|musicAliasloop|musicAlias)\\s*\\(\\s*\"([^\"]+)\"", pyre::IGNORECASE);
+            static const regex::Regex call("\\b(declareMusicState|musicAliasloop|musicAlias)\\s*\\(\\s*\"([^\"]+)\"", regex::IGNORECASE);
             std::map<std::string, std::string> out;
             std::optional<std::string> state;
             for (const auto& m : call.FindAll(amb))
@@ -788,7 +788,7 @@ namespace w2b::pipeline
         {
             for (const auto& [pattern, targets] : ENGINE_SOUND_FAMILIES)
             {
-                const pyre::Regex full("\\A(?:" + pattern + ")\\Z");
+                const regex::Regex full("\\A(?:" + pattern + ")\\Z");
                 if (!full.Search(name))
                     continue;
                 for (const auto& t : targets)
@@ -929,7 +929,7 @@ namespace w2b::pipeline
                     {
                         const auto text = Get(row, "ReverbSend");
                         double send = 0;
-                        if (!text.empty() && !py::ParseFloat(text, send))
+                        if (!text.empty() && !util::ParseFloat(text, send))
                             continue;
                         if (send > 0)
                             bo2[Get(row, "VolumeGroup")].push_back(send - 100);
@@ -974,7 +974,7 @@ namespace w2b::pipeline
                 }
             }
             if (reverbSend["status"] != "measured")
-                warnings.push_back("SOUND_REVERB_SEND unmeasured: " + reverbSend["reason"].get<std::string>() + "; using the last stock measurement " + py::FloatRepr(reverbSend["db"].get<double>()) + " dB");
+                warnings.push_back("SOUND_REVERB_SEND unmeasured: " + reverbSend["reason"].get<std::string>() + "; using the last stock measurement " + util::FloatRepr(reverbSend["db"].get<double>()) + " dB");
         }
         std::optional<sound::RemasterTables> remaster;
         if (bo2Root)

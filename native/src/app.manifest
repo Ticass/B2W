@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!-- Native B2W executables: paths past MAX_PATH where Windows allows them
-     (python.exe opts in the same way; staging paths reach 260+ characters),
+     (staging paths reach 260+ characters),
      per-monitor DPI and the current common controls. -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <application xmlns="urn:schemas-microsoft-com:asm.v3">

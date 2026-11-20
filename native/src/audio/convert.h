@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -47,5 +47,5 @@ namespace w2b::audio
     };
 
     // audio.convert(source): canonical WAV (nullopt for loop-region sounds) and its report
-    std::pair<std::optional<std::string>, py::Json> Convert(const std::filesystem::path& source, const Tools& tools);
+    std::pair<std::optional<std::string>, util::Json> Convert(const std::filesystem::path& source, const Tools& tools);
 } // namespace w2b::audio

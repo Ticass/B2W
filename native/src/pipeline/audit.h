@@ -1,10 +1,10 @@
 #pragma once
 // The build's zone audit (builddriver._audit_zone): unlink a built zone, check
 // every material argument against T6's unbounded table scans
-// (tools/audit_material_args.py) and, for the map zone, the authored bone
-// hitboxes (modelhitboxes.py).
+// and, for the map zone, the authored bone
+// hitboxes.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <set>
@@ -24,12 +24,12 @@ namespace w2b::pipeline
 
     uint32_t NameHash(const std::string& name);
     MaterialAudit AuditMaterials(const fs::path& zone, const std::vector<fs::path>& extra);
-    // audit_material_args.py main: prints its report, returns its exit code
+    // audit-material-args: prints its report, returns its exit code
     int PrintMaterialAudit(const fs::path& zone, const std::vector<fs::path>& extra);
 
     bool HasAuthoredHitboxes(const fs::path& source);
-    py::Json AuditHitboxes(const fs::path& source, const fs::path& built);
+    util::Json AuditHitboxes(const fs::path& source, const fs::path& built);
 
-    // throws StepError like the Python driver raises
+    // throws StepError on a failed step
     void AuditZone(const fs::path& ff, const fs::path& stage, const std::string& project, const fs::path& bo2, const fs::path& stock, const fs::path& unlinker);
 } // namespace w2b::pipeline

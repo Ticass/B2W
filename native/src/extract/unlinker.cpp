@@ -40,7 +40,7 @@ namespace w2b::extract
             if (auto run = oat::TryRunUnlinker({command.begin() + 1, command.end()}))
             {
                 if (onLine)
-                    for (const auto line : py::SplitLines(run->log))
+                    for (const auto line : util::SplitLines(run->log))
                         onLine(std::string(line));
                 process::Result result;
                 result.exitCode = run->exitCode;

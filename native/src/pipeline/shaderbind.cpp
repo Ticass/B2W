@@ -5,7 +5,7 @@
 
 #include "core/hash.h"
 #include "core/profile.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "modutil.h"
 #include "shaders/runtime.h"
 
@@ -48,7 +48,7 @@ namespace w2b::pipeline
         const auto manifest = root / "stage.json";
         if (!fs::exists(manifest))
             return {};
-        std::map<std::string, py::Json> entries;
+        std::map<std::string, util::Json> entries;
         for (const auto& m : Member(manifest, "materials"))
             if (m.contains("shader_runtime") && Truthy(m["shader_runtime"], "active"))
                 entries[m.contains("source") ? m["source"].get<std::string>() : m["name"].get<std::string>()] = m;
@@ -67,8 +67,8 @@ namespace w2b::pipeline
             const auto relative = "materials/" + name + ".json";
             const auto target = overlay / files::FromUtf8(relative);
             MakeParent(target);
-            files::WriteText(target, py::JsonDumpsDefault(material));
-            for (const auto& texture : material.value("textures", py::Json::array()))
+            files::WriteText(target, util::JsonDumpsDefault(material));
+            for (const auto& texture : material.value("textures", util::Json::array()))
             {
                 const auto image = texture.value("image", std::string());
                 if (image.empty() || image[0] == ',' || image[0] == '$')
@@ -105,7 +105,7 @@ namespace w2b::pipeline
             if (const int count = shaders::BindNativeProbes(material, overlayOutput, stock))
             {
                 MakeParent(target);
-                files::WriteText(target, py::JsonDumpsDefault(materials::ToJson(material)));
+                files::WriteText(target, util::JsonDumpsDefault(materials::ToJson(material)));
                 changed[relative] = count;
             }
         }

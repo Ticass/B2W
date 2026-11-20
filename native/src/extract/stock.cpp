@@ -5,7 +5,7 @@
 #include "core/asset_paths.h"
 #include "core/files.h"
 #include "shaders/techsets.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -93,7 +93,7 @@ namespace w2b::extract
         }
 
         // keep only the basic wooden barrier's render closure from prison
-        py::Json TrimBarrierPayload(const fs::path& folder, py::Json data)
+        util::Json TrimBarrierPayload(const fs::path& folder, util::Json data)
         {
             const std::string asset = "zmcore_basicwoodbarrier";
             const auto barrier = folder / "zbarrier" / asset;
@@ -112,7 +112,7 @@ namespace w2b::extract
                     }
                 parts.erase(parts.begin());
             }
-            static const pyre::Regex modelField(R"(model\d+$)", pyre::IGNORECASE);
+            static const regex::Regex modelField(R"(model\d+$)", regex::IGNORECASE);
             std::set<std::string> models;
             for (size_t i = 0; i + 1 < parts.size(); i += 2)
                 if (!parts[i + 1].empty() && modelField.Search(parts[i]))
@@ -126,18 +126,18 @@ namespace w2b::extract
                 if (!IsFile(path))
                     throw Error("RuntimeError", "Barrier dependency model " + name + " is missing from prison donor");
                 keep.insert(relative);
-                for (const auto& lod : ReadJson(path).value("lods", py::Json::array()))
+                for (const auto& lod : ReadJson(path).value("lods", util::Json::array()))
                 {
                     const auto file = lod["file"].get<std::string>();
                     keep.insert(file);
                     const auto gltf = ReadJson(folder / files::FromUtf8(file));
-                    for (const auto& m : gltf.value("materials", py::Json::array()))
+                    for (const auto& m : gltf.value("materials", util::Json::array()))
                         if (m.contains("name") && m["name"].is_string() && !m["name"].get<std::string>().empty())
                             materials.insert(LStripComma(m["name"].get<std::string>()));
-                    std::vector<py::Json> uris;
-                    for (const auto& b : gltf.value("buffers", py::Json::array()))
+                    std::vector<util::Json> uris;
+                    for (const auto& b : gltf.value("buffers", util::Json::array()))
                         uris.push_back(b);
-                    for (const auto& b : gltf.value("images", py::Json::array()))
+                    for (const auto& b : gltf.value("images", util::Json::array()))
                         uris.push_back(b);
                     for (const auto& item : uris)
                     {
@@ -168,7 +168,7 @@ namespace w2b::extract
                         keep.insert(shaders.begin(), shaders.end());
                     }
                 }
-                for (const auto& texture : material.value("textures", py::Json::array()))
+                for (const auto& texture : material.value("textures", util::Json::array()))
                 {
                     const auto image = LStripComma(texture.value("image", std::string()));
                     if (!image.empty() && image.front() != '$')
@@ -176,7 +176,7 @@ namespace w2b::extract
                 }
             }
             const std::set<std::string> payloads{"xmodel", "model_export", "images", "zbarrier", "materials", "techniquesets", "shader_bin"};
-            py::Json kept = py::Json::array();
+            util::Json kept = util::Json::array();
             for (const auto& n : data["files"])
             {
                 const auto name = n.get<std::string>();
@@ -206,9 +206,9 @@ namespace w2b::extract
             return 5;
         }
 
-        void RequireWorldDumps(const fs::path& ff, const fs::path& folder, const py::Json& data, const fs::path& tool)
+        void RequireWorldDumps(const fs::path& ff, const fs::path& folder, const util::Json& data, const fs::path& tool)
         {
-            for (const auto& name : data["index"].value("gfxworld", py::Json::array()))
+            for (const auto& name : data["index"].value("gfxworld", util::Json::array()))
                 if (!IsFile(folder / files::FromUtf8("waw2bo2/" + name.get<std::string>() + ".gfx.bin")))
                     throw Error("RuntimeError", files::Utf8(ff.filename()) + ": the WaW extractor did not export map world " + name.get<std::string>() + " (waw2bo2/"
                                                     + name.get<std::string>() + ".gfx.bin); extractor: " + Str(tool));
@@ -260,9 +260,9 @@ namespace w2b::extract
         return zones;
     }
 
-    py::Json Inventory(const fs::path& game, const fs::path& tool, const std::string& engine)
+    util::Json Inventory(const fs::path& game, const fs::path& tool, const std::string& engine)
     {
-        py::Json archives = py::Json::object();
+        util::Json archives = util::Json::object();
         for (const char* directory : {"main", "zone", "sound"})
             for (const auto& p : RGlobAll(game / directory))
             {
@@ -270,7 +270,7 @@ namespace w2b::extract
                 if (ext == ".iwd" || ext == ".ipak" || ext == ".sabl" || ext == ".sabs")
                     archives[Str(p.lexically_relative(game))] = Stamp(p);
             }
-        py::Json derived = py::Json::object();
+        util::Json derived = util::Json::object();
         if (engine == "T6")
         {
             std::vector<fs::path> paths{game / "t6zm.exe"};
@@ -284,10 +284,10 @@ namespace w2b::extract
                 if (IsFile(p))
                     derived[Str(p.lexically_relative(game))] = Stamp(p);
         }
-        py::Json zones = py::Json::object();
+        util::Json zones = util::Json::object();
         for (const auto& p : StockZones(game, engine))
             zones[Posix(p.lexically_relative(game))] = Stamp(p);
-        py::Json out = py::Json::object();
+        util::Json out = util::Json::object();
         out["schema"] = SCHEMA;
         out["engine"] = engine;
         out["game"] = Str(Resolve(game));
@@ -295,7 +295,7 @@ namespace w2b::extract
         out["archives"] = archives;
         out["derived"] = derived;
         out["zones"] = zones;
-        return py::SortKeys(out);
+        return util::SortKeys(out);
     }
 
     namespace
@@ -354,7 +354,7 @@ namespace w2b::extract
         {
             const auto receipt = ReadJson(root / "all2raw.json");
             const auto raw = files::FromUtf8(receipt.at("raw").get<std::string>());
-            if (py::SortKeys(receipt.at("inventory")) == Inventory(game, tool, engine) && IsFile(raw / "catalog.json"))
+            if (util::SortKeys(receipt.at("inventory")) == Inventory(game, tool, engine) && IsFile(raw / "catalog.json"))
             {
                 const auto catalog = ReadJson(raw / "catalog.json");
                 bool complete = true;
@@ -379,7 +379,7 @@ namespace w2b::extract
             try
             {
                 const auto data = ReadJson(cache);
-                const auto assets = data.value("stock_assets", py::Json::object());
+                const auto assets = data.value("stock_assets", util::Json::object());
                 if (data.value("version", 0) == 4 && (!withAssets || !assets.empty()))
                     return;
             }
@@ -387,7 +387,7 @@ namespace w2b::extract
             {
             }
         const auto snapshot = ReadJson(snapshotPath);
-        py::Json assets = py::Json::object();
+        util::Json assets = util::Json::object();
         if (withAssets && IsFile(stockDump / "catalog.json"))
         {
             const std::set<std::string> stockZones{"code_pre_gfx_zm", "code_post_gfx_zm", "common_zm", "patch_zm"};
@@ -410,14 +410,14 @@ namespace w2b::extract
             for (const auto& kind : order)
                 assets[kind] = std::vector<std::string>(sets[kind].begin(), sets[kind].end());
         }
-        py::Json data = py::Json::object();
+        util::Json data = util::Json::object();
         data["version"] = 4;
         data["builtins"] = snapshot["builtins"];
         data["methods"] = snapshot["methods"];
         data["scripts"] = snapshot["scripts"];
         data["stock_assets"] = assets;
         fs::create_directories(cache.parent_path());
-        files::WriteBytes(cache, py::JsonDumpsDefault(data));
+        files::WriteBytes(cache, util::JsonDumpsDefault(data));
     }
 
     fs::path Prepare(const fs::path& game, const fs::path& tool, const fs::path& root, const std::string& engine, const bool refresh, std::optional<int> workers)
@@ -447,14 +447,14 @@ namespace w2b::extract
             [&](const fs::path& ff)
             {
                 const auto name = Posix(ff.lexically_relative(game));
-                const auto zoneRoot = root / "zones" / files::FromUtf8(Key(py::Json(name)));
+                const auto zoneRoot = root / "zones" / files::FromUtf8(Key(util::Json(name)));
                 Print("Extract All: " + engine + " starting " + name);
                 ZoneRequest request{ff, tool, zoneRoot, SearchPaths({ff.parent_path(), game / "zone/all", game / "main", game / "sound", game}), StockAssets(engine, ff),
                                     engine == "T4" ? "DDS" : "IWI", toolHash, inputs["archives"], refresh};
                 auto [folder, data] = ExtractZone(request);
                 if (engine == "T6" && files::Utf8(ff.stem()) == "zm_prison")
                     data = TrimBarrierPayload(folder, data);
-                py::Json entry = py::Json::object();
+                util::Json entry = util::Json::object();
                 entry["folder"] = Str(folder);
                 entry["files"] = data["files"];
                 entry["index"] = data["index"];
@@ -463,10 +463,10 @@ namespace w2b::extract
                 return entry;
             },
             engine, workers);
-        py::Json entries = py::Json::object();
+        util::Json entries = util::Json::object();
         for (size_t i = 0; i < zones.size(); i++)
             entries[Posix(zones[i].lexically_relative(game))] = outputs[i];
-        const auto generation = Key(py::Json{{"entries", entries}, {"inventory", inputs}});
+        const auto generation = Key(util::Json{{"entries", entries}, {"inventory", inputs}});
         auto raw = root / "views" / files::FromUtf8(generation);
         if (IsFile(raw / "catalog.json"))
         {
@@ -475,14 +475,14 @@ namespace w2b::extract
             for (const auto& [name, _] : catalog["owners"].items())
                 complete = complete && IsFile(raw / files::FromUtf8(name));
             if (!complete)
-                raw = root / "views" / files::FromUtf8(generation + "-" + Key(py::Json(Str(raw) + std::to_string(std::rand()))).substr(0, 8));
+                raw = root / "views" / files::FromUtf8(generation + "-" + Key(util::Json(Str(raw) + std::to_string(std::rand()))).substr(0, 8));
         }
         if (!IsFile(raw / "catalog.json"))
         {
-            const auto pending = root / "views" / files::FromUtf8("pending-" + Key(py::Json(generation + std::to_string(std::rand()))));
+            const auto pending = root / "views" / files::FromUtf8("pending-" + Key(util::Json(generation + std::to_string(std::rand()))));
             fs::create_directories(pending);
-            py::Json owners = py::Json::object();
-            py::Json conflicts = py::Json::array();
+            util::Json owners = util::Json::object();
+            util::Json conflicts = util::Json::array();
             size_t number = 0;
             for (const auto& [name, entry] : entries.items())
             {
@@ -500,7 +500,7 @@ namespace w2b::extract
                     {
                         std::error_code e;
                         if (fs::file_size(target, e) != fs::file_size(source, e) || Digest(target) != Digest(source))
-                            conflicts.push_back(py::Json{{"asset", filename}, {"selected", owners[filename]}, {"alternative", name}});
+                            conflicts.push_back(util::Json{{"asset", filename}, {"selected", owners[filename]}, {"alternative", name}});
                         continue;
                     }
                     std::error_code e;
@@ -511,7 +511,7 @@ namespace w2b::extract
                     owners[filename] = name;
                 }
             }
-            WriteJson(pending / "catalog.json", py::Json{{"schema", SCHEMA}, {"zones", entries}, {"owners", owners}, {"conflicts", conflicts}});
+            WriteJson(pending / "catalog.json", util::Json{{"schema", SCHEMA}, {"zones", entries}, {"owners", owners}, {"conflicts", conflicts}});
             Publish(pending, raw);
         }
         if (engine == "T6")
@@ -519,7 +519,7 @@ namespace w2b::extract
             Print("Extract All: indexing BO2 script/API metadata");
             BuildT6ApiCache(ResourceRoot() / "src/waw2bo2/compat/t6_script_api.json", raw / "t6api_cache.json", true, raw);
         }
-        WriteJson(root / "all2raw.json", py::Json{{"schema", SCHEMA}, {"engine", engine}, {"raw", Str(raw)}, {"zones", entries}, {"inventory", inputs}});
+        WriteJson(root / "all2raw.json", util::Json{{"schema", SCHEMA}, {"engine", engine}, {"raw", Str(raw)}, {"zones", entries}, {"inventory", inputs}});
         // prune obsolete stock generations and partial views
         Print("Extract All: removing obsolete stock exports and partial views");
         std::set<std::wstring> keep;
@@ -565,8 +565,8 @@ namespace w2b::extract
         const auto source = Resolve(settings.fastfile);
         const auto folder = source.parent_path();
         RequireWawExtractor(settings.t4Tool);
-        const auto root = wawCache / "custom_maps" / files::FromUtf8(Key(py::Json(Str(folder))));
-        py::Json dependencies = py::Json::object();
+        const auto root = wawCache / "custom_maps" / files::FromUtf8(Key(util::Json(Str(folder))));
+        util::Json dependencies = util::Json::object();
         for (const auto& directory : {folder, settings.waw / "main"})
             for (const auto& p : GlobExtension(directory, ".iwd"))
                 dependencies[Str(p)] = Stamp(p);
@@ -596,11 +596,11 @@ namespace w2b::extract
             [&](const fs::path& ff)
             {
                 Print("Extract All: custom map starting " + files::Utf8(ff.filename()));
-                ZoneRequest request{ff, settings.t4Tool, root / files::FromUtf8(Key(py::Json(Str(ff)))), SearchPaths({folder, settings.waw / "main"}), std::string(WAW_ASSETS),
+                ZoneRequest request{ff, settings.t4Tool, root / files::FromUtf8(Key(util::Json(Str(ff)))), SearchPaths({folder, settings.waw / "main"}), std::string(WAW_ASSETS),
                                     "DDS", toolHash, dependencies, refresh};
                 const auto [output, data] = ExtractZone(request);
                 RequireWorldDumps(ff, output, data, settings.t4Tool);
-                return py::Json(Str(output));
+                return util::Json(Str(output));
             },
             "custom map");
         std::vector<std::pair<std::string, fs::path>> result;

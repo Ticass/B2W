@@ -1,5 +1,4 @@
-// Port of shaders._translate (src/waw2bo2/shaders.py). Every branch, message
-// and output line follows the Python; the tests compare both on real shaders.
+// The WaW shader translator. The tests check it on real shaders.
 #include "translate.h"
 
 #include "d3d.h"
@@ -13,9 +12,9 @@ namespace w2b::shaders
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
-        template<typename T> struct Ordered // a Python dict: insertion order, assignment keeps position
+        template<typename T> struct Ordered // a dict in insertion order: assignment keeps position
         {
             std::vector<std::pair<std::string, T>> items;
 
@@ -99,7 +98,7 @@ namespace w2b::shaders
             if (value.is_boolean())
                 return value.get<bool>() ? "True" : "False";
             if (value.is_number_float())
-                return py::FloatRepr(value.get<double>());
+                return util::FloatRepr(value.get<double>());
             if (value.is_number_integer() || value.is_number_unsigned())
                 return std::to_string(value.get<long long>());
             return value.dump();
@@ -108,7 +107,7 @@ namespace w2b::shaders
         // repr(float(x))
         std::string FloatOf(const Json& value)
         {
-            return py::FloatRepr(value.get<double>());
+            return util::FloatRepr(value.get<double>());
         }
 
         std::string Upper(std::string text)
@@ -154,7 +153,7 @@ namespace w2b::shaders
         {
             if (!StartsWith(text, prefix) || text.size() == prefix.size())
                 return false;
-            return std::all_of(text.begin() + static_cast<long long>(prefix.size()), text.end(), py::IsDigit);
+            return std::all_of(text.begin() + static_cast<long long>(prefix.size()), text.end(), util::IsDigit);
         }
 
         std::string Repeat(const std::string& text, const long long count)
@@ -216,10 +215,10 @@ namespace w2b::shaders
             void Parse(const std::string_view assembly)
             {
                 std::vector<std::string> lines;
-                for (const auto raw : py::SplitLines(assembly))
+                for (const auto raw : util::SplitLines(assembly))
                 {
                     const auto cut = raw.find("//");
-                    const auto line = py::RStrip(py::Strip(raw.substr(0, cut)), std::string_view("\0", 1));
+                    const auto line = util::RStrip(util::Strip(raw.substr(0, cut)), std::string_view("\0", 1));
                     if (!line.empty())
                         lines.emplace_back(line);
                 }
@@ -234,8 +233,8 @@ namespace w2b::shaders
                     const std::string op = line.substr(0, space);
                     const std::string tail = space == std::string::npos ? "" : line.substr(space + 1);
                     std::vector<std::string> args;
-                    for (const auto part : py::Split(tail, ","))
-                        args.emplace_back(py::Strip(part));
+                    for (const auto part : util::Split(tail, ","))
+                        args.emplace_back(util::Strip(part));
 
                     if (op == "def")
                     {
@@ -245,7 +244,7 @@ namespace w2b::shaders
                         for (size_t i = 1; i < 5; i++)
                         {
                             double value = 0;
-                            if (!py::ParseFloat(args[i], value))
+                            if (!util::ParseFloat(args[i], value))
                                 throw ShaderError("invalid literal: " + line);
                             values.push_back(value);
                         }
@@ -262,7 +261,7 @@ namespace w2b::shaders
                         {
                             long long value = 0;
                             bool overflow = false;
-                            if (!py::ParseInt(args[i], value, overflow))
+                            if (!util::ParseInt(args[i], value, overflow))
                                 throw ShaderError("invalid integer literal: " + line);
                             if (i == 1)
                                 first = {value, overflow};
@@ -283,7 +282,7 @@ namespace w2b::shaders
                         else if (isRegister)
                         {
                             std::vector<std::string> declaration;
-                            for (const auto part : py::Split(std::string_view(op).substr(4), "_"))
+                            for (const auto part : util::Split(std::string_view(op).substr(4), "_"))
                                 declaration.emplace_back(part);
                             for (size_t i = 1; i < declaration.size(); i++)
                                 if (declaration[i] != "pp" && declaration[i] != "centroid")
@@ -293,7 +292,7 @@ namespace w2b::shaders
                                 centroid.insert(match.reg);
                             if (StartsWith(semantic, "POSITION") && StartsWith(match.reg, "o"))
                                 semantic = "SV_Position";
-                            else if (semantic.empty() || !py::IsDigit(semantic.back()))
+                            else if (semantic.empty() || !util::IsDigit(semantic.back()))
                                 semantic += "0";
                             const std::string mask = SwizzleXyzw(match.hasSwizzle ? match.swizzle : "xyzw");
                             long long width = 0;
@@ -489,7 +488,7 @@ namespace w2b::shaders
             {
                 std::vector<std::string> text;
                 for (const auto v : values)
-                    text.push_back(py::FloatRepr(v));
+                    text.push_back(util::FloatRepr(v));
                 resources.push_back("static const float4 " + reg + " = float4(" + Join(text, ", ") + ");");
             }
 
@@ -557,7 +556,7 @@ namespace w2b::shaders
             for (const auto& [decorated, args, original] : operations)
             {
                 std::vector<std::string> flags;
-                for (const auto part : py::Split(decorated, "_"))
+                for (const auto part : util::Split(decorated, "_"))
                     flags.emplace_back(part);
                 const std::string op = flags.front();
                 flags.erase(flags.begin());
@@ -925,7 +924,7 @@ namespace w2b::shaders
         }
     } // namespace
 
-    Translation Translate(const std::string_view assembly, const py::Json* bindings)
+    Translation Translate(const std::string_view assembly, const util::Json* bindings)
     {
         Translator translator{bindings, bindings != nullptr};
         return translator.Run(assembly);

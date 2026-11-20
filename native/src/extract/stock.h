@@ -1,5 +1,5 @@
 #pragma once
-// Port of all2raw.py's game caches: the stock WaW/BO2 views every build reads
+// The game caches: the stock WaW/BO2 views every build reads
 // (prepare / ready), the map's own zone dumps (source_dumps) and the T6 script
 // API cache (t6api.build with the shipped snapshot).
 
@@ -9,7 +9,7 @@ namespace w2b::extract
 {
     std::string StockAssets(const std::string& engine, const fs::path& ff);
     std::vector<fs::path> StockZones(const fs::path& game, const std::string& engine);
-    py::Json Inventory(const fs::path& game, const fs::path& tool, const std::string& engine);
+    util::Json Inventory(const fs::path& game, const fs::path& tool, const std::string& engine);
     // throws Error("RuntimeError", ...) when the cache must be (re)extracted
     fs::path Ready(const fs::path& game, const fs::path& tool, const fs::path& root, const std::string& engine);
     fs::path Prepare(const fs::path& game, const fs::path& tool, const fs::path& root, const std::string& engine, bool refresh = false,

@@ -16,7 +16,7 @@ namespace w2b::pipeline
 {
     using mod::IsFile;
     using mod::StartsWith;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -296,7 +296,7 @@ namespace w2b::pipeline
             model["lightingOriginOffset"] = Json{{"x", 0.0}, {"y", 0.0}, {"z", 0.5}};
             model["lightingOriginRange"] = 0.5;
             model.erase("physPreset");
-            files::WriteText(projectRoot / "xmodel" / files::FromUtf8("skybox_" + project + ".json"), py::JsonDumps(model, 2) + "\n");
+            files::WriteText(projectRoot / "xmodel" / files::FromUtf8("skybox_" + project + ".json"), util::JsonDumps(model, 2) + "\n");
             return {std::move(materials), {sourceName, {materialNames.begin(), materialNames.end()}}};
         }
         catch (const StageError& error)
@@ -349,14 +349,14 @@ namespace w2b::pipeline
             }
             CopyFile(raw / file, projectRoot / file);
         }
-        files::WriteText(projectRoot / "xmodel" / files::FromUtf8("skybox_" + project + ".json"), py::JsonDumps(model, 4) + "\n");
+        files::WriteText(projectRoot / "xmodel" / files::FromUtf8("skybox_" + project + ".json"), util::JsonDumps(model, 4) + "\n");
         if (!synthesized)
             skyImage = SkyWithHdrAlpha(report, projectRoot, *skyImage, imageRoots);
         auto material = mod::Json(sourceMaterial);
         for (auto& texture : material["textures"])
             if (texture.value("name", std::string()) == "colorMap")
                 texture["image"] = *skyImage;
-        files::WriteText(projectRoot / assets::MaterialPath(SKYBOX_MATERIAL), py::JsonDumps(material, 2) + "\n");
+        files::WriteText(projectRoot / assets::MaterialPath(SKYBOX_MATERIAL), util::JsonDumps(material, 2) + "\n");
         report.Warn("skybox: BO2 " + SKYBOX_TEMPLATE + " dome with the WaW sky cube " + *skyImage);
         TemplateSky sky{std::nullopt, skyImage};
         if (material.contains("techniqueSet") && material["techniqueSet"].is_string())

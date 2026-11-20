@@ -1,10 +1,10 @@
-// Port of gscport.py's generated scripts and BO2 template hooks (see generators.h).
+// Generated scripts and BO2 template hooks (see generators.h).
 #include "generators.h"
 
 #include "api.h"
 #include "core/encoding.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "rewrites.h"
 #include "statements.h"
 #include "translator.h"
@@ -20,14 +20,14 @@ namespace w2b::gsc::port
 
     namespace
     {
-        std::string S(const py::Json& value)
+        std::string S(const util::Json& value)
         {
             return value.get<std::string>();
         }
 
         std::string Dumps(const std::string& text)
         {
-            return py::JsonDumps(py::Json(text), 2);
+            return util::JsonDumps(util::Json(text), 2);
         }
 
         size_t ByteOffset(const std::string& text, const long long cp)
@@ -383,7 +383,7 @@ waw_tesla_network_choke()
 )GSC";
         const auto& maxTargets = definition["max_targets"];
         const auto targets = maxTargets.is_string() ? maxTargets.get<std::string>()
-                                                    : (maxTargets.is_number_float() ? py::FloatRepr(maxTargets.get<double>()) : maxTargets.dump());
+                                                    : (maxTargets.is_number_float() ? util::FloatRepr(maxTargets.get<double>()) : maxTargets.dump());
         return zombiebehavior::Format(TEMPLATE, {{"initialize", entries.at("initialize")},
                                                  {"max_targets", targets},
                                                  {"native_register", S(definition["native_register"])},
@@ -440,7 +440,7 @@ waw_tesla_network_choke()
         const auto call = "    level thread " + std::string(WEAPONS) + "::start_box();\n";
         if (Contains(source, call))
             return false;
-        static const pyre::Regex post(R"(^    level thread maps\\mp\\waw\\\w+::waw_main_post\(\);\n)", pyre::MULTILINE);
+        static const regex::Regex post(R"(^    level thread maps\\mp\\waw\\\w+::waw_main_post\(\);\n)", regex::MULTILINE);
         const auto m = post.Search(source);
         if (!m)
             throw std::runtime_error(files::Utf8(mainGsc) + ": no waw_main_post() call to start the WaW box after");
@@ -452,10 +452,10 @@ waw_tesla_network_choke()
     bool HookBo2Weapons(const fs::path& mainGsc)
     {
         const auto source = ReadTextReplace(mainGsc);
-        static const pyre::Regex include(R"(^(\s*)include_weapons\(\s*\);)", pyre::MULTILINE);
-        static const pyre::Regex add(R"((level\._zombie_custom_add_weapons\s*=\s*)[^;]+;)");
-        auto changed = include.Sub([](const pyre::Match& m) { return m[1] + WEAPONS + "::include_weapons();"; }, source);
-        changed = add.Sub([](const pyre::Match& m) { return m[1] + WEAPONS + "::add_weapons;"; }, changed);
+        static const regex::Regex include(R"(^(\s*)include_weapons\(\s*\);)", regex::MULTILINE);
+        static const regex::Regex add(R"((level\._zombie_custom_add_weapons\s*=\s*)[^;]+;)");
+        auto changed = include.Sub([](const regex::Match& m) { return m[1] + WEAPONS + "::include_weapons();"; }, source);
+        changed = add.Sub([](const regex::Match& m) { return m[1] + WEAPONS + "::add_weapons;"; }, changed);
         if (!Contains(changed, std::string(WEAPONS) + "::include_weapons();") || !Contains(changed, std::string(WEAPONS) + "::add_weapons;"))
             throw std::runtime_error(files::Utf8(mainGsc) + ": no include_weapons() call / level._zombie_custom_add_weapons to hook");
         if (changed != source)
@@ -482,9 +482,9 @@ waw_tesla_network_choke()
         auto changed = source;
         for (const auto& [hook, fn] : std::vector<std::pair<std::string, std::string>>{{"precachecustomcharacters", "precache"}, {"givecustomcharacters", "give"}})
         {
-            const pyre::Regex pattern(R"((level\.)" + hook + R"(\s*=\s*)[^;]+;)");
+            const regex::Regex pattern(R"((level\.)" + hook + R"(\s*=\s*)[^;]+;)");
             const auto target = fn;
-            changed = pattern.Sub([&](const pyre::Match& m) { return m[1] + CHARACTERS + "::" + target + ";"; }, changed);
+            changed = pattern.Sub([&](const regex::Match& m) { return m[1] + CHARACTERS + "::" + target + ";"; }, changed);
         }
         if (!Contains(changed, CHARACTERS))
             throw std::runtime_error(files::Utf8(mainGsc) + ": no level.precachecustomcharacters / level.givecustomcharacters to hook");
@@ -596,7 +596,7 @@ waw_tesla_network_choke()
         if (!Contains(source, PRE_ANCHOR))
             throw std::runtime_error(files::Utf8(mainGsc) + ": no '" + PyStrip(PRE_ANCHOR) + "' line to hook the WaW main around");
         source = ReplaceFirst(source, PRE_ANCHOR, pre + PRE_ANCHOR);
-        static const pyre::Regex mainHead(R"(^main\(\)\s*\{)", pyre::MULTILINE);
+        static const regex::Regex mainHead(R"(^main\(\)\s*\{)", regex::MULTILINE);
         const auto m = mainHead.Search(source);
         if (!m)
             throw std::runtime_error("'NoneType' object has no attribute 'end'");
@@ -1031,8 +1031,8 @@ waw2bo2_dog_keep_enemy()
                 throw std::runtime_error(native + ": dog music state \"" + state + "\" not found");
             text = Replace(text, old, "level thread maps\\mp\\zombies\\_zm_utility::play_sound_2d( \"waw/" + S(waw) + "\" );");
         }
-        static const pyre::Regex loadfx(R"(\bloadfx\s*\()", pyre::IGNORECASE);
-        text = loadfx.Sub([](const pyre::Match&) { return std::string(COMPAT) + "::waw_loadfx_native("; }, text);
+        static const regex::Regex loadfx(R"(\bloadfx\s*\()", regex::IGNORECASE);
+        text = loadfx.Sub([](const regex::Match&) { return std::string(COMPAT) + "::waw_loadfx_native("; }, text);
         return "// waw2bo2: BO2 dog rounds playing the source WaW dog sounds and effects (generated).\n" + Replace(text, native + "::", owned + "::") + DOG_ACTOR_GLUE;
     }
 

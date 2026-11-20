@@ -12,7 +12,7 @@ namespace w2b::effects
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using Names = std::set<std::string>;
 
         struct StagedEffect
@@ -32,7 +32,7 @@ namespace w2b::effects
             {
                 if (result.size() > 1)
                     result += ", ";
-                result += py::StringRepr(name);
+                result += util::StringRepr(name);
             }
             return result + "]";
         }
@@ -54,7 +54,7 @@ namespace w2b::effects
             {
                 auto converted = ConvertEffect(source, materials);
                 effect.outputName = converted.asset.at("name").get<std::string>();
-                effect.serialized = py::JsonDumps(converted.asset, 1) + "\n";
+                effect.serialized = util::JsonDumps(converted.asset, 1) + "\n";
                 effect.notes = std::move(converted.notes);
             }
             catch (const EffectError& error)

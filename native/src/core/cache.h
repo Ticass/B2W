@@ -1,6 +1,6 @@
 #pragma once
 // Content-addressed store for pure steps, shared by every build (the native
-// side of buildcache.py): an entry is keyed by everything its result depends
+// side of the build cache): an entry is keyed by everything its result depends
 // on, so a changed input or tool is a different key, never a stale hit.
 // WAW2BO2_BUILD_CACHE=0 turns it off; WAW2BO2_BUILD_CACHE_DIR moves it.
 

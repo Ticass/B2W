@@ -1,8 +1,8 @@
 #pragma once
-// Port of projectilecollision.py: missile-only collision proxies for hard
+// Missile-only collision proxies for hard
 // render surfaces of static props that source movement brushes qualify.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -20,7 +20,7 @@ namespace w2b::models
     struct ProjectileCollision
     {
         std::vector<std::string> names;  // the proxy models the map zone carries
-        std::optional<py::Json> entries; // the recovered placements, for the report; none when unsupported
+        std::optional<util::Json> entries; // the recovered placements, for the report; none when unsupported
         std::vector<std::string> warnings;
     };
 

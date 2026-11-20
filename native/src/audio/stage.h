@@ -10,5 +10,5 @@ namespace w2b::audio
     // staged sound of project/sounds.stage.json to canonical 48 kHz PCM under
     // output, and write output/audio.stage.json. decoderText is str(decoder)
     // for the report ("" when there is none).
-    py::Json Stage(const std::filesystem::path& project, const std::filesystem::path& output, const std::string& decoderText, const Tools& tools);
+    util::Json Stage(const std::filesystem::path& project, const std::filesystem::path& output, const std::string& decoderText, const Tools& tools);
 } // namespace w2b::audio

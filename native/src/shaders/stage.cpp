@@ -14,7 +14,7 @@ namespace w2b::shaders
     namespace
     {
         namespace fs = std::filesystem;
-        using py::Json;
+        using util::Json;
 
         struct Source
         {
@@ -68,7 +68,7 @@ namespace w2b::shaders
                 report["source"] = source.path;
                 report["source_sha256"] = hash::Sha256Hex(data);
                 report["compiled"] = true;
-                files::WriteText(destination / files::FromUtf8(WithSuffix(source.name, ".json")), py::JsonDumps(report, 2) + "\n");
+                files::WriteText(destination / files::FromUtf8(WithSuffix(source.name, ".json")), util::JsonDumps(report, 2) + "\n");
                 Json row = report;
                 row["name"] = source.name;
                 row["status"] = "translated_unbound";
@@ -130,7 +130,7 @@ namespace w2b::shaders
         report["unsupported"] = unsupported;
         report["shaders"] = std::move(shaders);
         fs::create_directories(destination);
-        files::WriteText(destination / "stage.json", py::JsonDumps(report, 2) + "\n");
+        files::WriteText(destination / "stage.json", util::JsonDumps(report, 2) + "\n");
         return report;
     }
 } // namespace w2b::shaders

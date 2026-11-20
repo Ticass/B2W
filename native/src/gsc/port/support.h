@@ -1,9 +1,9 @@
 #pragma once
-// Ports of the small script modules port_map uses: zombieappearance.py,
-// stockperks.py, hintdefaults.py, perktable.py and the generated-script parts
-// of oneway.py and waterbullets.py.
+// The small script modules port_map uses: zombie appearance, stock perks,
+// hint defaults, the perk table and the generated-script parts of the one-way
+// clips and water bullets.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>
@@ -50,7 +50,7 @@ namespace w2b::gsc::port
         std::set<std::string> EnginePerks(const std::filesystem::path& executable);
         std::set<std::string> MapPerks(const std::filesystem::path& projectRoot);
         std::string Source(const std::set<std::string>& emulated);
-        py::Json Stage(const std::filesystem::path& projectRoot, const std::optional<std::filesystem::path>& executable = std::nullopt);
+        util::Json Stage(const std::filesystem::path& projectRoot, const std::optional<std::filesystem::path>& executable = std::nullopt);
     } // namespace perktable
 
     namespace oneway

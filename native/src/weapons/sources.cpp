@@ -22,7 +22,7 @@ namespace w2b::weapons
         {
             if (result.size() > 1)
                 result += ", ";
-            result += py::StringRepr(name);
+            result += util::StringRepr(name);
         }
         return result + "]";
     }

@@ -114,7 +114,7 @@ namespace w2b::physics
                               {"flags", flags & ~SpawnBody}, {"contents", entity.at("contents")}, {"targetname", entity.at("targetname")}});
         }
         const auto count = output.size();
-        files::WriteText(target, py::JsonDumps({{"version", 1}, {"dynents", std::move(output)}}, 1) + "\n");
+        files::WriteText(target, util::JsonDumps({{"version", 1}, {"dynents", std::move(output)}}, 1) + "\n");
         return {{"count", count}, {"models", models}, {"clutter", clutter}, {"destructible", destructible},
                 {"resting", std::move(resting)}};
     }

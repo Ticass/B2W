@@ -66,14 +66,14 @@ namespace w2b::models
                 auto data = weapons::ReadAssetJson(maps);
                 for (auto& name : data.at("wawMaterials"))
                     RewriteName(name, names);
-                ReplaceStagedText(maps, py::JsonDumps(data, 2) + "\n");
+                ReplaceStagedText(maps, util::JsonDumps(data, 2) + "\n");
             }
             if (files::fs::is_regular_file(constraints))
             {
                 auto data = weapons::ReadAssetJson(constraints);
                 for (auto& constraint : data.at("constraints"))
                     RewriteName(constraint.at("material"), names);
-                ReplaceStagedText(constraints, py::JsonDumps(data, 2) + "\n");
+                ReplaceStagedText(constraints, util::JsonDumps(data, 2) + "\n");
             }
         }
 
@@ -120,7 +120,7 @@ namespace w2b::models
                     if (const auto name = material.find("name"); name != material.end())
                         changed |= RewriteName(*name, names);
                 if (changed)
-                    ReplaceStagedText(path, py::JsonDumpsDefault(data));
+                    ReplaceStagedText(path, util::JsonDumpsDefault(data));
             }, 4);
         }
 

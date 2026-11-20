@@ -4,7 +4,7 @@
 // role and volume class, the WaW bus -> BO2 group table, the stock WaW
 // quantiles the classes are transferred from, and the role lists.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <map>
 #include <optional>
@@ -73,7 +73,7 @@ namespace w2b::sound
         std::map<std::string, std::string> weaponDependencyGroup;
         std::map<std::string, BusVote> learned;
         std::map<std::string, std::pair<std::optional<std::string>, BusVote>> differs; // declared group, vote
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 
     struct ReferenceQuantiles // a stock WaW column's percentiles in one class
@@ -90,7 +90,7 @@ namespace w2b::sound
         std::map<std::string, std::map<std::string, ReferenceQuantiles>> reference; // class -> column; empty without stock WaW
         std::set<std::string> music, ambience;
         std::map<std::string, std::string> stingers; // WaW alias -> stinger state
-        py::Json announcerEvents;                    // content_source/announcer_events.json
+        util::Json announcerEvents;                    // content_source/announcer_events.json
         std::string announcerPrefix;
     };
 

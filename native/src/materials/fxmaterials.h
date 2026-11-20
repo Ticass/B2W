@@ -1,7 +1,7 @@
 #pragma once
-// Port of fxmaterials.py: WaW effect materials on stock BO2 effect donors.
+// WaW effect materials on stock BO2 effect donors.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "materials/t6_material.h"
 #include "materials/waw_material.h"
 

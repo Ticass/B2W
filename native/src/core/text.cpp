@@ -1,5 +1,5 @@
 #include <algorithm>
-#include "pytext.h"
+#include "text.h"
 
 #include <cerrno>
 #include <charconv>
@@ -7,7 +7,7 @@
 #include <cstdlib>
 #include <limits>
 
-namespace w2b::py
+namespace w2b::util
 {
     bool IsSpace(const char c)
     {
@@ -417,4 +417,4 @@ namespace w2b::py
             value = -value;
         return true;
     }
-} // namespace w2b::py
+} // namespace w2b::util

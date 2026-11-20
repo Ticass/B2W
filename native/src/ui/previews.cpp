@@ -1,4 +1,4 @@
-// Artwork previews (see previews.h). Layout numbers are menupreviews.py's,
+// Artwork previews (see previews.h). Layout numbers are the previews',
 // taken from the stock menus.
 #include "previews.h"
 

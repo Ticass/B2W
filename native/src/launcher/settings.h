@@ -1,8 +1,8 @@
 #pragma once
-// Port of launcher.py's Settings, discovery and naming rules: the state the
+// Settings, discovery and naming rules: the state the
 // desktop launcher keeps in %LOCALAPPDATA%\WawConverter\settings.json.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -24,8 +24,8 @@ namespace w2b::launcher
 
         Settings();
         // dataclasses.asdict order
-        py::Json ToJson() const;
-        static Settings FromJson(const py::Json& data);
+        util::Json ToJson() const;
+        static Settings FromJson(const util::Json& data);
         static Settings Load(const std::optional<fs::path>& path = std::nullopt);
         void Save(const std::optional<fs::path>& path = std::nullopt) const;
 

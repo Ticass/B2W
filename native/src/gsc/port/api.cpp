@@ -24,14 +24,14 @@ namespace w2b::gsc::port
         return g_compat;
     }
 
-    const py::Json& Api()
+    const util::Json& Api()
     {
-        static const py::Json api = []
+        static const util::Json api = []
         {
             std::string text;
             if (!files::ReadBytes(CompatDir() / "gsc_api.json", text))
                 throw std::runtime_error("missing compat/gsc_api.json");
-            return py::Json::parse(text);
+            return util::Json::parse(text);
         }();
         return api;
     }

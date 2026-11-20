@@ -1,6 +1,6 @@
 #include "gsc/port/zone_scripts.h"
 
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "gsc/port/util.h"
 
 #include <cmath>
@@ -59,7 +59,7 @@ namespace w2b::gsc::port
                     next[2].text == "]" && next[3].text == "=" && next[4].kind == Kind::String && next[5].text == ";")
                 {
                     double index = 0;
-                    if (!py::ParseFloat(next[1].text, index) || !std::isfinite(index))
+                    if (!util::ParseFloat(next[1].text, index) || !std::isfinite(index))
                         throw std::runtime_error("invalid zone flag array index: " + Repr(next[1].text));
                     arrays_[variable.Low()][std::trunc(index)] = next[4].text;
                 }
@@ -102,15 +102,15 @@ namespace w2b::gsc::port
 
         const auto& QuotedStrings()
         {
-            static const pyre::Regex pattern(R"re("([^"]+)")re");
+            static const regex::Regex pattern(R"re("([^"]+)")re");
             return pattern;
         }
 
         void ReadInitial(ZoneGraph& graph, std::string_view live)
         {
-            static const pyre::Regex pattern(
+            static const regex::Regex pattern(
                 R"re(^\s*(?:zones|init_zones|level\s*\.\s*dlc3\s*\.\s*initialzones)\s*\[[^\]]*\]\s*=\s*"([^"]+)"\s*;)re",
-                pyre::MULTILINE | pyre::IGNORECASE);
+                regex::MULTILINE | regex::IGNORECASE);
             std::set<std::string> seen;
             for (const auto& match : pattern.FindAll(live))
                 if (seen.insert(match.front()).second)
@@ -181,7 +181,7 @@ namespace w2b::gsc::port
         return names;
     }
 
-    py::Json ZoneGraph::ToJson() const
+    util::Json ZoneGraph::ToJson() const
     {
         return {{"initial", initial}, {"adjacency", adjacency}, {"names", Names()}};
     }

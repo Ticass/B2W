@@ -1,7 +1,7 @@
 // cli build-mod: mod.ff, its bound shaders and the lobby zone (see modzone.h).
 #include "modzone.h"
 
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/timeline.h"
 #include "gsc/port/generators.h"
 #include "shaders/techsets.h"
@@ -20,9 +20,9 @@ namespace w2b::pipeline
     {
         // (root, report entry) of every material THIS build staged; the stage
         // folder is reused across builds, so files on disk alone may be stale
-        std::vector<std::pair<fs::path, py::Json>> StagedMaterials(const fs::path& project)
+        std::vector<std::pair<fs::path, util::Json>> StagedMaterials(const fs::path& project)
         {
-            std::vector<std::pair<fs::path, py::Json>> entries;
+            std::vector<std::pair<fs::path, util::Json>> entries;
             if (fs::exists(project / "bridge_stage.report.json"))
                 for (const auto& e : Member(project / "bridge_stage.report.json", "materials"))
                     entries.emplace_back(project, e);
@@ -43,21 +43,21 @@ namespace w2b::pipeline
                 {
                     for (const auto& [root, entry] : StagedMaterials(project))
                     {
-                        const auto runtime = entry.value("shader_runtime", py::Json::object());
+                        const auto runtime = entry.value("shader_runtime", util::Json::object());
                         if (!Truthy(runtime, "active") && !Truthy(runtime, "native_probe_passes"))
                             continue;
                         const auto path = root / files::FromUtf8(entry["file"].get<std::string>());
                         const auto key = Lower(Str(Resolve(path)));
                         if (!IsFile(path) || originals.count(key))
                             continue;
-                        auto native = runtime.value("native_techset", py::Json());
+                        auto native = runtime.value("native_techset", util::Json());
                         if (!native.is_string() || native.get<std::string>().empty())
                             native = Json(stock / "materials" / files::FromUtf8(entry["donor"].get<std::string>()))["techniqueSet"];
                         const auto bytes = Bytes(path);
                         originals[key] = {path, bytes};
-                        auto material = py::Json::parse(bytes);
+                        auto material = util::Json::parse(bytes);
                         material["techniqueSet"] = native;
-                        files::WriteText(path, py::JsonDumpsDefault(material));
+                        files::WriteText(path, util::JsonDumpsDefault(material));
                     }
                 }
                 catch (...)
@@ -85,25 +85,25 @@ namespace w2b::pipeline
             std::map<std::string, std::pair<fs::path, std::string>> originals;
         };
 
-        std::set<std::string> TextureSlots(const py::Json& material)
+        std::set<std::string> TextureSlots(const util::Json& material)
         {
             std::set<std::string> slots;
-            for (const auto& t : material.value("textures", py::Json::array()))
+            for (const auto& t : material.value("textures", util::Json::array()))
                 slots.insert(t.contains("name") && t["name"].is_string() ? t["name"].get<std::string>() : std::string("\x01None"));
             return slots;
         }
 
         // a leading comma requests an already loaded image; the extracted asset reports its resolved name
-        py::Json TextureRoutes(const py::Json& material)
+        util::Json TextureRoutes(const util::Json& material)
         {
-            auto routes = py::Json::array();
-            for (auto t : material.value("textures", py::Json::array()))
+            auto routes = util::Json::array();
+            for (auto t : material.value("textures", util::Json::array()))
             {
                 auto image = t.value("image", std::string());
                 if (StartsWith(image, ","))
                     image.erase(0, 1);
                 t["image"] = image;
-                routes.push_back(py::SortKeys(t));
+                routes.push_back(util::SortKeys(t));
             }
             return routes;
         }
@@ -140,15 +140,15 @@ namespace w2b::pipeline
         if (IsFile(content / "weapons.stage.json"))
         {
             const auto data = Json(content / "weapons.stage.json");
-            for (const auto& entry : data.value("flame_tables", py::Json::array()))
+            for (const auto& entry : data.value("flame_tables", util::Json::array()))
             {
                 const auto file = files::FromUtf8(entry["file"].get<std::string>());
                 MakeParent(overlay / file);
                 Copy(content / file, overlay / file);
             }
-            for (const auto& entry : data.value("weapons", py::Json::array()))
+            for (const auto& entry : data.value("weapons", util::Json::array()))
             {
-                const auto deps = entry.value("dependencies", py::Json::object());
+                const auto deps = entry.value("dependencies", util::Json::object());
                 if (!Truthy(deps, "flametable"))
                     continue;
                 const auto name = files::FromUtf8(entry["name"].get<std::string>());
@@ -182,7 +182,7 @@ namespace w2b::pipeline
                     continue;
                 material["techniqueSet"] = current["techniqueSet"];
                 MakeParent(overlay / relative);
-                files::WriteText(overlay / relative, py::JsonDumpsDefault(material));
+                files::WriteText(overlay / relative, util::JsonDumpsDefault(material));
                 bound.insert(Generic(relative));
             }
         phase.reset();
@@ -203,13 +203,13 @@ namespace w2b::pipeline
         {
             // the restored source cube channels also reach stock gameplay materials
             probes = BindNativeProbeMaterials(dump, overlay, stock);
-            py::Json report = py::Json::object();
+            util::Json report = util::Json::object();
             for (const auto& [relative, count] : probes)
             {
                 bound.insert(relative);
                 report[relative] = count;
             }
-            files::WriteText(work / "native_probe_materials.json", py::JsonDumps(report, 1));
+            files::WriteText(work / "native_probe_materials.json", util::JsonDumps(report, 1));
         }
         phase.reset();
         // stringtables and project rawfiles override loaded and stock assets
@@ -246,13 +246,13 @@ namespace w2b::pipeline
         {
             // source textures go to a separate pack beside the baseline's
             const auto pack = files::Utf8(project.filename()) + "_impact_materials";
-            zone = pyre::Regex("(?m)^>ipak,.*$").Sub([&](const pyre::Match&) { return ">level.ipak_read," + pack + "\n>ipak," + pack; }, zone);
+            zone = regex::Regex("(?m)^>ipak,.*$").Sub([&](const regex::Match&) { return ">level.ipak_read," + pack + "\n>ipak," + pack; }, zone);
         }
         // raw weapon files live under mp/sp; loaded assets use engine-internal names
-        zone = pyre::Regex("(?m)^weapon,(?:mp|sp)/").Sub("weapon,", zone);
+        zone = regex::Regex("(?m)^weapon,(?:mp|sp)/").Sub("weapon,", zone);
         // the template's singleton "fximpacttable,,ImpactFx" would reference the
         // empty-named stock table by a name the game cannot load
-        zone = pyre::Regex("(?m)^fximpacttable,.*(?:\\r?\\n|$)").Sub("", zone);
+        zone = regex::Regex("(?m)^fximpacttable,.*(?:\\r?\\n|$)").Sub("", zone);
         const auto sourceRoot = work / "shader_zone_source";
         fs::create_directories(sourceRoot);
         files::WriteText(sourceRoot / "mod.zone", zone);
@@ -262,7 +262,7 @@ namespace w2b::pipeline
         const auto log = Text(proc.out);
         files::WriteText(work / "shader_linker.log", log);
         const auto linked = output / "mod.ff";
-        if (proc.exitCode || !IsFile(linked) || pyre::Regex("(?m)^ERROR:").Search(log))
+        if (proc.exitCode || !IsFile(linked) || regex::Regex("(?m)^ERROR:").Search(log))
             throw StepError("RuntimeError", "bound shader mod relink failed (" + std::to_string(proc.exitCode) + "); see " + Str(work / "shader_linker.log"));
         const auto check = work / "shader_check";
         proc = Captured({Str(Resolve(unlinker)), "--no-color", "--include-assets", "material,techniqueset", "--output-folder", Str(check), Str(linked)});
@@ -295,7 +295,7 @@ namespace w2b::pipeline
                 }
         }
         files::WriteText(work / "shader_activation.json",
-                         py::JsonDumps(py::Json{{"materials", std::vector<std::string>(bound.begin(), bound.end())}, {"baseline", Str(baseline)}, {"output", Str(ff)}, {"preserved_ipak", true}}, 2));
+                         util::JsonDumps(util::Json{{"materials", std::vector<std::string>(bound.begin(), bound.end())}, {"baseline", Str(baseline)}, {"output", Str(ff)}, {"preserved_ipak", true}}, 2));
     }
 
     namespace

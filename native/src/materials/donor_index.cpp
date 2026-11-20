@@ -39,23 +39,23 @@ namespace w2b::materials
 
         std::optional<Candidate> ReadCandidate(const path& file, const path& stock)
         {
-            py::Json data;
+            util::Json data;
             try
             {
                 const auto text = files::ReadText(file);
                 if (text.starts_with("\xef\xbb\xbf"))
                     return std::nullopt;
-                data = py::Json::parse(text);
+                data = util::Json::parse(text);
             }
             catch (const std::runtime_error&)
             {
                 return std::nullopt;
             }
-            catch (const py::Json::parse_error&)
+            catch (const util::Json::parse_error&)
             {
                 return std::nullopt;
             }
-            const auto technique = data.value("techniqueSet", py::Json{});
+            const auto technique = data.value("techniqueSet", util::Json{});
             if (!technique.is_string() || technique.get_ref<const std::string&>().empty())
                 return std::nullopt;
             const auto& name = technique.get_ref<const std::string&>();
@@ -68,7 +68,7 @@ namespace w2b::materials
         }
     }
 
-    py::Json IndexDonors(const files::fs::path& stockMaterials)
+    util::Json IndexDonors(const files::fs::path& stockMaterials)
     {
         const auto paths = files::RGlob(stockMaterials, ".json");
         std::vector<std::optional<Candidate>> candidates(paths.size());
@@ -91,7 +91,7 @@ namespace w2b::materials
                 best = &*candidate;
             hasStatic |= !candidate->animated;
         }
-        auto donors = py::Json::object();
+        auto donors = util::Json::object();
         for (const auto& [technique, choice] : choices)
             if (choice.hasStatic)
                 donors[technique] = choice.best->filename;

@@ -23,7 +23,7 @@ namespace w2b::world
                 throw std::runtime_error("could not write collision FBX: " + files::Utf8(path));
         }
 
-        py::Json WriteCollisionEdges(const std::filesystem::path& path, const CollisionWorld& world,
+        util::Json WriteCollisionEdges(const std::filesystem::path& path, const CollisionWorld& world,
                                      const CollisionPlan& plan)
         {
             if (world.edgeWalkable.empty())
@@ -56,40 +56,40 @@ namespace w2b::world
                     {"collision_edges_total", static_cast<std::uint64_t>(count) * 3}};
         }
 
-        py::Json WriteCollisionRecords(const std::filesystem::path& output, const CollisionWorld& world)
+        util::Json WriteCollisionRecords(const std::filesystem::path& output, const CollisionWorld& world)
         {
             auto brushes = BuildWorldBrushes(world);
-            auto brushList = py::Json::array();
+            auto brushList = util::Json::array();
             for (const auto& brush : brushes.records)
                 brushList.push_back(brush.ToJson());
-            files::WriteText(output / "brushes.json", py::JsonDumps({{"brushes", std::move(brushList)}}, -1) + "\n");
+            files::WriteText(output / "brushes.json", util::JsonDumps({{"brushes", std::move(brushList)}}, -1) + "\n");
             const auto submodels = BuildSubmodels(world);
             const auto submodelCount = submodels.size();
             const auto empty = std::ranges::count_if(submodels, [](const SubmodelRecord& model) { return model.brushes.empty(); });
             WriteSubmodels(output / "submodels.json", submodels);
             auto models = BuildStaticModels(world);
-            auto modelList = py::Json::array();
+            auto modelList = util::Json::array();
             for (const auto& model : models.records)
                 modelList.push_back(model.ToJson());
-            files::WriteText(output / "staticmodels.json", py::JsonDumps({{"staticModels", std::move(modelList)}}, 1) + "\n");
+            files::WriteText(output / "staticmodels.json", util::JsonDumps({{"staticModels", std::move(modelList)}}, 1) + "\n");
             return {{"brushes", std::move(brushes.summary)}, {"static_models", std::move(models.summary)},
                     {"submodels", submodelCount}, {"empty_submodels", empty}};
         }
     }
 
-    py::Json StageCollisionMesh(const CollisionWorld& world, const std::filesystem::path& output,
+    util::Json StageCollisionMesh(const CollisionWorld& world, const std::filesystem::path& output,
                                bool includeRecords)
     {
         const auto plan = PlanCollision(world);
         ExportMesh(output / "terrain.fbx", world, plan);
 
-        auto slots = py::Json::array();
+        auto slots = util::Json::array();
         for (const auto& slot : plan.slots)
             slots.push_back({slot.material, slot.model});
-        auto sheets = py::Json::array();
+        auto sheets = util::Json::array();
         for (const auto id : plan.oneWayTriangles)
             sheets.push_back(world.materials.at(world.triangleMaterials.at(id)).name);
-        py::Json report{{"slots", std::move(slots)}, {"sheets", std::move(sheets)},
+        util::Json report{{"slots", std::move(slots)}, {"sheets", std::move(sheets)},
                         {"non_colliding_dropped", plan.nonCollidingDropped}, {"water_dropped", plan.waterDropped},
                         {"edges", WriteCollisionEdges(output / "edges.bin", world, plan)}};
         if (includeRecords)
@@ -97,7 +97,7 @@ namespace w2b::world
         return report;
     }
 
-    py::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output, bool includeRecords)
+    util::Json StageCollisionMesh(const std::filesystem::path& source, const std::filesystem::path& output, bool includeRecords)
     {
         return StageCollisionMesh(ReadCollisionWorld(source), output, includeRecords);
     }

@@ -2,7 +2,7 @@
 
 namespace w2b::pipeline
 {
-    using py::Json;
+    using util::Json;
 
     Json MaterialRecord::ToJson() const
     {

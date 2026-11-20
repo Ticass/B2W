@@ -15,7 +15,7 @@
 namespace w2b::pipeline
 {
     using mod::IsFile;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -83,7 +83,7 @@ namespace w2b::pipeline
         for (const std::string fog = "    level thread init_fog_vol_to_visionset();\n"; clientText.find(fog) != std::string::npos;)
             clientText.erase(clientText.find(fog), fog.size()); // str.replace: every occurrence
         const std::string hook = "    clientscripts\\mp\\waw\\_waw2bo2_environment::init();\n";
-        if (clientText.find(std::string(py::Strip(hook))) == std::string::npos)
+        if (clientText.find(std::string(util::Strip(hook))) == std::string::npos)
             ReplaceFirst(clientText, "    start_zombie_stuff();", "    start_zombie_stuff();\n" + hook);
         auto mapClient = request.mapClient;
         if (!mapClient.is_null() && !(mapClient.is_object() && mapClient.empty()))
@@ -93,7 +93,7 @@ namespace w2b::pipeline
             for (const auto& name : mapClient.value("unbound_fx", Json::array()))
                 warnings.push_back("CLIENT_FX_UNBOUND " + name.get<std::string>() + ": loaded by the map's client scripts, not converted");
             const std::string marker = "    waitforclient( 0 );";
-            if (clientText.find(std::string(py::Strip(clientHook))) == std::string::npos)
+            if (clientText.find(std::string(util::Strip(clientHook))) == std::string::npos)
             {
                 if (clientText.find(marker) == std::string::npos)
                     throw StepError("ValueError", files::Utf8(clientMain.filename()) + ": no waitforclient( 0 ) to start the map client before");

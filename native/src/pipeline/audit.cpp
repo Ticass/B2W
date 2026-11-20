@@ -26,11 +26,11 @@ namespace w2b::pipeline
             return files::Utf8(path.generic_wstring());
         }
 
-        py::Json LoadJson(const fs::path& path)
+        util::Json LoadJson(const fs::path& path)
         {
             std::string bytes;
             files::ReadBytes(path, bytes);
-            return py::Json::parse(bytes);
+            return util::Json::parse(bytes);
         }
 
         void SortPaths(std::vector<fs::path>& paths)
@@ -51,15 +51,15 @@ namespace w2b::pipeline
             std::stable_sort(paths.begin(), paths.end(), [&](const fs::path& a, const fs::path& b) { return key(a) < key(b); });
         }
 
-        uint32_t EntryHash(const py::Json& entry)
+        uint32_t EntryHash(const util::Json& entry)
         {
             if (entry.contains("nameHash"))
                 return entry["nameHash"].get<uint32_t>();
             return NameHash(entry["name"].get<std::string>());
         }
 
-        // str() of a JSON value inside a Python f-string
-        std::string PyStr(const py::Json& value)
+        // a JSON value as the report prints it
+        std::string PyStr(const util::Json& value)
         {
             if (value.is_null())
                 return "None";
@@ -68,7 +68,7 @@ namespace w2b::pipeline
             if (value.is_boolean())
                 return value.get<bool>() ? "True" : "False";
             if (value.is_number_float())
-                return py::FloatRepr(value.get<double>());
+                return util::FloatRepr(value.get<double>());
             if (value.is_number())
                 return value.dump();
             if (value.is_array())
@@ -120,13 +120,13 @@ namespace w2b::pipeline
         const auto materials = zone / "materials";
         auto paths = files::RGlob(materials, ".json");
         SortPaths(paths);
-        std::map<std::string, py::Json> techsetCache;
+        std::map<std::string, util::Json> techsetCache;
         for (const auto& path : paths)
         {
             const auto material = LoadJson(path);
             auto relative = path.lexically_relative(materials);
             const auto name = Posix(relative.replace_extension());
-            const auto ts = material.value("techniqueSet", py::Json());
+            const auto ts = material.value("techniqueSet", util::Json());
             if (!ts.is_string() || ts.get<std::string>().empty())
                 continue;
             const auto tsName = ts.get<std::string>();
@@ -137,9 +137,9 @@ namespace w2b::pipeline
                 continue;
             }
             std::vector<uint32_t> constants, textures;
-            for (const auto& c : material.value("constants", py::Json::array()))
+            for (const auto& c : material.value("constants", util::Json::array()))
                 constants.push_back(EntryHash(c));
-            for (const auto& t : material.value("textures", py::Json::array()))
+            for (const auto& t : material.value("textures", util::Json::array()))
                 textures.push_back(EntryHash(t));
             auto cached = techsetCache.find(tsName);
             if (cached == techsetCache.end())
@@ -148,7 +148,7 @@ namespace w2b::pipeline
             for (size_t slot = 0; slot < techniques.size(); slot++)
             {
                 const auto& technique = techniques[slot];
-                const auto passes = technique.value("passArray", py::Json::array());
+                const auto passes = technique.value("passArray", util::Json::array());
                 for (size_t passIndex = 0; passIndex < passes.size(); passIndex++)
                 {
                     const auto& pass = passes[passIndex];
@@ -214,15 +214,15 @@ namespace w2b::pipeline
         for (const auto& path : files::RGlob(source / "xmodel", ".json"))
         {
             const auto model = LoadJson(path);
-            const auto& info = model.value("boneInfo", py::Json());
-            const auto type = model.value("type", py::Json());
+            const auto& info = model.value("boneInfo", util::Json());
+            const auto type = model.value("type", util::Json());
             if (!info.is_null() && !info.empty() && type.is_string() && (type == "animated" || type == "viewhands"))
                 return true;
         }
         return false;
     }
 
-    py::Json AuditHitboxes(const fs::path& source, const fs::path& built)
+    util::Json AuditHitboxes(const fs::path& source, const fs::path& built)
     {
         long long models = 0, bones = 0;
         std::vector<std::string> errors;
@@ -231,8 +231,8 @@ namespace w2b::pipeline
         for (const auto& path : paths)
         {
             const auto original = LoadJson(path);
-            const auto& info = original.value("boneInfo", py::Json());
-            const auto type = original.value("type", py::Json());
+            const auto& info = original.value("boneInfo", util::Json());
+            const auto type = original.value("type", util::Json());
             if (info.is_null() || info.empty() || !type.is_string() || (type != "animated" && type != "viewhands"))
                 continue;
             const auto target = built / path.lexically_relative(source);
@@ -240,8 +240,8 @@ namespace w2b::pipeline
             if (!fs::is_regular_file(target, ec))
                 continue;
             models++;
-            std::map<std::string, py::Json> actual;
-            for (const auto& bone : LoadJson(target).value("boneInfo", py::Json::array()))
+            std::map<std::string, util::Json> actual;
+            for (const auto& bone : LoadJson(target).value("boneInfo", util::Json::array()))
                 actual[PyStr(bone["bone"])] = bone;
             const auto stem = files::Utf8(path.stem());
             for (const auto& expected : info)
@@ -254,16 +254,16 @@ namespace w2b::pipeline
                     continue;
                 }
                 bones++;
-                const auto hitloc = expected.value("hitloc", py::Json());
-                if (!hitloc.is_null() && found->second.value("hitloc", py::Json()) != hitloc)
-                    errors.push_back(stem + ": " + name + " hit location changed: " + PyStr(hitloc) + " -> " + PyStr(found->second.value("hitloc", py::Json())));
+                const auto hitloc = expected.value("hitloc", util::Json());
+                if (!hitloc.is_null() && found->second.value("hitloc", util::Json()) != hitloc)
+                    errors.push_back(stem + ": " + name + " hit location changed: " + PyStr(hitloc) + " -> " + PyStr(found->second.value("hitloc", util::Json())));
                 for (const char* key : {"mins", "maxs", "offset", "radiusSquared"})
                 {
                     auto left = expected[key], right = found->second[key];
                     if (!left.is_array())
-                        left = py::Json::array({left});
+                        left = util::Json::array({left});
                     if (!right.is_array())
-                        right = py::Json::array({right});
+                        right = util::Json::array({right});
                     bool same = left.size() == right.size();
                     for (size_t i = 0; same && i < left.size(); i++)
                         same = IsClose(left[i].get<double>(), right[i].get<double>());
@@ -272,7 +272,7 @@ namespace w2b::pipeline
                 }
             }
         }
-        py::Json result = py::Json::object();
+        util::Json result = util::Json::object();
         result["models"] = models;
         result["bones"] = bones;
         result["errors"] = errors;
@@ -311,7 +311,7 @@ namespace w2b::pipeline
         if (hitboxes)
         {
             const auto result = AuditHitboxes(modelSource, audit);
-            files::WriteText(stage / "bone_hitbox_audit.json", py::JsonDumps(result, 2));
+            files::WriteText(stage / "bone_hitbox_audit.json", util::JsonDumps(result, 2));
             const auto& errors = result["errors"];
             if (!errors.empty() || result["models"].get<long long>() == 0)
             {

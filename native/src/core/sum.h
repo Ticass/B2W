@@ -3,7 +3,7 @@
 #include <cmath>
 #include <span>
 
-namespace w2b::py
+namespace w2b::util
 {
     inline double Sum(std::span<const double> values)
     {

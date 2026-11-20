@@ -13,7 +13,7 @@ namespace w2b::world
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using files::fs::path;
 
         std::string ImageName(int probe)
@@ -61,7 +61,7 @@ namespace w2b::world
 
     }
 
-    py::Json StageProbes(const ProbeRequest& request, const RenderWorld& world)
+    util::Json StageProbes(const ProbeRequest& request, const RenderWorld& world)
     {
         const auto& source = request.source;
         auto report = Json{{"warnings", Json::array()}, {"errors", Json::array()}, {"images", Json::array()}};
@@ -127,7 +127,7 @@ namespace w2b::world
         std::vector<int> cellProbes(plan.kept.size() == 1 ? 1 : plan.kept.size() - 1);
         std::iota(cellProbes.begin(), cellProbes.end(), plan.kept.size() == 1 ? 0 : 1);
         files::WriteText(project / "BSP" / "reflectionprobes.json",
-            py::JsonDumps({{"probes", std::move(entries)}, {"cellProbes", cellProbes}}, 1) + "\n");
+            util::JsonDumps({{"probes", std::move(entries)}, {"cellProbes", cellProbes}}, 1) + "\n");
         if (baked.size() > plan.kept.size() - 1)
             report["warnings"].push_back("reflection probes: T6 addresses 32 probes, the map bakes " +
                 std::to_string(baked.size()) + "; kept " + std::to_string(plan.kept.size() - 1) +

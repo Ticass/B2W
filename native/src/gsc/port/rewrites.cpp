@@ -1,4 +1,4 @@
-// Port of gscport.py lines 87-1352 (module-level rewrites).
+// The module-level token rewrites (see rewrites.h).
 #include "rewrites.h"
 
 #include "api.h"
@@ -28,7 +28,7 @@ namespace w2b::gsc::port
                 tokens[k].text = tokens[k].pre = "";
         }
 
-        // "text in '(['" (a substring test, as the Python writes it)
+        // "text in '(['" (a substring test)
         bool InChars(const std::string& text, const char* chars)
         {
             return !text.empty() && std::string_view(chars).find(text) != std::string_view::npos;
@@ -637,7 +637,7 @@ namespace w2b::gsc::port
             if (end == start + 1 && At(tokens, start).kind == Kind::Number)
             {
                 double scale = 0;
-                py::ParseFloat(At(tokens, start).text, scale);
+                util::ParseFloat(At(tokens, start).text, scale);
                 const auto steps = static_cast<long long>(std::floor((scale - 1) * 10 + 0.5));
                 const double decoded = 1 + static_cast<double>(steps & 63) / 10;
                 if (std::abs(decoded - scale) < 1e-6)

@@ -15,7 +15,7 @@ namespace w2b::mapents
                 const auto byte = static_cast<unsigned char>(text[pos]);
                 if (byte < 0x80)
                 {
-                    if (!py::IsSpace(text[pos]))
+                    if (!util::IsSpace(text[pos]))
                         break;
                     ++pos;
                     continue;

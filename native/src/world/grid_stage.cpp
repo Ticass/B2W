@@ -5,9 +5,9 @@
 
 namespace w2b::world
 {
-    py::Json StageGrid(const GridRequest& request)
+    util::Json StageGrid(const GridRequest& request)
     {
-        using py::Json;
+        using util::Json;
         const auto grid = ReadLightGrid(request.source);
         if (!request.models)
             return WriteLightGrid(grid, request.destination, {}, {});
@@ -19,7 +19,7 @@ namespace w2b::world
         auto samples = SampleModelLighting(grid, placements, tracer, lights.at("lights"), request.compensated);
         if ((grid.colors.size() + samples.palette.size()) / gridPaletteSize > 0xffff)
             throw std::runtime_error("static model lighting exceeds the T6 palette index range");
-        files::WriteText(request.models->placements, py::JsonDumps(placements, 1) + "\n");
+        files::WriteText(request.models->placements, util::JsonDumps(placements, 1) + "\n");
         return WriteLightGrid(grid, request.destination, samples.palette, std::move(samples.summary));
     }
 }

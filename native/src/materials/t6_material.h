@@ -9,7 +9,7 @@
 // "none", ...), the same names WawStateBits holds, so WaW state copies across
 // without a translation table.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "materials/waw_material.h"
 
 #include <array>
@@ -104,8 +104,8 @@ namespace w2b::materials
     bool SameBlendState(const T6StateBits& a, const T6StateBits& b);
     bool SameRasterState(const T6StateBits& a, const T6StateBits& b);
 
-    T6Material T6MaterialFromJson(const py::Json& data);
-    py::Json ToJson(const T6Material& material);
+    T6Material T6MaterialFromJson(const util::Json& data);
+    util::Json ToJson(const T6Material& material);
     T6Material ReadT6Material(const std::filesystem::path& path);
     // the file text, as OpenAssetTools' dumper lays it out
     std::string T6MaterialText(const T6Material& material);

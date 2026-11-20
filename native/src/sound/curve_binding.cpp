@@ -15,7 +15,7 @@ namespace w2b::sound
     namespace
     {
         namespace fs = std::filesystem;
-        using py::Json;
+        using util::Json;
         constexpr std::pair<std::string_view, std::string_view> CurveFields[] = {
             {"volumeFalloffCurve", "DryMaxCurve"}, {"volumeMinFalloffCurve", "DryMinCurve"},
             {"reverbFalloffCurve", "WetMaxCurve"}, {"reverbMinFalloffCurve", "WetMinCurve"}
@@ -107,7 +107,7 @@ namespace w2b::sound
         }
     }
 
-    py::Json BindCurves(const fs::path& project, const fs::path& driver, bool approximate)
+    util::Json BindCurves(const fs::path& project, const fs::path& driver, bool approximate)
     {
         const auto bindings = Json::parse(files::ReadText(project / "sounds.bindings.json"));
         Json report{{"status", "curves_bound_semantic_ir_not_T6_bank"}, {"approximation", approximate},
@@ -121,7 +121,7 @@ namespace w2b::sound
         {
             report["status"] = "missing_t6_sound_driver";
             report["errors"].push_back({{"reason", "stock T6 sound driver sidecar not found: " + driverName}});
-            files::WriteText(output, py::JsonDumps(report, 2) + "\n");
+            files::WriteText(output, util::JsonDumps(report, 2) + "\n");
             return report;
         }
         const auto stock = ReadDriverCurves(driver);
@@ -140,7 +140,7 @@ namespace w2b::sound
         BindRows(documents, report);
         parallel::For(documents.size(), [&](std::size_t i)
         {
-            files::WriteText(documents[i].path, py::JsonDumps(documents[i].value, 2) + "\n");
+            files::WriteText(documents[i].path, util::JsonDumps(documents[i].value, 2) + "\n");
         }, 4);
         for (const auto& [name, curve] : report.at("curves").items())
         {
@@ -152,7 +152,7 @@ namespace w2b::sound
                                             nearest.at("t6").get_ref<const std::string&>(), nearest.at("maxError").get<double>());
             report["errors"].push_back({{"curve", name}, {"uses", curve.at("uses")}, {"reason", reason}});
         }
-        files::WriteText(output, py::JsonDumps(report, 2) + "\n");
+        files::WriteText(output, util::JsonDumps(report, 2) + "\n");
         return report;
     }
 }

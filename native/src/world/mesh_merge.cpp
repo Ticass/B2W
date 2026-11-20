@@ -1,6 +1,6 @@
 #include "world/mesh_merge.h"
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <charconv>
 #include <cmath>
@@ -88,7 +88,7 @@ namespace w2b::world
         {
             const auto [material, added] = materialKeys.try_emplace(surface.material);
             if (added)
-                material->second = py::StringRepr(surface.material);
+                material->second = util::StringRepr(surface.material);
             buckets[BucketKey(surface, material->second)].push_back(&surface);
         }
 

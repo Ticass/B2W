@@ -1,9 +1,9 @@
-// Port of zombiebehavior.py (see zombiebehavior.h).
+// See zombiebehavior.h.
 #include "zombiebehavior.h"
 
 #include "api.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/unicode.h"
 #include "statements.h"
 #include "translator.h"
@@ -57,7 +57,7 @@ namespace w2b::gsc::port::zombiebehavior
             return words[i];
         }
 
-        std::string S(const py::Json& value)
+        std::string S(const util::Json& value)
         {
             return value.get<std::string>();
         }
@@ -94,7 +94,7 @@ namespace w2b::gsc::port::zombiebehavior
             std::string word;
             for (const char c : line)
             {
-                if (py::IsSpace(c))
+                if (util::IsSpace(c))
                 {
                     if (!word.empty())
                         words.push_back(word);
@@ -141,7 +141,7 @@ namespace w2b::gsc::port::zombiebehavior
             if (text.empty())
                 return false;
             for (const char c : text)
-                if (!py::IsDigit(c))
+                if (!util::IsDigit(c))
                     return false;
             return true;
         }
@@ -149,7 +149,7 @@ namespace w2b::gsc::port::zombiebehavior
         long long IntOfFloat(const std::string& text)
         {
             double value = 0;
-            if (!py::ParseFloat(text, value))
+            if (!util::ParseFloat(text, value))
                 throw std::invalid_argument("could not convert string to float: " + Repr(text));
             return static_cast<long long>(value);
         }
@@ -276,10 +276,10 @@ namespace w2b::gsc::port::zombiebehavior
 
         std::string ReplaceState(const std::string& asd, const std::string& state, const std::vector<std::string>& assets)
         {
-            const pyre::Regex pattern("(^" + pyre::Escape(state) + R"(\s*:[^\n]*\n\{).*?^\})", pyre::MULTILINE | pyre::DOTALL);
+            const regex::Regex pattern("(^" + regex::Escape(state) + R"(\s*:[^\n]*\n\{).*?^\})", regex::MULTILINE | regex::DOTALL);
             size_t count = 0;
             const auto out = pattern.Sub(
-                [&](const pyre::Match& m)
+                [&](const regex::Match& m)
                 {
                     std::string body = m[1] + "\n";
                     for (const auto& a : assets)
@@ -332,7 +332,7 @@ namespace w2b::gsc::port::zombiebehavior
         return out;
     }
 
-    std::optional<std::string> SourceChasePolicy(Sources& sources, const py::Json& definition)
+    std::optional<std::string> SourceChasePolicy(Sources& sources, const util::Json& definition)
     {
         const auto& contract = definition["source_chase"];
         const auto source = sources.Get(S(contract["script"]));
@@ -389,7 +389,7 @@ namespace w2b::gsc::port::zombiebehavior
         return std::nullopt;
     }
 
-    std::optional<std::string> SourceSpeedState(Sources& sources, const py::Json& definition, const bool rounds)
+    std::optional<std::string> SourceSpeedState(Sources& sources, const util::Json& definition, const bool rounds)
     {
         const auto& contract = definition["source_speed"];
         const auto& roundContract = definition["source_round_state"];
@@ -580,7 +580,7 @@ namespace w2b::gsc::port::zombiebehavior
         return out + Join(start, "\n") + "\n}\n";
     }
 
-    std::optional<std::string> SourceSelection(Sources& sources, const py::Json& definition)
+    std::optional<std::string> SourceSelection(Sources& sources, const util::Json& definition)
     {
         const auto& c = definition["source_selection"];
         const auto script = sources.Get(S(c["script"]));
@@ -634,7 +634,7 @@ namespace w2b::gsc::port::zombiebehavior
         return "#include " + S(c["script"]) + ";" + "\nchoose(candidates, " + previous + ")\n{\n" + Emit(body) + "\nreturn " + candidate + ";\n}\n";
     }
 
-    std::vector<std::pair<std::string, std::optional<std::set<long long>>>> ReachableVariants(Sources& sources, const py::Json& definition)
+    std::vector<std::pair<std::string, std::optional<std::set<long long>>>> ReachableVariants(Sources& sources, const util::Json& definition)
     {
         const auto& contract = definition["source_movement"];
         const auto script = sources.Get(contract.contains("variant_script") ? S(contract["variant_script"]) : "");
@@ -643,7 +643,7 @@ namespace w2b::gsc::port::zombiebehavior
             return result;
         const auto& toks = script->tokens;
         const auto variant = S(contract["variant_function"]);
-        static const pyre::Regex speedLiteral(R"re("(walk|run|sprint)")re");
+        static const regex::Regex speedLiteral(R"re("(walk|run|sprint)")re");
         for (long long i = 0; i < static_cast<long long>(toks.size()) - 6; i++)
         {
             const auto words = Lows(toks, i, 7);
@@ -692,7 +692,7 @@ namespace w2b::gsc::port::zombiebehavior
         return result;
     }
 
-    std::optional<LastZombie> SourceLastZombie(Sources& sources, const py::Json& definition)
+    std::optional<LastZombie> SourceLastZombie(Sources& sources, const util::Json& definition)
     {
         const auto& contract = definition["source_last_zombie"];
         const auto script = sources.Get(S(contract["script"]));
@@ -820,14 +820,14 @@ namespace w2b::gsc::port::zombiebehavior
         return pos == words.size() ? value : std::nullopt;
     }
 
-    std::pair<std::optional<std::string>, MovementSets> MovementSetsOf(Sources& sources, const py::Json& definition, const std::optional<std::string>& mapName)
+    std::pair<std::optional<std::string>, MovementSets> MovementSetsOf(Sources& sources, const util::Json& definition, const std::optional<std::string>& mapName)
     {
         const auto& contract = definition["source_movement"];
         const auto script = sources.Get(S(contract["script"]));
         const Function* fn = FunctionOf(script, S(contract["function"]));
         const auto field = S(contract["field"]), row = "\"" + S(contract["row"]) + "\"";
-        static const pyre::Regex aliasLiteral(R"re("(?:walk|run|sprint)\d+")re");
-        static const pyre::Regex aliasParts(R"((walk|run|sprint)(\d+))");
+        static const regex::Regex aliasLiteral(R"re("(?:walk|run|sprint)\d+")re");
+        static const regex::Regex aliasParts(R"((walk|run|sprint)(\d+))");
         if (script && !fn)
         {
             std::vector<const Function*> candidates;
@@ -907,7 +907,7 @@ namespace w2b::gsc::port::zombiebehavior
         return {fn->animtree, sets};
     }
 
-    MovementSets MeleeSets(Sources& sources, const py::Json& definition, const std::optional<std::string>& mapName)
+    MovementSets MeleeSets(Sources& sources, const util::Json& definition, const std::optional<std::string>& mapName)
     {
         const auto& contract = definition["source_melee"];
         const auto script = sources.Get(S(contract["script"]));
@@ -972,7 +972,7 @@ namespace w2b::gsc::port::zombiebehavior
         std::set<std::string> staged, native;
         for (const char* state : {"zm_traverse", "zm_traverse_crawl", "zm_traverse_barrier", "zm_traverse_barrier_crawl"})
         {
-            const pyre::Regex pattern("^" + pyre::Escape(state) + R"(\s*:[^\n]*\n\{(.*?)^\})", pyre::MULTILINE | pyre::DOTALL);
+            const regex::Regex pattern("^" + regex::Escape(state) + R"(\s*:[^\n]*\n\{(.*?)^\})", regex::MULTILINE | regex::DOTALL);
             const auto block = pattern.Search(asd);
             if (!block)
                 continue;
@@ -1011,7 +1011,7 @@ namespace w2b::gsc::port::zombiebehavior
         return {asd, std::vector<std::string>(staged.begin(), staged.end()), std::vector<std::string>(native.begin(), native.end())};
     }
 
-    py::Json StageActorMovement(Sources& sources, const fs::path& outRoot, const fs::path& bo2Root, const py::Json& definition,
+    util::Json StageActorMovement(Sources& sources, const fs::path& outRoot, const fs::path& bo2Root, const util::Json& definition,
                                 const std::optional<std::string>& mapName, const FindXanim* find)
     {
         auto sets = MovementSetsOf(sources, definition, mapName).second;
@@ -1020,7 +1020,7 @@ namespace w2b::gsc::port::zombiebehavior
         if (find)
             std::tie(asd, traversal, traversalNative) = SourceTraversalClips(asd, *find, outRoot);
         if (sets.empty() && traversal.empty())
-            return py::Json::object();
+            return util::Json::object();
         std::vector<std::string> clips(traversal), missing, native;
         const auto has = [&](const std::string& name)
         {
@@ -1076,9 +1076,9 @@ namespace w2b::gsc::port::zombiebehavior
         std::error_code error;
         const auto treeText = fs::is_regular_file(tree, error) ? files::ReadText(tree) : std::string();
         if (fs::is_regular_file(tree, error))
-            for (const auto line : py::SplitLines(treeText))
+            for (const auto line : util::SplitLines(treeText))
             {
-                const std::string stripped(py::Strip(line));
+                const std::string stripped(util::Strip(line));
                 if (!stripped.empty() && !StartsWith(line, "//"))
                     scriptedSet.insert(stripped);
             }
@@ -1094,10 +1094,10 @@ namespace w2b::gsc::port::zombiebehavior
         clips.insert(clips.end(), scripted.begin(), scripted.end());
         const std::set<std::string> unique(clips.begin(), clips.end());
         auto atr = files::ReadText(bo2Root / "raw/animtrees/zm_nuked_basic.atr");
-        static const pyre::Regex body(R"((^body\s*\n\{))", pyre::MULTILINE);
+        static const regex::Regex body(R"((^body\s*\n\{))", regex::MULTILINE);
         size_t count = 0;
         atr = body.Sub(
-            [&](const pyre::Match& m)
+            [&](const regex::Match& m)
             {
                 std::string text = m[1] + "\n";
                 for (const auto& c : unique)
@@ -1109,8 +1109,8 @@ namespace w2b::gsc::port::zombiebehavior
             throw std::runtime_error("Native zombie animation tree has no body group");
         files::WriteText(outRoot / "animtrees" / (std::string(ACTOR_TREE) + ".atr"), atr);
         files::WriteText(outRoot / "animstatedefs" / (std::string(ACTOR_TREE) + ".asd"), asd);
-        static const pyre::Regex refs(R"(\n// BEGIN SOURCE MOVEMENT REFS.*?// END SOURCE MOVEMENT REFS\n)", pyre::DOTALL);
-        static const pyre::Regex actorName(R"(waw_.*\..sc)", pyre::DOTALL | pyre::IGNORECASE);
+        static const regex::Regex refs(R"(\n// BEGIN SOURCE MOVEMENT REFS.*?// END SOURCE MOVEMENT REFS\n)", regex::DOTALL);
+        static const regex::Regex actorName(R"(waw_.*\..sc)", regex::DOTALL | regex::IGNORECASE);
         const auto aitype = outRoot / "aitype";
         if (fs::is_directory(aitype, error))
             for (const auto& entry : fs::recursive_directory_iterator(aitype))
@@ -1128,11 +1128,11 @@ namespace w2b::gsc::port::zombiebehavior
                 text += "}\n// END SOURCE MOVEMENT REFS\n";
                 files::WriteText(entry.path(), text);
             }
-        py::Json result = py::Json::object();
-        result["states"] = py::Json::object();
+        util::Json result = util::Json::object();
+        result["states"] = util::Json::object();
         for (const auto& [speed, names] : sets)
             result["states"][speed] = names;
-        result["melee"] = py::Json::object();
+        result["melee"] = util::Json::object();
         for (const auto& [state, names] : melee)
             result["melee"][state] = names;
         result["tree"] = ACTOR_TREE;
@@ -1484,7 +1484,7 @@ source_chases( rise_result )
 )GSC";
     } // namespace
 
-    std::string RuntimeSource(const py::Json& definition, const std::optional<std::string>& speedFunction, const std::optional<std::string>& selectionFunction,
+    std::string RuntimeSource(const util::Json& definition, const std::optional<std::string>& speedFunction, const std::optional<std::string>& selectionFunction,
                               const std::optional<std::string>& speedStateFunction, const bool sourceMembership,
                               const std::optional<std::string>& respawnFunction, const std::optional<std::string>& chaseFunction,
                               const std::optional<LastZombie>& lastZombie, std::vector<std::string> scriptedClips)
@@ -1605,7 +1605,7 @@ waw_zombie_can_drop_powerups( zombie )
         return text + WAW_DROP_CHECK;
     }
 
-    void StageNativeSupport(const fs::path& outRoot, const fs::path& bo2Root, const py::Json& definition)
+    void StageNativeSupport(const fs::path& outRoot, const fs::path& bo2Root, const util::Json& definition)
     {
         std::error_code error;
         if (!fs::is_regular_file(outRoot / files::FromUtf8(Replace(RUNTIME, "\\", "/") + ".gsc"), error))
@@ -1709,7 +1709,7 @@ waw_zombie_can_drop_powerups( zombie )
         for (const auto& r : References(tokens))
             if (r.qualifier && *r.qualifier == native)
                 tokens[*r.qualIndex].text = owned;
-        static const pyre::Regex include(R"(#include\s+([\w\\/]+)\s*;?)", pyre::IGNORECASE);
+        static const regex::Regex include(R"(#include\s+([\w\\/]+)\s*;?)", regex::IGNORECASE);
         for (auto& token : tokens)
             if (token.kind == Kind::Directive)
                 if (const auto m = include.MatchAt(token.text); m && (*m)[1] == native)

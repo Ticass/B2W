@@ -1,18 +1,18 @@
 #include "barriers/barriers.h"
 
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/unicode.h"
 
 namespace w2b::barriers
 {
     Json RepairTiming(std::string_view script)
     {
-        static const pyre::Regex start(R"(^replace_chunk\s*\()", pyre::MULTILINE | pyre::IGNORECASE);
-        static const pyre::Regex next(R"(^[A-Za-z_]\w*\s*\([^;{]*\)\s*$\s*\{)", pyre::MULTILINE);
-        static const pyre::Regex comments(R"(//[^\n]*)");
-        static const pyre::Regex lift(R"(MoveTo\s*\(\s*only_z\s*,\s*(\d*\.?\d+)\s*\)\s*;\s*\w+\s+RotateTo\s*\([^;]*,\s*(\d*\.?\d+)\s*\)\s*;[^;]*;\s*wait\s*\(\s*(\d*\.?\d+)\s*\))",
-                                      pyre::IGNORECASE);
-        static const pyre::Regex push(R"(MoveTo\s*\(\s*\w+\.og_origin\s*,\s*(\d*\.?\d+)\s*\))", pyre::IGNORECASE);
+        static const regex::Regex start(R"(^replace_chunk\s*\()", regex::MULTILINE | regex::IGNORECASE);
+        static const regex::Regex next(R"(^[A-Za-z_]\w*\s*\([^;{]*\)\s*$\s*\{)", regex::MULTILINE);
+        static const regex::Regex comments(R"(//[^\n]*)");
+        static const regex::Regex lift(R"(MoveTo\s*\(\s*only_z\s*,\s*(\d*\.?\d+)\s*\)\s*;\s*\w+\s+RotateTo\s*\([^;]*,\s*(\d*\.?\d+)\s*\)\s*;[^;]*;\s*wait\s*\(\s*(\d*\.?\d+)\s*\))",
+                                      regex::IGNORECASE);
+        static const regex::Regex push(R"(MoveTo\s*\(\s*\w+\.og_origin\s*,\s*(\d*\.?\d+)\s*\))", regex::IGNORECASE);
         const auto begin = start.Search(script);
         if (!begin)
             return nullptr;
@@ -29,7 +29,7 @@ namespace w2b::barriers
             return nullptr;
         const auto number = [](const std::string& value) {
             double seconds{};
-            if (!py::ParseFloat(value, seconds))
+            if (!util::ParseFloat(value, seconds))
                 throw Error("invalid barricade timing: " + value);
             return seconds;
         };

@@ -2,7 +2,7 @@
 // Python list/str semantics the translator relies on, over token vectors.
 
 #include "gsc/parse.h"
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <initializer_list>
 #include <set>
@@ -14,7 +14,7 @@
 namespace w2b::gsc::port
 {
     using Tokens = std::vector<Token>;
-    using py::Json;
+    using util::Json;
 
     // tokens[i] with Python's negative indexing; IndexError past either end
     // IndexError: list index out of range (W2B_STACK=1 prints the call stack)

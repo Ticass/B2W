@@ -2,7 +2,7 @@
 
 #include "assets/resolver.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "extract/stockwaw.h"
 #include "gsc/port/rewrites.h"
 #include "pipeline/finish.h"
@@ -16,9 +16,9 @@ namespace w2b::pipeline
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using files::FromUtf8;
-        // pyre reports code point offsets; std::string::insert wants bytes
+        // regex reports code point offsets; std::string::insert wants bytes
         std::size_t ByteOffset(std::string_view text, long long codePoints)
         {
             long long seen = 0;
@@ -30,7 +30,7 @@ namespace w2b::pipeline
 
         void InsertBodyAnimations(std::string& tree, const std::vector<std::string>& animations, const std::string& kind, const std::string& message)
         {
-            static const pyre::Regex body(R"(^body\s*\n\{)", pyre::MULTILINE);
+            static const regex::Regex body(R"(^body\s*\n\{)", regex::MULTILINE);
             const auto match = body.Search(tree);
             if (!match)
                 throw StepError(kind, message);
@@ -50,16 +50,16 @@ namespace w2b::pipeline
                 const auto text = files::ReadText(raw / "animstatedefs" / FromUtf8(donor + ".asd"));
                 for (const auto& state : donorStates)
                 {
-                    const auto header = "^" + pyre::Escape(state) + R"(\s*:)";
-                    if (pyre::Regex(header, pyre::MULTILINE).Search(states))
+                    const auto header = "^" + regex::Escape(state) + R"(\s*:)";
+                    if (regex::Regex(header, regex::MULTILINE).Search(states))
                         continue;
-                    const auto match = pyre::Regex(header + R"([^\n]*\n\{[\s\S]*?^\})", pyre::MULTILINE).Search(text);
+                    const auto match = regex::Regex(header + R"([^\n]*\n\{[\s\S]*?^\})", regex::MULTILINE).Search(text);
                     if (!match)
                         throw StepError("StageError", donor + ".asd has no state " + state);
                     const auto definition = (*match)[0];
-                    states.resize(py::RStrip(states, "\n").size());
+                    states.resize(util::RStrip(states, "\n").size());
                     states += "\n\n" + definition + '\n';
-                    const auto lines = py::SplitLines(definition);
+                    const auto lines = util::SplitLines(definition);
                     for (std::size_t line = 2; line + 1 < lines.size(); ++line)
                     {
                         std::istringstream words{std::string(lines[line])};
@@ -106,12 +106,12 @@ namespace w2b::pipeline
                 names.insert(translated);
                 lines += '\t' + state + "\t\t\t" + translated + '\n';
             }
-            static const pyre::Regex traverse(R"(^zm_traverse\s*:[^\n]*\n\{([\s\S]*?)^\})", pyre::MULTILINE);
+            static const regex::Regex traverse(R"(^zm_traverse\s*:[^\n]*\n\{([\s\S]*?)^\})", regex::MULTILINE);
             if (const auto match = traverse.Search(states))
                 states.insert(ByteOffset(states, match->End(1)), lines);
             else
             {
-                states.resize(py::RStrip(states, "\n").size());
+                states.resize(util::RStrip(states, "\n").size());
                 states += "\n\nzm_traverse : aliased restart notify traverse_anim\n{\n" + lines + "}\n";
             }
             InsertBodyAnimations(tree, {names.begin(), names.end()}, "TraversalError", "dog animtree has no body group");
@@ -152,16 +152,16 @@ namespace w2b::pipeline
 
     std::vector<std::string> NativeTreeAnimations(std::string_view tree)
     {
-        static const pyre::Regex comment(R"(//[^\n]*)"), groups(R"(^\s*([A-Za-z0-9_]+)\s*\n\s*\{)", pyre::MULTILINE);
+        static const regex::Regex comment(R"(//[^\n]*)"), groups(R"(^\s*([A-Za-z0-9_]+)\s*\n\s*\{)", regex::MULTILINE);
         const auto clean = comment.Sub("", tree);
         std::set<std::string> seen;
         for (const auto& match : groups.FindIter(clean))
             seen.insert(match[1]);
         std::vector<std::string> animations;
-        for (auto line : py::SplitLines(clean))
+        for (auto line : util::SplitLines(clean))
         {
-            line = py::Strip(line);
-            if (!line.empty() && std::ranges::all_of(line, py::IsWord) && seen.emplace(line).second)
+            line = util::Strip(line);
+            if (!line.empty() && std::ranges::all_of(line, util::IsWord) && seen.emplace(line).second)
                 animations.emplace_back(line);
         }
         return animations;

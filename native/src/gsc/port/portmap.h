@@ -1,6 +1,6 @@
 #pragma once
-// Port of gscport.py's discover_animation_dependencies, port_map, _Linker,
-// fix_arity and link_check (gscport.py 3645-4130).
+// discover_animation_dependencies, port_map, the linker, fix_arity and
+// link_check.
 
 #include "report.h"
 #include "sources.h"

@@ -1,6 +1,5 @@
 #pragma once
-// Map Details & Artwork previews (port of menupreviews.py and the preview half
-// of gui_artwork.py), drawn on the GPU in BO2's 1280 x 720 menu space.
+// Map Details & Artwork previews, drawn on the GPU in BO2's 1280 x 720 menu space.
 
 #include "gpu.h"
 #include "launcher/settings.h"

@@ -1,7 +1,7 @@
 // WaW's in-game menus for T6 LUI (see ingame_menus.h).
 #include "ingame_menus.h"
 
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/unicode.h"
 #include "csvtable.h"
 #include "extract/cache.h"
@@ -15,7 +15,7 @@
 
 namespace w2b::pipeline
 {
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -826,8 +826,8 @@ namespace w2b::pipeline
             bool Condition(const Text& expr)
             {
                 // defined(X) -> 1/0
-                static const pyre::Regex defined("defined\\s*\\(\\s*(\\w+)\\s*\\)");
-                auto text = defined.Sub([&](const pyre::Match& m) { return macros_.count(U32(m[1])) ? std::string("1") : std::string("0"); }, U8(expr));
+                static const regex::Regex defined("defined\\s*\\(\\s*(\\w+)\\s*\\)");
+                auto text = defined.Sub([&](const regex::Match& m) { return macros_.count(U32(m[1])) ? std::string("1") : std::string("0"); }, U8(expr));
                 auto expanded = U8(Expand(U32(text), {}));
                 // && / || -> and / or, ! (not !=) -> not
                 std::string s;
@@ -847,8 +847,8 @@ namespace w2b::pipeline
                     else
                         t += s[i];
                 // every other identifier is 0
-                static const pyre::Regex word("[A-Za-z_]\\w*");
-                const auto final = word.Sub([](const pyre::Match& m) { const auto w = m[0]; return w == "and" || w == "or" || w == "not" ? w : std::string("0"); }, t);
+                static const regex::Regex word("[A-Za-z_]\\w*");
+                const auto final = word.Sub([](const regex::Match& m) { const auto w = m[0]; return w == "and" || w == "or" || w == "not" ? w : std::string("0"); }, t);
                 try
                 {
                     return Evaluator(final).Run().Truthy();
@@ -959,7 +959,7 @@ namespace w2b::pipeline
 
         Tokens Tokenize(const std::string& text)
         {
-            static const pyre::Regex token(R"re("(?:[^"\\]|\\.)*"|[{}();,]|\|\||&&|[!=<>]=|[-+*/%!<>()=?:]|[^\s{}();,"!=<>+*/%?:-]+)re");
+            static const regex::Regex token(R"re("(?:[^"\\]|\\.)*"|[{}();,]|\|\||&&|[!=<>]=|[-+*/%!<>()=?:]|[^\s{}();,"!=<>+*/%?:-]+)re");
             Tokens out;
             for (const auto& m : token.FindAll(text))
                 out.push_back(m[0]);
@@ -1086,7 +1086,7 @@ namespace w2b::pipeline
             {
                 const auto tok = Take();
                 if (tok != value)
-                    throw MenuSourceError("Expected " + py::StringRepr(value) + ", found " + py::StringRepr(tok) + " near token " + std::to_string(i_));
+                    throw MenuSourceError("Expected " + util::StringRepr(value) + ", found " + util::StringRepr(tok) + " near token " + std::to_string(i_));
             }
 
             Json Block()
@@ -1257,7 +1257,7 @@ namespace w2b::pipeline
 
         std::map<std::string, Json> LoadSources(const fs::path& raw)
         {
-            static const pyre::Regex loadMenu("loadMenu\\s*\\{\\s*\"([^\"]+)\"");
+            static const regex::Regex loadMenu("loadMenu\\s*\\{\\s*\"([^\"]+)\"");
             std::map<std::string, Json> menus;
             for (const auto& menulist : MENULISTS)
             {
@@ -1334,7 +1334,7 @@ namespace w2b::pipeline
         {
             if (tokens.empty())
                 return "";
-            static const pyre::Regex number("\\d+(\\.\\d*)?|\\.\\d+");
+            static const regex::Regex number("\\d+(\\.\\d*)?|\\.\\d+");
             std::vector<std::string> out;
             size_t pos = 0;
             const auto at = [&](const size_t k) -> const std::string&
@@ -1445,9 +1445,9 @@ namespace w2b::pipeline
         Num NumberOf(const std::string& raw)
         {
             const auto value = U8(Strip(U32(raw)));
-            static const pyre::Regex allowed("[\\d.\\s()+*/%-]+");
+            static const regex::Regex allowed("[\\d.\\s()+*/%-]+");
             if (!allowed.FullMatch(value))
-                throw MenuSourceError("Expected a number, found " + py::StringRepr(value));
+                throw MenuSourceError("Expected a number, found " + util::StringRepr(value));
             Num number;
             try
             {
@@ -1467,7 +1467,7 @@ namespace w2b::pipeline
 
         std::string NumText(const Num& n)
         {
-            return n.isInt ? std::to_string(n.i) : py::FloatRepr(n.f);
+            return n.isInt ? std::to_string(n.i) : util::FloatRepr(n.f);
         }
 
         const std::vector<std::string> ITEM_COLUMNS{"rect",       "style",      "background", "forecolor", "backcolor", "bordercolor", "border",
@@ -1652,7 +1652,7 @@ namespace w2b::pipeline
             for (const auto& [k, v] : required.items())
                 result[k] = v;
             result["engine_menus"] = std::vector<std::string>(stop.begin(), stop.end());
-            files::WriteText(project / "content_source/waw_menu.json", py::JsonDumps(result, 2) + "\n");
+            files::WriteText(project / "content_source/waw_menu.json", util::JsonDumps(result, 2) + "\n");
             return {std::move(result), std::nullopt};
         }
         catch (const MenuSourceError& error)

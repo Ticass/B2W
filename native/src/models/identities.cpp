@@ -62,7 +62,7 @@ namespace w2b::models
                     continue;
                 auto data = weapons::ReadAssetJson(path);
                 RewriteManifest(data, path.filename() == "models.json" || path.filename() == "staticmodels.json", renamed);
-                ReplaceStagedText(path, py::JsonDumpsDefault(data));
+                ReplaceStagedText(path, util::JsonDumpsDefault(data));
             }
         }
 
@@ -100,7 +100,7 @@ namespace w2b::models
         }, 4);
     }
 
-    py::Json RenamesJson(const RenameList& renamed)
+    util::Json RenamesJson(const RenameList& renamed)
     {
         auto json = Json::object();
         for (const auto& [old, name] : renamed)

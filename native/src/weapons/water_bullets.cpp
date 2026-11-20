@@ -25,7 +25,7 @@ namespace w2b::weapons
             if (!files::ReadBytes(source, bytes))
                 throw std::runtime_error("cannot read " + files::Utf8(source));
             const auto text = encoding::UniversalNewlines(encoding::Utf8Replace(bytes));
-            const auto parts = py::Split(py::Strip(text), "\\");
+            const auto parts = util::Split(util::Strip(text), "\\");
             std::map<std::string_view, std::string_view> fields;
             for (std::size_t i = 1; i + 1 < parts.size(); i += 2)
                 fields[parts[i]] = parts[i + 1];
@@ -36,8 +36,8 @@ namespace w2b::weapons
                 if (field == fields.end())
                     continue;
                 double depth = 0;
-                if (!py::ParseFloat(field->second, depth))
-                    throw WeaponError("invalid water penetration depth: " + py::StringRepr(field->second));
+                if (!util::ParseFloat(field->second, depth))
+                    throw WeaponError("invalid water penetration depth: " + util::StringRepr(field->second));
                 depths.emplace_back(kind, depth);
             }
             return depths;
@@ -46,7 +46,7 @@ namespace w2b::weapons
         double Number(const InfoFields& fields, std::string_view field)
         {
             double value = 0;
-            return py::ParseFloat(Field(fields, field), value) ? value : 0;
+            return util::ParseFloat(Field(fields, field), value) ? value : 0;
         }
 
         void AppendNumber(std::string& text, double value)

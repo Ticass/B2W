@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <set>
@@ -14,7 +14,7 @@ namespace w2b::pipeline
         std::vector<std::string> files;        // staged rumble/ paths
         std::set<std::string> missing;         // referenced, found in no root
         std::set<std::string> nativeProfiles;  // taken from BO2's raw/
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 
     // Throws StepError("ValueError") on a malformed rumble name or graph.

@@ -28,7 +28,7 @@ namespace w2b::pipeline
     using mod::StartsWith;
     using mod::Str;
     using mod::Truthy;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -54,7 +54,7 @@ namespace w2b::pipeline
         {
             const auto body = name.substr(1, name.find('(') == std::string::npos ? std::string::npos : name.find('(') - 1);
             std::vector<std::string> out;
-            for (const auto part : py::Split(body, "_"))
+            for (const auto part : util::Split(body, "_"))
                 out.emplace_back(part);
             return out;
         }
@@ -70,7 +70,7 @@ namespace w2b::pipeline
                 {
                     const auto body = generated.substr(1), stem = "_" + body;
                     std::vector<std::string> parts;
-                    for (const auto part : py::Split(body, "_"))
+                    for (const auto part : util::Split(body, "_"))
                         parts.emplace_back(part);
                     int common = 0;
                     for (size_t i = 0; i < std::min(want.size(), parts.size()); i++)

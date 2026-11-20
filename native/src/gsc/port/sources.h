@@ -1,7 +1,6 @@
 #pragma once
-// gscport.Sources: map scripts in WaW load priority plus the stock scripts.
-// The tables are shared like Python's: a copy shares them (copy.copy), and
-// code that assigns a new dict in Python replaces the pointer here.
+// Sources: map scripts in WaW load priority plus the stock scripts.
+// A copy shares the tables; code that replaces a table swaps the pointer.
 
 #include "util.h"
 

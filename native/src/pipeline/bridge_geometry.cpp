@@ -29,7 +29,7 @@ namespace w2b::pipeline
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using files::FromUtf8;
 
         class GeometryOutput
@@ -194,7 +194,7 @@ namespace w2b::pipeline
             auto summary = records.at("brushes");
             summary["collision_triangle_materials"] = materials.size();
             summary["moving_terrain_models"] = moving;
-            files::WriteText(output.Directory() / "clipmaterials.json", py::JsonDumps({{"materials", std::move(materials)}}, 1) + '\n');
+            files::WriteText(output.Directory() / "clipmaterials.json", util::JsonDumps({{"materials", std::move(materials)}}, 1) + '\n');
             output.Publish("clipmaterials.json", "clipmaterials.json");
             summary["collision_triangles_noncolliding_dropped"] = collision.at("non_colliding_dropped");
             summary["collision_triangles_water_dropped"] = collision.at("water_dropped");

@@ -1,6 +1,6 @@
 #include "paths/aliases.h"
 
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/unicode.h"
 #include "gsc/tokens.h"
 
@@ -31,12 +31,12 @@ namespace w2b::paths
 
         std::optional<double> Number(std::string_view name)
         {
-            static const pyre::Regex number(R"(\d+)");
+            static const regex::Regex number(R"(\d+)");
             const auto match = number.Search(name);
             if (!match)
                 return std::nullopt;
             double value{};
-            if (!py::ParseFloat((*match)[0], value))
+            if (!util::ParseFloat((*match)[0], value))
                 throw Error("invalid traversal height in " + std::string(name));
             return value;
         }
@@ -82,7 +82,7 @@ namespace w2b::paths
             line = newline == text.npos ? text.size() : newline + 1;
             const auto head = text.substr(start, line - start);
             const auto first = FirstWord(head);
-            if (first.empty() || head.empty() || py::IsSpace(head.front()))
+            if (first.empty() || head.empty() || util::IsSpace(head.front()))
                 continue;
             auto name = std::string_view(first);
             if (const auto colon = name.find(':'); colon != name.npos)
@@ -106,7 +106,7 @@ namespace w2b::paths
                 continue;
             auto& list = name == "zm_traverse" ? walking : crawling;
             list.clear();
-            for (const auto entry : py::SplitLines(text.substr(endHead + 2, close - endHead - 2)))
+            for (const auto entry : util::SplitLines(text.substr(endHead + 2, close - endHead - 2)))
                 if (auto word = FirstWord(entry); !word.empty() && !word.starts_with("//"))
                     list.insert(std::move(word));
         }
@@ -131,7 +131,7 @@ namespace w2b::paths
                 long long number{};
                 bool overflow{};
                 if (!digits.empty() && std::ranges::all_of(digits, unicode::IsDigit) &&
-                    py::ParseInt(name.substr(prefix.size()), number, overflow) && !overflow &&
+                    util::ParseInt(name.substr(prefix.size()), number, overflow) && !overflow &&
                     number <= std::numeric_limits<int>::max())
                     heights[static_cast<int>(number)] = alias;
             };

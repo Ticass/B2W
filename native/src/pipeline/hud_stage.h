@@ -3,7 +3,7 @@
 // bars) and the objective/score font glyphs as lossless RGBA 2D materials,
 // with the glyph table and content_source/waw_hud.json.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>
@@ -23,13 +23,13 @@ namespace w2b::textures
 namespace w2b::pipeline
 {
     // the original WaW HUD sprites and glyphs; returns content_source/waw_hud.json as written
-    py::Json StageWawHud(const std::filesystem::path& project, const std::vector<std::filesystem::path>& roots, extract::StockWaw* stock);
+    util::Json StageWawHud(const std::filesystem::path& project, const std::vector<std::filesystem::path>& roots, extract::StockWaw* stock);
 
     struct MenuArt
     {
         std::size_t menus = 0, materials = 0, glyphs = 0;
         std::vector<std::string> missing; // drawn empty
-        py::Json recovered;               // IWD images decoded for the menus (wavelet.recovered)
+        util::Json recovered;               // IWD images decoded for the menus (wavelet.recovered)
     };
 
     // wawmenu.stage_assets, served by the IWD recovery (its images resolve through it);

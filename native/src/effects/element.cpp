@@ -10,7 +10,7 @@ namespace w2b::effects
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         unsigned ConvertFlags(unsigned flags, std::vector<std::string>& notes, const std::string& location)
         {
@@ -79,7 +79,7 @@ namespace w2b::effects
         }
     }
 
-    py::Json ConvertElement(const py::Json& source, const MaterialNames& materials,
+    util::Json ConvertElement(const util::Json& source, const MaterialNames& materials,
                             std::vector<std::string>& notes, const std::string& location)
     {
         const auto sourceType = source.at("elemType").get<int>();

@@ -9,7 +9,7 @@
 // WawTechniqueSet is the T4 dumper's waw_techniquesets/<name>.json: the WaW
 // passes whose programs and arguments the runtime translates.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -73,8 +73,8 @@ namespace w2b::shaders
         bool operator==(const T6TechniqueSet&) const = default;
     };
 
-    T6TechniqueSet T6TechniqueSetFromJson(const py::Json& data);
-    py::Json ToJson(const T6TechniqueSet& set);
+    T6TechniqueSet T6TechniqueSetFromJson(const util::Json& data);
+    util::Json ToJson(const T6TechniqueSet& set);
     T6TechniqueSet ReadT6TechniqueSet(const std::filesystem::path& path);
     // the programs the set's passes run: shader_bin/ps_<name>.cso and shader_bin/vs_<name>.cso
     std::set<std::string> ProgramFiles(const T6TechniqueSet& set);

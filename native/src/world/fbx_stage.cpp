@@ -14,7 +14,7 @@ namespace w2b::world
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         Json Export(const RenderWorld& world, const files::fs::path& path, const RenderMeshes& result,
                     std::size_t copies)

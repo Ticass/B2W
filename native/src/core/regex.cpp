@@ -1,7 +1,7 @@
-// A backtracking regex VM with Python `re` semantics (see pyre.h): the
+// A backtracking regex VM with Python `re` semantics (see regex.h): the
 // pattern parses to a tree, compiles to instructions, and runs on code
 // points with an explicit backtracking stack (no recursion limit).
-#include "pyre.h"
+#include "regex.h"
 
 #include "encoding.h"
 #include "unicode.h"
@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <map>
 
-namespace w2b::pyre
+namespace w2b::regex
 {
     namespace
     {
@@ -1015,7 +1015,7 @@ namespace w2b::pyre
             std::vector<long long> caps(static_cast<size_t>(2 * (m_program->groups + 1)), -1);
             std::vector<long long> marks(static_cast<size_t>(m_program->marks), -1);
             long long end = -1;
-            if (!w2b::pyre::Run(*m_program, 0, s, static_cast<long long>(start), caps, marks, &end, mode == 2, mustAdvance && start == from))
+            if (!w2b::regex::Run(*m_program, 0, s, static_cast<long long>(start), caps, marks, &end, mode == 2, mustAdvance && start == from))
                 continue;
             Match m;
             m.program = m_program;
@@ -1202,4 +1202,4 @@ namespace w2b::pyre
         }
         return out;
     }
-} // namespace w2b::pyre
+} // namespace w2b::regex

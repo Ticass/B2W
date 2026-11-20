@@ -105,7 +105,7 @@ namespace
 TEST_CASE("T6 material documents round-trip byte for byte", "[materials]")
 {
     using namespace w2b::materials;
-    const auto parsed = T6MaterialFromJson(w2b::py::Json::parse(material));
+    const auto parsed = T6MaterialFromJson(w2b::util::Json::parse(material));
     CHECK(T6MaterialText(parsed) == material);
     REQUIRE(parsed.FindTexture("colorMap"));
     CHECK(parsed.FindTexture("colorMap")->image == "~-gcamo_bark");
@@ -135,10 +135,10 @@ TEST_CASE("T6 technique sets round-trip", "[materials]")
         if (w2b::files::Utf8(path).find("techniquesets") == std::string::npos || w2b::files::Utf8(path).find("waw_techniquesets") != std::string::npos)
             continue;
         INFO(w2b::files::Utf8(path));
-        const auto data = w2b::py::Json::parse(w2b::files::ReadText(path));
+        const auto data = w2b::util::Json::parse(w2b::files::ReadText(path));
         const auto written = w2b::shaders::ToJson(w2b::shaders::T6TechniqueSetFromJson(data));
         // key order aside: an argument the runtime added type-first is written sorted
-        CHECK(w2b::py::Json::diff(data, written).empty());
+        CHECK(w2b::util::Json::diff(data, written).empty());
     }
 }
 
@@ -149,7 +149,7 @@ TEST_CASE("JSON documents match by content", "[parity]")
     if (!list || !*list)
         return;
     const auto pairs = w2b::files::ReadText(w2b::files::FromUtf8(list)); // SplitLines views into it
-    for (const auto line : w2b::py::SplitLines(pairs))
+    for (const auto line : w2b::util::SplitLines(pairs))
     {
         const auto bar = line.find('|');
         if (bar == std::string_view::npos)

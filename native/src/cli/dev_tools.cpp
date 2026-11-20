@@ -2,7 +2,7 @@
 #include "cli/dev_tools.h"
 
 #include "core/files.h"
-#include "core/pytext.h"
+#include "core/text.h"
 #include "launcher/settings.h"
 #include "pipeline/knowledge.h"
 
@@ -269,13 +269,13 @@ namespace w2b::cli
         }
         if (ledgers.empty())
             ledgers.push_back(files::FromUtf8(launcher::Settings().work) / "knowledge");
-        std::vector<py::Json> extra;
+        std::vector<util::Json> extra;
         for (const auto& bundle : bundles)
             if (auto obs = k::FromBundle(bundle))
                 extra.push_back(std::move(*obs));
         for (const auto& path : reports)
         {
-            const auto report = py::Json::parse(files::ReadText(path));
+            const auto report = util::Json::parse(files::ReadText(path));
             auto project = report.value("project", std::string());
             extra.push_back(k::Observation(&report, project.empty() ? files::Utf8(path.parent_path().filename()) : project, project, "", "staged", std::nullopt, ""));
         }
@@ -286,7 +286,7 @@ namespace w2b::cli
         for (auto& obs : extra)
         {
             const auto map = obs.at("map");
-            if (const auto same = std::ranges::find_if(seen, [&](const py::Json& o) { return o.at("map") == map; }); same != seen.end())
+            if (const auto same = std::ranges::find_if(seen, [&](const util::Json& o) { return o.at("map") == map; }); same != seen.end())
                 *same = std::move(obs);
             else
                 seen.push_back(std::move(obs));
@@ -316,7 +316,7 @@ namespace w2b::cli
                     Print(std::format("{:>4}  {}", maps.size(), kind));
         }
         if (write)
-            files::WriteText(*write, py::JsonDumps(summary, 1) + "\n");
+            files::WriteText(*write, util::JsonDumps(summary, 1) + "\n");
         return 0;
     }
 

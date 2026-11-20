@@ -74,11 +74,11 @@ namespace w2b::weapons
         {
             std::string rewritten;
             bool first = true;
-            for (const auto line : py::SplitLines(value))
+            for (const auto line : util::SplitLines(value))
             {
                 const auto words = NotetrackWords(line);
                 if (words.size() != 2)
-                    throw WeaponError(std::string(name) + ": malformed notetrackSoundMap " + py::StringRepr(line));
+                    throw WeaponError(std::string(name) + ": malformed notetrackSoundMap " + util::StringRepr(line));
                 if (!first)
                     rewritten += '\n';
                 first = false;
@@ -94,15 +94,15 @@ namespace w2b::weapons
                 return "0";
             long long number = 0;
             bool overflow = false;
-            if (!py::ParseInt(value, number, overflow))
-                throw WeaponError("invalid literal for int() with base 10: " + py::StringRepr(value));
+            if (!util::ParseInt(value, number, overflow))
+                throw WeaponError("invalid literal for int() with base 10: " + util::StringRepr(value));
             if (!overflow)
                 return std::to_string(number);
             // The capacity is only part of the group name. Preserve the full
             // integer even for an authored value outside int64_t.
-            const auto stripped = py::Strip(value);
+            const auto stripped = util::Strip(value);
             std::string digits;
-            std::ranges::copy_if(stripped, std::back_inserter(digits), py::IsDigit);
+            std::ranges::copy_if(stripped, std::back_inserter(digits), util::IsDigit);
             digits.erase(0, digits.find_first_not_of('0'));
             return stripped.starts_with('-') ? "-" + digits : digits;
         }
@@ -153,7 +153,7 @@ namespace w2b::weapons
         }
     }
 
-    Weapon Convert(std::string_view name, const InfoFields& source, const Schema& t4, const Schema& t6)
+    Weapon Convert(std::string_view name, const InfoFields& source, const Schema& t4, const Schema& t6, const EnumValues* t6Enums)
     {
         Weapon weapon;
         weapon.name = OutputName("weapon", std::string(name));
@@ -183,7 +183,24 @@ namespace w2b::weapons
                 weapon.translations[key] = {{"source", value}, {"target", nullptr}, {"reason", "unset; T6 default"}};
                 continue;
             }
-            else if (key == "playerAnimType" && !playerAnimationTypes.contains(value))
+            else if (t6Enums && enumTypes.contains(dst) && !value.empty())
+            {
+                // WaW matches enum values ignoring case (a map's hand-written
+                // IWD weapon: adsOverlayInterface "none"); T6's linker wants
+                // its own spelling
+                if (const auto values = t6Enums->find(dst); values != t6Enums->end() &&
+                    std::ranges::find(values->second, value) == values->second.end())
+                {
+                    const auto same = std::ranges::find_if(values->second, [&](const std::string& candidate)
+                        { return _stricmp(candidate.c_str(), value.c_str()) == 0; });
+                    if (same != values->second.end())
+                    {
+                        weapon.translations[key] = {{"source", value}, {"target", *same}, {"reason", "WaW enum values ignore case; T6 spelling"}};
+                        value = *same;
+                    }
+                }
+            }
+            if (key == "playerAnimType" && profile == classAnimationTypes.end() && !playerAnimationTypes.contains(value))
             {
                 auto omitted = Unsupported(src, dst, value);
                 omitted["reason"] = "no measured T6 playerAnimType";

@@ -4,7 +4,7 @@
 #include "bridge_sound.h"
 #include "bridge_support.h"
 
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "coverage_stage.h"
 #include "effects/stage.h"
 #include "extract/stockwaw.h"
@@ -54,14 +54,14 @@ namespace w2b::pipeline
     using bridge::Truthy;
     using mod::StartsWith;
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
         // stockperks.asset_lines: explicit native perk dependencies
         std::vector<std::string> PerkAssetLines(const fs::path& outRoot)
         {
-            static const pyre::Regex call("\\b(precacheitem|precachemodel|precacheshader|loadfx)\\s*\\(\\s*\"([^\"\\n]+)\"", pyre::IGNORECASE);
+            static const regex::Regex call("\\b(precacheitem|precachemodel|precacheshader|loadfx)\\s*\\(\\s*\"([^\"\\n]+)\"", regex::IGNORECASE);
             const std::map<std::string, std::string> kinds{{"precacheitem", "weapon"}, {"precachemodel", "xmodel"}, {"precacheshader", "material"}, {"loadfx", "fx"}};
             std::vector<fs::path> paths{outRoot / "maps/mp/waw/_waw2bo2_perks.gsc"};
             const auto glob = [&](const fs::path& folder, const std::string& prefix, const std::string& suffix)
@@ -104,7 +104,7 @@ namespace w2b::pipeline
             bool first = true;
             for (const auto& [k, v] : counts)
             {
-                out += (first ? "" : ", ") + py::StringRepr(k) + ": " + std::to_string(v);
+                out += (first ? "" : ", ") + util::StringRepr(k) + ": " + std::to_string(v);
                 first = false;
             }
             return out + "}";
@@ -294,11 +294,11 @@ namespace w2b::pipeline
                         if (fs::exists(templateZone))
                         {
                             const auto templateText = files::ReadText(templateZone); // SplitLines views into it
-                            for (const auto& line : py::SplitLines(templateText))
+                            for (const auto& line : util::SplitLines(templateText))
                                 if (StartsWith(line, "weapon,"))
                                 {
                                     const auto field = std::string(line.substr(line.rfind(',') + 1));
-                                    reserved.insert(std::string(py::Strip(field)));
+                                    reserved.insert(std::string(util::Strip(field)));
                                 }
                         }
                         const auto rawWeapons = *bo2Root / "raw" / "weapons";
@@ -402,7 +402,7 @@ namespace w2b::pipeline
                 std::snprintf(parsed, sizeof parsed, "%g", note.at("parsed").get<double>());
                 const auto& original = note.at("original");
                 mod::Print("WARNING: vision " + note.at("vision").get<std::string>() + ": " + note.at("field").get<std::string>() + " " +
-                           (original.is_string() ? py::StringRepr(original.get<std::string>()) : original.dump()) + " read as " + parsed +
+                           (original.is_string() ? util::StringRepr(original.get<std::string>()) : original.dump()) + " read as " + parsed +
                            " using WaW numeric-prefix parsing (" + note.at("source").get<std::string>() + ")");
             }
             for (const auto& e : vision.at("errors"))
@@ -414,7 +414,7 @@ namespace w2b::pipeline
                 record.name = name.get<std::string>();
                 record.file = mod::Generic(assets::MaterialPath(record.name));
                 record.t6Techset = "waw film/glow overlay";
-                record.notes = std::vector<std::string>{"WaW film + glow pass (glow.py)"};
+                record.notes = std::vector<std::string>{"WaW film + glow pass"};
                 report.materials.push_back(std::move(record));
                 input.hudMaterials.push_back(name.get<std::string>());
             }
@@ -500,8 +500,8 @@ namespace w2b::pipeline
                                 double value = 0;
                                 if (v.is_number())
                                     value = v.get<double>();
-                                else if (!py::ParseFloat(v.get<std::string>(), value))
-                                    throw StepError("ValueError", "could not convert string to float: " + py::StringRepr(v.get<std::string>()));
+                                else if (!util::ParseFloat(v.get<std::string>(), value))
+                                    throw StepError("ValueError", "could not convert string to float: " + util::StringRepr(v.get<std::string>()));
                                 scriptValues[field] = value;
                             }
                     if (!scriptValues.empty())
@@ -509,7 +509,7 @@ namespace w2b::pipeline
                         auto staged = mod::Json(projectRoot / "BSP/lighting.json");
                         for (const auto& [k, v] : scriptValues.items())
                             staged["sun"][k] = v;
-                        files::WriteText(projectRoot / "BSP/lighting.json", py::JsonDumps(staged, 2) + "\n");
+                        files::WriteText(projectRoot / "BSP/lighting.json", util::JsonDumps(staged, 2) + "\n");
                         content["lighting_script_sun"] = scriptValues;
                     }
                 }
@@ -717,7 +717,7 @@ namespace w2b::pipeline
         for (const auto& w : covered.warnings)
             warnings.push_back(w);
         mod::Print("framework coverage: " + CountsRepr(covered.totals) + " (framework_coverage.md)");
-        files::WriteText(projectRoot / "bridge_stage.report.json", py::JsonDumps(report.ToJson(), 2) + "\n");
+        files::WriteText(projectRoot / "bridge_stage.report.json", util::JsonDumps(report.ToJson(), 2) + "\n");
         weaponRecovered.update(recovered);
         return weaponRecovered;
     }

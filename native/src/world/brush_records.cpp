@@ -12,7 +12,7 @@ namespace w2b::world
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         std::vector<Vec3> BrushVertices(const ClipBrush& brush)
         {
@@ -132,7 +132,7 @@ namespace w2b::world
         auto list = Json::array();
         for (const auto& model : submodels)
             list.push_back(model.ToJson());
-        files::WriteText(path, py::JsonDumps({{"submodels", std::move(list)}}, -1) + "\n");
+        files::WriteText(path, util::JsonDumps({{"submodels", std::move(list)}}, -1) + "\n");
     }
 
     BrushRecords BuildWorldBrushes(const CollisionWorld& world)

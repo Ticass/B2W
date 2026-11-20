@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <set>
@@ -13,7 +13,7 @@ namespace w2b::gsc::port
         std::vector<std::string> adjacency;
 
         std::set<std::string> Names() const;
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 
     struct ZoneMainResult

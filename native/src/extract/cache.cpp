@@ -8,7 +8,7 @@
 #include "core/hash.h"
 #include "core/process.h"
 #include "core/profile.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/share_files.h"
 
 #include <windows.h>
@@ -27,7 +27,7 @@
 namespace w2b::extract
 {
     const char* const WAW_ASSETS = "clipmap,mapents,gfxworld,gameworldsp,material,techniqueset,image,fx,xmodel,weapon,xanim,sound,"
-                                   "loadedsound,rawfile,comworld,lightdef,physpreset,physconstraints,snddriverglobals,localize,stringtable";
+                                   "loadedsound,rawfile,comworld,lightdef,physpreset,physconstraints,snddriverglobals,localize,stringtable,font";
 
     namespace
     {
@@ -100,7 +100,7 @@ namespace w2b::extract
         std::mutex verifiedMutex;
         std::set<std::tuple<std::wstring, uintmax_t, long long>> verified;
 
-        bool Complete(const fs::path& folder, const fs::path& receipt, const py::Json& names)
+        bool Complete(const fs::path& folder, const fs::path& receipt, const util::Json& names)
         {
             std::error_code e;
             const auto identity = std::make_tuple(Resolve(receipt).wstring(), fs::file_size(receipt, e), Stamp(receipt)[1].get<long long>());
@@ -134,13 +134,13 @@ namespace w2b::extract
             return top / "x" / Hex(12);
         }
 
-        py::Json WithoutKeys(const py::Json& object, std::initializer_list<const char*> drop)
+        util::Json WithoutKeys(const util::Json& object, std::initializer_list<const char*> drop)
         {
-            py::Json out = py::Json::object();
+            util::Json out = util::Json::object();
             for (const auto& [k, v] : object.items())
                 if (std::find_if(drop.begin(), drop.end(), [&](const char* d) { return k == d; }) == drop.end())
                     out[k] = v;
-            return py::SortKeys(out);
+            return util::SortKeys(out);
         }
 
         std::set<std::string> SplitSet(const std::string& text)
@@ -156,7 +156,7 @@ namespace w2b::extract
             return out;
         }
 
-        std::optional<py::Json> ReuseCompactSubset(const fs::path& root, const fs::path& temporary, const py::Json& inputs)
+        std::optional<util::Json> ReuseCompactSubset(const fs::path& root, const fs::path& temporary, const util::Json& inputs)
         {
             if (inputs["assets"].is_null())
                 return std::nullopt;
@@ -238,7 +238,7 @@ namespace w2b::extract
             return std::nullopt;
         }
 
-        void ShareDependencies(const fs::path& root, const fs::path& staging, const py::Json& inputs, const std::vector<std::string>& names)
+        void ShareDependencies(const fs::path& root, const fs::path& staging, const util::Json& inputs, const std::vector<std::string>& names)
         {
             if (files::Utf8(root.parent_path().filename()) != "dependencies")
                 return;
@@ -313,9 +313,9 @@ namespace w2b::extract
         return e ? absolute.lexically_normal() : resolved;
     }
 
-    std::string Key(const py::Json& data)
+    std::string Key(const util::Json& data)
     {
-        return hash::Sha256Hex(py::JsonDumpsSorted(data)).substr(0, 24);
+        return hash::Sha256Hex(util::JsonDumpsSorted(data)).substr(0, 24);
     }
 
     std::string Digest(const fs::path& path)
@@ -326,7 +326,7 @@ namespace w2b::extract
         return hash::Sha256Hex(bytes);
     }
 
-    py::Json Stamp(const fs::path& path)
+    util::Json Stamp(const fs::path& path)
     {
         WIN32_FILE_ATTRIBUTE_DATA data;
         if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data))
@@ -335,7 +335,7 @@ namespace w2b::extract
         t.LowPart = data.ftLastWriteTime.dwLowDateTime;
         t.HighPart = data.ftLastWriteTime.dwHighDateTime;
         const long long size = static_cast<long long>(data.nFileSizeHigh) << 32 | data.nFileSizeLow;
-        return py::Json::array({size, (static_cast<long long>(t.QuadPart) - 116444736000000000LL) * 100});
+        return util::Json::array({size, (static_cast<long long>(t.QuadPart) - 116444736000000000LL) * 100});
     }
 
     std::string SearchPaths(const std::vector<fs::path>& paths)
@@ -365,16 +365,16 @@ namespace w2b::extract
         }
     }
 
-    void WriteJson(const fs::path& path, const py::Json& data)
+    void WriteJson(const fs::path& path, const util::Json& data)
     {
         const auto temporary = path.parent_path() / files::FromUtf8(files::Utf8(path.filename()) + ".tmp");
-        files::WriteBytes(temporary, py::JsonDumpsSorted(data));
+        files::WriteBytes(temporary, util::JsonDumpsSorted(data));
         Publish(temporary, path, true);
     }
 
-    py::Json ReadJson(const fs::path& path)
+    util::Json ReadJson(const fs::path& path)
     {
-        return py::Json::parse(files::ReadText(path));
+        return util::Json::parse(files::ReadText(path));
     }
 
     CacheLock::CacheLock(const fs::path& root)
@@ -443,11 +443,11 @@ namespace w2b::extract
         return assets;
     }
 
-    py::Json ListingJson(const std::string& text, const bool references)
+    util::Json ListingJson(const std::string& text, const bool references)
     {
-        const auto strip = [](std::string_view s) { return std::string(py::Strip(s)); };
-        py::Json assets = py::Json::object();
-        for (const auto line : py::SplitLines(text))
+        const auto strip = [](std::string_view s) { return std::string(util::Strip(s)); };
+        util::Json assets = util::Json::object();
+        for (const auto line : util::SplitLines(text))
         {
             const auto comma = line.find(',');
             if (comma == std::string_view::npos)
@@ -462,7 +462,7 @@ namespace w2b::extract
             if (name.empty() || (!references && name.front() == ',') || !alnum)
                 continue;
             if (!assets.contains(kind))
-                assets[kind] = py::Json::array();
+                assets[kind] = util::Json::array();
             assets[kind].push_back(name.substr(name.find_first_not_of(',') == std::string::npos ? name.size() : name.find_first_not_of(',')));
         }
         return assets;
@@ -475,7 +475,7 @@ namespace w2b::extract
         struct BaseGeneration
         {
             fs::path folder;
-            py::Json receipt;
+            util::Json receipt;
             std::string missingKinds;
         };
 
@@ -483,7 +483,7 @@ namespace w2b::extract
         // merged with the dump of B (measured on sound, model, material, image,
         // technique set, font and light def zones), so a zone extracted again
         // for more kinds extracts only the new ones.
-        std::optional<BaseGeneration> ExtendableBase(const ZoneRequest& r, const py::Json& inputs)
+        std::optional<BaseGeneration> ExtendableBase(const ZoneRequest& r, const util::Json& inputs)
         {
             if (!r.base || !r.assets)
                 return std::nullopt;
@@ -533,17 +533,17 @@ namespace w2b::extract
 
     Extraction ExtractZone(const ZoneRequest& r)
     {
-        py::Json inputs = py::Json::object();
+        util::Json inputs = util::Json::object();
         inputs["schema"] = SCHEMA;
         inputs["file"] = Str(Resolve(r.ff));
         inputs["stamp"] = Stamp(r.ff);
         inputs["tool"] = r.toolDigest ? *r.toolDigest : UnlinkerIdentity(r.tool);
         inputs["dependencies"] = r.dependencies;
-        inputs["assets"] = r.assets ? py::Json(*r.assets) : py::Json();
+        inputs["assets"] = r.assets ? util::Json(*r.assets) : util::Json();
         inputs["images"] = r.imageFormat;
         inputs["models"] = "GLTF";
         inputs["list"] = r.list;
-        inputs = py::SortKeys(inputs);
+        inputs = util::SortKeys(inputs);
         const auto key = Key(inputs);
         auto folder = r.root / files::FromUtf8(key);
         std::error_code e;
@@ -565,7 +565,7 @@ namespace w2b::extract
         {
             const profile::Scope scope("extract: reuse a cached zone");
             const auto cached = ReadJson(receipt);
-            if (!r.refresh && py::SortKeys(cached.at("inputs")) == inputs && Complete(folder, receipt, cached.at("files")))
+            if (!r.refresh && util::SortKeys(cached.at("inputs")) == inputs && Complete(folder, receipt, cached.at("files")))
                 return {folder, cached};
         }
         catch (const std::exception&)
@@ -580,7 +580,7 @@ namespace w2b::extract
             {
                 WriteJson(temporary / "extraction.json", *migrated);
                 Publish(temporary, folder);
-                WriteJson(r.root / files::FromUtf8(key + ".json"), py::Json{{"folder", files::Utf8(folder.filename())}});
+                WriteJson(r.root / files::FromUtf8(key + ".json"), util::Json{{"folder", files::Utf8(folder.filename())}});
                 return {folder, *migrated};
             }
         const auto base = r.refresh ? std::nullopt : ExtendableBase(r, inputs);
@@ -592,11 +592,11 @@ namespace w2b::extract
         else if (r.assets)
             command.insert(command.end(), {"--include-assets", *r.assets});
         command.push_back(Str(r.ff));
-        py::Json index = py::Json::object(), loadedIndex = py::Json::object();
+        util::Json index = util::Json::object(), loadedIndex = util::Json::object();
         try
         {
             RunTool(command, log);
-            static const pyre::Regex failed(R"((?m)^ERROR: Failed to open file '([^']+)')");
+            static const regex::Regex failed(R"((?m)^ERROR: Failed to open file '([^']+)')");
             std::string bytes;
             files::ReadBytes(log, bytes);
             std::vector<std::string> unwritten, required;
@@ -645,18 +645,18 @@ namespace w2b::extract
         if (names.empty())
             throw Error("RuntimeError", "Extractor returned success without writing files for " + Str(r.ff) + "; see " + Str(log));
         ShareDependencies(r.root, temporary, inputs, names);
-        py::Json data = py::Json::object();
+        util::Json data = util::Json::object();
         data["inputs"] = inputs;
         data["files"] = names;
         data["index"] = index;
         data["loaded_index"] = loadedIndex;
         WriteJson(temporary / "extraction.json", data);
         Publish(temporary, folder);
-        WriteJson(r.root / files::FromUtf8(key + ".json"), py::Json{{"folder", files::Utf8(folder.filename())}});
+        WriteJson(r.root / files::FromUtf8(key + ".json"), util::Json{{"folder", files::Utf8(folder.filename())}});
         return {folder, data};
     }
 
-    std::vector<py::Json> ParallelZones(const std::vector<fs::path>& zones, const std::function<py::Json(const fs::path&)>& extract, const std::string& label,
+    std::vector<util::Json> ParallelZones(const std::vector<fs::path>& zones, const std::function<util::Json(const fs::path&)>& extract, const std::string& label,
                                         std::optional<int> workers)
     {
         if (zones.empty())
@@ -672,7 +672,7 @@ namespace w2b::extract
         const int count = std::min<int>(*workers, static_cast<int>(zones.size()));
         Print("Extract All: " + label + ": " + std::to_string(count) + " parallel workers, " + std::to_string(zones.size()) + " zones");
         const auto started = std::chrono::steady_clock::now();
-        std::vector<py::Json> results(zones.size());
+        std::vector<util::Json> results(zones.size());
         std::atomic<size_t> next{0}, completed{0};
         std::atomic<bool> stop{false};
         std::exception_ptr failure;
@@ -719,12 +719,12 @@ namespace w2b::extract
         const auto catalog = ReadJson(catalogFile);
         for (const auto& [_, entry] : catalog["zones"].items())
         {
-            const auto images = entry["index"].value("image", py::Json::array());
-            if (std::find(images.begin(), images.end(), py::Json(name)) == images.end())
+            const auto images = entry["index"].value("image", util::Json::array());
+            if (std::find(images.begin(), images.end(), util::Json(name)) == images.end())
                 continue;
             const auto ff = files::FromUtf8(entry["inputs"]["file"].get<std::string>());
             const auto unlinker = tool.value_or(ResourceRoot() / "vendor/OpenAssetToolsT6/build/bin/Release_x86/Unlinker.exe");
-            const auto root = stock.parent_path().parent_path() / "dependencies/images" / files::FromUtf8(Key(py::Json::array({Str(ff), name})));
+            const auto root = stock.parent_path().parent_path() / "dependencies/images" / files::FromUtf8(Key(util::Json::array({Str(ff), name})));
             const auto relative = assets::ImagePath(name, ".iwi");
             CacheLock lock(root);
             ZoneRequest request{ff, unlinker, root, SearchPaths({ff.parent_path(), ff.parent_path().parent_path().parent_path()}), std::string("image"), "IWI"};
@@ -737,7 +737,7 @@ namespace w2b::extract
             for (const auto& filename : data["files"])
                 if (filename.get<std::string>() != keep)
                     fs::remove(output / files::FromUtf8(filename.get<std::string>()));
-            data["files"] = py::Json::array({keep});
+            data["files"] = util::Json::array({keep});
             WriteJson(output / "extraction.json", data);
             return wanted;
         }
@@ -752,12 +752,12 @@ namespace w2b::extract
         const auto catalog = ReadJson(catalogFile);
         for (const auto& [_, entry] : catalog["zones"].items())
         {
-            const auto sets = entry["index"].value("techniqueset", py::Json::array());
-            if (std::find(sets.begin(), sets.end(), py::Json(name)) == sets.end())
+            const auto sets = entry["index"].value("techniqueset", util::Json::array());
+            if (std::find(sets.begin(), sets.end(), util::Json(name)) == sets.end())
                 continue;
             const auto ff = files::FromUtf8(entry["inputs"]["file"].get<std::string>());
             const auto unlinker = tool.value_or(ResourceRoot() / "vendor/OpenAssetToolsT6/build/bin/Release_x86/Unlinker.exe");
-            const auto root = stock.parent_path().parent_path() / "dependencies/techniquesets" / files::FromUtf8(Key(py::Json::array({Str(ff)})));
+            const auto root = stock.parent_path().parent_path() / "dependencies/techniquesets" / files::FromUtf8(Key(util::Json::array({Str(ff)})));
             fs::path output;
             {
                 CacheLock lock(root);

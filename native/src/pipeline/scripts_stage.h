@@ -1,7 +1,7 @@
 #pragma once
 // t6bridge.port_scripts (see scripts_stage.cpp).
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -30,7 +30,7 @@ namespace w2b::pipeline
 
     struct ScriptPort
     {
-        py::Json scripts; // the report's scripts section; empty when nothing ported
+        util::Json scripts; // the report's scripts section; empty when nothing ported
         std::vector<std::string> warnings, errors;
         std::vector<std::string> models;                // script models the map zone carries
         std::vector<std::filesystem::path> modelRoots;  // widened by the stock dumps the models needed

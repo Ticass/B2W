@@ -17,7 +17,7 @@ namespace w2b::weapons
         if (!files::ReadBytes(source, bytes))
             throw std::runtime_error("cannot read " + files::Utf8(source));
         const auto text = encoding::WawText(bytes);
-        const auto parts = py::Split(text, "\\");
+        const auto parts = util::Split(text, "\\");
         if (parts.front() != "PHYSIC" || parts.size() % 2 != 1)
             throw WeaponError("physics preset " + name + ": not a PHYSIC infostring");
         InfoFields fields;

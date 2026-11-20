@@ -1,6 +1,6 @@
 #pragma once
 // gscport.Translator: classifies and translates WaW scripts for BO2, extracts
-// framework functions and generates the hook code (gscport.py 1355-3642).
+// framework functions and generates the hook code.
 
 #include "report.h"
 #include "sources.h"
@@ -90,7 +90,7 @@ namespace w2b::gsc::port
         std::vector<std::string> SkillSignalsHook();
         std::vector<std::string> ExplodersHook();
         std::optional<std::string> DogRoundsHook();
-        std::vector<std::string> ClientFogMonitors(const py::Json& moments);
+        std::vector<std::string> ClientFogMonitors(const util::Json& moments);
         std::optional<std::string> FrameworkZombieVars();
         std::vector<std::string> ClientFxListeners();
         std::optional<ListenerCopy> ClientFxListener(const std::string& key, const Script& script, const std::string& entry,
@@ -99,7 +99,7 @@ namespace w2b::gsc::port
         void SplitMain(Script& script);
         std::string StubSource() const;
 
-        // ---- state (the Python attributes)
+        // ---- state
         Sources& sources;
         const T6Api& api;
         PortReport& report;
@@ -135,11 +135,11 @@ namespace w2b::gsc::port
     };
 
     // API.get(key, {}) without a copy: the section, or a null value when absent
-    const py::Json& ApiSection(const std::string& key);
-    // a python dict.get(...) on gsc_api.json: nullptr when absent or null
-    const py::Json* ApiGet(const py::Json& object, const std::string& key);
-    std::optional<std::string> ApiString(const py::Json& object, const std::string& key);
-    bool ApiListHas(const py::Json& list, const std::string& value);
+    const util::Json& ApiSection(const std::string& key);
+    // a lookup on gsc_api.json: nullptr when absent or null
+    const util::Json* ApiGet(const util::Json& object, const std::string& key);
+    std::optional<std::string> ApiString(const util::Json& object, const std::string& key);
+    bool ApiListHas(const util::Json& list, const std::string& value);
 
     inline constexpr const char* CORE_INCLUDES[] = {"common_scripts\\utility", "maps\\mp\\_utility", "maps\\mp\\zombies\\_zm_utility"};
     inline constexpr const char* CALLBACKGLOBAL = "maps\\_callbackglobal";

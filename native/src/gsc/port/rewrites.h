@@ -1,5 +1,5 @@
 #pragma once
-// The standalone token rewrites of gscport.py (module functions before the
+// The standalone token rewrites (module functions before the
 // Translator class), with the same names in CamelCase.
 
 #include "util.h"

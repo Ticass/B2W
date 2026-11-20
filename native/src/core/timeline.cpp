@@ -59,9 +59,9 @@ namespace w2b::timeline
             return value ? value : L"";
         }
 
-        py::Json Accounting(HANDLE process)
+        util::Json Accounting(HANDLE process)
         {
-            py::Json out = py::Json::object();
+            util::Json out = util::Json::object();
             if (!process)
                 return out;
             out["cpu"] = Round(ProcessCpu(process), 4);
@@ -120,14 +120,14 @@ namespace w2b::timeline
         return files::Utf8(fs::path(parent));
     }
 
-    void Emit(const py::Json& record)
+    void Emit(const util::Json& record)
     {
         const auto target = Path();
         if (!target)
             return;
         try
         {
-            const auto line = py::JsonDumps(record, -1) + "\n";
+            const auto line = util::JsonDumps(record, -1) + "\n";
             const auto part = Parts(*target) / (std::to_wstring(GetCurrentProcessId()) + L".jsonl");
             std::lock_guard lock(writeMutex);
             std::error_code e;
@@ -140,15 +140,15 @@ namespace w2b::timeline
         }
     }
 
-    Span::Span(const std::string& name, py::Json fields)
+    Span::Span(const std::string& name, util::Json fields)
     {
         if (!Path())
             return;
         active = true;
-        record = py::Json::object();
+        record = util::Json::object();
         record["id"] = NewId();
         const auto parent = Current();
-        record["parent"] = parent ? py::Json(*parent) : py::Json();
+        record["parent"] = parent ? util::Json(*parent) : util::Json();
         record["kind"] = "span";
         record["name"] = name;
         record["pid"] = GetCurrentProcessId();
@@ -202,10 +202,10 @@ namespace w2b::timeline
         if (!Path())
             return;
         active = true;
-        record = py::Json::object();
+        record = util::Json::object();
         record["id"] = NewId();
         const auto parent = Current();
-        record["parent"] = parent ? py::Json(*parent) : py::Json();
+        record["parent"] = parent ? util::Json(*parent) : util::Json();
         record["kind"] = "process";
         record["name"] = Describe(command);
         record["pid"] = nullptr;
@@ -234,7 +234,7 @@ namespace w2b::timeline
         Emit(record);
     }
 
-    py::Json SelfAccounting()
+    util::Json SelfAccounting()
     {
         return Accounting(GetCurrentProcess());
     }
@@ -249,9 +249,9 @@ namespace w2b::timeline
         _wputenv_s(L"WAW2BO2_TIMELINE_PARENT", L"");
     }
 
-    std::vector<py::Json> Load(const fs::path& target)
+    std::vector<util::Json> Load(const fs::path& target)
     {
-        std::vector<py::Json> records;
+        std::vector<util::Json> records;
         std::vector<fs::path> sources;
         std::error_code e;
         if (fs::is_regular_file(target, e))
@@ -274,13 +274,13 @@ namespace w2b::timeline
                     if (!line.empty() && line.back() == '\r')
                         line.pop_back();
                     if (!line.empty())
-                        records.push_back(py::Json::parse(line));
+                        records.push_back(util::Json::parse(line));
                 }
                 catch (...)
                 {
                 }
         }
-        std::stable_sort(records.begin(), records.end(), [](const py::Json& a, const py::Json& b) { return a.value("start", 0.0) < b.value("start", 0.0); });
+        std::stable_sort(records.begin(), records.end(), [](const util::Json& a, const util::Json& b) { return a.value("start", 0.0) < b.value("start", 0.0); });
         return records;
     }
 
@@ -288,23 +288,23 @@ namespace w2b::timeline
     {
         std::string text;
         for (const auto& r : Load(target))
-            text += py::JsonDumps(r, -1) + "\n";
+            text += util::JsonDumps(r, -1) + "\n";
         files::WriteBytes(target, text);
         std::error_code e;
         fs::remove_all(Parts(target), e);
     }
 
-    py::Json Summarize(const std::vector<py::Json>& records)
+    util::Json Summarize(const std::vector<util::Json>& records)
     {
         if (records.empty())
-            return py::Json::object();
-        std::map<std::string, const py::Json*> byId;
+            return util::Json::object();
+        std::map<std::string, const util::Json*> byId;
         for (const auto& r : records)
             byId[r["id"].get<std::string>()] = &r;
-        std::map<std::string, std::vector<const py::Json*>> children; // "" = roots
+        std::map<std::string, std::vector<const util::Json*>> children; // "" = roots
         for (const auto& r : records)
         {
-            const auto parent = r.value("parent", py::Json());
+            const auto parent = r.value("parent", util::Json());
             const std::string key = parent.is_string() && byId.count(parent.get<std::string>()) ? parent.get<std::string>() : "";
             children[key].push_back(&r);
         }
@@ -314,7 +314,7 @@ namespace w2b::timeline
             origin = std::min(origin, r["start"].get<double>());
             end = std::max(end, r["start"].get<double>() + r.value("wall", 0.0));
         }
-        const auto covered = [](const std::vector<const py::Json*>& kids)
+        const auto covered = [](const std::vector<const util::Json*>& kids)
         {
             std::vector<std::pair<double, double>> spans;
             for (const auto* k : kids)
@@ -332,17 +332,17 @@ namespace w2b::timeline
             }
             return total;
         };
-        std::function<py::Json(const py::Json&)> tree = [&](const py::Json& r)
+        std::function<util::Json(const util::Json&)> tree = [&](const util::Json& r)
         {
-            py::Json node = py::Json::object();
+            util::Json node = util::Json::object();
             for (const char* key : {"kind", "name", "wall", "cpu", "peak_mb", "read_mb", "write_mb", "returncode", "ok"})
                 if (r.contains(key))
                     node[key] = r[key];
             node["start_offset"] = Round(r["start"].get<double>() - origin, 3);
             auto kids = children[r["id"].get<std::string>()];
-            std::stable_sort(kids.begin(), kids.end(), [](const py::Json* a, const py::Json* b) { return (*a)["start"].get<double>() < (*b)["start"].get<double>(); });
-            std::vector<const py::Json*> workers;
-            py::Json nested = py::Json::array();
+            std::stable_sort(kids.begin(), kids.end(), [](const util::Json* a, const util::Json* b) { return (*a)["start"].get<double>() < (*b)["start"].get<double>(); });
+            std::vector<const util::Json*> workers;
+            util::Json nested = util::Json::array();
             for (const auto* k : kids)
                 if ((*k)["kind"] == "worker")
                     workers.push_back(k);
@@ -353,7 +353,7 @@ namespace w2b::timeline
                 double cpu = 0, peak = 0;
                 for (const auto* w : workers)
                     cpu += w->value("cpu", 0.0), peak = std::max(peak, w->value("peak_mb", 0.0));
-                node["workers"] = py::Json{{"count", workers.size()}, {"cpu", Round(cpu, 3)}, {"peak_mb_max", peak}};
+                node["workers"] = util::Json{{"count", workers.size()}, {"cpu", Round(cpu, 3)}, {"peak_mb_max", peak}};
             }
             if (!nested.empty())
             {
@@ -363,7 +363,7 @@ namespace w2b::timeline
             return node;
         };
         auto roots = children[""];
-        std::stable_sort(roots.begin(), roots.end(), [](const py::Json* a, const py::Json* b) { return (*a)["start"].get<double>() < (*b)["start"].get<double>(); });
+        std::stable_sort(roots.begin(), roots.end(), [](const util::Json* a, const util::Json* b) { return (*a)["start"].get<double>() < (*b)["start"].get<double>(); });
         long long processes = 0, workerCount = 0;
         double nativeCpu = 0, workerCpu = 0, peak = 0;
         for (const auto& r : records)
@@ -374,14 +374,14 @@ namespace w2b::timeline
                 workerCount++, workerCpu += r.value("cpu", 0.0);
             peak = std::max(peak, r.value("peak_mb", 0.0));
         }
-        py::Json out = py::Json::object();
+        util::Json out = util::Json::object();
         out["wall"] = Round(end - origin, 3);
         out["process_count"] = processes;
         out["native_cpu"] = Round(nativeCpu, 3);
         out["worker_count"] = workerCount;
         out["worker_cpu"] = Round(workerCpu, 3);
         out["peak_mb_max"] = peak;
-        py::Json treeList = py::Json::array();
+        util::Json treeList = util::Json::array();
         for (const auto* r : roots)
             treeList.push_back(tree(*r));
         out["tree"] = treeList;

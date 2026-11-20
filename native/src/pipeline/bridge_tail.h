@@ -3,7 +3,7 @@
 // client scripts, sounds, lighting, the window barrier, identities, menus,
 // localization, rumbles, the map zone and the framework coverage.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/bridge_report.h"
 #include "gsc/port/staging.h"
 #include "gsc/port/zone_scripts.h"
@@ -57,14 +57,14 @@ namespace w2b::pipeline
         std::vector<fs::path> iwdDirs;
         std::optional<fs::path> audioDecoder, xwmaHelper, resampler, t6SoundDriver;
         bool approximateCurves = false;
-        py::Json visionReport; // filled by the visuals block
+        util::Json visionReport; // filled by the visuals block
     };
 
     struct TailLighting
     {
         fs::path base, clipSource; // base: the WaW world dumps' common stem
         bool shadowLights = false;
-        py::Json scriptRenderDvars = py::Json::object(); // filled by the visuals block
+        util::Json scriptRenderDvars = util::Json::object(); // filled by the visuals block
     };
 
     // what the earlier bridge passes hand the tail
@@ -87,5 +87,5 @@ namespace w2b::pipeline
     // Adds to the bridge report and writes bridge_stage.report.json; stock: the
     // stock WaW zones the earlier passes used, null without them. Returns the
     // IWD images recovery decoded on the way.
-    py::Json BridgeTail(TailInput input, BridgeReport& report, extract::StockWaw* stock, textures::IwdRecovery& recovery);
+    util::Json BridgeTail(TailInput input, BridgeReport& report, extract::StockWaw* stock, textures::IwdRecovery& recovery);
 } // namespace w2b::pipeline

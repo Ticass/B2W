@@ -10,7 +10,7 @@ namespace w2b::assets
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         void AddField(AssetSet& assets, std::string_view kind, const Json& fields, std::string_view key)
         {
@@ -98,11 +98,11 @@ namespace w2b::assets
 
         void ReadNotetracks(const Path& source, std::string_view value, AssetSet& dependencies)
         {
-            for (const auto line : py::SplitLines(value))
+            for (const auto line : util::SplitLines(value))
             {
                 const auto tokens = weapons::NotetrackWords(line);
                 if (tokens.size() != 2)
-                    throw weapons::WeaponError("invalid notetrack sound dependency in " + files::Utf8(source) + ": " + py::StringRepr(line));
+                    throw weapons::WeaponError("invalid notetrack sound dependency in " + files::Utf8(source) + ": " + util::StringRepr(line));
                 dependencies.emplace("sound", tokens[1]);
             }
         }

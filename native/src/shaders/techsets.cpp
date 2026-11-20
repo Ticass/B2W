@@ -8,7 +8,7 @@ namespace w2b::shaders
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using Sorted = nlohmann::json; // the dumper's sorted key order
 
         T6Pass PassFromJson(const Json& data)

@@ -12,7 +12,7 @@ namespace w2b::pipeline
 {
     namespace fs = std::filesystem;
 
-    // the stage-bridge command line (cli.py's parser), paths resolved
+    // the stage-bridge command line, paths resolved
     struct BridgeStageOptions
     {
         fs::path stage;

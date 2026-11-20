@@ -4,7 +4,7 @@
 #include "api.h"
 #include "core/encoding.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/zip.h"
 
 #include <algorithm>
@@ -91,7 +91,7 @@ namespace w2b::gsc::port
         {
             std::string data;
             files::ReadBytes(*stockRoot / "catalog.json", data);
-            const auto catalog = py::Json::parse(data);
+            const auto catalog = util::Json::parse(data);
             if (catalog.contains("zones"))
                 for (const auto& [_, entry] : catalog["zones"].items())
                 {
@@ -270,7 +270,7 @@ namespace w2b::gsc::port
                     tokens[*ref.qualIndex].text = ZOMBIEMODE;
                     changed = true;
                 }
-            static const pyre::Regex include(R"(#include\s+([\w\\/]+)\s*;?)", pyre::IGNORECASE);
+            static const regex::Regex include(R"(#include\s+([\w\\/]+)\s*;?)", regex::IGNORECASE);
             for (auto& token : tokens)
             {
                 if (token.kind != Kind::Directive)
@@ -302,9 +302,9 @@ namespace w2b::gsc::port
         for (const auto& s : api["template_scripts"])
             if (s == p)
                 return true;
-        static const std::vector<pyre::Regex> patterns = [&]
+        static const std::vector<regex::Regex> patterns = [&]
         {
-            std::vector<pyre::Regex> out;
+            std::vector<regex::Regex> out;
             for (const auto& pattern : api["core_patterns"])
                 out.emplace_back(pattern.get<std::string>());
             return out;

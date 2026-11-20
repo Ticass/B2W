@@ -1,5 +1,5 @@
 #pragma once
-// Text exactly as the Python converter writes it, so native steps produce the
+// Text in the converter's output formats (Python repr and json.dumps layouts), so every step produces the
 // same bytes: float repr, json.dumps(..., indent=N) with ensure_ascii, and the
 // str methods the converter relies on.
 
@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-namespace w2b::py
+namespace w2b::util
 {
     using Json = nlohmann::ordered_json;
 
@@ -43,4 +43,4 @@ namespace w2b::py
     bool IsSpace(char c);
     bool IsDigit(char c);
     bool IsWord(char c);
-} // namespace w2b::py
+} // namespace w2b::util

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "world/spatial_cell.h"
 
 #include <cstdint>
@@ -34,6 +34,6 @@ namespace w2b::world
     };
 
     LightGrid ReadLightGrid(const std::filesystem::path& path);
-    py::Json WriteLightGrid(const LightGrid& grid, const std::filesystem::path& path,
-                            std::span<const std::uint8_t> extraColors, py::Json modelReport);
+    util::Json WriteLightGrid(const LightGrid& grid, const std::filesystem::path& path,
+                            std::span<const std::uint8_t> extraColors, util::Json modelReport);
 }

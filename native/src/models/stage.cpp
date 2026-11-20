@@ -117,7 +117,7 @@ namespace w2b::models
                 if (!lods.empty())
                 {
                     UpdateModel(job, std::move(lods), result);
-                    files::WriteText(job.destination, py::JsonDumps(job.model, 4) + '\n');
+                    files::WriteText(job.destination, util::JsonDumps(job.model, 4) + '\n');
                 }
                 return result;
             }
@@ -137,7 +137,7 @@ namespace w2b::models
                 auto hidden = DropShadowSurfaces(geometry, [this](const std::string& material) { return shadows_.OnlyShadow(material); });
                 const auto destination = project_ / files::FromUtf8(file);
                 if (stripped || fixed != 0 || !hidden.empty())
-                    files::WriteText(destination, py::JsonDumpsDefault(geometry));
+                    files::WriteText(destination, util::JsonDumpsDefault(geometry));
                 else
                     weapons::CopySource(lod.source, destination);
                 if (!hidden.empty())
@@ -255,7 +255,7 @@ namespace w2b::models
         for (auto& placement : placements)
             if (const auto model = bounds.find(placement.at("name").get_ref<const std::string&>()); model != bounds.end())
                 placement["lightingOrigin"] = LightingOrigin(placement, model->second);
-        files::WriteText(project / "BSP/models.json", py::JsonDumps({{"models", std::move(placements)}}, 1) + '\n');
+        files::WriteText(project / "BSP/models.json", util::JsonDumps({{"models", std::move(placements)}}, 1) + '\n');
         return {{"materials", std::move(materials)}, {"errors", std::move(errors)},
                 {"warnings", std::move(warnings)}, {"content", std::move(content)}};
     }

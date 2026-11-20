@@ -1,11 +1,11 @@
-// Port of launcher.py preflight / BuildPaths / ProcessRunner / perform_* (see build.h).
+// Preflight, build paths, the process runner and the build actions (see build.h).
 #include "build.h"
 
 #include "core/encoding.h"
 #include "core/files.h"
 #include "core/hash.h"
 #include "core/process.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "images.h"
 
 #include <windows.h>
@@ -70,7 +70,7 @@ namespace w2b::launcher
         // json.dumps(value) of a string, as all2raw.key hashes it
         std::string Key(const std::string& value)
         {
-            return hash::Sha256Hex(py::JsonDumpsDefault(py::Json(value))).substr(0, 24);
+            return hash::Sha256Hex(util::JsonDumpsDefault(util::Json(value))).substr(0, 24);
         }
 
         std::string InstallKey(const std::string& value)
@@ -113,7 +113,7 @@ namespace w2b::launcher
         void Coordinate(const std::string& value, const std::string& label, const double limit)
         {
             double number = 0;
-            if (!py::ParseFloat(value, number) || !std::isfinite(number) || std::fabs(number) > limit)
+            if (!util::ParseFloat(value, number) || !std::isfinite(number) || std::fabs(number) > limit)
                 throw std::invalid_argument(label + " must be a number between " + FormatG(-limit) + " and " + FormatG(limit) + ".");
         }
 
@@ -212,7 +212,7 @@ namespace w2b::launcher
     {
         try
         {
-            const auto receipt = py::Json::parse(files::ReadText(root / "build.json"));
+            const auto receipt = util::Json::parse(files::ReadText(root / "build.json"));
             if (bo2StockPerks && receipt.value("bo2_stock_perks", false) != *bo2StockPerks)
                 return false;
             if (receipt.value("project", std::string()) != project)
@@ -261,7 +261,7 @@ namespace w2b::launcher
             if (valid)
             {
                 files("Companion mod.ff", Utf8(source.parent_path()), {"mod.ff"}, false);
-                static const pyre::Regex stem(R"([A-Za-z0-9_\-]+)");
+                static const regex::Regex stem(R"([A-Za-z0-9_\-]+)");
                 const bool validStem = stem.FullMatch(Utf8(source.stem())).has_value();
                 checks.push_back({"Source zone name", validStem, validStem ? "Ready" : "Source fastfile name must use letters, numbers, underscores, or hyphens."});
             }
@@ -298,8 +298,8 @@ namespace w2b::launcher
     {
         BuildPaths::ForSettings(settings);
         // the native build driver (pipeline/driver.cpp); it runs the steps still in
-        // Python as conversion-worker steps itself
-        auto command = NativeCommand({"build-map", "--settings-json", py::JsonDumpsDefault(settings.ToJson())});
+        // the conversion worker steps itself
+        auto command = NativeCommand({"build-map", "--settings-json", util::JsonDumpsDefault(settings.ToJson())});
         if (settings.redump)
             command.push_back("--redump");
         return command;
@@ -353,7 +353,7 @@ namespace w2b::launcher
         startup.hStdOutput = writePipe;
         startup.hStdError = writePipe;
 
-        // the environment, with the worker's Python settings
+        // the environment, with the worker's settings
         std::map<std::wstring, std::wstring, std::less<>> variables;
         if (wchar_t* block = GetEnvironmentStringsW())
         {
@@ -477,7 +477,7 @@ namespace w2b::launcher
 
     // ---------------------------------------------------------------- flows
 
-    py::Json InputStamp(const Settings& settings)
+    util::Json InputStamp(const Settings& settings)
     {
         std::vector<fs::path> paths;
         const auto source = Path(settings.fastfile).parent_path();
@@ -501,12 +501,12 @@ namespace w2b::launcher
         };
         std::sort(paths.begin(), paths.end(), [&](const fs::path& a, const fs::path& b) { return key(a) < key(b); });
         paths.erase(std::unique(paths.begin(), paths.end(), [&](const fs::path& a, const fs::path& b) { return key(a) == key(b); }), paths.end());
-        py::Json stamp = py::Json::object();
+        util::Json stamp = util::Json::object();
         for (const auto& p : paths)
             if (IsFile(p))
             {
                 std::error_code error;
-                stamp[Utf8(Resolve(p))] = py::Json::array({fs::file_size(p, error), MtimeNs(p)});
+                stamp[Utf8(Resolve(p))] = util::Json::array({fs::file_size(p, error), MtimeNs(p)});
             }
         return stamp;
     }
@@ -563,13 +563,13 @@ namespace w2b::launcher
         for (const auto& name : {settings.project + ".ff", settings.project + ".ipak", std::string("mod.ff"), std::string("mod_load.ff"), std::string("mod.json")})
             if (!IsFile(paths.output / Path(name)))
                 Fail("Packaging did not create all required map files. Review package.log.");
-        py::Json data = py::Json::object();
+        util::Json data = util::Json::object();
         data["project"] = settings.project;
         data["source"] = settings.fastfile;
         data["output"] = Utf8(paths.output);
         data["bo2_stock_perks"] = settings.bo2_stock_perks;
-        files::WriteText(receipt, py::JsonDumps(data, 2));
-        files::WriteText(paths.root / "cache.json", py::JsonDumpsDefault(InputStamp(settings)));
+        files::WriteText(receipt, util::JsonDumps(data, 2));
+        files::WriteText(paths.root / "cache.json", util::JsonDumpsDefault(InputStamp(settings)));
         fs::remove(paths.root / "installed.json", error);
         return 0;
     }
@@ -582,7 +582,7 @@ namespace w2b::launcher
                 failures.push_back(c.name + ": " + c.detail);
         if (!failures.empty())
             Fail(Join(failures, "\n"));
-        return runner.Run(NativeCommand({"all2raw", "--settings-json", py::JsonDumpsDefault(settings.ToJson())}), Path(settings.work) / "asset_cache/extract.log");
+        return runner.Run(NativeCommand({"all2raw", "--settings-json", util::JsonDumpsDefault(settings.ToJson())}), Path(settings.work) / "asset_cache/extract.log");
     }
 
     int PerformInstall(const Settings& settings, ProcessRunner& runner)
@@ -593,9 +593,9 @@ namespace w2b::launcher
         const int code = runner.Run(NativeCommand({"package", Utf8(paths.stage), settings.project, "--bo2", settings.bo2, "--work", Utf8(paths.mod)}), paths.root / "install.log");
         if (!code && !runner.Cancelled())
         {
-            py::Json data = py::Json::object();
+            util::Json data = util::Json::object();
             data["output"] = Utf8(paths.output);
-            files::WriteText(paths.root / "installed.json", py::JsonDumpsDefault(data));
+            files::WriteText(paths.root / "installed.json", util::JsonDumpsDefault(data));
         }
         return code;
     }
@@ -608,7 +608,7 @@ namespace w2b::launcher
         try
         {
             const auto paths = BuildPaths::ForSettings(settings);
-            const auto receipt = py::Json::parse(files::ReadText(paths.root / "installed.json"));
+            const auto receipt = util::Json::parse(files::ReadText(paths.root / "installed.json"));
             if (receipt.value("output", std::string()) != Utf8(paths.output))
                 return false;
             for (const auto& name : {settings.project + ".ff", settings.project + ".ipak", std::string("mod.ff"), std::string("mod_load.ff"), std::string("mod.json")})

@@ -2,7 +2,7 @@
 #include "coverage_stage.h"
 
 #include "core/encoding.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "extract/cache.h"
 #include "gsc/parse.h"
 #include "gsc/port/api.h"
@@ -16,7 +16,7 @@ namespace w2b::pipeline
 {
     using mod::Lower;
     using mod::StartsWith;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -32,7 +32,7 @@ namespace w2b::pipeline
         // framework_scripts: maps\<script> -> its first copy along roots
         std::vector<std::pair<std::string, fs::path>> FrameworkScripts(const std::vector<fs::path>& roots)
         {
-            static const pyre::Regex framework("^maps[\\\\/]_(zombiemode\\w*|laststand|gameskill)\\.gsc$", pyre::IGNORECASE);
+            static const regex::Regex framework("^maps[\\\\/]_(zombiemode\\w*|laststand|gameskill)\\.gsc$", regex::IGNORECASE);
             std::vector<std::pair<std::string, fs::path>> found;
             for (const auto& root : roots)
             {
@@ -61,7 +61,7 @@ namespace w2b::pipeline
 
         Coverage Compute(const Json& scripts, const std::vector<fs::path>& roots)
         {
-            static const pyre::Regex redirect("^(maps\\\\_\\w+)::(\\w+) -> (.+)$", pyre::IGNORECASE);
+            static const regex::Regex redirect("^(maps\\\\_\\w+)::(\\w+) -> (.+)$", regex::IGNORECASE);
             std::set<std::string> extracted, ported;
             std::map<std::string, std::string> redirects;
             if (scripts.is_object())
@@ -161,7 +161,7 @@ namespace w2b::pipeline
             for (const auto& [name, fix] : fixes["fixes"].items())
             {
                 const auto& d = fix["default"];
-                const auto value = d.is_string() ? d.get<std::string>() : d.is_boolean() ? (d.get<bool>() ? "True" : "False") : d.is_number_integer() ? std::to_string(d.get<long long>()) : py::FloatRepr(d.get<double>());
+                const auto value = d.is_string() ? d.get<std::string>() : d.is_boolean() ? (d.get<bool>() ? "True" : "False") : d.is_number_integer() ? std::to_string(d.get<long long>()) : util::FloatRepr(d.get<double>());
                 out += "| " + name + " " + value + " | " + fix["changes"].get<std::string>() + " |\n";
             }
             return out;
@@ -199,7 +199,7 @@ namespace w2b::pipeline
                 r[name] = status;
             document[key] = r;
         }
-        files::WriteText(projectRoot / "framework_coverage.json", py::JsonDumps(document, 1) + "\n");
+        files::WriteText(projectRoot / "framework_coverage.json", util::JsonDumps(document, 1) + "\n");
         files::WriteText(projectRoot / "framework_coverage.md", Markdown(project, cov));
         return {Count(cov), std::move(warnings)};
     }

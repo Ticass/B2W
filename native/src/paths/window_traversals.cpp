@@ -117,7 +117,7 @@ namespace w2b::paths
             {
                 if (text.size() != 1)
                     text += ", ";
-                text += py::JsonDumps(component, -1);
+                text += util::JsonDumps(component, -1);
             }
             return text + ']';
         }
@@ -192,7 +192,7 @@ namespace w2b::paths
         const auto hubs = SplitWindowEnds(graph, begins);
         for (const auto begin : begins)
             CopyEndpoint(entries, graph.at("nodes").at(begin), hubs, notes);
-        const auto graphText = py::JsonDumps(graph, -1) + '\n';
+        const auto graphText = util::JsonDumps(graph, -1) + '\n';
         mapents::WriteMapEntities(entitiesFile, entries);
         files::WriteText(pathsFile, graphText);
         return notes;

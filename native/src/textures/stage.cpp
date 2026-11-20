@@ -5,7 +5,7 @@
 
 namespace w2b::textures
 {
-    py::Json HeaderJson(const IwiHeader& header)
+    util::Json HeaderJson(const IwiHeader& header)
     {
         return {{"format", static_cast<unsigned>(header.format)}, {"flags", header.flags}, {"width", header.width},
                 {"height", header.height}, {"depth", header.depth}, {"fileSizeForPicmip", header.fileSizes}};

@@ -11,7 +11,7 @@ namespace w2b::pipeline
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         fs::path SourceEntities(const fs::path& gfx, const fs::path& stage, const std::vector<fs::path>& roots, const std::string& stem)
         {
@@ -34,7 +34,7 @@ namespace w2b::pipeline
             {
                 if (text.size() > 1)
                     text += ", ";
-                text += py::StringRepr(source) + ": " + py::StringRepr(target.get_ref<const std::string&>());
+                text += util::StringRepr(source) + ": " + util::StringRepr(target.get_ref<const std::string&>());
             }
             return text + '}';
         }

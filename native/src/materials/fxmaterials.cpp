@@ -1,9 +1,9 @@
-// WaW effect materials (see fxmaterials.h), ported from fxmaterials.py.
+// WaW effect materials (see fxmaterials.h).
 #include "fxmaterials.h"
 
 #include "core/encoding.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "gsc/tokens.h"
 #include "materials/material.h"
 #include "materials/techsets.h"
@@ -16,7 +16,7 @@
 namespace w2b::materials
 {
     namespace fs = std::filesystem;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -26,7 +26,7 @@ namespace w2b::materials
         const std::map<std::string, std::string> DROPPABLE{{"nofog", "nofog (BO2 effect techniques always fog)"},
                                                            {"zfeather", "depth feathering (no feathered BO2 variant for this family)"}};
 
-        const std::string NONE = "\x01None"; // Python's None in a set of names
+        const std::string NONE = "\x01None"; // "no name" in a set of names
 
         bool StartsWith(const std::string& s, const std::string& p)
         {
@@ -45,7 +45,7 @@ namespace w2b::materials
         std::pair<std::set<std::string>, std::set<std::string>> WawFeatures(const std::string& techset)
         {
             std::set<std::string> tokens;
-            for (const auto part : py::Split(techset, "_"))
+            for (const auto part : util::Split(techset, "_"))
                 tokens.emplace(part);
             std::set<std::string> feats, extra;
             if (StartsWith(techset, "particle_cloud"))
@@ -73,9 +73,9 @@ namespace w2b::materials
             std::string bytes;
             if (!files::ReadBytes(path, bytes))
                 return std::nullopt;
-            static const pyre::Regex technique("(pimp_technique_[a-z0-9_]+);");
-            static const pyre::Regex argument("(?:material|code|sampler)\\.(\\w+)");
-            static const pyre::Regex shader("Shader [\\d.]+ \"pimp_shader_([a-z_]+?)_[0-9a-f]+\\.hlsl\"");
+            static const regex::Regex technique("(pimp_technique_[a-z0-9_]+);");
+            static const regex::Regex argument("(?:material|code|sampler)\\.(\\w+)");
+            static const regex::Regex shader("Shader [\\d.]+ \"pimp_shader_([a-z_]+?)_[0-9a-f]+\\.hlsl\"");
             std::set<std::string> feats;
             for (const auto& m : technique.FindAll(encoding::Utf8Replace(bytes)))
             {

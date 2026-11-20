@@ -3,7 +3,7 @@
 // "materials"): which material file was staged, from which WaW material and
 // donor, and what the shader runtime bound.
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <optional>
 #include <string>
@@ -21,7 +21,7 @@ namespace w2b::pipeline
         std::optional<std::optional<std::string>> t4Techset;
         std::optional<long long> t4SortKey;
         std::string t6Techset;
-        py::Json shaderRuntime;                       // the shader runtime report, null when none ran
+        util::Json shaderRuntime;                       // the shader runtime report, null when none ran
         std::optional<std::string> donor, nativeEquivalent;
         std::optional<long long> cost;
         std::optional<std::vector<std::string>> notes; // absent for records that never carry any
@@ -31,9 +31,9 @@ namespace w2b::pipeline
         {
             return source ? *source : name;
         }
-        py::Json ToJson() const;
-        static MaterialRecord FromJson(const py::Json& data);
+        util::Json ToJson() const;
+        static MaterialRecord FromJson(const util::Json& data);
     };
 
-    py::Json ToJson(const std::vector<MaterialRecord>& records);
+    util::Json ToJson(const std::vector<MaterialRecord>& records);
 } // namespace w2b::pipeline

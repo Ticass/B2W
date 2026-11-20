@@ -16,7 +16,7 @@ namespace w2b::assets
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         using Edge = std::array<std::string, 4>;
         using Names = std::set<std::string>;
 

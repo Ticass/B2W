@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "textures/iwi.h"
 
 #include <filesystem>
@@ -10,7 +10,7 @@
 
 namespace w2b::textures
 {
-    py::Json HeaderJson(const IwiHeader& header);
+    util::Json HeaderJson(const IwiHeader& header);
     IwiHeader ConvertFile(const std::filesystem::path& source, const std::filesystem::path& destination,
                           bool faceMajor = false, bool baseOnly = false);
 
@@ -38,7 +38,7 @@ namespace w2b::textures
         std::size_t index = 0;
         unsigned width = 0, height = 0;
         std::string name;
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 
     struct LightmapStage

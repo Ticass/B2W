@@ -1,11 +1,11 @@
 #pragma once
-// The bridge stage's WaW asset passes (t6bridge.py): weapons and their
+// The bridge stage's WaW asset passes: weapons and their
 // dependency closure, the models the scripts set at runtime, the material
 // sources of every drawn surface, the source impact materials, and the
 // material and image conversions run over them. Each pass appends to the
-// stage report (a StageReport as JSON) like its Python original.
+// stage report (a StageReport as JSON).
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/bridge_report.h"
 
 #include <array>
@@ -35,13 +35,13 @@ namespace w2b::pipeline::bridge
     // _stage_weapons + weapons.stage: resolves and stages the map's compiled
     // weapons; `roots` widens to the resolved roots and `sounds` gains the
     // weapons' sounds. nullopt when there is nothing to stage.
-    std::optional<py::Json> StageWeapons(BridgeReport& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& weapons,
+    std::optional<util::Json> StageWeapons(BridgeReport& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& weapons,
                                          const Names& scriptModels, extract::StockWaw* stock, Names& sounds);
 
     // recover_script_models: the wanted models some WaW zone (or, with
     // `source`, a WaW Mod Tools source) defines; `roots` widens to the dumps
     // that hold them, `scripts` gains requested_models and model_sources
-    Names RecoverScriptModels(py::Json& scripts, std::vector<std::string>& warnings, const Names& wanted, std::vector<fs::path>& roots, extract::StockWaw* stock,
+    Names RecoverScriptModels(util::Json& scripts, std::vector<std::string>& warnings, const Names& wanted, std::vector<fs::path>& roots, extract::StockWaw* stock,
                               extract::WawSource* source);
 
     // recover_material_sources: one lookup for world, HUD and weapon
@@ -67,12 +67,12 @@ namespace w2b::pipeline::bridge
     // `recovered` holds the IWD images decoded so far and gains this pass's.
     std::vector<std::string> StageImages(BridgeReport& report, const std::vector<fs::path>& imageRoots, const fs::path& projectRoot,
                                          const std::optional<std::vector<fs::path>>& iwdDirs, const std::vector<std::string>& extraImages,
-                                         textures::IwdRecovery& recovery, py::Json& recovered);
+                                         textures::IwdRecovery& recovery, util::Json& recovered);
 
     // impactmaterials.stage: the map's own impact materials for engine-created marks;
     // the report content entry ({} when the map ships none)
-    py::Json StageImpactMaterials(const fs::path& projectRoot, const std::vector<fs::path>& roots, const fs::path& techsetDump,
-                                  extract::StockWaw* stock, textures::IwdRecovery& recovery, py::Json& recovered, bool layeredVertexData);
+    util::Json StageImpactMaterials(const fs::path& projectRoot, const std::vector<fs::path>& roots, const fs::path& techsetDump,
+                                  extract::StockWaw* stock, textures::IwdRecovery& recovery, util::Json& recovered, bool layeredVertexData);
 
     // shaderruntime.light_falloff_placement: WaW's lightFalloffPlacement for
     // the light def every local light shares; nullopt when there is none

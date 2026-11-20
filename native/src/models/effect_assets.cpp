@@ -8,7 +8,7 @@
 
 namespace w2b::models
 {
-    py::Json EffectModelAssets::EntriesJson() const
+    util::Json EffectModelAssets::EntriesJson() const
     {
         auto json = Json::array();
         for (const auto& entry : entries)

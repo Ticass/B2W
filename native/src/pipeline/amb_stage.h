@@ -3,7 +3,7 @@
 // WaW ambient rooms, packages and music state table ported to BO2's API
 // (sounds.port_ambient / port_music / radverb_for).
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/step_report.h"
 
 #include <filesystem>

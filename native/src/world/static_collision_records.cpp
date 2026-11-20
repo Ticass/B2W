@@ -49,7 +49,7 @@ namespace w2b::world
         }
     }
 
-    py::Json StaticModelRecord::ToJson() const
+    util::Json StaticModelRecord::ToJson() const
     {
         return {{"name", name}, {"contents", contents}, {"origin", origin}, {"invScaledAxis", invScaledAxis}, {"absmin", absmin}, {"absmax", absmax}};
     }
@@ -80,7 +80,7 @@ namespace w2b::world
             std::ranges::copy(model.absmin, record.absmin.begin());
             std::ranges::copy(model.absmax, record.absmax.begin());
         }
-        py::Json summary{{"static_models", records.size()}, {"static_model_collision_triangles", triangles},
+        util::Json summary{{"static_models", records.size()}, {"static_model_collision_triangles", triangles},
                          {"static_models_without_collision", noCollision},
                          {"static_model_triangles_outside_waw_bounds", outside}};
         return {std::move(records), std::move(summary)};

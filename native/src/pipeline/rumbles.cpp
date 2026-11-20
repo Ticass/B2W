@@ -60,7 +60,7 @@ namespace w2b::pipeline
             if (!files::ReadBytes(profile, bytes))
                 throw std::runtime_error("cannot read " + files::Utf8(profile));
             const auto text = gsc::port::PyStrip(encoding::UniversalNewlines(encoding::Utf8Replace(bytes)));
-            const auto fields = py::Split(text, "\\");
+            const auto fields = util::Split(text, "\\");
             if (fields.front() != "RUMBLE" || fields.size() % 2 != 1)
                 throw std::invalid_argument("invalid rumble profile: " + files::Utf8(fs::path(profile).make_preferred()));
             auto search = roots;
@@ -82,7 +82,7 @@ namespace w2b::pipeline
         }
     }
 
-    py::Json RumbleStage::ToJson() const
+    util::Json RumbleStage::ToJson() const
     {
         return {{"files", files}, {"missing", missing}, {"native_profiles", nativeProfiles}};
     }

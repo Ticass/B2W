@@ -24,7 +24,7 @@ if(MSVC)
 endif()
 
 add_library(w2b_core STATIC
-    src/core/pytext.cpp
+    src/core/text.cpp
     src/core/key_values.cpp
     src/core/asset_paths.cpp
     src/core/files.cpp
@@ -36,7 +36,7 @@ add_library(w2b_core STATIC
     src/core/encoding.cpp
     src/core/unicode.cpp
     src/core/string_repr.cpp
-    src/core/pyre.cpp
+    src/core/regex.cpp
     src/core/zip.cpp
     src/core/zipwrite.cpp
     src/core/timeline.cpp)
@@ -253,7 +253,7 @@ endif()
 enable_testing()
 if(EXISTS "${OAT_THIRDPARTY}/catch2/CMakeLists.txt")
     add_subdirectory("${OAT_THIRDPARTY}/catch2" catch2 EXCLUDE_FROM_ALL)
-    add_executable(w2b_tests tests/test_pytext.cpp tests/test_registers.cpp tests/test_translate.cpp
+    add_executable(w2b_tests tests/test_text.cpp tests/test_registers.cpp tests/test_translate.cpp
         tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp tests/test_extract.cpp tests/test_pipeline.cpp tests/test_t6_material.cpp)
     target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher w2b_extract w2b_pipeline Catch2::Catch2WithMain)
     add_executable(fake_unlinker tests/fake_unlinker.cpp)

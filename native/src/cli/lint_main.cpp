@@ -2,7 +2,7 @@
 #include "core/files.h"
 #include "core/parallel.h"
 #include "core/process.h"
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <windows.h>
 
@@ -70,7 +70,7 @@ namespace
 
     std::vector<fs::path> CompilationFiles(const fs::path& database, const fs::path& native)
     {
-        const auto entries = w2b::py::Json::parse(w2b::files::ReadText(database));
+        const auto entries = w2b::util::Json::parse(w2b::files::ReadText(database));
         const auto order = [](const fs::path& left, const fs::path& right) { return ComparePath(left, right) == CSTR_LESS_THAN; };
         std::set<fs::path, decltype(order)> files;
         for (const auto& entry : entries)
@@ -112,9 +112,9 @@ namespace
         for (std::size_t index = 0; index < files.size(); ++index)
         {
             const auto& result = results[index];
-            if (result.exitCode || !w2b::py::Strip(result.out).empty())
+            if (result.exitCode || !w2b::util::Strip(result.out).empty())
                 std::cout << Utf8(files[index].lexically_relative(native)) << '\n'
-                          << w2b::py::RStrip(w2b::encoding::Utf8Replace(result.out + result.err), " \t\r\n") << '\n';
+                          << w2b::util::RStrip(w2b::encoding::Utf8Replace(result.out + result.err), " \t\r\n") << '\n';
             failures += result.exitCode != 0;
         }
         std::cout << "clang-tidy checked " << files.size() << " C++ files, " << failures << " failed.\n";

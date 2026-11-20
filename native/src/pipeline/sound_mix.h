@@ -3,7 +3,7 @@
 // (audioremaster stock profiles and classes, bus groups, reverb send, the
 // loaded-bank budget) and the bank written with them (sound/bank.cpp).
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/step_report.h"
 #include "sound/bank.h"
 
@@ -33,7 +33,7 @@ namespace w2b::pipeline
     struct SoundMixResult
     {
         StepReport report;
-        py::Json bankReport; // content_source/sounds.bank.json
+        util::Json bankReport; // content_source/sounds.bank.json
         std::optional<sound::SoundBudget> budget; // the loaded-bank budget, none without BO2
     };
 

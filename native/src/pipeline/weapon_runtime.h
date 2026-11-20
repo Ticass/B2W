@@ -4,7 +4,7 @@
 // weapons convert whole, BO2 equivalents for absent models (bo2equiv), the
 // written T6 weapon files, zone lines and content_source/weapons.runtime.json).
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>
@@ -25,7 +25,7 @@ namespace w2b::pipeline
     };
 
     // weapons.stage_runtime: content_source/weapons.runtime.json, as written
-    py::Json StageWeaponRuntime(const WeaponRuntimeRequest& request);
+    util::Json StageWeaponRuntime(const WeaponRuntimeRequest& request);
     // the rest of t6bridge._stage_weapon_runtime: the map's string tables
     // (stage_map_tables), maps/mp/waw/_waw2bo2_assets.gsc and the wall buys
     // (entities.map_wall_buys). request {project_root, fx_table, waw_map,

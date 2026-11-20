@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>
@@ -10,7 +10,7 @@
 namespace w2b::paths
 {
     using Path = std::filesystem::path;
-    using py::Json;
+    using util::Json;
     using Names = std::set<std::string, std::less<>>;
     using Alias = std::optional<std::string>;
 

@@ -1,5 +1,5 @@
 #pragma once
-// Port of wawsource.py: WaW assets that exist only as WaW Mod Tools sources
+// WaW assets that exist only as WaW Mod Tools sources
 // (GUIDELINES 27, source 4). An effect, material or model in no compiled zone
 // of the WaW install is compiled from the Mod Tools raw/ folder with WaW's own
 // linker (bin/linker_pc.exe) into a scratch fastfile, which the T4 unlinker
@@ -7,7 +7,7 @@
 // Opt-in (--waw-source-fx): it adds content the WaW build never showed, and
 // every use is reported by the caller (WAW_SOURCE_ASSET).
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>

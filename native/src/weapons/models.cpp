@@ -45,7 +45,7 @@ namespace w2b::weapons
         {
             const auto entry = object.find(key);
             if (entry == object.end())
-                throw WeaponError(py::StringRepr(key));
+                throw WeaponError(util::StringRepr(key));
             return *entry;
         }
 
@@ -147,7 +147,7 @@ namespace w2b::weapons
             auto metadata = Json::array();
             for (auto& lod : lods)
             {
-                files::WriteBytes(project / lod.destination, py::JsonDumps(lod.geometry, -1));
+                files::WriteBytes(project / lod.destination, util::JsonDumps(lod.geometry, -1));
                 metadata.push_back(std::move(lod.metadata));
             }
             model["_game"] = "t6";
@@ -167,7 +167,7 @@ namespace w2b::weapons
             model["lods"] = std::move(metadata);
             model["lightingOriginOffset"] = {{"x", 0.0}, {"y", 0.0}, {"z", 0.0}};
             model["lightingOriginRange"] = 0.0;
-            files::WriteText(project / "xmodel" / files::FromUtf8(renamed + ".json"), py::JsonDumps(model, 2) + "\n");
+            files::WriteText(project / "xmodel" / files::FromUtf8(renamed + ".json"), util::JsonDumps(model, 2) + "\n");
             report.models.push_back({{"name", renamed}, {"waw", name}, {"source", files::Utf8(source)},
                                      {"lods", lods.size()}, {"materials", materials}});
         }

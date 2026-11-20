@@ -16,7 +16,7 @@ namespace w2b::pipeline
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         namespace fs = std::filesystem;
         constexpr int unknownFormat = 0xff;
 

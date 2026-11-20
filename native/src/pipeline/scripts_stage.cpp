@@ -5,7 +5,7 @@
 #include "assets/resolver.h"
 #include "barriers/barriers.h"
 #include "core/asset_paths.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
 #include "extract/wawsource.h"
@@ -34,7 +34,7 @@ namespace w2b::pipeline
     using mod::Lower;
     using mod::StartsWith;
     using mod::Str;
-    using py::Json;
+    using util::Json;
     namespace port = gsc::port;
 
     namespace
@@ -127,7 +127,7 @@ namespace w2b::pipeline
             return out;
         }
 
-        std::vector<std::string> FindAllGroup(const pyre::Regex& regex, const std::string& text)
+        std::vector<std::string> FindAllGroup(const regex::Regex& regex, const std::string& text)
         {
             std::vector<std::string> out;
             for (const auto& m : regex.FindAll(text))
@@ -152,7 +152,7 @@ namespace w2b::pipeline
         // wrapped_model_literals: models named through a helper that hands its parameter to a model call
         std::set<std::string> WrappedModelLiterals(const std::vector<std::string>& texts)
         {
-            static const pyre::Regex function("^([A-Za-z_]\\w*)\\s*\\(([^)]*)\\)\\s*\\{", pyre::MULTILINE);
+            static const regex::Regex function("^([A-Za-z_]\\w*)\\s*\\(([^)]*)\\)\\s*\\{", regex::MULTILINE);
             std::map<std::string, size_t> wrappers;
             for (const auto& text : texts)
                 for (const auto& m : function.FindIter(text))
@@ -172,11 +172,11 @@ namespace w2b::pipeline
                     const auto body = text.substr(start, end - start);
                     size_t index = 0;
                     const auto params = m[2];
-                    for (const auto part : py::Split(params, ","))
+                    for (const auto part : util::Split(params, ","))
                     {
-                        const auto param = std::string(py::Strip(part));
+                        const auto param = std::string(util::Strip(part));
                         if (!param.empty() &&
-                            pyre::Regex("\\b(?:waw_)?(?:precachemodel|setmodel|setviewmodel|attach)\\s*\\(\\s*" + pyre::Escape(param) + "\\s*[,)]", pyre::IGNORECASE)
+                            regex::Regex("\\b(?:waw_)?(?:precachemodel|setmodel|setviewmodel|attach)\\s*\\(\\s*" + regex::Escape(param) + "\\s*[,)]", regex::IGNORECASE)
                                 .Search(body))
                             wrappers[Lower(m[1])] = index;
                         index++;
@@ -185,11 +185,11 @@ namespace w2b::pipeline
             std::set<std::string> found;
             for (const auto& [name, index] : wrappers)
             {
-                std::string pattern = "\\b" + pyre::Escape(name) + "\\s*\\(\\s*";
+                std::string pattern = "\\b" + regex::Escape(name) + "\\s*\\(\\s*";
                 for (size_t i = 0; i < index; i++)
                     pattern += "(?:\"[^\"]*\"\\s*,\\s*)";
                 pattern += "\"([^\"]+)\"";
-                const pyre::Regex call(pattern, pyre::IGNORECASE);
+                const regex::Regex call(pattern, regex::IGNORECASE);
                 for (const auto& text : texts)
                     for (const auto& model : FindAllGroup(call, text))
                         found.insert(model);
@@ -451,9 +451,9 @@ namespace w2b::pipeline
             warnings.push_back("scripts: the map overrides WaW framework scripts BO2 replaces with its own (behaviour changes there are not ported): " +
                                mod::Join(portReport.coreOverrides, ", "));
         // models the scripts precache / set / attach, in the emitted code
-        static const pyre::Regex modelCall("\\b(?:waw_)?(?:precachemodel|setmodel|setviewmodel|attach)\\s*\\(\\s*\"([^\"]+)\"", pyre::IGNORECASE);
-        static const pyre::Regex precacheCall("\\b(?:waw_)?precachemodel\\s*\\(\\s*\"([^\"]+)\"", pyre::IGNORECASE);
-        static const pyre::Regex shaderCall("\\b(?:precacheshader|setshader)\\s*\\(\\s*\"([^\"]+)\"", pyre::IGNORECASE);
+        static const regex::Regex modelCall("\\b(?:waw_)?(?:precachemodel|setmodel|setviewmodel|attach)\\s*\\(\\s*\"([^\"]+)\"", regex::IGNORECASE);
+        static const regex::Regex precacheCall("\\b(?:waw_)?precachemodel\\s*\\(\\s*\"([^\"]+)\"", regex::IGNORECASE);
+        static const regex::Regex shaderCall("\\b(?:precacheshader|setshader)\\s*\\(\\s*\"([^\"]+)\"", regex::IGNORECASE);
         const auto coreText = files::ReadText(projectRoot / "maps/mp/waw/_waw2bo2_core.gsc");
         std::set<std::string> wanted;
         for (const auto& m : FindAllGroup(modelCall, coreText))
@@ -544,7 +544,7 @@ namespace w2b::pipeline
         const auto builtinMaterials = [&](const std::string& text)
         {
             for (const auto& [b, m] : ENGINE_BUILTIN_MATERIALS)
-                if (pyre::Regex("\\b" + b + "\\s*\\(", pyre::IGNORECASE).Search(text))
+                if (regex::Regex("\\b" + b + "\\s*\\(", regex::IGNORECASE).Search(text))
                     shaders.insert(m);
         };
         for (const auto& path : portReport.ported)

@@ -36,9 +36,9 @@ TEST_CASE("an extracted zone is published once and reused from its receipt")
     ZoneRequest request{zone, FAKE_UNLINKER, root / "cache" / "zones" / "z", SearchPaths({zone.parent_path()}), std::string("material,image"), "IWI"};
     const auto first = ExtractZone(request);
     CHECK(Runs(zone) == 2); // the dump and its asset listing
-    CHECK(first.data["files"] == w2b::py::Json::array({"images/bar.iwi", "materials/mc/foo.json"}));
-    CHECK(first.data["index"] == w2b::py::Json::parse(R"({"material": ["mc/foo"], "image": ["bar"]})"));
-    CHECK(first.data["loaded_index"]["image"] == w2b::py::Json::array({"bar", "referenced"}));
+    CHECK(first.data["files"] == w2b::util::Json::array({"images/bar.iwi", "materials/mc/foo.json"}));
+    CHECK(first.data["index"] == w2b::util::Json::parse(R"({"material": ["mc/foo"], "image": ["bar"]})"));
+    CHECK(first.data["loaded_index"]["image"] == w2b::util::Json::array({"bar", "referenced"}));
     CHECK(fs::is_regular_file(first.folder / "extraction.json"));
     // the cache key is the receipt's name: the same inputs find the same folder
     CHECK(fs::is_regular_file(request.root / (Key(first.data["inputs"]) + ".json")));
@@ -62,15 +62,15 @@ TEST_CASE("a zone extracted again for more kinds extracts only the new ones")
     ZoneRequest request{zone, FAKE_UNLINKER, root / "dependencies" / "z", SearchPaths({zone.parent_path()}), std::string("material"), "DDS"};
     const auto first = ExtractZone(request);
     CHECK(Runs(zone) == 2); // the dump and its asset listing
-    CHECK(first.data["files"] == w2b::py::Json::array({"materials/mc/foo.json"}));
+    CHECK(first.data["files"] == w2b::util::Json::array({"materials/mc/foo.json"}));
 
     request.assets = "image,material";
     request.base = first.folder;
     const auto second = ExtractZone(request);
     CHECK(Runs(zone) == 3); // only the image kind is dumped; the listing is reused
     CHECK(second.folder != first.folder);
-    CHECK(second.data["files"] == w2b::py::Json::array({"images/bar.iwi", "materials/mc/foo.json"}));
-    CHECK(w2b::py::SortKeys(second.data["index"]) == w2b::py::SortKeys(first.data["index"]));
+    CHECK(second.data["files"] == w2b::util::Json::array({"images/bar.iwi", "materials/mc/foo.json"}));
+    CHECK(w2b::util::SortKeys(second.data["index"]) == w2b::util::SortKeys(first.data["index"]));
     CHECK(second.data["inputs"]["assets"] == "image,material");
     std::ifstream kinds(zone.wstring() + L".kinds");
     std::string firstKinds, secondKinds;
@@ -82,18 +82,18 @@ TEST_CASE("a zone extracted again for more kinds extracts only the new ones")
 
 TEST_CASE("cache keys hash sorted JSON like all2raw.key")
 {
-    // all2raw.key({"b": 1, "a": [1, "x"]}) in Python
-    CHECK(Key(w2b::py::Json::parse(R"({"b": 1, "a": [1, "x"]})")) == Key(w2b::py::Json::parse(R"({"a": [1, "x"], "b": 1})")));
-    CHECK(Key(w2b::py::Json("C:\\maps")).size() == 24);
+    // the cache key of {"b": 1, "a": [1, "x"]}
+    CHECK(Key(w2b::util::Json::parse(R"({"b": 1, "a": [1, "x"]})")) == Key(w2b::util::Json::parse(R"({"a": [1, "x"], "b": 1})")));
+    CHECK(Key(w2b::util::Json("C:\\maps")).size() == 24);
 }
 
 TEST_CASE("asset listings keep definitions, references only on request")
 {
     const auto text = "material,mc/foo\nxmodel , body \nimage,,shared\nbad line\n_,x\n";
     const auto own = ListingJson(text);
-    CHECK(own == w2b::py::Json::parse(R"({"material": ["mc/foo"], "xmodel": ["body"]})"));
+    CHECK(own == w2b::util::Json::parse(R"({"material": ["mc/foo"], "xmodel": ["body"]})"));
     const auto all = ListingJson(text, true);
-    CHECK(all["image"] == w2b::py::Json::array({"shared"}));
+    CHECK(all["image"] == w2b::util::Json::array({"shared"}));
 }
 
 TEST_CASE("Mod Tools source zones are named like wawsource.source_zone_name")

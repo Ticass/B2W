@@ -17,7 +17,7 @@ namespace w2b::sound
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         namespace fs = std::filesystem;
 
         std::string Lower(std::string text)
@@ -91,7 +91,7 @@ namespace w2b::sound
                 return std::min(8u, parallel::Workers());
             long long requested = 0;
             bool overflow = false;
-            if (!py::ParseInt(configured, requested, overflow) || (!overflow && requested < 1))
+            if (!util::ParseInt(configured, requested, overflow) || (!overflow && requested < 1))
                 throw SoundError("WAW2BO2_WORKERS must be a positive integer");
             return overflow ? 8u : static_cast<unsigned>(std::min(8LL, requested));
         }

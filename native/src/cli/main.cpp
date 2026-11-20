@@ -2,7 +2,7 @@
 #include "cli/dev_tools.h"
 #include "core/asset_paths.h"
 #include "core/files.h"
-#include "core/pytext.h"
+#include "core/text.h"
 #include "extract/cache.h"
 #include "extract/stock.h"
 #include "launcher/build.h"
@@ -204,7 +204,7 @@ namespace
         return file ? w2b::files::ReadText(w2b::files::FromUtf8(*file)) : *json;
     }
 
-    // a build step: Python's "waw2bo2: error: <Kind>: <message>" on failure
+    // a build step: "waw2bo2: error: <Kind>: <message>" on failure
     int Step(const std::function<int()>& run)
     {
         try
@@ -269,7 +269,7 @@ namespace
         });
     }
 
-    // audit-material-args <zone> [<extra techset folder> ...]: tools/audit_material_args.py
+    // audit-material-args <zone> [<extra techset folder> ...]
     int AuditMaterialArgsCommand(const Arguments& args)
     {
         if (args.empty())
@@ -324,7 +324,7 @@ namespace
     }
 
     // build-map --settings-json J | --settings-file F [--redump] [--build-root R] [--waw-cache-root R] [--bo2-cache-root R]
-    // stage-bridge <stage> <project> --gfx ... (cli.py stage-bridge)
+    // stage-bridge <stage> <project> --gfx ...
     // oat-unlink <Unlinker.exe arguments>: OpenAssetTools' Unlinker, linked into this program
     int OatUnlinkCommand(const Arguments& args)
     {
@@ -339,7 +339,7 @@ namespace
         if (args.size() < 4)
             return Usage();
         std::vector<std::filesystem::path> search;
-        for (const auto part : w2b::py::Split(args[2], ";"))
+        for (const auto part : w2b::util::Split(args[2], ";"))
             if (!part.empty())
                 search.push_back(w2b::files::FromUtf8(std::string(part)));
         std::vector<std::pair<std::string, std::string>> assets;
@@ -494,7 +494,7 @@ namespace
         });
     }
 
-    int PrintReport(const w2b::py::Json& report)
+    int PrintReport(const w2b::util::Json& report)
     {
         std::puts(report.dump(-1, ' ', true).c_str());
         return 0;
@@ -505,7 +505,7 @@ namespace
         if (args.size() != 2)
             return Usage();
         const auto info = w2b::world::InspectWorld(w2b::files::FromUtf8(args[0]), w2b::files::FromUtf8(args[1]));
-        std::puts(w2b::py::JsonDumps(info, 2).c_str());
+        std::puts(w2b::util::JsonDumps(info, 2).c_str());
         return 0;
     }
 
@@ -515,7 +515,7 @@ namespace
             return Usage();
         const auto report = w2b::world::InspectStaticModels(w2b::files::FromUtf8(args[0]),
                                                            w2b::files::FromUtf8(args[1]));
-        const auto formatted = w2b::py::JsonDumps(report, 2);
+        const auto formatted = w2b::util::JsonDumps(report, 2);
         std::ofstream output(w2b::files::FromUtf8(args[2]));
         output << formatted << '\n';
         output.close();

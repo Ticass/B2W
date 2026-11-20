@@ -5,7 +5,7 @@
 // bound into the entities and script comparisons
 // (sounds.bind_entity_sounds / bind_script_sound_comparisons).
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/step_report.h"
 
 #include <filesystem>
@@ -33,9 +33,9 @@ namespace w2b::pipeline
     struct SoundDiscovery
     {
         std::vector<std::string> scriptSounds, entitySounds, soundNames;
-        py::Json soundGraph;                                   // content_source/sounds.dependencies.json
+        util::Json soundGraph;                                   // content_source/sounds.dependencies.json
         std::vector<std::pair<std::string, std::filesystem::path>> stockRoots; // zone -> dump the closure used
-        py::Json animationSoundIdentities;
+        util::Json animationSoundIdentities;
         StepReport report;                                     // the sound dependency content sections
     };
 

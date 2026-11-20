@@ -11,7 +11,7 @@ namespace w2b::sound
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         constexpr double Tolerance = 1e-5;
         constexpr std::size_t Samples = 256;
 
@@ -123,7 +123,7 @@ namespace w2b::sound
         }
     }
 
-    py::Json TranslateCurves(const Json& sources, const std::vector<Curve>& stock, bool approximate)
+    util::Json TranslateCurves(const Json& sources, const std::vector<Curve>& stock, bool approximate)
     {
         if (stock.empty())
             throw SoundError("T6 sound driver contains no falloff curves");

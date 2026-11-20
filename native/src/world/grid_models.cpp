@@ -106,7 +106,7 @@ namespace w2b::world
             return light;
         }
 
-        bool InLightVolume(const py::Json& light, const Vec3& position, bool compensated)
+        bool InLightVolume(const util::Json& light, const Vec3& position, bool compensated)
         {
             const auto type = light.at("type").get<int>();
             if (type < 2)
@@ -125,9 +125,9 @@ namespace w2b::world
                 return true;
             if (rotation != 1.0)
             {
-                const auto id = light.value("index", py::Json{});
+                const auto id = light.value("index", util::Json{});
                 throw std::runtime_error("primary light " + (id.is_null() ? "None" : id.dump()) +
-                    ": rotationLimit " + py::JsonDumps(limit, -1) +
+                    ": rotationLimit " + util::JsonDumps(limit, -1) +
                     " needs WaW's expanded cone (sub_595370), not ported");
             }
             const auto along = SumDot(light.at("dir").get<Vec3>(), delta, compensated);
@@ -155,8 +155,8 @@ namespace w2b::world
             int visibility, light;
         };
 
-        Sample BlendModel(const LightGrid& grid, const py::Json& model, const Columns& columns,
-                          const WorldTracer& tracer, const py::Json& lights, bool compensated,
+        Sample BlendModel(const LightGrid& grid, const util::Json& model, const Columns& columns,
+                          const WorldTracer& tracer, const util::Json& lights, bool compensated,
                           std::vector<std::uint8_t>& palette, std::size_t& outside, std::size_t& unreached)
         {
             const auto origin = model.at("lightingOrigin").get<Vec3>();
@@ -200,8 +200,8 @@ namespace w2b::world
         }
     }
 
-    ModelGridSamples SampleModelLighting(const LightGrid& grid, py::Json& placements, const WorldTracer& tracer,
-                                        const py::Json& lights, bool compensated)
+    ModelGridSamples SampleModelLighting(const LightGrid& grid, util::Json& placements, const WorldTracer& tracer,
+                                        const util::Json& lights, bool compensated)
     {
         Columns columns;
         for (const auto& [point, _] : grid.points)
@@ -218,7 +218,7 @@ namespace w2b::world
                 continue;
             ++count;
             const auto sample = BlendModel(grid, model, columns, tracer, lights, compensated, palette, outside, unreached);
-            const auto compiled = model.value("primaryLightIndex", py::Json{});
+            const auto compiled = model.value("primaryLightIndex", util::Json{});
             if (compiled != sample.light)
                 model["compiledPrimaryLightIndex"] = compiled;
             model["colorsIndex"] = sample.color;

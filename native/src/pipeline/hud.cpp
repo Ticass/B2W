@@ -5,7 +5,7 @@
 
 #include "core/files.h"
 #include "core/hash.h"
-#include "core/pytext.h"
+#include "core/text.h"
 #include "extract/cache.h"
 #include "finish.h"
 #include "modsupport.h"
@@ -40,7 +40,7 @@ namespace w2b::pipeline
         {
             const auto compat = extract::ResourceRoot() / "src/waw2bo2/compat";
             const auto source = compat / files::FromUtf8(wrapper + ".lua");
-            const auto hashes = py::Json::parse(files::ReadText(compat / files::FromUtf8(wrapper + ".json")));
+            const auto hashes = util::Json::parse(files::ReadText(compat / files::FromUtf8(wrapper + ".json")));
             const auto luac = compat / files::FromUtf8(wrapper + ".luac");
             if (hash::Sha256Hex(Read(source)) != hashes["source_sha256"].get<std::string>() || hash::Sha256Hex(Read(luac)) != hashes["bytecode_sha256"].get<std::string>())
                 throw StepError("ValueError", "Recompile " + wrapper + " with tools/compile_menu_layers.ps1");
@@ -71,7 +71,7 @@ namespace w2b::pipeline
         std::error_code e;
         if (!fs::is_regular_file(manifest, e))
             return {};
-        const auto data = py::Json::parse(files::ReadText(manifest));
+        const auto data = util::Json::parse(files::ReadText(manifest));
         const auto p = [&](const std::string& relative) { return project / files::FromUtf8(relative); };
         Write(p(SUPPORT), CheckedBytecode("waw_hud"));
         // assemble the converted HUD before the native ForceHUDRefresh
@@ -92,7 +92,7 @@ namespace w2b::pipeline
         std::vector<std::vector<std::string>> rows;
         const auto runtime = project / "content_source/weapons.runtime.json";
         if (fs::is_regular_file(runtime, e))
-            for (const auto& weapon : py::Json::parse(files::ReadText(runtime)).value("weapons", py::Json::array()))
+            for (const auto& weapon : util::Json::parse(files::ReadText(runtime)).value("weapons", util::Json::array()))
             {
                 const auto weaponName = weapon.get<std::string>();
                 const auto info = project / "content_source/weapons" / files::FromUtf8(weaponName);
@@ -117,7 +117,7 @@ namespace w2b::pipeline
             materials.push_back(m.get<std::string>());
         if (fs::is_regular_file(p(MENU_MANIFEST), e))
         {
-            const auto staged = py::Json::parse(files::ReadText(p(MENU_MANIFEST)));
+            const auto staged = util::Json::parse(files::ReadText(p(MENU_MANIFEST)));
             if (staged.contains("staged_materials"))
             {
                 tables.push_back(MENU_TABLE);

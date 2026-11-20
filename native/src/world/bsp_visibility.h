@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "world/render_world.h"
 
 #include <span>
@@ -9,8 +9,8 @@ namespace w2b::world
 {
     struct Visibility
     {
-        py::Json data;
-        py::Json summary;
+        util::Json data;
+        util::Json summary;
         std::string warning;
     };
 

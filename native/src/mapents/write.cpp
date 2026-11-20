@@ -14,7 +14,7 @@ namespace w2b::mapents
     {
         long long index{};
         bool overflow{};
-        if (!py::ParseInt(model.substr(1), index, overflow) || overflow)
+        if (!util::ParseInt(model.substr(1), index, overflow) || overflow)
             throw std::invalid_argument("invalid entity brush model: " + std::string(model));
         return index;
     }
@@ -149,7 +149,7 @@ namespace w2b::mapents
                 models.emplace(model);
         }
         WriteMapEntities(bsp / "entities.json", entities);
-        files::WriteText(bsp / "spawns.json", py::JsonDumps(spawns, 1) + "\n");
+        files::WriteText(bsp / "spawns.json", util::JsonDumps(spawns, 1) + "\n");
         return {std::move(summary), {models.begin(), models.end()}, std::nullopt};
     }
 }

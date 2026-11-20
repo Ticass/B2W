@@ -1,6 +1,6 @@
 #include "registers.h"
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 namespace w2b::shaders
 {
@@ -15,7 +15,7 @@ namespace w2b::shaders
         size_t Digits(const std::string_view text, const size_t at)
         {
             size_t end = at;
-            while (end < text.size() && py::IsDigit(text[end]))
+            while (end < text.size() && util::IsDigit(text[end]))
                 end++;
             return end > at ? end : std::string_view::npos;
         }
@@ -99,7 +99,7 @@ namespace w2b::shaders
         if (text.empty() || !(text[0] >= 'A' && text[0] <= 'Z'))
             return false;
         for (const char c : text.substr(1))
-            if (!((c >= 'A' && c <= 'Z') || py::IsDigit(c) || c == '_'))
+            if (!((c >= 'A' && c <= 'Z') || util::IsDigit(c) || c == '_'))
                 return false;
         return true;
     }
@@ -111,7 +111,7 @@ namespace w2b::shaders
         while (at < text.size())
         {
             // \b: the alternatives start with a word character
-            if (at > 0 && py::IsWord(text[at - 1]))
+            if (at > 0 && util::IsWord(text[at - 1]))
             {
                 at++;
                 continue;
@@ -120,7 +120,7 @@ namespace w2b::shaders
             for (const auto end : Alternatives(text, at))
             {
                 const bool lookahead = end == text.size() || text[end] == '.' || text[end] == '_' || text[end] == ',' || text[end] == ')'
-                                       || py::IsSpace(text[end]);
+                                       || util::IsSpace(text[end]);
                 if (lookahead)
                 {
                     found.emplace_back(text.substr(at, end - at));

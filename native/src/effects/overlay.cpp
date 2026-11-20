@@ -13,7 +13,7 @@ namespace w2b::effects
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
 
         struct Overlay
         {
@@ -88,7 +88,7 @@ namespace w2b::effects
                     variant["flags"] = effect.at("flags").get<unsigned>() & ~0x20u;
                 variant["elemDefs"] = std::move(kept);
                 variant["totalSize"] = AllocationSize(variant);
-                entries.push_back({{source, name, variantName}, py::JsonDumps(variant, 1) + "\n"});
+                entries.push_back({{source, name, variantName}, util::JsonDumps(variant, 1) + "\n"});
             }
             return entries;
         }
@@ -147,7 +147,7 @@ namespace w2b::effects
         }
     }
 
-    py::Json ToJson(const std::vector<ModelOverlay>& overlays)
+    util::Json ToJson(const std::vector<ModelOverlay>& overlays)
     {
         auto json = Json::array();
         for (const auto& overlay : overlays)
@@ -183,10 +183,10 @@ namespace w2b::effects
             for (const auto& entry : entries)
                 sources.insert(entry.source);
             for (const auto& source : sources)
-                block += table + "[" + py::JsonDumpsDefault(source) + "] = [];\n";
+                block += table + "[" + util::JsonDumpsDefault(source) + "] = [];\n";
             for (const auto& entry : entries)
-                block += table + "[" + py::JsonDumpsDefault(entry.source) + "][" + py::JsonDumpsDefault(entry.model) + "] = " +
-                         py::JsonDumpsDefault(entry.variant) + ";\n";
+                block += table + "[" + util::JsonDumpsDefault(entry.source) + "][" + util::JsonDumpsDefault(entry.model) + "] = " +
+                         util::JsonDumpsDefault(entry.variant) + ";\n";
             block += endMarker;
             text.insert(start + init.size(), block);
         }

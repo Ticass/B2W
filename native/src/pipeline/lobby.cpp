@@ -1,9 +1,9 @@
-// The map's frontend: menu strings, lobby tables and mod_load.ff (modzone.py).
+// The map's frontend: menu strings, lobby tables and mod_load.ff.
 #include "modzone.h"
 
 #include "core/hash.h"
 #include "gsc/tokens.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "csvtable.h"
 #include "modutil.h"
 #include "weapons/weapon.h"
@@ -19,7 +19,7 @@ namespace w2b::pipeline
     {
         const std::string DEFAULT_MENU_MODE = "Zombies", DEFAULT_MENU_LOCATION = "World at War";
 
-        // dict with Python's insertion order: a repeated key keeps its place
+        // a dict in insertion order: a repeated key keeps its place
         struct Ordered
         {
             std::vector<std::pair<std::string, std::string>> items;
@@ -36,7 +36,7 @@ namespace w2b::pipeline
             }
         };
 
-        std::string String(const py::Json& data, const char* key)
+        std::string String(const util::Json& data, const char* key)
         {
             return data.contains(key) && data[key].is_string() ? data[key].get<std::string>() : std::string();
         }
@@ -59,19 +59,19 @@ namespace w2b::pipeline
         }
 
         // str(value) of a JSON scalar
-        std::string PyStr(const py::Json& value)
+        std::string PyStr(const util::Json& value)
         {
             if (value.is_string())
                 return value.get<std::string>();
             if (value.is_number_float())
-                return py::FloatRepr(value.get<double>());
+                return util::FloatRepr(value.get<double>());
             if (value.is_boolean())
                 return value.get<bool>() ? "True" : "False";
             return value.dump();
         }
 
         // mapmenu.coordinate
-        void Coordinate(const py::Json& value, const std::string& label, const double limit)
+        void Coordinate(const util::Json& value, const std::string& label, const double limit)
         {
             double number = 0;
             bool ok = value.is_number() || value.is_boolean();
@@ -80,7 +80,7 @@ namespace w2b::pipeline
             else if (value.is_boolean())
                 number = value.get<bool>();
             else if (value.is_string())
-                ok = py::ParseFloat(value.get<std::string>(), number);
+                ok = util::ParseFloat(value.get<std::string>(), number);
             const auto l = std::to_string(static_cast<int>(limit));
             if (!ok || !std::isfinite(number) || std::abs(number) > limit)
                 throw StepError("ValueError", label + " must be a number between -" + l + " and " + l + ".");
@@ -114,7 +114,7 @@ namespace w2b::pipeline
         {
             long long value = 0;
             bool overflow = false;
-            if (!py::ParseInt(text, value, overflow))
+            if (!util::ParseInt(text, value, overflow))
                 throw StepError("ValueError", "invalid literal for int() with base 10: " + gsc::Repr(text));
             return value;
         }
@@ -183,11 +183,11 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    py::Json MenuMetadata(const fs::path& projectRoot)
+    util::Json MenuMetadata(const fs::path& projectRoot)
     {
         const auto path = projectRoot / "menu.json";
         if (!IsFile(path))
-            return py::Json::object();
+            return util::Json::object();
         const auto data = Json(path);
         for (const char* field : {"title", "description"})
             if (!data.contains(field) || !data[field].is_string() || Strip(data[field].get<std::string>()).empty())
@@ -209,7 +209,7 @@ namespace w2b::pipeline
         // <col3>_LOC into 32-byte buffers
         std::string key = "WAW_";
         for (const char c : Upper(project))
-            key += static_cast<unsigned char>(c) >= 0x80 || py::IsWord(c) ? c : '_';
+            key += static_cast<unsigned char>(c) >= 0x80 || util::IsWord(c) ? c : '_';
         if (CodePoints(key) + 5 > 31)
             key = "WAW_" + Upper(hash::Sha1Hex(project).substr(0, 16));
         return key;
@@ -259,7 +259,7 @@ namespace w2b::pipeline
                               "menu_" + project + "_zclassic_default", "loadscreen_" + project + "_zclassic_default", "loadscreen_" + project + "_zclassic_"})
             add(n);
         for (const char* list : {"materials", "layer_materials"})
-            for (const auto& n : data.value(list, py::Json::array()))
+            for (const auto& n : data.value(list, util::Json::array()))
                 add(n.get<std::string>());
         if (String(data, "layer_layout") == "aligned")
         {
@@ -278,7 +278,7 @@ namespace w2b::pipeline
             assets.insert(assets.end(), {"rawfile," + base, "rawfile," + runtime, "stringtable," + table});
         }
         const auto streamingFile = projectRoot / "images/streaming.json";
-        auto streaming = IsFile(streamingFile) ? Json(streamingFile) : py::Json{{"streamingMode", py::Json::object()}};
+        auto streaming = IsFile(streamingFile) ? Json(streamingFile) : util::Json{{"streamingMode", util::Json::object()}};
         for (const auto& n : names)
         {
             const auto material = projectRoot / "materials" / files::FromUtf8(n + ".json");
@@ -292,7 +292,7 @@ namespace w2b::pipeline
                 streaming["streamingMode"][image] = 2;
             }
         }
-        WriteIfChanged(streamingFile, TextBytes(py::JsonDumps(streaming, 2) + "\n"));
+        WriteIfChanged(streamingFile, TextBytes(util::JsonDumps(streaming, 2) + "\n"));
         const auto pack = data.contains("image_pack") ? data["image_pack"].get<std::string>() : project + "_menu";
         std::vector<std::string> out{">level.ipak_read," + pack, ">ipak," + pack};
         out.insert(out.end(), assets.begin(), assets.end());
@@ -352,7 +352,7 @@ namespace w2b::pipeline
             if (Strip(row[column]).empty())
                 row[column] = "0";
             double value = 0;
-            if (!py::ParseFloat(row[column], value))
+            if (!util::ParseFloat(row[column], value))
                 throw StepError("ValueError", "invalid globe coordinate for " + project);
             if (!std::isfinite(value))
                 throw StepError("ValueError", "nonfinite globe coordinate for " + project);
@@ -530,12 +530,12 @@ namespace w2b::pipeline
         const auto log = Text(proc.out);
         files::WriteText(root / "linker.log", log);
         const auto result = out / "mod_load.ff";
-        static const pyre::Regex failure("(?m)^(?:ERROR:|Missing asset|Failed to load|Could not load)");
+        static const regex::Regex failure("(?m)^(?:ERROR:|Missing asset|Failed to load|Could not load)");
         if (proc.exitCode || !IsFile(result) || failure.Search(log))
             throw StepError("RuntimeError", "lobby zone link failed; see " + Str(root / "linker.log"));
         std::error_code e;
         if (!metadata.empty())
-            files::WriteText(out / "menu_metadata.json", py::JsonDumps(metadata, 2) + "\n");
+            files::WriteText(out / "menu_metadata.json", util::JsonDumps(metadata, 2) + "\n");
         else
             fs::remove(out / "menu_metadata.json", e);
         return result;

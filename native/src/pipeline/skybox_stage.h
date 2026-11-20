@@ -5,7 +5,7 @@
 // (shaderruntime.bind_material). t6bridge.stage_skybox: otherwise BO2's dome
 // drawn with the WaW sky cube.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "pipeline/bridge_report.h"
 
 #include <filesystem>
@@ -28,7 +28,7 @@ namespace w2b::pipeline
     {
         std::string sourceModel;
         std::vector<std::string> materials;
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 
     struct SourceSkyStage

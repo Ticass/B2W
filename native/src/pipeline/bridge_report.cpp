@@ -2,9 +2,9 @@
 
 namespace w2b::pipeline
 {
-    py::Json BridgeReport::ToJson() const
+    util::Json BridgeReport::ToJson() const
     {
-        auto fx = py::Json::object();
+        auto fx = util::Json::object();
         for (const auto& [name, converted] : fxTable)
             fx[name] = converted;
         return {{"project", project},   {"materials", pipeline::ToJson(materials)},

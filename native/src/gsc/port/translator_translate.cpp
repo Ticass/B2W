@@ -1,9 +1,9 @@
 // Port of Translator.translate / adapt_native_arguments / resolve_refs and the
-// animation and lowering helpers (gscport.py 1615-1942, 2554-2634).
+// animation and lowering helpers.
 #include "translator.h"
 
 #include "api.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "rewrites.h"
 
 namespace w2b::gsc::port
@@ -32,15 +32,15 @@ namespace w2b::gsc::port
             return path && StartsWith(*path, "maps\\_zombiemode_perks");
         }
 
-        const pyre::Regex& IncludeRe()
+        const regex::Regex& IncludeRe()
         {
-            static const pyre::Regex re(R"(#include\s+([\w\\/]+)\s*;?)", pyre::IGNORECASE);
+            static const regex::Regex re(R"(#include\s+([\w\\/]+)\s*;?)", regex::IGNORECASE);
             return re;
         }
 
-        const pyre::Regex& AnimtreeRe()
+        const regex::Regex& AnimtreeRe()
         {
-            static const pyre::Regex re(R"re(#using_animtree\s*\(\s*"([^"]+)"\s*\))re", pyre::IGNORECASE);
+            static const regex::Regex re(R"re(#using_animtree\s*\(\s*"([^"]+)"\s*\))re", regex::IGNORECASE);
             return re;
         }
     } // namespace

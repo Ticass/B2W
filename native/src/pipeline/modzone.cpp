@@ -1,8 +1,8 @@
-// The mod.ff zone and its link (modzone.py; see modzone.h).
+// The mod.ff zone and its link (see modzone.h).
 #include "modzone.h"
 
 #include "core/parallel.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "csvtable.h"
 #include "extract/cache.h"
 #include "gsc/parse.h"
@@ -142,7 +142,7 @@ namespace w2b::pipeline
 
     std::string BuildModZone(const fs::path& templateZone, std::vector<std::string>& dropped)
     {
-        static const pyre::Regex templateScript("(^|/)" + TEMPLATE_MAP + "[_.]");
+        static const regex::Regex templateScript("(^|/)" + TEMPLATE_MAP + "[_.]");
         std::vector<std::string> out;
         for (const auto& raw : Lines(ReadReplace(templateZone)))
         {
@@ -270,13 +270,13 @@ namespace w2b::pipeline
             else
                 output.push_back(line);
         files::WriteText(project / "content_source/template_weapons.json",
-                         py::JsonDumps(py::Json{{"removed", removed}, {"required", std::vector<std::string>(needed.begin(), needed.end())}}, 2));
+                         util::JsonDumps(util::Json{{"removed", removed}, {"required", std::vector<std::string>(needed.begin(), needed.end())}}, 2));
         // the client registration uses the same retained native set and the
         // converted weapon names as the server hooks
         const auto runtime = Json(project / "content_source/weapons.runtime.json");
         std::set<std::string> carried, native;
-        const auto table = runtime.value("table", py::Json::object());
-        for (const auto& w : runtime.value("weapons", py::Json::array()))
+        const auto table = runtime.value("table", util::Json::object());
+        for (const auto& w : runtime.value("weapons", util::Json::array()))
         {
             const auto name = w.get<std::string>();
             carried.insert(table.contains(name) ? table[name].get<std::string>() : name);
@@ -305,7 +305,7 @@ namespace w2b::pipeline
             const auto destination = project / "zm/zm_statstable.csv";
             MakeParent(destination);
             files::WriteBytes(destination, CsvText(rows, "\r\n"));
-            files::WriteText(project / "content_source/weapon_stats.json", py::JsonDumps(py::Json{{"inactive_weapon_rows", inactive}, {"rows", rows.size()}}, 2));
+            files::WriteText(project / "content_source/weapon_stats.json", util::JsonDumps(util::Json{{"inactive_weapon_rows", inactive}, {"rows", rows.size()}}, 2));
             output.push_back("stringtable,zm/zm_statstable.csv");
         }
         for (const auto& source : Glob(project / "clientscripts/mp", ".csc"))
@@ -347,7 +347,7 @@ namespace w2b::pipeline
 
     std::set<std::string> LoadedWeapons(const fs::path& work)
     {
-        static const pyre::Regex loaded("^Loaded weapon \"([^\"]+)\"", pyre::MULTILINE);
+        static const regex::Regex loaded("^Loaded weapon \"([^\"]+)\"", regex::MULTILINE);
         std::set<std::string> names;
         const auto log = Resolve(work) / "linker.log";
         if (IsFile(log))
@@ -383,7 +383,7 @@ namespace w2b::pipeline
                 if (zones.count(files::Utf8(files::FromUtf8(filename).stem())))
                 {
                     const auto& index = entry.contains("loaded_index") ? entry["loaded_index"] : entry["index"];
-                    for (const auto& n : index.value("script", py::Json::array()))
+                    for (const auto& n : index.value("script", util::Json::array()))
                         names.insert(Lower(n.get<std::string>()));
                 }
             return names;
@@ -401,8 +401,8 @@ namespace w2b::pipeline
 
     std::vector<std::string> ScriptClosure(const std::string& zoneText, const fs::path& raw, const std::set<std::string>& stock)
     {
-        static const pyre::Regex include("^\\s*#include\\s+([\\w\\\\/]+)\\s*;", pyre::MULTILINE);
-        static const pyre::Regex call("\\b([a-z_][\\w]*(?:\\\\[\\w]+)+)::", pyre::IGNORECASE);
+        static const regex::Regex include("^\\s*#include\\s+([\\w\\\\/]+)\\s*;", regex::MULTILINE);
+        static const regex::Regex call("\\b([a-z_][\\w]*(?:\\\\[\\w]+)+)::", regex::IGNORECASE);
         std::set<std::string> listed;
         for (const auto& l : Lines(zoneText))
             if (StartsWith(l, "script,"))
@@ -441,8 +441,8 @@ namespace w2b::pipeline
 
     std::vector<std::string> CharacterModels(const std::string& zoneText, const fs::path& raw)
     {
-        static const pyre::Regex modelCall("\\b(?:precachemodel|setmodel|attach)\\s*\\(\\s*\"([^\"]+)\"", pyre::IGNORECASE);
-        static const pyre::Regex aliasEntry("^\\s*\\w+\\s*\\[\\s*\\d+\\s*\\]\\s*=\\s*\"([^\"]+)\"\\s*;", pyre::MULTILINE);
+        static const regex::Regex modelCall("\\b(?:precachemodel|setmodel|attach)\\s*\\(\\s*\"([^\"]+)\"", regex::IGNORECASE);
+        static const regex::Regex aliasEntry("^\\s*\\w+\\s*\\[\\s*\\d+\\s*\\]\\s*=\\s*\"([^\"]+)\"\\s*;", regex::MULTILINE);
         std::set<std::string> listed, found;
         std::vector<std::string> scripts;
         for (const auto& l : Lines(zoneText))
@@ -505,14 +505,14 @@ namespace w2b::pipeline
         }
 
         // recover_ipak_images: the exact images the native ipak writer asked for, as IWI27
-        py::Json RecoverIpakImages(const std::string& log, const std::vector<fs::path>& roots, const fs::path& output, const std::optional<fs::path>& stock,
+        util::Json RecoverIpakImages(const std::string& log, const std::vector<fs::path>& roots, const fs::path& output, const std::optional<fs::path>& stock,
                                    const fs::path& unlinker)
         {
-            static const pyre::Regex failed("Failed to open file for ipak: images/(.+)\\.iwi");
+            static const regex::Regex failed("Failed to open file for ipak: images/(.+)\\.iwi");
             std::set<std::string> names;
             for (const auto& m : failed.FindAll(log))
                 names.insert(m[0]);
-            auto recovered = py::Json::array();
+            auto recovered = util::Json::array();
             for (const auto& name : names)
             {
                 weapons::OutputName("image", name);
@@ -600,7 +600,7 @@ namespace w2b::pipeline
         const auto linker = linkerIn ? Resolve(*linkerIn) : bo2 / "bin" / "Linker.exe";
         std::vector<std::string> unavailable;
         const auto imageRoot = work / "ipak_images";
-        auto recoveredImages = py::Json::array();
+        auto recoveredImages = util::Json::array();
         std::set<std::string> protectedLines;
         for (const auto& line : extraLines)
             if (!Strip(line).empty() && !StartsWith(LStrip(line), "//"))
@@ -639,7 +639,7 @@ namespace w2b::pipeline
                 }
             }
         }
-        static const pyre::Regex failedEntry("ERROR: Could not load asset \"([^\"]+)\" of type \"([^\"]+)\"");
+        static const regex::Regex failedEntry("ERROR: Could not load asset \"([^\"]+)\" of type \"([^\"]+)\"");
         const auto ff = work / "out" / "mod.ff";
         bool linked = false;
         for (int attempt = 0; attempt < MAX_DROPS; attempt++)
@@ -685,7 +685,7 @@ namespace w2b::pipeline
             {
                 for (const auto& r : recovered)
                     recoveredImages.push_back(r);
-                files::WriteText(work / "ipak_images.report.json", py::JsonDumps(recoveredImages, 2) + "\n");
+                files::WriteText(work / "ipak_images.report.json", util::JsonDumps(recoveredImages, 2) + "\n");
                 continue;
             }
             const auto failed = failedEntry.FindAll(out);

@@ -78,7 +78,7 @@ TEST_CASE("Face-major DDS cubes keep each face inside its mip")
 TEST_CASE("Bridge image staging distinguishes missing pixels from an unsearched IWD")
 {
     namespace fs = std::filesystem;
-    using w2b::py::Json;
+    using w2b::util::Json;
     struct Fixture
     {
         fs::path root = fs::temp_directory_path() / ("w2b-bridge-images-" + std::to_string(std::random_device{}()));

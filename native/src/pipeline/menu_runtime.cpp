@@ -9,7 +9,7 @@ namespace w2b::pipeline
     namespace
     {
         namespace fs = std::filesystem;
-        using py::Json;
+        using util::Json;
 
         struct Widget
         {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <map>
 #include <set>
@@ -30,18 +30,18 @@ namespace w2b::effects
 
     struct ConvertedEffect
     {
-        py::Json asset;
+        util::Json asset;
         std::vector<std::string> notes;
     };
 
     // WaW material -> the converted material an effect draws
     using MaterialNames = std::map<std::string, std::string, std::less<>>;
 
-    Dependencies FindDependencies(const py::Json& source);
+    Dependencies FindDependencies(const util::Json& source);
     // source: the dumped WaW effect (.w2bfx.json, a JSON format of its own)
-    ConvertedEffect ConvertEffect(const py::Json& source, const MaterialNames& materials);
-    std::size_t AllocationSize(const py::Json& effect);
+    ConvertedEffect ConvertEffect(const util::Json& source, const MaterialNames& materials);
+    std::size_t AllocationSize(const util::Json& effect);
 
-    py::Json ConvertElement(const py::Json& source, const MaterialNames& materials,
+    util::Json ConvertElement(const util::Json& source, const MaterialNames& materials,
                             std::vector<std::string>& notes, const std::string& location);
 }

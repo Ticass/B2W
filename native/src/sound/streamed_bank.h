@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "sound/alias_row.h"
 
 #include <filesystem>
@@ -8,6 +8,6 @@
 namespace w2b::sound
 {
     bool StreamFlacEnabled();
-    py::Json PackStreamedAudio(std::vector<T6AliasRow>& rows, const std::filesystem::path& pcmRoot,
+    util::Json PackStreamedAudio(std::vector<T6AliasRow>& rows, const std::filesystem::path& pcmRoot,
                                const std::filesystem::path& encoder);
 }

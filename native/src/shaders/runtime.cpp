@@ -4,7 +4,7 @@
 #include "core/files.h"
 #include "core/hash.h"
 #include "core/profile.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "d3d.h"
 #include "materials/techsets.h"
 #include "materials/waw_material_json.h"
@@ -21,7 +21,7 @@
 namespace w2b::shaders
 {
     namespace fs = std::filesystem;
-    using py::Json;
+    using util::Json;
     using namespace runtime;
 
     namespace
@@ -204,7 +204,7 @@ namespace w2b::shaders
             Json data{{"source", Str(source)}, {"bindings", contract}, {"shader", name}, {"sha256", digest}};
             for (const auto& [k, v] : info.items())
                 data[k] = v;
-            output.Write(fs::path("content_source/shaders/runtime") / files::FromUtf8(name.substr(name.rfind('/') + 1) + ".json"), py::JsonDumps(data, 2), true);
+            output.Write(fs::path("content_source/shaders/runtime") / files::FromUtf8(name.substr(name.rfind('/') + 1) + ".json"), util::JsonDumps(data, 2), true);
             return name;
         }
 
@@ -541,12 +541,12 @@ namespace w2b::shaders
                 Json boundList = Json::array();
                 for (const auto& a : result["active"])
                     boundList.push_back(Json::array({a["slot"], a["shader"], a.value("vertex_shader", Json())}));
-                const auto content = py::JsonDumpsSorted(ToJson(native));
-                const auto tsName = "waw/runtime_" + hash::Sha256Hex(nativeName + py::JsonDumpsDefault(boundList) + content).substr(0, 16);
+                const auto content = util::JsonDumpsSorted(ToJson(native));
+                const auto tsName = "waw/runtime_" + hash::Sha256Hex(nativeName + util::JsonDumpsDefault(boundList) + content).substr(0, 16);
                 for (const auto& a : result["active"])
                     native.techniques[static_cast<size_t>(I(a["slot"]))].technique->name = tsName + "_" + std::to_string(I(a["slot"]));
                 native.name = tsName;
-                output.Write(fs::path("techniquesets") / files::FromUtf8(tsName + ".json"), py::JsonDumps(ToJson(native), 2), true);
+                output.Write(fs::path("techniquesets") / files::FromUtf8(tsName + ".json"), util::JsonDumps(ToJson(native), 2), true);
                 outputMaterial.techniqueSet = tsName;
             }
             return result;

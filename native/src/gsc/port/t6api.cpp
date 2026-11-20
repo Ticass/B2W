@@ -1,7 +1,7 @@
 #include "t6api.h"
 
 #include "core/files.h"
-#include "core/pytext.h"
+#include "core/text.h"
 #include "gsc/tokens.h"
 
 #include <stdexcept>
@@ -10,15 +10,15 @@ namespace w2b::gsc::port
 {
     namespace
     {
-        py::Json ReadJson(const std::filesystem::path& path)
+        util::Json ReadJson(const std::filesystem::path& path)
         {
             std::string text;
             if (!files::ReadBytes(path, text))
-                return py::Json();
-            return py::Json::parse(text);
+                return util::Json();
+            return util::Json::parse(text);
         }
 
-        std::unordered_map<std::string, Range> Ranges(const py::Json& table)
+        std::unordered_map<std::string, Range> Ranges(const util::Json& table)
         {
             std::unordered_map<std::string, Range> out;
             for (const auto& [name, range] : table.items())

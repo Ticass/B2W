@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <optional>
@@ -20,5 +20,5 @@ namespace w2b::world
     };
 
     // The staged grid's summary for the bridge report.
-    py::Json StageGrid(const GridRequest& request);
+    util::Json StageGrid(const GridRequest& request);
 }

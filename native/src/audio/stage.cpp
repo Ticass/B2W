@@ -17,7 +17,7 @@ namespace w2b::audio
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         namespace fs = std::filesystem;
 
         constexpr unsigned LOADED_RATE = 48000;
@@ -257,7 +257,7 @@ namespace w2b::audio
             info["output"] = PosixPath(relative);
         }
         fs::create_directories(output);
-        files::WriteText(output / "audio.stage.json", py::JsonDumps(report, 2) + "\n");
+        files::WriteText(output / "audio.stage.json", util::JsonDumps(report, 2) + "\n");
         return report;
     }
 } // namespace w2b::audio

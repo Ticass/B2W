@@ -17,7 +17,7 @@ namespace w2b::sound
 {
     namespace
     {
-        using py::Json;
+        using util::Json;
         namespace fs = std::filesystem;
 
         std::string Lower(std::string text)
@@ -65,7 +65,7 @@ namespace w2b::sound
             if (value.is_string())
                 return value.get<std::string>();
             if (value.is_number_float())
-                return py::FloatRepr(value.get<double>());
+                return util::FloatRepr(value.get<double>());
             if (value.is_boolean())
                 return value.get<bool>() ? "True" : "False";
             return value.dump();
@@ -283,7 +283,7 @@ namespace w2b::sound
             globals = ReadJson(files::FromUtf8(*input.globalsFile));
         if (globals)
         {
-            files::WriteText(input.project / "sound_ir" / "driver_globals.json", py::JsonDumps(*globals, 2) + "\n");
+            files::WriteText(input.project / "sound_ir" / "driver_globals.json", util::JsonDumps(*globals, 2) + "\n");
             report["driver_globals_source"] = *input.globalsFile;
         }
 
@@ -312,7 +312,7 @@ namespace w2b::sound
                               if (document.at("name") != name)
                                   throw SoundError("alias asset name disagrees with source filename");
                               const Json ir = Translate(document, *globals);
-                              files::WriteText(input.project / "sound_ir" / files::FromUtf8(name + ".json"), py::JsonDumps(ir, 2) + "\n");
+                              files::WriteText(input.project / "sound_ir" / files::FromUtf8(name + ".json"), util::JsonDumps(ir, 2) + "\n");
                               result.line = Json{{"name", ir["name"]}, {"variants", ir["aliases"].size()}, {"source", path}};
                           }
                           catch (const SoundError& e)
@@ -326,7 +326,7 @@ namespace w2b::sound
                                   result.audio.emplace_back(AudioName(alias["soundFile"]), alias["soundFile"].at("type"));
                       });
 
-        // 2. merge in alias order, as the Python loop builds its dicts
+        // 2. merge in alias order
         std::vector<Json> items;
         std::unordered_map<std::string, size_t> index; // audio_name + "\n" + type -> item
         for (size_t i = 0; i < ordered.size(); i++)
@@ -401,7 +401,7 @@ namespace w2b::sound
             item["sha256"] = p.digest;
         }
         // Folders first, in item order: Windows keeps a folder's name as its
-        // first writer spells it, and the Python loop creates them in this order.
+        // first writer spells it, and they are created in this order.
         std::vector<size_t> writers;
         std::unordered_set<std::string> folders;
         for (size_t i = 0; i < items.size(); i++)
@@ -425,7 +425,7 @@ namespace w2b::sound
         for (auto& item : items)
             report["audio"].push_back(std::move(item));
         fs::create_directories(input.project);
-        files::WriteText(input.project / "sounds.stage.json", py::JsonDumps(report, 2) + "\n");
+        files::WriteText(input.project / "sounds.stage.json", util::JsonDumps(report, 2) + "\n");
         return report;
     }
 } // namespace w2b::sound

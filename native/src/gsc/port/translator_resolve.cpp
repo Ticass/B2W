@@ -1,25 +1,25 @@
-// Port of Translator classification and resolution (gscport.py 1356-1618, 1943-1956).
+// Translator classification and resolution.
 #include "translator.h"
 
 #include "api.h"
 #include "core/encoding.h"
 #include "core/files.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "rewrites.h"
 
 #include <stdexcept>
 
 namespace w2b::gsc::port
 {
-    const py::Json& ApiSection(const std::string& key)
+    const util::Json& ApiSection(const std::string& key)
     {
-        static const py::Json none;
+        static const util::Json none;
         const auto& api = Api();
         const auto it = api.find(key);
         return it == api.end() ? none : *it;
     }
 
-    const py::Json* ApiGet(const py::Json& object, const std::string& key)
+    const util::Json* ApiGet(const util::Json& object, const std::string& key)
     {
         if (!object.is_object())
             return nullptr;
@@ -29,7 +29,7 @@ namespace w2b::gsc::port
         return &*it;
     }
 
-    std::optional<std::string> ApiString(const py::Json& object, const std::string& key)
+    std::optional<std::string> ApiString(const util::Json& object, const std::string& key)
     {
         const auto* value = ApiGet(object, key);
         if (!value || !value->is_string())
@@ -37,7 +37,7 @@ namespace w2b::gsc::port
         return value->get<std::string>();
     }
 
-    bool ApiListHas(const py::Json& list, const std::string& value)
+    bool ApiListHas(const util::Json& list, const std::string& value)
     {
         if (!list.is_array())
             return list.is_object() && list.contains(value);
@@ -54,14 +54,14 @@ namespace w2b::gsc::port
 
     namespace
     {
-        const py::Json& Bo2Params()
+        const util::Json& Bo2Params()
         {
-            static const py::Json params = []
+            static const util::Json params = []
             {
                 std::string text;
                 if (!files::ReadBytes(CompatDir() / "bo2_core_params.json", text))
-                    return py::Json::object();
-                return py::Json::parse(text);
+                    return util::Json::object();
+                return util::Json::parse(text);
             }();
             return params;
         }
@@ -130,7 +130,7 @@ namespace w2b::gsc::port
 
     std::optional<std::string> Translator::Bo2Unique(const std::string& name) const
     {
-        static const pyre::Regex shared(R"(^(common_scripts\\utility|maps\\mp\\_utility|maps\\mp\\zombies\\_zm[a-z_]*|)"
+        static const regex::Regex shared(R"(^(common_scripts\\utility|maps\\mp\\_utility|maps\\mp\\zombies\\_zm[a-z_]*|)"
                                         R"(maps\\mp\\gametypes_zm\\_[a-z_]+|maps\\mp\\_[a-z_]+)$)");
         std::vector<std::string> hits;
         for (const auto& path : api.ByName(name))
@@ -143,7 +143,7 @@ namespace w2b::gsc::port
 
     std::string Translator::StubName(const std::string& desc)
     {
-        static const pyre::Regex nonword(R"(\W+)");
+        static const regex::Regex nonword(R"(\W+)");
         return "stub_" + StripChars(nonword.Sub("_", Replace(desc, "::", "__")), "_");
     }
 

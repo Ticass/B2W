@@ -1,6 +1,6 @@
 #pragma once
 // A backtracking regular expression engine with Python `re` semantics, for
-// the patterns the converter's Python used: ordered alternation, greedy and
+// the patterns the converter's scripts and tables use: ordered alternation, greedy and
 // lazy quantifiers, groups (named, non-capturing), lookahead/lookbehind,
 // backreferences, \A \Z ^ $ \b \B, \d \w \s (Unicode), classes, and the
 // i/m/s/x flags (global or scoped). Text is UTF-8; positions are code points.
@@ -13,7 +13,7 @@
 #include <string_view>
 #include <vector>
 
-namespace w2b::pyre
+namespace w2b::regex
 {
     enum Flags : unsigned
     {
@@ -73,4 +73,4 @@ namespace w2b::pyre
 
     // re.escape
     std::string Escape(std::string_view text);
-} // namespace w2b::pyre
+} // namespace w2b::regex

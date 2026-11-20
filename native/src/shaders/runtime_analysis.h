@@ -1,8 +1,8 @@
 #pragma once
-// SM3/SM5 disassembly analysis shared by the runtime binder (shaderruntime.py
+// SM3/SM5 disassembly analysis shared by the runtime binder (
 // registers, signature, buffers, resource_names, tainted_outputs ...).
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <map>
 #include <set>
@@ -12,7 +12,7 @@
 
 namespace w2b::shaders::runtime
 {
-    // dict with Python insertion order: a repeated key keeps its first place
+    // a dict in insertion order: a repeated key keeps its first place
     template <typename V> struct Ordered
     {
         std::vector<std::pair<std::string, V>> items;

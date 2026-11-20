@@ -34,15 +34,15 @@ namespace w2b
         return fields.emplace_back(std::string(key), std::string()).second;
     }
 
-    py::Json ToJson(const KeyValues& values)
+    util::Json ToJson(const KeyValues& values)
     {
-        auto out = py::Json::object();
+        auto out = util::Json::object();
         for (const auto& [key, value] : values)
             out[key] = value;
         return out;
     }
 
-    KeyValues KeyValuesFromJson(const py::Json& object)
+    KeyValues KeyValuesFromJson(const util::Json& object)
     {
         KeyValues out;
         out.fields.reserve(object.size());

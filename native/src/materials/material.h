@@ -2,7 +2,7 @@
 // A WaW material converted onto a stock BO2 donor material: the donor's
 // technique and slots, the WaW material's images, constants and render state.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "materials/t6_material.h"
 #include "materials/waw_material.h"
 

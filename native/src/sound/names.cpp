@@ -10,13 +10,13 @@ namespace w2b::sound
             return;
         std::ranges::replace(name, '\\', '/');
         constexpr std::string_view invalid(":,\r\n\0", 5);
-        const auto parts = py::Split(name, "/");
+        const auto parts = util::Split(name, "/");
         if (name.starts_with('/') || name.find_first_of(invalid) != name.npos ||
             std::ranges::find(parts, "..") != parts.end())
-            throw std::invalid_argument("unsafe " + kind + " name: " + py::StringRepr(name));
+            throw std::invalid_argument("unsafe " + kind + " name: " + util::StringRepr(name));
     }
 
-    std::string AudioName(const py::Json& file)
+    std::string AudioName(const util::Json& file)
     {
         std::string joined;
         for (const auto key : {"dir", "name"})

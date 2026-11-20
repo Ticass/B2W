@@ -2,7 +2,7 @@
 // The collision records the T6 linker reads from BSP/: brushes.json (world
 // brushes), submodels.json (brush entities) and staticmodels.json.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "world/collision_world.h"
 
 #include <array>
@@ -29,15 +29,15 @@ namespace w2b::world
         std::vector<std::array<std::int32_t, 2>> axial; // contents, surface flags of the six axial sides
         std::vector<BrushSideRecord> sides;
         std::vector<RecordPoint> verts;
-        py::Json ToJson() const;
-        static BrushRecord FromJson(const py::Json& brush);
+        util::Json ToJson() const;
+        static BrushRecord FromJson(const util::Json& brush);
     };
 
     struct SubmodelRecord
     {
         RecordPoint mins{}, maxs{};
         std::vector<BrushRecord> brushes;
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
     using SubmodelRecords = std::vector<SubmodelRecord>;
 
@@ -48,18 +48,18 @@ namespace w2b::world
         RecordPoint origin{};
         std::array<double, 9> invScaledAxis{};
         RecordPoint absmin{}, absmax{};
-        py::Json ToJson() const;
+        util::Json ToJson() const;
     };
 
     struct BrushRecords
     {
         std::vector<BrushRecord> records;
-        py::Json summary;
+        util::Json summary;
     };
     struct StaticModelRecords
     {
         std::vector<StaticModelRecord> records;
-        py::Json summary;
+        util::Json summary;
     };
 
     BrushRecords BuildWorldBrushes(const CollisionWorld& world);

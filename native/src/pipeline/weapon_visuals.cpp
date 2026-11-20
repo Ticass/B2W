@@ -26,7 +26,7 @@ namespace w2b::pipeline
     using mod::IsFile;
     using mod::StartsWith;
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -145,7 +145,7 @@ namespace w2b::pipeline
                 const auto runtime = shaders::BindMaterial(source, material, roots, output, techsetDump);
                 const auto outName = weapons::OutputName("material", name);
                 const auto relative = assets::MaterialPath(outName);
-                files::WriteText(project / relative, py::JsonDumps(materials::ToJson(material), 2));
+                files::WriteText(project / relative, util::JsonDumps(materials::ToJson(material), 2));
                 used.insert(material.techniqueSet);
                 report.materials.push_back(Json{{"name", outName},
                                                 {"source", name},
@@ -350,7 +350,7 @@ namespace w2b::pipeline
                     {"fx_table", Json::object()},
                     {"errors", report.errors},
                     {"warnings", report.warnings}};
-        files::WriteText(project / "weapons.visuals.json", py::JsonDumps(result, 2) + "\n");
+        files::WriteText(project / "weapons.visuals.json", util::JsonDumps(result, 2) + "\n");
         return {report.warnings.get<std::vector<std::string>>(), report.errors.size(), std::move(recovered)};
     }
 } // namespace w2b::pipeline

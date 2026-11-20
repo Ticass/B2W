@@ -1,7 +1,7 @@
 #pragma once
 // The build's last steps after staging: compile the map scripts with the BO2
 // mod tools linker (t6bridge.compile_scripts), link the map zone with the T6
-// bridge (cli._bridge_link) and assemble the Plutonium mod folder (package.py).
+// bridge and assemble the Plutonium mod folder.
 
 #include "core/process.h"
 
@@ -29,7 +29,7 @@ namespace w2b::pipeline
                                                                     const fs::path& unlinker);
     std::pair<std::vector<std::string>, std::vector<std::string>> ParseScriptLinkerLog(const std::string& log);
     std::vector<std::string> LinkerCommand(const fs::path& linker, const fs::path& stage, const std::string& project, const fs::path* techsetDump);
-    // cli bridge-link: prints as the Python command does; returns its exit code
+    // cli bridge-link: prints its progress; returns its exit code
     int BridgeLink(const fs::path& stage, const std::string& project, const fs::path& linker, const fs::path* techsetDump, const fs::path* log);
 
     fs::path PlutoniumModsDir();

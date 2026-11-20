@@ -3,7 +3,7 @@
 // flame pools for carried gas weapons, the tesla client), the BO2 client
 // main's hooks and the map's own client main (clientport.finish_map_client).
 
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include <filesystem>
 #include <map>
@@ -21,13 +21,13 @@ namespace w2b::pipeline
         std::map<std::string, std::string> fxTable;
         std::set<std::string> soundNames;
         bool characters = false;
-        py::Json mapClient; // the scripts report's client section, null without map client scripts
+        util::Json mapClient; // the scripts report's client section, null without map client scripts
     };
 
     struct ClientFinish
     {
         std::vector<std::string> warnings;
-        py::Json mapClient; // the client section as the map client hook left it
+        util::Json mapClient; // the client section as the map client hook left it
     };
 
     // The client mains: environment script, Tesla, characters and the map's own client main.

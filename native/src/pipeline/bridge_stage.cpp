@@ -1,5 +1,5 @@
 // The bridge stage (see bridge_stage.h): the port of t6bridge.stage_bridge.
-// Each pass keeps its Python order, report entries and progress lines; the
+// Each pass keeps its order, report entries and progress lines; the
 // passes themselves are the native steps, called in this process.
 #include "bridge_stage.h"
 
@@ -9,7 +9,8 @@
 #include "bridge_geometry.h"
 #include "bridge_support.h"
 #include "bridge_tail.h"
-#include "core/pyre.h"
+#include "core/regex.h"
+#include "core/zip.h"
 #include "materials/t6_material.h"
 #include "core/timeline.h"
 #include "effects_stage.h"
@@ -32,6 +33,7 @@
 #include <cstdio>
 #include <functional>
 #include <map>
+#include <set>
 
 namespace w2b::pipeline
 {
@@ -43,7 +45,7 @@ namespace w2b::pipeline
     using bridge::Timed;
     using bridge::Truthy;
     using mod::Str;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -137,14 +139,14 @@ namespace w2b::pipeline
         // native_tree_xanims: the animation names of a native T6 animtree (leaves, not groups)
         std::vector<std::string> NativeTreeXanims(const std::string& atr)
         {
-            static const pyre::Regex comment("//[^\\n]*");
-            static const pyre::Regex word("[A-Za-z0-9_]+");
-            static const pyre::Regex group("^\\s*([A-Za-z0-9_]+)\\s*\\n\\s*\\{", pyre::MULTILINE);
+            static const regex::Regex comment("//[^\\n]*");
+            static const regex::Regex word("[A-Za-z0-9_]+");
+            static const regex::Regex group("^\\s*([A-Za-z0-9_]+)\\s*\\n\\s*\\{", regex::MULTILINE);
             const auto text = comment.Sub("", atr);
             std::vector<std::string> names;
-            for (const auto line : py::SplitLines(text))
+            for (const auto line : util::SplitLines(text))
             {
-                const std::string stripped(py::Strip(line));
+                const std::string stripped(util::Strip(line));
                 if (word.FullMatch(stripped) && std::ranges::find(names, stripped) == names.end())
                     names.push_back(stripped);
             }
@@ -203,7 +205,7 @@ namespace w2b::pipeline
                 bool overflow = false;
                 const auto text = entity.Get("spawnflags", "0");
                 if (!text.empty())
-                    py::ParseInt(text, flags, overflow);
+                    util::ParseInt(text, flags, overflow);
                 const auto target = std::string(entity.Get("targetname"));
                 if (entity.Get("classname") == "script_model" && (flags & CLIENT_SIDE_MODEL) && entity.Has("targetname") && listened.contains(target))
                 {
@@ -239,6 +241,7 @@ namespace w2b::pipeline
 
         private:
             void OpenSources();
+            void StageIwdWeapons(const std::vector<fs::path>& mapIwdDirs);
             void StageGeometry();
             void OpenModToolsSources();
             void PortScripts();
@@ -330,6 +333,57 @@ namespace w2b::pipeline
                 modTools = extract::ResourceRoot() / "wawModTools";
             const auto wavelet = modTools ? std::optional(*modTools / "bin/AssetViewer.exe") : std::nullopt;
             recovery_ = std::make_unique<textures::IwdRecovery>(imageIwds_, projectRoot_ / "wavelet_src", wavelet, sourceImages, overrides);
+            StageIwdWeapons(overrides);
+        }
+
+        // A weapon file in the map's own IWDs (weapons/sp/<name>) is the one WaW
+        // runs, over the copy linked into the map's zones: Clinic of Evil links
+        // the stock Colt as zombie_colt and ships the Enforcer under that name in
+        // sanatorium.iwd, and players spawn with the Enforcer. The files go to a
+        // root ahead of the zone dumps (weapon sources resolve first root first);
+        // within a folder the later archive wins, as WaW searches it first.
+        void BridgeStage::StageIwdWeapons(const std::vector<fs::path>& mapIwdDirs)
+        {
+            const auto root = projectRoot_ / "iwd_weapons";
+            std::error_code e;
+            fs::remove_all(root, e);
+            std::set<std::string> seen;
+            std::vector<std::string> overridden;
+            for (const auto& directory : mapIwdDirs)
+            {
+                if (!fs::is_directory(directory, e))
+                    continue;
+                std::vector<fs::path> archives;
+                for (const auto& entry : fs::directory_iterator(directory, e))
+                    if (mod::Lower(files::Utf8(entry.path().filename())).ends_with(".iwd"))
+                        archives.push_back(entry.path());
+                std::ranges::stable_sort(archives, std::ranges::greater{}, [](const fs::path& path) { return mod::Lower(files::Utf8(path.filename())); });
+                for (const auto& path : archives)
+                {
+                    zip::Archive archive(path);
+                    for (const auto& entry : archive.Entries())
+                    {
+                        const auto name = mod::Lower(entry.name);
+                        if (entry.IsDir() || !name.starts_with("weapons/sp/") || name.find('/', 11) != std::string::npos)
+                            continue;
+                        const auto weapon = name.substr(11);
+                        if (weapon.empty() || !seen.insert(weapon).second)
+                            continue;
+                        auto bytes = archive.Read(entry);
+                        if (!bytes.starts_with("WEAPONFILE"))
+                            continue;
+                        files::WriteBytes(root / "weapons" / files::FromUtf8(weapon), bytes);
+                        overridden.push_back(weapon);
+                    }
+                }
+            }
+            if (overridden.empty())
+                return;
+            roots_.insert(roots_.begin(), root);
+            std::string names;
+            for (const auto& weapon : overridden)
+                names += (names.empty() ? "" : ", ") + weapon;
+            report_.Warn("IWD_WEAPONS " + std::to_string(overridden.size()) + " weapon files from the map's IWDs take precedence over its zones: " + names);
         }
 
         void BridgeStage::StageGeometry()
@@ -908,7 +962,7 @@ namespace w2b::pipeline
         // cli._stage_bridge's summary
         int PrintSummary(const BridgeReport& report, const std::string& project)
         {
-            std::printf("collision: %s\n", py::JsonDumpsDefault(report.collision).c_str());
+            std::printf("collision: %s\n", util::JsonDumpsDefault(report.collision).c_str());
             const auto degraded = std::ranges::count_if(report.materials, [](const MaterialRecord& m) { return m.notes && !m.notes->empty(); });
             std::printf("materials: %zu written, %zu with degradations (see zone_raw/%s/bridge_stage.report.json)\n", report.materials.size(),
                         static_cast<std::size_t>(degraded), project.c_str());

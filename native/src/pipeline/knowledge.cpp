@@ -3,7 +3,7 @@
 
 #include "core/files.h"
 #include "core/encoding.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/zip.h"
 
 #include <windows.h>
@@ -41,9 +41,9 @@ namespace w2b::pipeline::knowledge
             return text;
         }
 
-        const pyre::Regex& Tag()
+        const regex::Regex& Tag()
         {
-            static const pyre::Regex tag(R"(^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b)");
+            static const regex::Regex tag(R"(^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b)");
             return tag;
         }
 
@@ -61,7 +61,7 @@ namespace w2b::pipeline::knowledge
         }
 
         // Counter(...).most_common(): by count, ties in first-seen order
-        py::Json MostCommon(const std::vector<std::string>& items)
+        util::Json MostCommon(const std::vector<std::string>& items)
         {
             std::vector<std::pair<std::string, long long>> counts;
             for (const auto& item : items)
@@ -73,7 +73,7 @@ namespace w2b::pipeline::knowledge
                     it->second++;
             }
             std::stable_sort(counts.begin(), counts.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
-            py::Json out = py::Json::object();
+            util::Json out = util::Json::object();
             for (const auto& [k, v] : counts)
                 out[k] = v;
             return out;
@@ -87,21 +87,21 @@ namespace w2b::pipeline::knowledge
         const auto rest = space == std::string::npos ? std::string() : entry.substr(space + 1);
         if (head == "GSC")
         {
-            static const pyre::Regex arity(R"(^(?P<name>\w+)/(?P<argc>\d+)args\((?P<why>.*)\)$)");
+            static const regex::Regex arity(R"(^(?P<name>\w+)/(?P<argc>\d+)args\((?P<why>.*)\)$)");
             if (const auto m = arity.MatchAt(rest))
                 return {"gsc_arity", *m->Group("name") + "/" + *m->Group("argc")};
             return {rest.find("::") != std::string::npos ? "gsc_framework" : "gsc_builtin", Lower(rest)};
         }
         if (head == "XANIM")
         {
-            static const pyre::Regex xanim(R"(^(?P<name>\S+) \(animtree (?P<tree>[^:]+): (?P<why>.*)\)$)");
+            static const regex::Regex xanim(R"(^(?P<name>\S+) \(animtree (?P<tree>[^:]+): (?P<why>.*)\)$)");
             if (const auto m = xanim.MatchAt(rest))
                 return {"xanim_missing", *m->Group("tree") + "::" + *m->Group("name")};
             return {"xanim", rest};
         }
         if (head == "CSC")
         {
-            static const pyre::Regex csc(R"(^(?P<name>\S+) in client listener (?P<listener>\S+))");
+            static const regex::Regex csc(R"(^(?P<name>\S+) in client listener (?P<listener>\S+))");
             const auto m = csc.MatchAt(rest);
             return {"csc_builtin", m ? Lower(*m->Group("name")) : rest};
         }
@@ -113,9 +113,9 @@ namespace w2b::pipeline::knowledge
         if (const auto m = Tag().MatchAt(text))
             return (*m)[1];
         const auto colon = text.find(':');
-        const auto head = std::string(py::Strip(colon == std::string::npos ? text : text.substr(0, colon)));
-        static const pyre::Regex spaces(R"(\s+)");
-        static const pyre::Regex stop(R"([\\/.]|\d)");
+        const auto head = std::string(util::Strip(colon == std::string::npos ? text : text.substr(0, colon)));
+        static const regex::Regex spaces(R"(\s+)");
+        static const regex::Regex stop(R"([\\/.]|\d)");
         std::vector<std::string> words;
         for (const auto& word : spaces.Split(head))
         {
@@ -138,11 +138,11 @@ namespace w2b::pipeline::knowledge
         return Lower(files::Utf8(path.stem())) + "_" + Sha1Hex(Lower(text)).substr(0, 8);
     }
 
-    py::Json Observation(const py::Json* reportIn, const std::string& source, const std::string& project, const std::string& version, const std::string& outcome,
+    util::Json Observation(const util::Json* reportIn, const std::string& source, const std::string& project, const std::string& version, const std::string& outcome,
                          const std::optional<std::string>& step, const std::string& error)
     {
-        const py::Json report = reportIn && reportIn->is_object() ? *reportIn : py::Json::object();
-        const auto scripts = report.contains("scripts") && report["scripts"].is_object() ? report["scripts"] : py::Json::object();
+        const util::Json report = reportIn && reportIn->is_object() ? *reportIn : util::Json::object();
+        const auto scripts = report.contains("scripts") && report["scripts"].is_object() ? report["scripts"] : util::Json::object();
         std::map<std::string, std::map<std::string, long long>> gaps;
         if (scripts.contains("unsupported") && scripts["unsupported"].is_object())
             for (const auto& [entry, where] : scripts["unsupported"].items())
@@ -152,17 +152,17 @@ namespace w2b::pipeline::knowledge
             }
         std::vector<std::string> errorKinds, tags;
         for (const char* key : {"errors"})
-            for (const auto& e : report.value(key, py::Json::array()))
+            for (const auto& e : report.value(key, util::Json::array()))
                 errorKinds.push_back(ErrorKind(e.get<std::string>()));
-        for (const auto& e : scripts.value("errors", py::Json::array()))
+        for (const auto& e : scripts.value("errors", util::Json::array()))
             errorKinds.push_back(ErrorKind(e.get<std::string>()));
-        for (const auto& w : report.value("warnings", py::Json::array()))
+        for (const auto& w : report.value("warnings", util::Json::array()))
             if (const auto m = Tag().MatchAt(w.get<std::string>()))
                 tags.push_back((*m)[1]);
-        py::Json gapJson = py::Json::object();
+        util::Json gapJson = util::Json::object();
         for (const auto& [kind, symbols] : gaps)
         {
-            py::Json s = py::Json::object();
+            util::Json s = util::Json::object();
             for (const auto& [symbol, uses] : symbols)
                 s[symbol] = uses;
             gapJson[kind] = s;
@@ -172,7 +172,7 @@ namespace w2b::pipeline::knowledge
         localtime_s(&local, &now);
         char date[16];
         std::strftime(date, sizeof date, "%Y-%m-%d", &local);
-        py::Json obs = py::Json::object();
+        util::Json obs = util::Json::object();
         obs["schema"] = SCHEMA;
         obs["map"] = MapKey(source);
         obs["source"] = files::Utf8(files::FromUtf8(source).filename());
@@ -180,36 +180,36 @@ namespace w2b::pipeline::knowledge
         obs["converter_version"] = version;
         obs["recorded"] = date;
         obs["outcome"] = outcome;
-        obs["failed_step"] = step ? py::Json(*step) : py::Json();
+        obs["failed_step"] = step ? util::Json(*step) : util::Json();
         obs["error"] = error.size() > 2000 ? error.substr(error.size() - 2000) : error;
         obs["gaps"] = gapJson;
         obs["stage_errors"] = MostCommon(errorKinds);
         obs["reported"] = MostCommon(tags);
-        obs["scripts_ported"] = scripts.value("ported", py::Json::array()).size();
-        obs["functions_extracted"] = scripts.value("extracted", py::Json::array()).size();
+        obs["scripts_ported"] = scripts.value("ported", util::Json::array()).size();
+        obs["functions_extracted"] = scripts.value("extracted", util::Json::array()).size();
         return obs;
     }
 
-    std::filesystem::path Record(const std::filesystem::path& ledger, const py::Json& observation)
+    std::filesystem::path Record(const std::filesystem::path& ledger, const util::Json& observation)
     {
         std::filesystem::create_directories(ledger);
         const auto path = ledger / files::FromUtf8(observation["map"].get<std::string>() + ".json");
-        files::WriteText(path, py::JsonDumps(observation, 1) + "\n");
+        files::WriteText(path, util::JsonDumps(observation, 1) + "\n");
         return path;
     }
 
     std::optional<std::string> FailedStep(const std::string& log)
     {
-        static const pyre::Regex banner(R"(^== (\d+[a-z]?)\. (.*)$)", pyre::MULTILINE);
+        static const regex::Regex banner(R"(^== (\d+[a-z]?)\. (.*)$)", regex::MULTILINE);
         const auto steps = banner.FindAll(log);
         if (steps.empty())
             return std::nullopt;
         return steps.back()[0] + ". " + steps.back()[1];
     }
 
-    std::vector<py::Json> Load(const std::vector<std::filesystem::path>& ledgers)
+    std::vector<util::Json> Load(const std::vector<std::filesystem::path>& ledgers)
     {
-        std::map<std::string, py::Json> found;
+        std::map<std::string, util::Json> found;
         std::vector<std::string> order;
         for (const auto& ledger : ledgers)
         {
@@ -217,10 +217,10 @@ namespace w2b::pipeline::knowledge
             std::ranges::sort(paths);
             for (const auto& path : paths)
             {
-                py::Json obs;
+                util::Json obs;
                 try
                 {
-                    obs = py::Json::parse(files::ReadText(path));
+                    obs = util::Json::parse(files::ReadText(path));
                 }
                 catch (const std::exception&)
                 {
@@ -236,13 +236,13 @@ namespace w2b::pipeline::knowledge
                     found[map] = std::move(obs);
             }
         }
-        std::vector<py::Json> out;
+        std::vector<util::Json> out;
         for (const auto& map : order)
             out.push_back(std::move(found[map]));
         return out;
     }
 
-    py::Json Aggregate(const std::vector<py::Json>& observations)
+    util::Json Aggregate(const std::vector<util::Json>& observations)
     {
         struct Gap
         {
@@ -252,14 +252,14 @@ namespace w2b::pipeline::knowledge
         };
         std::map<std::pair<std::string, std::string>, Gap> gaps;
         std::map<std::string, std::set<std::string>> errors, steps;
-        py::Json outcomes = py::Json::object();
+        util::Json outcomes = util::Json::object();
         for (const auto& obs : observations)
         {
             const auto source = obs.value("source", std::string());
             const auto name = source.empty() ? obs.at("map").get<std::string>() : source;
             const auto outcome = obs.value("outcome", std::string("unknown"));
             outcomes[outcome] = outcomes.value(outcome, 0) + 1;
-            const auto gapKinds = obs.value("gaps", py::Json::object());
+            const auto gapKinds = obs.value("gaps", util::Json::object());
             for (const auto& [kind, symbols] : gapKinds.items())
                 for (const auto& [symbol, uses] : symbols.items())
                 {
@@ -267,10 +267,10 @@ namespace w2b::pipeline::knowledge
                     gap.maps.push_back(name);
                     gap.uses += uses.get<long long>();
                 }
-            const auto stageErrors = obs.value("stage_errors", py::Json::object());
+            const auto stageErrors = obs.value("stage_errors", util::Json::object());
             for (const auto& [kind, _] : stageErrors.items())
                 errors[kind].insert(name);
-            if (const auto step = obs.value("failed_step", py::Json()); step.is_string() && !step.get<std::string>().empty())
+            if (const auto step = obs.value("failed_step", util::Json()); step.is_string() && !step.get<std::string>().empty())
                 steps[step.get<std::string>()].insert(name);
         }
         std::vector<Gap> ranked;
@@ -279,7 +279,7 @@ namespace w2b::pipeline::knowledge
         std::ranges::sort(ranked, [](const Gap& a, const Gap& b)
                           { return std::tuple(-static_cast<long long>(a.maps.size()), -a.uses, a.kind, a.symbol) <
                                    std::tuple(-static_cast<long long>(b.maps.size()), -b.uses, b.kind, b.symbol); });
-        py::Json gapList = py::Json::array();
+        util::Json gapList = util::Json::array();
         for (auto& gap : ranked)
         {
             std::ranges::sort(gap.maps);
@@ -290,7 +290,7 @@ namespace w2b::pipeline::knowledge
         {
             std::vector<std::pair<std::string, std::set<std::string>>> items(groups.begin(), groups.end());
             std::ranges::stable_sort(items, [](const auto& a, const auto& b) { return a.second.size() > b.second.size(); });
-            py::Json out = py::Json::object();
+            util::Json out = util::Json::object();
             for (const auto& [key, maps] : items)
                 out[key] = std::vector<std::string>(maps.begin(), maps.end());
             return out;
@@ -303,25 +303,25 @@ namespace w2b::pipeline::knowledge
                 {"failed_steps", byMaps(steps)}};
     }
 
-    std::optional<py::Json> FromBundle(const std::filesystem::path& bundle)
+    std::optional<util::Json> FromBundle(const std::filesystem::path& bundle)
     {
         zip::Archive archive(bundle);
-        py::Json summary = py::Json::object(), report;
+        util::Json summary = util::Json::object(), report;
         std::string console;
         bool haveReport = false;
         for (const auto& entry : archive.Entries())
         {
             if (entry.name == "summary.json")
-                summary = py::Json::parse(archive.Read(entry));
+                summary = util::Json::parse(archive.Read(entry));
             else if (entry.name == "console.log")
                 console = encoding::Utf8Replace(archive.Read(entry));
             else if (!haveReport && entry.name.ends_with(std::string("/") + REPORT_NAME))
             {
-                report = py::Json::parse(archive.Read(entry));
+                report = util::Json::parse(archive.Read(entry));
                 haveReport = true;
             }
         }
-        const auto settings = summary.value("settings", py::Json::object());
+        const auto settings = summary.value("settings", util::Json::object());
         auto source = settings.value("fastfile", std::string());
         if (source.empty())
             source = settings.value("project", std::string());

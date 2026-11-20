@@ -3,7 +3,7 @@
 
 #include "core/asset_paths.h"
 #include "core/files.h"
-#include "core/pytext.h"
+#include "core/text.h"
 #include "materials/waw_material_json.h"
 #include "oat/waw_assets.h"
 
@@ -24,12 +24,12 @@ namespace w2b::extract
             return key;
         }
 
-        bool ListsMaterials(const py::Json& inputs)
+        bool ListsMaterials(const util::Json& inputs)
         {
-            const auto& kinds = inputs.value("assets", py::Json());
+            const auto& kinds = inputs.value("assets", util::Json());
             if (!kinds.is_string())
                 return true; // every kind was extracted
-            for (const auto kind : py::Split(kinds.get_ref<const std::string&>(), ","))
+            for (const auto kind : util::Split(kinds.get_ref<const std::string&>(), ","))
                 if (kind == "material")
                     return true;
             return false;
@@ -44,7 +44,7 @@ namespace w2b::extract
             std::string text;
             if (files::ReadBytes(folder / "extraction.json", text))
             {
-                const auto receipt = py::Json::parse(text);
+                const auto receipt = util::Json::parse(text);
                 const auto& inputs = receipt.at("inputs");
                 const auto fastfile = files::FromUtf8(inputs.at("file").get<std::string>());
                 std::error_code e;
@@ -53,9 +53,9 @@ namespace w2b::extract
                     root.fastfile = fastfile;
                     if (ListsMaterials(inputs))
                     {
-                        const auto& index = receipt.value("index", py::Json::object());
+                        const auto& index = receipt.value("index", util::Json::object());
                         const auto names = index.contains("material") || inputs.value("list", false)
-                                               ? index.value("material", py::Json::array()).get<std::vector<std::string>>()
+                                               ? index.value("material", util::Json::array()).get<std::vector<std::string>>()
                                                : oat::MaterialNames({fastfile, {}});
                         for (const auto& name : names)
                             root.materials.emplace(Key(name), name);
@@ -87,7 +87,7 @@ namespace w2b::extract
     materials::WawMaterial MaterialSources::ReadFrom(const Root& root, const std::string& name)
     {
         if (!root.fastfile)
-            return materials::FromOatJson(py::Json::parse(files::ReadText(root.folder / assets::MaterialPath(name))));
+            return materials::FromOatJson(util::Json::parse(files::ReadText(root.folder / assets::MaterialPath(name))));
         auto material = oat::ReadMaterial({*root.fastfile, {}}, name);
         if (!material)
             throw std::runtime_error("material " + name + ": listed by " + files::Utf8(root.folder / "extraction.json") + " but absent from " +

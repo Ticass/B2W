@@ -1,5 +1,5 @@
 #pragma once
-// Lossless GSC/CSC tokenizer (port of gsc.py): every token keeps the
+// Lossless GSC/CSC tokenizer: every token keeps the
 // whitespace/comments before it, so Emit(tokens) reproduces the source.
 
 #include <stdexcept>
@@ -20,7 +20,7 @@ namespace w2b::gsc
         Eof
     };
 
-    const char* KindName(Kind kind); // "ident", "path", ... as gsc.py names them
+    const char* KindName(Kind kind); // "ident", "path", ...
 
     struct Token
     {
@@ -38,7 +38,7 @@ namespace w2b::gsc
         using std::runtime_error::runtime_error;
     };
 
-    // gsc.tokenize (source is UTF-8 text, as Python decoded it)
+    // gsc.tokenize (source is UTF-8 text)
     std::vector<Token> Tokenize(std::string_view source);
 
     // gsc.emit

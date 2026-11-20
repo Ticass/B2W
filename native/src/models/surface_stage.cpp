@@ -30,7 +30,7 @@ namespace w2b::models
         }
     }
 
-    py::Json SurfaceFixes::OpacityJson() const
+    util::Json SurfaceFixes::OpacityJson() const
     {
         auto json = Json::object();
         for (const auto& [file, vertices] : opacity)
@@ -38,7 +38,7 @@ namespace w2b::models
         return json;
     }
 
-    py::Json SurfaceFixes::SortKeysJson() const
+    util::Json SurfaceFixes::SortKeysJson() const
     {
         auto json = Json::object();
         for (const auto& change : sortKeys)
@@ -67,7 +67,7 @@ namespace w2b::models
                     orders[i] = SurfaceMaterials(gltf);
                 changed[i] = OpaqueVertexAlpha(gltf, additive);
                 if (changed[i] != 0)
-                    ReplaceStagedText(paths[i], py::JsonDumpsDefault(gltf));
+                    ReplaceStagedText(paths[i], util::JsonDumpsDefault(gltf));
             }, 4);
             for (std::size_t i = 0; i < paths.size(); ++i)
                 if (changed[i] != 0)

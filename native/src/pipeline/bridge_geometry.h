@@ -2,7 +2,7 @@
 // The bridge's world pass: render and collision geometry, probes, visibility,
 // map physics and, through the navigation pass, the entities and AI paths.
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "gsc/port/zone_scripts.h"
 #include "pipeline/bridge_inventory.h"
 #include "world/render_world.h"
@@ -27,7 +27,7 @@ namespace w2b::pipeline
         std::filesystem::path stage;
         std::optional<std::filesystem::path> bo2Root, wawMapScript;
         std::vector<std::filesystem::path> traversalRoots, mapRoots;
-        py::Json levelWeapons;         // the stock common zone's weapons
+        util::Json levelWeapons;         // the stock common zone's weapons
         bool bo2StockPerks = false;
         std::string respawnExclusion;  // gsc_api zombie_runtime.source_respawn.native_exclusion_tag
     };
@@ -35,7 +35,7 @@ namespace w2b::pipeline
     struct NavigationResult // the map's entities, AI paths and zone graph
     {
         std::filesystem::path entitySource;          // the WaW .ents dump
-        py::Json entities = py::Json::object();      // the entity conversion summary
+        util::Json entities = util::Json::object();      // the entity conversion summary
         bool hasEntities = false;
         std::vector<std::string> scriptModels;       // map-placed script_model models, sorted
         std::optional<gsc::port::ZoneGraph> zoneGraph;
@@ -64,16 +64,16 @@ namespace w2b::pipeline
 
     struct GeometryStage
     {
-        py::Json content = py::Json::object(); // report content sections, in order
-        py::Json collision;
+        util::Json content = util::Json::object(); // report content sections, in order
+        util::Json collision;
         std::vector<std::string> warnings, errors;
         std::optional<std::string> visibilityWarning; // goes after the probe warnings
         std::vector<GeometrySurface> surfaces;
         std::vector<world::WorldStaticModel> staticModels;
         bool shadowLights = false, layered = false, hasWater = false;
-        py::Json probes;                       // the probe report (images, warnings, errors, content, kept)
+        util::Json probes;                       // the probe report (images, warnings, errors, content, kept)
         std::optional<std::string> sky;
-        py::Json dynents, constraints;         // map physics
+        util::Json dynents, constraints;         // map physics
         std::set<std::string> clipModels;
         std::optional<NavigationResult> navigation; // none without a navigation request
     };

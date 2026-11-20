@@ -118,7 +118,7 @@ namespace w2b::models
                 Vec3 terms{};
                 for (unsigned r = 0; r < 3; ++r)
                     terms[r] = limit[(corner >> r) & 1][r] * axis[r * 3 + k];
-                const auto point = origin[k] + scale * py::Sum(terms);
+                const auto point = origin[k] + scale * util::Sum(terms);
                 lo[k] = std::min(lo[k], point);
                 hi[k] = std::max(hi[k], point);
             }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/pytext.h"
+#include "core/text.h"
 #include "materials/t6_material.h"
 #include "materials/techsets.h"
 #include "materials/waw_material.h"
@@ -18,7 +18,7 @@ namespace w2b::materials
     class Donors
     {
     public:
-        explicit Donors(const py::Json& paths);
+        explicit Donors(const util::Json& paths);
         const T6Material& Get(const std::string& name);
         std::vector<Technique> candidates;
 

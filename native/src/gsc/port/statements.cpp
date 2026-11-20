@@ -127,16 +127,16 @@ namespace w2b::gsc::port
         return true;
     }
 
-    py::Json PortReport::ToJson() const
+    util::Json PortReport::ToJson() const
     {
         const auto dictOfLists = [](const OrderedMap<std::vector<std::string>>& m)
         {
-            py::Json out = py::Json::object();
+            util::Json out = util::Json::object();
             for (const auto& k : m.order)
                 out[k] = m.values.at(k);
             return out;
         };
-        py::Json j = py::Json::object();
+        util::Json j = util::Json::object();
         j["map_main"] = mapMain;
         j["ported"] = ported;
         j["core_overrides"] = coreOverrides;
@@ -144,7 +144,7 @@ namespace w2b::gsc::port
         j["weapon_registration"] = weaponRegistration;
         j["extracted"] = extracted;
         j["unsupported"] = dictOfLists(unsupported);
-        py::Json counts = py::Json::object();
+        util::Json counts = util::Json::object();
         for (const auto& k : rewrites.order)
             counts[k] = rewrites.values.at(k);
         j["rewrites"] = counts;
@@ -152,7 +152,7 @@ namespace w2b::gsc::port
         j["animtrees"] = dictOfLists(animtrees);
         j["errors"] = errors;
         j["waw_hud_materials"] = wawHudMaterials;
-        py::Json trees = py::Json::object();
+        util::Json trees = util::Json::object();
         for (const auto& k : nativeActorTrees.order)
             trees[k] = nativeActorTrees.values.at(k);
         j["native_actor_trees"] = trees;

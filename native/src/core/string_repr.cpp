@@ -1,4 +1,4 @@
-#include "core/pytext.h"
+#include "core/text.h"
 
 #include "core/encoding.h"
 #include "core/unicode.h"
@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <iterator>
 
-namespace w2b::py
+namespace w2b::util
 {
     namespace
     {

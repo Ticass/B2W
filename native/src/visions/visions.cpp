@@ -5,7 +5,7 @@
 #include "core/encoding.h"
 #include "core/files.h"
 #include "core/hash.h"
-#include "core/pyre.h"
+#include "core/regex.h"
 #include "core/zip.h"
 #include "materials/t6_material.h"
 #include "shaders/techsets.h"
@@ -24,7 +24,7 @@
 namespace w2b::visions
 {
     namespace fs = std::filesystem;
-    using py::Json;
+    using util::Json;
 
     namespace
     {
@@ -89,10 +89,10 @@ namespace w2b::visions
             size_t i = 0;
             while (i < text.size())
             {
-                while (i < text.size() && py::IsSpace(text[i]))
+                while (i < text.size() && util::IsSpace(text[i]))
                     i++;
                 size_t j = i;
-                while (j < text.size() && !py::IsSpace(text[j]))
+                while (j < text.size() && !util::IsSpace(text[j]))
                     j++;
                 if (j > i)
                     out.emplace_back(text.substr(i, j - i));
@@ -104,7 +104,7 @@ namespace w2b::visions
         double PyFloat(const std::string& text)
         {
             double v = 0;
-            if (!py::ParseFloat(text, v))
+            if (!util::ParseFloat(text, v))
                 throw std::runtime_error("could not convert string to float: " + gsc::Repr(text));
             return v;
         }
@@ -173,8 +173,8 @@ namespace w2b::visions
         // parse(): comments removed, key "value" pairs, keys lower-cased
         Json ParseVision(const std::string& text)
         {
-            static const pyre::Regex comments("/\\*.*?\\*/|//[^\\n]*", pyre::DOTALL);
-            static const pyre::Regex pair("([\\w]+)\\s+\"([^\"\\r\\n]*)\"");
+            static const regex::Regex comments("/\\*.*?\\*/|//[^\\n]*", regex::DOTALL);
+            static const regex::Regex pair("([\\w]+)\\s+\"([^\"\\r\\n]*)\"");
             Json out = Json::object();
             for (const auto& m : pair.FindAll(comments.Sub("", text)))
                 out[Lower(m[0])] = m[1];
@@ -249,14 +249,14 @@ namespace w2b::visions
             if (v.is_number())
                 return v.get<double>();
             double d = 0;
-            if (v.is_string() && py::ParseFloat(v.get<std::string>(), d))
+            if (v.is_string() && util::ParseFloat(v.get<std::string>(), d))
                 return d;
             return fallback;
         }
 
         std::string F(const double v)
         {
-            return py::FloatRepr(v);
+            return util::FloatRepr(v);
         }
 
         std::string F3(const std::array<double, 3>& v)
@@ -379,7 +379,7 @@ namespace w2b::visions
                 p.stableArgCount = p.stableArgCount + 1 - removed;
                 const auto path = project / "techniquesets" / files::FromUtf8(shader + ".json");
                 fs::create_directories(path.parent_path());
-                files::WriteText(path, py::JsonDumps(shaders::ToJson(technique), 2));
+                files::WriteText(path, util::JsonDumps(shaders::ToJson(technique), 2));
                 auto material = *donor;
                 material.techniqueSet = shader;
                 for (auto& texture : material.textures)
@@ -431,11 +431,11 @@ namespace w2b::visions
     double VisionFloat(const std::string& value)
     {
         double result = 0;
-        if (!py::ParseFloat(value, result))
+        if (!util::ParseFloat(value, result))
         {
-            static const pyre::Regex prefix("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?");
+            static const regex::Regex prefix("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?");
             size_t i = 0;
-            while (i < value.size() && py::IsSpace(value[i]))
+            while (i < value.size() && util::IsSpace(value[i]))
                 i++;
             const auto match = prefix.MatchAt(value.substr(i));
             if (!match)
@@ -593,8 +593,8 @@ namespace w2b::visions
         for (const auto& [k, v] : dvars.items())
             if (StartsWith(k, "r_") || StartsWith(k, "sm_"))
                 report["script_render_dvars"][k] = v;
-        static const pyre::Regex validName("[a-z0-9_/.-]+");
-        static const pyre::Regex prefix("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?");
+        static const regex::Regex validName("[a-z0-9_/.-]+");
+        static const regex::Regex prefix("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?");
         for (const auto& name : wanted)
         {
             if (!sources.count(name))
@@ -613,15 +613,15 @@ namespace w2b::visions
                 if (!StartsWith(key, "r_") || SplitWhite(text).size() != 1)
                     continue;
                 double ignored = 0;
-                if (py::ParseFloat(text, ignored))
+                if (util::ParseFloat(text, ignored))
                     continue;
                 size_t i = 0;
-                while (i < text.size() && py::IsSpace(text[i]))
+                while (i < text.size() && util::IsSpace(text[i]))
                     i++;
                 if (!prefix.MatchAt(text.substr(i)))
                     continue;
                 const double parsed = VisionFloat(text);
-                value = py::FloatRepr(parsed);
+                value = util::FloatRepr(parsed);
                 report["numeric_prefixes"].push_back(Json{{"vision", name}, {"source", sources[name].second}, {"field", key}, {"original", text}, {"parsed", parsed}});
             }
             const auto index = grades.size();
@@ -697,7 +697,7 @@ namespace w2b::visions
                 fs::create_directories(project / "images");
                 fs::create_directories(project / "BSP");
                 files::WriteBytes(project / "images/waw_vision_lut.iwi", Atlas(grades));
-                files::WriteText(project / "BSP/visions.json", py::JsonDumpsDefault(Json{{"material", "waw/vision_lut"}, {"grades", grades.size()}}) + "\n");
+                files::WriteText(project / "BSP/visions.json", util::JsonDumpsDefault(Json{{"material", "waw/vision_lut"}, {"grades", grades.size()}}) + "\n");
             }
         }
         {
@@ -710,7 +710,7 @@ namespace w2b::visions
             files::WriteBytes(project / "mod_extra.zone", existing + add);
         }
         fs::create_directories(project / "content_source");
-        files::WriteText(project / "content_source/visions.stage.json", py::JsonDumps(report, 2) + "\n");
+        files::WriteText(project / "content_source/visions.stage.json", util::JsonDumps(report, 2) + "\n");
         return report;
     }
 } // namespace w2b::visions
