@@ -4,7 +4,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <format>
 #include <map>
+#include <optional>
 #include <set>
 
 namespace w2b::weapons
@@ -145,6 +148,33 @@ namespace w2b::weapons
             }
         }
 
+        // WaW's infostring parser reads numbers with the C library (atoi for
+        // int/bool fields, atof for float and millisecond fields) and ignores
+        // whatever follows the number; T6's loader rejects the whole asset.
+        // Returns the value WaW actually uses, or nothing when it already
+        // parses fully.
+        std::optional<std::string> WawNumber(const std::string& type, const std::string& value)
+        {
+            const bool integer = type == "CSPFT_INT" || type == "CSPFT_UINT" || type == "CSPFT_BOOL" ||
+                                 type == "CSPFT_QBOOLEAN";
+            const bool real = type == "CSPFT_FLOAT" || type == "CSPFT_MILLISECONDS";
+            if ((!integer && !real) || value.empty())
+                return std::nullopt;
+            const char* begin = value.c_str();
+            char* end = nullptr;
+            if (integer)
+            {
+                const long parsed = std::strtol(begin, &end, 10);
+                if (*end == '\0' && end != begin)
+                    return std::nullopt;
+                return std::to_string(parsed);
+            }
+            const double parsed = std::strtod(begin, &end);
+            if (*end == '\0' && end != begin)
+                return std::nullopt;
+            return std::format("{}", static_cast<float>(parsed));
+        }
+
         Json Unsupported(const std::string& src, const std::string& dst,
                          const std::string& value)
         {
@@ -199,6 +229,12 @@ namespace w2b::weapons
                         value = *same;
                     }
                 }
+            }
+            else if (const auto number = WawNumber(dst, value))
+            {
+                weapon.translations[key] = {{"source", value}, {"target", *number},
+                    {"reason", "WaW reads numbers with atoi/atof and ignores trailing text"}};
+                value = *number;
             }
             if (key == "playerAnimType" && profile == classAnimationTypes.end() && !playerAnimationTypes.contains(value))
             {

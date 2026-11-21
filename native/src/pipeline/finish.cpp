@@ -9,6 +9,7 @@
 #include "core/text.h"
 #include "core/timeline.h"
 #include "gsc/parse.h"
+#include "gsc/port/api.h"
 #include "gsc/port/generators.h"
 #include "gsc/port/staging.h"
 
@@ -17,8 +18,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <cwctype>
 #include <fstream>
+#include <map>
 #include <set>
 
 #ifndef W2B_VERSION
@@ -198,6 +201,164 @@ namespace w2b::pipeline
         return {std::vector<std::string>(compiled.begin(), compiled.end()), errors};
     }
 
+    namespace
+    {
+        // T6 compiled scripts address every name (functions, includes,
+        // imports, fields, literals) with a 16-bit offset into the file, and
+        // the BO2 linker silently wraps names stored past 64 KiB: the game then
+        // reports "Unresolved external" for fragments of other names (Kill
+        // House: "xid", "und", include "ver"). The converter's own aggregate
+        // script, the core, is split into parts that each stay under the
+        // limit; every compiled script is checked afterwards.
+        constexpr std::size_t T6_SCRIPT_NAME_LIMIT = 0x10000;
+        constexpr std::size_t CORE_PART_NAME_BUDGET = 40000; // estimated name bytes per part
+
+        std::size_t NameBytes(const std::vector<gsc::Token>& tokens, std::size_t begin, std::size_t end, std::set<std::string>& seen)
+        {
+            std::size_t bytes = 0;
+            for (auto i = begin; i < end; ++i)
+            {
+                const auto& token = tokens[i];
+                if (token.kind != gsc::Kind::Ident && token.kind != gsc::Kind::String && token.kind != gsc::Kind::Path)
+                    continue;
+                if (seen.insert(token.Low()).second)
+                    bytes += token.text.size() + 1;
+            }
+            return bytes;
+        }
+
+        std::string CorePartPath(std::size_t part)
+        {
+            return std::string(gsc::port::CORE) + (part ? std::to_string(part + 1) : "");
+        }
+
+    }
+
+    // returns the number of parts written (1: the core was left as it is)
+    std::size_t SplitCoreScript(const fs::path& projectRoot)
+        {
+            const auto corePath = projectRoot / "maps/mp/waw/_waw2bo2_core.gsc";
+            if (!IsFile(corePath))
+                return 0;
+            const auto coreText = files::ReadText(corePath);
+            // already split (compile-scripts run again on the same stage)
+            if (Lower(coreText).find("#include " + Lower(CorePartPath(1)) + ";") != std::string::npos)
+                return 1;
+            // parts of an earlier split of a core that was regenerated since
+            for (std::size_t part = 1;; ++part)
+            {
+                auto relative = CorePartPath(part);
+                std::replace(relative.begin(), relative.end(), '\\', '/');
+                std::error_code error;
+                if (!fs::remove(projectRoot / files::FromUtf8(relative + ".gsc"), error))
+                    break;
+            }
+            const auto script = gsc::Parse(coreText, Str(corePath));
+            const auto& tokens = script.tokens;
+            if (script.functions.empty())
+                return 1;
+            std::set<std::string> all;
+            if (NameBytes(tokens, 0, tokens.size(), all) <= CORE_PART_NAME_BUDGET)
+                return 1;
+
+            // a unit is one function with the directives and comments before it;
+            // parts break only outside top-level /# #/ blocks
+            const auto headerEnd = script.functions.front().second.start;
+            struct Part
+            {
+                std::vector<std::size_t> functions;
+                std::set<std::string> seen;
+                std::size_t bytes = 0;
+            };
+            std::vector<Part> parts(1);
+            int devDepth = 0;
+            for (std::size_t f = 0; f < script.functions.size(); ++f)
+            {
+                const auto& function = script.functions[f].second;
+                const auto begin = f ? script.functions[f - 1].second.bodyClose + 1 : headerEnd;
+                for (auto i = begin; i < function.start; ++i)
+                    if (tokens[i].kind == gsc::Kind::Punct && (tokens[i].text == "/#" || tokens[i].text == "#/"))
+                        devDepth += tokens[i].text == "/#" ? 1 : -1;
+                auto trial = parts.back().seen;
+                const auto bytes = NameBytes(tokens, begin, function.bodyClose + 1, trial);
+                if (!parts.back().functions.empty() && devDepth == 0 && parts.back().bytes + bytes > CORE_PART_NAME_BUDGET)
+                {
+                    parts.emplace_back();
+                    trial.clear();
+                    parts.back().bytes = NameBytes(tokens, begin, function.bodyClose + 1, trial);
+                }
+                else
+                    parts.back().bytes += bytes;
+                parts.back().seen = std::move(trial);
+                parts.back().functions.push_back(f);
+            }
+            if (parts.size() == 1)
+                return 1;
+
+            std::map<std::string, std::size_t> owner; // lower-case function -> part
+            for (std::size_t p = 0; p < parts.size(); ++p)
+                for (const auto f : parts[p].functions)
+                    owner[script.functions[f].first] = p;
+            const std::vector<gsc::Token> header(tokens.begin(), tokens.begin() + static_cast<std::ptrdiff_t>(headerEnd));
+            for (std::size_t p = 0; p < parts.size(); ++p)
+            {
+                std::string text = gsc::Emit(header) + "\n";
+                for (std::size_t other = 0; other < parts.size(); ++other)
+                    if (other != p)
+                        text += "#include " + CorePartPath(other) + ";\n";
+                const auto& first = script.functions[parts[p].functions.front()].second;
+                if (p && first.animtree)
+                    text += "#using_animtree( \"" + *first.animtree + "\" );\n";
+                for (const auto f : parts[p].functions)
+                {
+                    const auto& function = script.functions[f].second;
+                    const auto begin = f ? script.functions[f - 1].second.bodyClose + 1 : headerEnd;
+                    text += gsc::Emit(std::vector<gsc::Token>(tokens.begin() + static_cast<std::ptrdiff_t>(begin),
+                                                               tokens.begin() + static_cast<std::ptrdiff_t>(function.bodyClose + 1)));
+                }
+                // the core's trailing tokens (comments, end of file) stay with the last part
+                if (p + 1 == parts.size())
+                    text += gsc::Emit(std::vector<gsc::Token>(tokens.begin() + static_cast<std::ptrdiff_t>(script.functions.back().second.bodyClose + 1), tokens.end()));
+                auto relative = CorePartPath(p);
+                std::replace(relative.begin(), relative.end(), '\\', '/');
+                files::WriteText(projectRoot / files::FromUtf8(relative + ".gsc"), text + "\n");
+            }
+
+            // qualified calls and function pointers name the part that now holds the function
+            static const regex::Regex qualified(R"re(maps\\mp\\waw\\_waw2bo2_core(\s*::\s*)(\w+))re", regex::IGNORECASE);
+            for (const auto& path : files::RGlob(projectRoot, ".gsc"))
+            {
+                const auto text = files::ReadText(path);
+                if (Lower(text).find("_waw2bo2_core") == std::string::npos)
+                    continue;
+                std::size_t made = 0;
+                const auto out = qualified.Sub([&](const regex::Match& match)
+                {
+                    const auto found = owner.find(Lower(match[2]));
+                    const auto part = found == owner.end() ? 0 : found->second;
+                    return part ? CorePartPath(part) + match[1] + match[2] : match[0];
+                }, text, 0, &made);
+                if (made && out != text)
+                    files::WriteText(path, out);
+            }
+            return parts.size();
+        }
+
+    namespace
+    {
+        // the 16-bit name window of a compiled T6 script: every name lies before the include table
+        void CheckScriptNameWindow(const std::string& name, const std::string& bytes)
+        {
+            if (bytes.size() < 0x40 || bytes.compare(0, 4, "\x80GSC") != 0)
+                return;
+            std::uint32_t includes = 0;
+            std::memcpy(&includes, bytes.data() + 0x0C, sizeof(includes));
+            if (includes > T6_SCRIPT_NAME_LIMIT)
+                throw StepError("StageError", "compiled script " + name + " stores names past 64 KiB (" + std::to_string(includes) +
+                                                  " bytes): T6 addresses them with 16-bit offsets, so the game would see wrapped names (Unresolved external)");
+        }
+    }
+
     std::pair<std::vector<std::string>, std::string> CompileScripts(const fs::path& stage, const std::string& project, const fs::path& bo2, const fs::path& unlinker)
     {
         const auto projectRoot = stage / "zone_raw" / files::FromUtf8(project);
@@ -243,6 +404,7 @@ namespace w2b::pipeline
                 throw StepError("StageError", "compiled script " + name + " was not extracted: " + unlinkText.substr(unlinkText.size() > 400 ? unlinkText.size() - 400 : 0));
             if (bytes.compare(0, 2, "//") == 0 || bytes.substr(0, 200).find("#include") != std::string::npos)
                 throw StepError("StageError", "extracted " + name + " is still GSC source, not bytecode");
+            CheckScriptNameWindow(name, bytes);
         }
         return {compiled, log};
     }

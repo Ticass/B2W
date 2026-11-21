@@ -25,6 +25,10 @@ namespace w2b::pipeline
     std::vector<std::string> MapScripts(const fs::path& projectRoot, const std::string& project);
     void ValidateOwnedInitCalls(const fs::path& projectRoot, const std::string& project);
     // (compiled script names, linker log)
+    // splits maps/mp/waw/_waw2bo2_core.gsc so each part's names fit T6's 16-bit offsets;
+    // returns the part count (1: unchanged, 0: no core)
+    std::size_t SplitCoreScript(const fs::path& projectRoot);
+
     std::pair<std::vector<std::string>, std::string> CompileScripts(const fs::path& stage, const std::string& project, const fs::path& bo2,
                                                                     const fs::path& unlinker);
     std::pair<std::vector<std::string>, std::vector<std::string>> ParseScriptLinkerLog(const std::string& log);
