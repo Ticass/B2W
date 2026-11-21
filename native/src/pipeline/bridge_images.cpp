@@ -103,6 +103,29 @@ namespace w2b::pipeline
             return {{255, 255, 255, 255}, "$white"};
         }
 
+        // Images the mod's own mod.ff lists (each zone extraction records its fastfile). WaW loads mod.ff and
+        // its delayed images (sub_48D630, end of every fastfile load) before the built-in images sub_70F700
+        // hands out have pixels: measured in Kill House, mod.ff's missing images keep a NULL texture (the
+        // Double Tap _on layer, an FX smoke image) while killhouse.ff's get $white/$black/$identitynormalmap.
+        std::set<std::string> ModZoneImages(const std::vector<fs::path>& imageRoots)
+        {
+            std::set<std::string> names;
+            for (const auto& root : imageRoots)
+            {
+                const auto extraction = root.parent_path() / "extraction.json";
+                if (!fs::is_regular_file(extraction))
+                    continue;
+                const auto data = mod::Json(extraction);
+                const auto file = data.value("inputs", Json::object()).value("file", std::string());
+                if (mod::Lower(files::Utf8(FromUtf8(file).filename())) != "mod.ff")
+                    continue;
+                for (const auto& name : data.value("index", Json::object()).value("image", Json::array()))
+                    if (name.is_string())
+                        names.insert(ImageStem(name.get<std::string>(), false));
+            }
+            return names;
+        }
+
         void Fill(std::string& pixels, const Color& rgba, unsigned count)
         {
             const std::string_view value(reinterpret_cast<const char*>(rgba.data()), rgba.size());
@@ -178,6 +201,7 @@ namespace w2b::pipeline
         const auto& imageRoots = request.imageRoots;
         std::map<std::string, std::string> semantics;
         const auto wanted = WantedImages(project, request.materialFiles, request.extraImages, semantics);
+        const auto modZoneImages = ModZoneImages(imageRoots);
         const auto& equivalents = request.nativeImages;
         auto knownRecovered = request.knownRecovered;
         std::optional<std::unordered_set<std::string>> iwdStems;
@@ -223,9 +247,15 @@ namespace w2b::pipeline
             if (source.path.empty())
             {
                 const auto semantic = semantics.contains(asset) ? semantics.at(asset) : std::string();
-                const auto [texel, standIn] = AbsentImageStandIn(semantic);
-                const auto reason = "no pixel data in any zone or IWD; WaW draws " + std::string(standIn) + " for a missing " +
-                                    (semantic.empty() ? std::string("image") : semantic) + " (sub_70F700)";
+                auto [texel, standIn] = AbsentImageStandIn(semantic);
+                auto reason = "no pixel data in any zone or IWD; WaW draws " + std::string(standIn) + " for a missing " +
+                              (semantic.empty() ? std::string("image") : semantic) + " (sub_70F700)";
+                if (modZoneImages.contains(stem))
+                {
+                    texel = {0, 0, 0, 255};
+                    reason = "no pixel data in any zone or IWD; the mod's mod.ff loads it before WaW's built-in images have "
+                             "pixels, so sub_70F700 finds no stand-in and WaW samples a NULL texture (black)";
+                }
                 bool absent = stem.starts_with("~$white-rgb&");
                 if (!absent && request.iwdDirs)
                 {
