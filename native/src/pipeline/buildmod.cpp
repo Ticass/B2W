@@ -9,6 +9,7 @@
 #include "modsupport.h"
 #include "modutil.h"
 #include "shaderbind.h"
+#include "visions/visions.h"
 
 #include <map>
 
@@ -183,6 +184,15 @@ namespace w2b::pipeline
                 material["techniqueSet"] = current["techniqueSet"];
                 MakeParent(overlay / relative);
                 files::WriteText(overlay / relative, util::JsonDumpsDefault(material));
+                bound.insert(Generic(relative));
+            }
+        // stock-named code materials the map replaces (WaW glow through T6's bloom chain)
+        if (const auto codeMaterials = project / visions::CODE_MATERIAL_OVERRIDES; IsDir(codeMaterials))
+            for (const auto& source : files::RGlob(codeMaterials / "materials", ".json"))
+            {
+                const auto relative = source.lexically_relative(codeMaterials);
+                MakeParent(overlay / relative);
+                Copy(source, overlay / relative);
                 bound.insert(Generic(relative));
             }
         phase.reset();
@@ -378,7 +388,7 @@ namespace w2b::pipeline
                 const auto data = Json(flameStage);
                 return data.contains("flame_tables") && !data["flame_tables"].empty() && !data["flame_tables"].is_null();
             }();
-            if (active || flames)
+            if (active || flames || IsDir(projectRoot / visions::CODE_MATERIAL_OVERRIDES))
             {
                 timeline::Span span("activate mod shaders");
                 ActivateModShaders(ff, projectRoot, o.work, *o.linker, o.unlinker, *o.techsetDump);

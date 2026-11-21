@@ -33,6 +33,29 @@ namespace w2b::world
             return {};
         }
 
+        // Stages a WaW probe cube the way WaW's GPU ends up holding it. WaW uploads a zone cube image
+        // (sub_70F790) face by face, largest mip first, and calls PreLoad after every LockRect
+        // (sub_73B8D0). A managed texture is only dirtied by a level-0 lock, so each face's mip 0 is
+        // uploaded while its smaller mips are written after the upload and never reach the GPU: WaW samples
+        // the probe's real pixels at mip 0 and black below it (texldl lod = 6 - 8 * gloss). Measured
+        // in WaW (Kill House): real probes render exactly like all-black probes on gloss < 0.75 surfaces,
+        // and AddDirtyRect + PreLoad on the same textures brings the reflections back.
+        textures::IwiHeader StageProbeImage(const path& source, const path& destination)
+        {
+            // DDS cube data is face-major (every face with its mip chain)
+            const auto header = textures::ConvertFile(source, destination, true);
+            const std::size_t mip0Start = header.fileSizes[1];
+            if (!mip0Start)
+                return header;
+            std::string bytes;
+            if (!files::ReadBytes(destination, bytes) || mip0Start > bytes.size())
+                throw std::runtime_error("reflection probe " + files::Utf8(destination) + ": unreadable after conversion");
+            constexpr std::size_t headerSize = 64;
+            std::fill(bytes.begin() + headerSize, bytes.begin() + static_cast<std::ptrdiff_t>(mip0Start), '\0');
+            files::WriteBytes(destination, bytes);
+            return header;
+        }
+
         Json RemapManifest(const ProbePlan& plan)
         {
             auto remap = Json::object();
@@ -119,7 +142,7 @@ namespace w2b::world
                 data.at("probes").at(index).at("origin") : Json{0.0, 0.0, 0.0}}, {"image", name}});
             if (t6)
             {
-                textures::ConvertFile(images[index], project / "images" / (name + ".iwi"));
+                StageProbeImage(images[index], project / "images" / (name + ".iwi"));
                 report["images"].push_back({{"name", name}, {"source", files::Utf8(images[index])},
                                             {"reflection_probe", names[index]}});
             }

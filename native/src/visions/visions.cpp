@@ -31,6 +31,13 @@ namespace w2b::visions
         constexpr double LUMA[3] = {.299, .587, .114};
         constexpr double SHOULDER_KNEE = 0.75, SHOULDER0 = 4.328085, SHOULDER1 = 5.77078;
         constexpr int SCENE_CODE_TEXTURE = 9;
+        // T6's LUT target is R10G10B10A2 (sub_75A9C0, format 0x18): two alpha bits per texel. The active vision's
+        // glow intensity is a thermometer code over the alpha of the first GLOW_TEXELS_X x 2 texels of the LUT
+        // (3 units each): intensity = mean alpha * the map's largest glow intensity. bloom_apply averages them
+        // with bilinear fetches between texel pairs; blended visions blend the code linearly.
+        constexpr int GLOW_TEXELS_X = 24, GLOW_UNITS = GLOW_TEXELS_X * 2 * 3;
+        // the glow chain follows the vision the level starts with (createart) over the ones scripts switch to
+        constexpr size_t CREATEART_WEIGHT = 1000;
         const std::vector<std::string> USER_DVARS{"r_contrast", "r_brightness", "r_desaturation"};
         const std::vector<std::pair<std::string, std::string>> FILM_TWEAKS{{"r_filmtweakenable", "r_filmenable"},
                                                                            {"r_filmtweakcontrast", "r_filmcontrast"},
@@ -264,11 +271,33 @@ namespace w2b::visions
             return "float3(" + F(v[0]) + ", " + F(v[1]) + ", " + F(v[2]) + ")";
         }
 
-        // glow.pixel_hlsl for the film-only pass (WaW glow is not reproduced)
-        std::string PixelHlsl(const Json& fields)
+        std::string Join(const std::vector<std::string>& lines)
         {
-            std::vector<std::string> lines{"Texture2D<float4> scene : register(t0);", "SamplerState scene_sampler : register(s0);",
-                                           "static const float3 LUMA = " + F3({LUMA[0], LUMA[1], LUMA[2]}) + ";", "float3 film(float3 x)", "{"};
+            std::string text;
+            for (const auto& l : lines)
+                text += l + "\n";
+            return text;
+        }
+
+        // WaW's glow constants (sub_6DC300): drawn only with r_glow and a non-zero intensity and radius
+        struct GlowTerms
+        {
+            double cutoff = 0, desaturation = 0, intensity = 0, radius = 0;
+        };
+
+        std::optional<GlowTerms> Glow(const Json& fields)
+        {
+            const GlowTerms terms{Num(fields, "r_glowbloomcutoff", 0), Num(fields, "r_glowbloomdesaturation", 0), Num(fields, "r_glowbloomintensity0", 0),
+                                  Num(fields, "r_glowradius0", 0)};
+            if (!Num(fields, "r_glow", 0) || terms.intensity == 0 || terms.radius == 0)
+                return std::nullopt;
+            return terms;
+        }
+
+        // the WaW film of a vision as an HLSL function film(x), with LUMA
+        std::vector<std::string> FilmHlsl(const Json& fields)
+        {
+            std::vector<std::string> lines{"static const float3 LUMA = " + F3({LUMA[0], LUMA[1], LUMA[2]}) + ";", "float3 film(float3 x)", "{"};
             if (Num(fields, "r_filmenable", 1))
             {
                 const auto [contrast, brightness, desat] = FilmTerms(fields);
@@ -289,19 +318,197 @@ namespace w2b::visions
             }
             else
                 lines.push_back("    return x;");
-            for (const char* l : {"}", "", "float4 keep_2d(float3 x, float3 y)", "{", "    float3 r = x > 0.0 ? y / max(x, 1e-6) : 1.0;",
+            lines.emplace_back("}");
+            return lines;
+        }
+
+        // the vision overlay: the WaW film of the frame
+        std::string PixelHlsl(const Json& fields)
+        {
+            std::vector<std::string> lines{"Texture2D<float4> scene : register(t0);", "SamplerState scene_sampler : register(s0);"};
+            for (auto& l : FilmHlsl(fields))
+                lines.push_back(std::move(l));
+            for (const char* l : {"", "float4 keep_2d(float3 x, float3 y)", "{", "    float3 r = x > 0.0 ? y / max(x, 1e-6) : 1.0;",
                                   "    float a = saturate(min(r.x, min(r.y, r.z)));", "    return float4(saturate(y - a * x), a);", "}", "",
                                   "float4 main(float4 pos : SV_Position) : SV_Target0", "{", "    float3 x = scene.Load(int3(int2(pos.xy), 0)).rgb;",
                                   "    return keep_2d(x, saturate(film(x)));", "}"})
                 lines.emplace_back(l);
-            std::string text;
-            for (size_t i = 0; i < lines.size(); i++)
-                text += (i ? "\n" : "") + lines[i];
-            return text + "\n";
+            return Join(lines);
         }
 
+        // T6's bloom chain (sub_767DE0, default r_bloomHiQuality 0) carries WaW's glow:
+        //   bloom_downsample              scene -> RT38 (W/4 x 180)   WaW glow setup
+        //   bloom_downsample_convolution  RT38 -> RT40 -> RT42         stock 2x2 box
+        //   bloom_blur_y/x                RT42 <-> RT43, RT41 <-> RT40 WaW Gaussian, radius0 in 480-line units
+        //   bloom_combine_hilo            RT40 -> RT41                 the RT40 level only
+        //   bloom_apply                   stock tonemap and LUT without T6's bloom term
+        // bloom_apply adds the glow (code texture 28 is not valid any more when the HUD overlay draws).
+
+        // WaW's setup pass (sub_74B2E0): every tap is a 2x2-pixel average c of the frame, weighted
+        // film(c) * saturate(lum(c) - cutoff), summed, scaled by 1 / (1 - cutoff), then desaturated
+        std::string GlowSetupHlsl(const Json& film, const GlowTerms& glow)
+        {
+            std::vector<std::string> lines{"Texture2D<float4> scene : register(t0);", "SamplerState scene_sampler : register(s0);"};
+            for (auto& l : FilmHlsl(film))
+                lines.push_back(std::move(l));
+            const double scale = glow.cutoff < 1 ? 1 / (1 - glow.cutoff) : 0;
+            for (const auto& l : std::vector<std::string>{
+                     "", "float4 main(float4 pos : SV_Position, float4 taps : TEXCOORD0) : SV_Target0", "{",
+                     "    float2 centre = (taps.xy + taps.zw) * 0.5;",
+                     "    float2 texel = float2(abs(ddx(centre.x)), abs(ddy(centre.y)));",
+                     "    float w, h;",
+                     "    scene.GetDimensions(w, h);",
+                     "    int2 count = max(int2(round(texel * float2(w, h) * 0.5)), int2(1, 1));",
+                     "    float2 step = texel / float2(count);",
+                     "    float2 origin = centre - texel * 0.5;",
+                     "    float3 sum = 0.0;",
+                     "    [loop] for (int y = 0; y < count.y; y++)",
+                     "        [loop] for (int x = 0; x < count.x; x++)",
+                     "        {",
+                     // T6 holds the frame as s with display sqrt(4 s^2) (bloom_apply); the LUT undoes the shoulder
+                     "            float3 c = saturate(2.0 * abs(scene.SampleLevel(scene_sampler, origin + (float2(x, y) + 0.5) * step, 0).rgb));",
+                     "            sum += saturate(film(c)) * saturate(dot(c, LUMA) - " + F(glow.cutoff) + ");",
+                     "        }",
+                     "    float3 g = sum / float(count.x * count.y) * " + F(scale) + ";",
+                     "    return float4(saturate(lerp(g, dot(g, LUMA), " + F(glow.desaturation) + ")), 1.0);", "}"})
+                lines.push_back(l);
+            return Join(lines);
+        }
+
+        // WaW's blur (IW3 Gaussian, sub_74AA70): sigma = radius * screen height / 480 pixels, on a quarter-res
+        // setup (box 4x4 px, bilinear upsample: 4 px^2 more variance). T6's levels add a one-texel box and
+        // a bilinear upsample (1/4 texel^2), so the Gaussian here makes up the difference.
+        std::string GlowBlurHlsl(const GlowTerms& glow, const bool horizontal)
+        {
+            const std::string axis = horizontal ? "x" : "y";
+            return Join({"Texture2D<float4> source : register(t0);", "Texture2D<float4> frame : register(t1);", "",
+                         "float4 main(float4 pos : SV_Position) : SV_Target0", "{",
+                         "    float w, h, sw, sh;",
+                         "    source.GetDimensions(w, h);",
+                         "    frame.GetDimensions(sw, sh);",
+                         "    if (sw < 1.0 || sh < 1.0)",
+                         "        sw = 1920.0, sh = 1080.0;",
+                         "    float2 px = float2(sw / w, sh / h);",
+                         "    float2 sigma = " + F(glow.radius) + " * sh / 480.0 / px;",
+                         "    float v = (sigma * sigma + 4.0 / (px * px) - 0.25)." + axis + ";",
+                         "    int2 p = int2(pos.xy);",
+                         "    if (v <= 0.0)",
+                         "        return source.Load(int3(p, 0));",
+                         "    int n = min(int(ceil(3.0 * sqrt(v))), 32);",
+                         "    int2 last = int2(w, h) - 1;",
+                         "    float4 sum = 0.0;",
+                         "    float total = 0.0;",
+                         "    [loop] for (int i = -n; i <= n; i++)",
+                         "    {",
+                         "        float k = exp(-0.5 * i * i / v);",
+                         std::string("        sum += k * source.Load(int3(clamp(p + int2(") + (horizontal ? "i, 0" : "0, i") + "), int2(0, 0), last), 0));",
+                         "        total += k;",
+                         "    }",
+                         "    return sum / total;", "}"});
+        }
+
+        std::string GlowCombineHlsl()
+        {
+            return Join({"Texture2D<float4> level : register(t0);", "SamplerState level_sampler : register(s0);", "",
+                         "float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target0", "{",
+                         "    return float4(level.SampleLevel(level_sampler, uv, 0).rgb, 1.0);", "}"});
+        }
+
+        // stock bloom_apply (pimp_shader_hdr_5b71154) without T6's bloom term: x = sqrt(4 s^2), the highlight
+        // shoulder, then the 32^3 LUT (1024 x 32, blue slices side by side). With WaW glow, the LUT alpha holds
+        // the active vision's glow intensity (GLOW_UNITS; hdr_create_lut2dv passes the atlas alpha
+        // through, blending visions like the colour). WaW films the frame, then screen-blends the glow
+        // (srcBlend invdestcolor, dstBlend one, src = bloom * glowApply.w, sub_733B80); the overlay films after
+        // this pass, so the frame written is the one the overlay films into that result.
+        std::string ApplyHlsl(const std::optional<Json>& film, const double glowRange)
+        {
+            std::vector<std::string> lines{"Texture2D<float4> scene : register(t0);", "Texture2D<float4> glow : register(t1);",
+                                           "Texture2D<float4> lut : register(t2);", "SamplerState glow_sampler : register(s0);",
+                                           "SamplerState lut_sampler : register(s1);", "SamplerState scene_sampler : register(s2);"};
+            if (film)
+            {
+                for (auto& l : FilmHlsl(*film))
+                    lines.push_back(std::move(l));
+                for (const char* l : {"", "float3 unfilm(float3 t)", "{", "    float3 y = t;", "    [unroll] for (int i = 0; i < 4; i++)", "    {",
+                                      "        float3 f = film(y);", "        float3 d = (film(y + 0.004) - f) / 0.004;",
+                                      "        y += (t - f) / (abs(d) > 0.001 ? d : 1.0);", "    }", "    return y;", "}"})
+                    lines.emplace_back(l);
+            }
+            for (const auto& l : std::vector<std::string>{
+                     "", "float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target0", "{",
+                     "    float3 s = scene.Sample(scene_sampler, uv).rgb;",
+                     "    float3 x = sqrt(s * s * 4.0);",
+                     "    float3 knee = (1.0 - exp(x * -" + F(SHOULDER1) + " + " + F(SHOULDER0) + ")) * 0.25 + 0.75;",
+                     "    x = " + F(SHOULDER_KNEE) + " < x ? knee : x;",
+                     "    float blue = x.b * 31.0;",
+                     "    float slice = floor(blue);",
+                     "    float u = slice * 32.0 + x.r * 31.0 + 0.5;",
+                     "    float v = x.g * 0.96875 + 0.015625;",
+                     "    float4 a = lut.Sample(lut_sampler, float2(u / 1024.0, v));",
+                     "    float4 b = lut.Sample(lut_sampler, float2((u + 32.0) / 1024.0, v));",
+                     "    float4 c = a + frac(blue) * (b - a);"})
+                lines.push_back(l);
+            if (film)
+                for (const auto& l : std::vector<std::string>{
+                         "    float code = 0.0;",
+                         "    [unroll] for (int i = 0; i < " + std::to_string(GLOW_TEXELS_X / 2) + "; i++)",
+                         "        code += lut.SampleLevel(lut_sampler, float2((2.0 * i + 1.0) / 1024.0, 1.0 / 32.0), 0).a;",
+                         "    float intensity = code / " + std::to_string(GLOW_TEXELS_X / 2) + ".0 * " + F(glowRange) + ";",
+                         "    float3 g = saturate(intensity * glow.Sample(glow_sampler, uv).rgb);",
+                         "    if (any(g > 0.0))", "    {", "        float3 f = saturate(film(c.rgb));",
+                         "        c.rgb = saturate(unfilm(f + g * (1.0 - f)));", "    }"})
+                    lines.push_back(l);
+            lines.push_back("    return float4(c.rgb, dot(c.rgb, " + F3({LUMA[0], LUMA[1], LUMA[2]}) + "));");
+            lines.emplace_back("}");
+            return Join(lines);
+        }
+
+        // a stock code material with its pixel shader replaced, written under the stock name for the mod.ff
+        // shader relink (ActivateModShaders); BO2's own linker keeps the stock material in the baseline link
+        void OverrideCodeMaterial(const fs::path& project, const fs::path& techsetDump, const std::string& name, const std::string& hlsl,
+                                  const std::vector<shaders::T6PassArg>& extra)
+        {
+            auto material = materials::T6MaterialFromJson(ReadJson(techsetDump / "materials" / files::FromUtf8(name + ".json")));
+            auto technique = shaders::ReadT6TechniqueSet(techsetDump / "techniquesets" / files::FromUtf8(material.techniqueSet + ".json"));
+            const auto code = shaders::CompileHlsl(hlsl, "ps_5_0");
+            const auto shader = "waw/glow_" + hash::Sha256Hex(code).substr(0, 20);
+            const auto target = project / "shader_bin" / files::FromUtf8("ps_" + shader + ".cso");
+            fs::create_directories(target.parent_path());
+            files::WriteBytes(target, code);
+            technique.name = shader + "_" + name;
+            for (size_t slot = 0; slot < technique.techniques.size(); slot++)
+                if (auto& t = technique.techniques[slot].technique)
+                {
+                    t->name = technique.name + "_" + std::to_string(slot);
+                    for (auto& p : t->passes)
+                    {
+                        p.pixelShader = shader;
+                        p.args.insert(p.args.end(), extra.begin(), extra.end());
+                        p.stableArgCount += static_cast<long long>(extra.size());
+                    }
+                }
+            const auto path = project / "techniquesets" / files::FromUtf8(technique.name + ".json");
+            fs::create_directories(path.parent_path());
+            files::WriteText(path, util::JsonDumps(shaders::ToJson(technique), 2));
+            material.techniqueSet = technique.name;
+            for (auto& texture : material.textures)
+            {
+                auto image = texture.image;
+                if (StartsWith(image, ","))
+                    image.erase(0, 1);
+                texture.image = StartsWith(image, "$") ? "," + image : image;
+            }
+            const auto out = project / CODE_MATERIAL_OVERRIDES / assets::MaterialPath(name);
+            fs::create_directories(out.parent_path());
+            files::WriteText(out, materials::T6MaterialText(material));
+        }
+
+        constexpr long long CODE_TEXTURE_ARG = 4;
+        // texture argument location: sampler << 8 | texture
+        constexpr long long SLOT_1 = 0x101;
+
         // glow.stage: one overlay material per vision (plus the identity vision)
-        Json StageGlow(const fs::path& project, const Json& grading, const fs::path& techsetDump)
+        Json StageGlow(const fs::path& project, const Json& grading, const fs::path& techsetDump, const std::map<std::string, size_t>& nakedCalls)
         {
             std::optional<shaders::T6TechniqueSet> base;
             {
@@ -347,20 +554,76 @@ namespace w2b::visions
             size_t slot = 0;
             while (!base->techniques[slot].technique)
                 slot++;
-            Json report{{"overlays", Json::object()}, {"glow", Json::object()}, {"notes", Json::object()}, {"materials", Json::array()}, {"technique_donor", base->name}};
+            Json report{{"overlays", Json::object()}, {"glow", Json::object()}, {"notes", Json::object()}, {"materials", Json::array()}, {"errors", Json::array()}, {"technique_donor", base->name}};
             std::map<std::string, Json> visions{{"_identity", Json{{"r_filmenable", "0"}}}};
             for (const auto& [name, fields] : grading.items())
                 visions[name] = fields;
+
+            // WaW has no bloom besides its glow: bloom_apply always loses T6's bloom term
+            report["mod_materials"] = Json::array();
+            const std::vector<std::string> chainMaterials{"bloom_apply", "bloom_downsample", "bloom_blur_x", "bloom_blur_y", "bloom_combine_hilo"};
+            bool stock = true;
+            for (const auto& name : chainMaterials)
+                if (!IsFile(techsetDump / "materials" / files::FromUtf8(name + ".json")))
+                {
+                    report["errors"].push_back("stock T6 code material " + name + " missing from the technique dump: T6 bloom kept, WaW glow not drawn");
+                    stock = false;
+                }
+            // one chain, so one vision's setup and radius: the glowing vision the level starts with (createart),
+            // else the one its scripts set most, then the first by name
+            std::optional<std::string> chainVision;
+            size_t calls = 0;
+            for (const auto& [vision, fields] : visions)
+                if (Glow(fields))
+                {
+                    const auto it = nakedCalls.find(vision);
+                    const size_t n = it == nakedCalls.end() ? 0 : it->second;
+                    if (!chainVision || n > calls)
+                        chainVision = vision, calls = n;
+                }
+            const bool chain = stock && chainVision;
+            double glowRange = 0;
+            if (stock)
+            {
+                std::optional<Json> film;
+                for (const auto& [vision, fields] : visions)
+                    if (const auto glow = Glow(fields))
+                        glowRange = std::max(glowRange, glow->intensity);
+                if (chain)
+                    film = grading.contains(FILM_TWEAK_GRADE) ? grading[FILM_TWEAK_GRADE] : visions[*chainVision];
+                OverrideCodeMaterial(project, techsetDump, "bloom_apply", ApplyHlsl(film, glowRange), {});
+                report["mod_materials"].push_back("bloom_apply");
+            }
+            if (chain)
+            {
+                const auto& fields = visions[*chainVision];
+                const auto glow = *Glow(fields);
+                const auto& film = grading.contains(FILM_TWEAK_GRADE) ? grading[FILM_TWEAK_GRADE] : fields;
+                OverrideCodeMaterial(project, techsetDump, "bloom_downsample", GlowSetupHlsl(film, glow), {});
+                // the frame texture only gives the blur the screen size
+                OverrideCodeMaterial(project, techsetDump, "bloom_blur_x", GlowBlurHlsl(glow, true), {{0, SLOT_1, 1, CODE_TEXTURE_ARG, SCENE_CODE_TEXTURE}});
+                OverrideCodeMaterial(project, techsetDump, "bloom_blur_y", GlowBlurHlsl(glow, false), {{0, SLOT_1, 1, CODE_TEXTURE_ARG, SCENE_CODE_TEXTURE}});
+                OverrideCodeMaterial(project, techsetDump, "bloom_combine_hilo", GlowCombineHlsl(), {});
+                for (const auto& name : chainMaterials)
+                    if (name != "bloom_apply")
+                        report["mod_materials"].push_back(name);
+                report["glow_chain"] = Json{{"vision", *chainVision}, {"selection_score", calls}, {"range", glowRange}, {"cutoff", glow.cutoff},
+                                            {"desaturation", glow.desaturation}, {"radius", glow.radius}};
+            }
             for (const auto& [vision, fields] : visions)
             {
                 Json notes = Json::array();
-                // glow_constants: WaW draws glow only with r_glow and a non-zero intensity and radius
-                const bool glows = Num(fields, "r_glow", 0) && Num(fields, "r_glowbloomintensity0", 0) != 0 && Num(fields, "r_glowradius0", 0) != 0;
-                if (glows)
+                auto glow = Glow(fields);
+                if (glow && !chain)
+                    glow.reset();
+                if (glow)
                 {
                     if (Num(fields, "r_glowrayintensity", 0) > 0)
                         notes.push_back("god rays (r_glowRayIntensity) not reproduced");
-                    notes.push_back("WaW glow not reproduced (exact single-pass glow too slow)");
+                    if (glow->intensity < 0)
+                        notes.push_back("negative glow intensity " + F(glow->intensity) + " drawn as 0");
+                    if (vision != *chainVision)
+                        notes.push_back("glow cutoff, desaturation and radius are " + *chainVision + "'s (one T6 bloom chain); intensity is this vision's");
                 }
                 const auto code = shaders::CompileHlsl(PixelHlsl(fields), "ps_5_0");
                 const auto shader = "waw/overlay_" + hash::Sha256Hex(code).substr(0, 20);
@@ -375,7 +638,7 @@ namespace w2b::visions
                 p.pixelShader = shader;
                 // the scene texture replaces the material colour map; it is a stable argument
                 const auto removed = static_cast<long long>(std::erase_if(p.args, [](const shaders::T6PassArg& a) { return a.type == 2; }));
-                p.args.push_back({0, 0, 1, 4, SCENE_CODE_TEXTURE});
+                p.args.push_back({0, 0, 1, CODE_TEXTURE_ARG, SCENE_CODE_TEXTURE});
                 p.stableArgCount = p.stableArgCount + 1 - removed;
                 const auto path = project / "techniquesets" / files::FromUtf8(shader + ".json");
                 fs::create_directories(path.parent_path());
@@ -403,7 +666,7 @@ namespace w2b::visions
                 files::WriteText(out, materials::T6MaterialText(material));
                 report["overlays"][vision] = name;
                 report["materials"].push_back(name);
-                report["glow"][vision] = nullptr;
+                report["glow"][vision] = glow ? Json{{"intensity", glow->intensity}} : Json(nullptr);
                 if (!notes.empty())
                     report["notes"][vision] = notes;
             }
@@ -465,6 +728,9 @@ namespace w2b::visions
         for (int i = 0; i < 32; i++)
             table[i] = Unshoulder(i / 31.0);
         for (const auto& grade : grades)
+        {
+            // alpha: the glow intensity when the glow chain reads it, else opaque
+            const int units = grade.contains("glow_units") ? grade["glow_units"].get<int>() : -1;
             for (int green = 0; green < 32; green++)
                 for (int blue = 0; blue < 32; blue++)
                     for (int red = 0; red < 32; red++)
@@ -472,8 +738,12 @@ namespace w2b::visions
                         const auto rgb = Film({table[red], table[green], table[blue]}, grade);
                         for (const double x : rgb)
                             data += static_cast<char>(static_cast<int>(std::nearbyint(x * 255)));
-                        data += static_cast<char>(255);
+                        int alpha = 255;
+                        if (units >= 0 && green < 2 && blue == 0 && red < GLOW_TEXELS_X)
+                            alpha = std::clamp(units - 3 * (green * GLOW_TEXELS_X + red), 0, 3) * 85;
+                        data += static_cast<char>(alpha);
                     }
+        }
         std::string out = "IWi\x1b";
         const auto put = [&](const void* p, const size_t n) { out.append(static_cast<const char*>(p), n); };
         const int8_t format = 1, flags = 2;
@@ -490,6 +760,11 @@ namespace w2b::visions
     {
         const auto& project = request.project;
         const auto& sourceRoot = request.sourceRoot;
+        {
+            // the code materials of an earlier build of this stage
+            std::error_code e;
+            fs::remove_all(project / CODE_MATERIAL_OVERRIDES, e);
+        }
         const auto& techsetDump = request.techsetDump;
         auto* stock = request.stock;
         std::map<std::string, std::pair<std::string, std::string>> sources;
@@ -520,6 +795,7 @@ namespace w2b::visions
             }
         }
         std::set<std::string> wanted;
+        std::map<std::string, size_t> nakedCalls;
         auto scripts = files::RGlob(project / "maps/mp/waw", ".gsc");
         for (const auto& p : scripts)
         {
@@ -534,7 +810,14 @@ namespace w2b::visions
                     wanted.insert(value);
                 // literal first arguments to all vision APIs, including missing ones
                 if (i >= 2 && tokens[i - 1].text == "(" && Lower(tokens[i - 2].text).find("vision") != std::string::npos && !value.empty())
+                {
                     wanted.insert(value);
+                    // VisionSetNaked (translated _compat::waw_visionsetnaked) and the utility that sets it for every
+                    // player; the level's createart script (maps/createart/<map>_art) sets the starting vision
+                    const auto api = Lower(tokens[i - 2].text);
+                    if (api == "visionsetnaked" || api == "waw_visionsetnaked" || api.ends_with("set_all_players_visionset"))
+                        nakedCalls[value] += Lower(files::Utf8(p.parent_path().filename())) == "createart" ? CREATEART_WEIGHT : 1;
+                }
             }
         }
         Json report{{"status", "native_lut"},
@@ -665,7 +948,7 @@ namespace w2b::visions
                 grading[FILM_TWEAK_GRADE] = tweak;
                 report["film_tweak"] = tweak;
             }
-            const auto overlays = StageGlow(project, grading, *techsetDump);
+            const auto overlays = StageGlow(project, grading, *techsetDump, nakedCalls);
             init.emplace_back("    level.waw2bo2_vision_overlays = [];");
             for (const auto& [name, material] : overlays["overlays"].items())
             {
@@ -673,9 +956,31 @@ namespace w2b::visions
                 init.push_back("    precacheshader( \"" + material.get<std::string>() + "\" );");
             }
             report["overlay"] = overlays;
-            // film now runs exactly in the overlay; the LUT keeps the shoulder inverse
+            for (const auto& name : overlays["mod_materials"])
+                zoneLines += "material," + name.get<std::string>() + "\n";
+            for (const auto& error : overlays["errors"])
+                report["errors"].push_back(error);
+            // film now runs exactly in the overlay; the LUT keeps the shoulder inverse and, with the glow
+            // chain, carries each vision's glow intensity in its alpha
+            const bool chain = overlays.contains("glow_chain");
+            size_t index = 0;
+            std::vector<std::string> order{"_identity"};
+            for (const auto& [name, _] : report["visions"].items())
+                order.push_back(name);
             for (auto& g : grades)
+            {
                 g = Json{{"r_filmenable", "0"}};
+                if (chain)
+                {
+                    const auto& entry = overlays["glow"].value(order[index], Json());
+                {
+                    const double range = overlays["glow_chain"]["range"].get<double>();
+                    const double intensity = entry.is_object() ? entry["intensity"].get<double>() : 0.;
+                    g["glow_units"] = static_cast<int>(std::nearbyint(std::clamp(intensity / range, 0., 1.) * GLOW_UNITS));
+                }
+                }
+                index++;
+            }
         }
         init.emplace_back("}");
         init.emplace_back("");

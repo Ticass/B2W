@@ -46,7 +46,8 @@ namespace w2b::pipeline
         }
 
         std::map<std::string, std::string> WantedImages(const fs::path& project, const std::vector<std::string>& materialFiles,
-                                                        const std::vector<std::string>& extras)
+                                                        const std::vector<std::string>& extras,
+                                                        std::map<std::string, std::string>& semantics)
         {
             std::map<std::string, std::string> wanted;
             for (const auto& name : extras)
@@ -59,7 +60,11 @@ namespace w2b::pipeline
                     {
                         const auto& name = image->get_ref<const std::string&>();
                         if (!name.empty() && !name.starts_with(','))
+                        {
                             wanted.try_emplace(name, ImageStem(name, true));
+                            // WaW keeps one semantic per image: the material texture slot that loads it
+                            semantics.try_emplace(name, texture.value("semantic", std::string()));
+                        }
                     }
             }
             wanted.insert_or_assign("lightmap0_secondary", "_lightmap0_secondary");
@@ -83,6 +88,42 @@ namespace w2b::pipeline
             if (image.decoderTables)
                 metadata["decoder_tables"] = mod::Str(*image.decoderTables);
             return metadata;
+        }
+
+        // WaW sub_70F700: a streamed 2D image whose pixels fail to load is drawn with a built-in image
+        // picked by the image's texture semantic (GfxImage+11): normal map (5) -> $identitynormalmap,
+        // specular map (8) -> $black, anything else -> $white. Texels from sub_73C770's callers
+        // (A8R8G8B8 written B,G,R,A; listed here as RGBA).
+        std::pair<Color, std::string_view> AbsentImageStandIn(const std::string& semantic)
+        {
+            if (semantic == "normalMap")
+                return {{128, 128, 255, 128}, "$identitynormalmap"};
+            if (semantic == "specularMap")
+                return {{0, 0, 0, 255}, "$black"};
+            return {{255, 255, 255, 255}, "$white"};
+        }
+
+        // Images the mod's own mod.ff lists (each zone extraction records its fastfile). WaW loads mod.ff and
+        // its delayed images (sub_48D630, end of every fastfile load) before the built-in images sub_70F700
+        // hands out have pixels: measured in Kill House, mod.ff's missing images keep a NULL texture (the
+        // Double Tap _on layer, an FX smoke image) while killhouse.ff's get $white/$black/$identitynormalmap.
+        std::set<std::string> ModZoneImages(const std::vector<fs::path>& imageRoots)
+        {
+            std::set<std::string> names;
+            for (const auto& root : imageRoots)
+            {
+                const auto extraction = root.parent_path() / "extraction.json";
+                if (!fs::is_regular_file(extraction))
+                    continue;
+                const auto data = mod::Json(extraction);
+                const auto file = data.value("inputs", Json::object()).value("file", std::string());
+                if (mod::Lower(files::Utf8(FromUtf8(file).filename())) != "mod.ff")
+                    continue;
+                for (const auto& name : data.value("index", Json::object()).value("image", Json::array()))
+                    if (name.is_string())
+                        names.insert(ImageStem(name.get<std::string>(), false));
+            }
+            return names;
         }
 
         void Fill(std::string& pixels, const Color& rgba, unsigned count)
@@ -158,7 +199,9 @@ namespace w2b::pipeline
     {
         const auto& project = request.projectRoot;
         const auto& imageRoots = request.imageRoots;
-        const auto wanted = WantedImages(project, request.materialFiles, request.extraImages);
+        std::map<std::string, std::string> semantics;
+        const auto wanted = WantedImages(project, request.materialFiles, request.extraImages, semantics);
+        const auto modZoneImages = ModZoneImages(imageRoots);
         const auto& equivalents = request.nativeImages;
         auto knownRecovered = request.knownRecovered;
         std::optional<std::unordered_set<std::string>> iwdStems;
@@ -203,17 +246,25 @@ namespace w2b::pipeline
             }
             if (source.path.empty())
             {
-                if (stem.starts_with("~$white-rgb&"))
-                    images[index] = WriteSynthesized(asset, dst, "packed spec map with no pixel data in any zone or IWD; white RGB, mid gloss",
-                                                     warnings, 4, 4, std::array<Color, 1>{{{255, 255, 255, 128}}});
-                else if (request.iwdDirs)
+                const auto semantic = semantics.contains(asset) ? semantics.at(asset) : std::string();
+                auto [texel, standIn] = AbsentImageStandIn(semantic);
+                auto reason = "no pixel data in any zone or IWD; WaW draws " + std::string(standIn) + " for a missing " +
+                              (semantic.empty() ? std::string("image") : semantic) + " (sub_70F700)";
+                if (modZoneImages.contains(stem))
+                {
+                    texel = {0, 0, 0, 255};
+                    reason = "no pixel data in any zone or IWD; the mod's mod.ff loads it before WaW's built-in images have "
+                             "pixels, so sub_70F700 finds no stand-in and WaW samples a NULL texture (black)";
+                }
+                bool absent = stem.starts_with("~$white-rgb&");
+                if (!absent && request.iwdDirs)
                 {
                     if (!iwdStems)
                         iwdStems = recovery.ImageStems(*request.iwdDirs);
-                    if (!iwdStems->contains(mod::Lower(stem)))
-                        images[index] = WriteSynthesized(asset, dst, "no pixel data in any zone or IWD (WaW draws its default image); neutral grey",
-                                                         warnings, 4, 4, std::array<Color, 1>{{{128, 128, 128, 255}}});
+                    absent = !iwdStems->contains(mod::Lower(stem));
                 }
+                if (absent)
+                    images[index] = WriteSynthesized(asset, dst, reason, warnings, 4, 4, std::array<Color, 1>{texel});
                 written[index] = !images[index].is_null();
                 if (!written[index])
                     errors.push_back("image " + asset + ": source " + stem + ".dds missing from every image root");
