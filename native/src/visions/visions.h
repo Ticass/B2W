@@ -17,6 +17,9 @@ namespace w2b::extract
 
 namespace w2b::visions
 {
+    // project folder of the stock-named code materials (the bloom chain) the mod.ff shader relink replaces
+    inline constexpr const char* CODE_MATERIAL_OVERRIDES = "mod_code_materials";
+
     // vision_float: sscanf("%f") semantics with a numeric prefix accepted
     double VisionFloat(const std::string& value);
     // visions.film_terms: (contrast, brightness, desaturation weight)
