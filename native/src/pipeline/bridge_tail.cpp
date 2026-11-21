@@ -1,5 +1,6 @@
 // The end of the bridge stage (see bridge_tail.h).
 #include "bridge_tail.h"
+#include "finish.h"
 #include "mapents/map_entity.h"
 #include "bridge_sound.h"
 #include "bridge_support.h"
@@ -564,6 +565,10 @@ namespace w2b::pipeline
         const auto modelRenames = models::IsolateModelNames(projectRoot);
         content["model_identities"] = models::RenamesJson(modelRenames);
         const models::ModelNames modelNames(modelRenames.begin(), modelRenames.end());
+        // last script rewrite before the zone lists: T6 names live in a 64 KiB window per script
+        if (const auto parts = SplitCoreScript(projectRoot); parts > 1)
+            warnings.push_back("SCRIPT_CORE_SPLIT maps/mp/waw/_waw2bo2_core.gsc split into " + std::to_string(parts) +
+                               " parts: T6 addresses a script's names with 16-bit offsets");
         const auto scripts = gsc::port::MapScripts(projectRoot, project);
         if (hasScripts && bo2Root)
         {

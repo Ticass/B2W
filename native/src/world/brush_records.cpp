@@ -116,7 +116,10 @@ namespace w2b::world
     SubmodelRecords ReadSubmodels(const std::filesystem::path& path)
     {
         SubmodelRecords out;
-        for (const auto& model : Json::parse(files::ReadText(path)).at("submodels"))
+        // bind the document: a range-for over .at() of the temporary would
+        // iterate a destroyed object (read as no submodels)
+        const auto document = Json::parse(files::ReadText(path));
+        for (const auto& model : document.at("submodels"))
         {
             auto& record = out.emplace_back();
             record.mins = model.at("mins").get<RecordPoint>();

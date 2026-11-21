@@ -1,6 +1,8 @@
 // The client scripts of the converted map (see client_stage.h).
 #include "client_stage.h"
 
+#include "core/files.h"
+#include "core/regex.h"
 #include "extract/cache.h"
 #include "finish.h"
 #include "gsc/port/api.h"
@@ -11,6 +13,8 @@
 
 #include <map>
 #include <set>
+#include <string>
+#include <vector>
 
 namespace w2b::pipeline
 {
@@ -49,6 +53,40 @@ namespace w2b::pipeline
                 }
             }
             return source;
+        }
+
+        // Every power-up the server includes registers its clientfields on both
+        // sides (_zm_powerups add_zombie_powerup), and T6 refuses to start when
+        // the client and server registrations differ ("Client and server
+        // clientfield registrations don't match"). The client main is BO2's
+        // template with a fixed include list; the map's own includes (Kill
+        // House: bonfire_sale) are mirrored into it.
+        void IncludeServerPowerups(const fs::path& projectRoot, std::string& clientText, std::vector<std::string>& warnings)
+        {
+            static const regex::Regex serverInclude(R"re(\binclude_(?:zombie_)?powerup\s*\(\s*"([^"]+)"\s*\))re", regex::IGNORECASE);
+            static const regex::Regex clientInclude(R"re(\binclude_powerup\s*\(\s*"([^"]+)"\s*\))re", regex::IGNORECASE);
+            std::set<std::string> server;
+            for (const auto& path : files::RGlob(projectRoot / "maps", ".gsc"))
+                for (const auto& row : serverInclude.FindAll(files::ReadText(path)))
+                    server.insert(mod::Lower(row[0]));
+            std::set<std::string> client;
+            for (const auto& row : clientInclude.FindAll(clientText))
+                client.insert(mod::Lower(row[0]));
+            std::string added, names;
+            for (const auto& name : server)
+                if (!client.contains(name))
+                {
+                    added += "\n    include_powerup( \"" + name + "\" );";
+                    names += (names.empty() ? "" : ", ") + name;
+                }
+            if (added.empty())
+                return;
+            const std::string head = "include_powerups()\n{";
+            const auto at = clientText.find(head);
+            if (at == std::string::npos)
+                throw StepError("ValueError", "client main has no include_powerups() to mirror the server's power-ups (" + names + ") into");
+            clientText.insert(at + head.size(), added);
+            warnings.push_back("CLIENT_POWERUPS_MIRRORED " + names + ": included by the server scripts; the client registers the same clientfields");
         }
     } // namespace
 
@@ -100,6 +138,7 @@ namespace w2b::pipeline
                 ReplaceFirst(clientText, marker, clientHook + marker);
             }
         }
+        IncludeServerPowerups(projectRoot, clientText, warnings);
         files::WriteText(clientMain, clientText);
         return {std::move(warnings), std::move(mapClient)};
     }

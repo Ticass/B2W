@@ -5,6 +5,7 @@
 #include "pipeline/csvtable.h"
 #include "pipeline/geometry_materials.h"
 #include "pipeline/modzone.h"
+#include "weapons/weapon.h"
 #include "world/render_world.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -116,4 +117,17 @@ TEST_CASE("native tree animations skip groups and comments", "[pipeline]")
     // Group names open a block; comments and repeats are dropped; order is kept.
     const std::string tree = "// header comment\nbody\n{\n\tzombie_walk // trailing\n\tzombie_run\n\tzombie_walk\n}\nlegs\n  {\n\tdog_idle\n}\n";
     CHECK(NativeTreeAnimations(tree) == std::vector<std::string>{"zombie_walk", "zombie_run", "dog_idle"});
+}
+
+TEST_CASE("weapon numbers read as WaW's atoi/atof", "[pipeline]")
+{
+    w2b::weapons::Schema schema{{"meleeDelay", "CSPFT_MILLISECONDS"}, {"clipSize", "CSPFT_INT"}, {"damage", "CSPFT_FLOAT"}};
+    w2b::weapons::InfoFields source;
+    source.fields = {{"meleeDelay", "0..05"}, {"clipSize", "12 rounds"}, {"damage", "0.5"}};
+    const auto weapon = w2b::weapons::Convert("w", source, schema, schema);
+    CHECK(*weapon.fields.Find("meleeDelay") == "0");
+    CHECK(*weapon.fields.Find("clipSize") == "12");
+    CHECK(*weapon.fields.Find("damage") == "0.5");
+    CHECK(weapon.translations.contains("meleeDelay"));
+    CHECK_FALSE(weapon.translations.contains("damage"));
 }
