@@ -259,6 +259,18 @@ namespace w2b::pipeline
             return stretched <= fits;
         }
 
+        // whether two glyph tables are one font: stock compiles differ in a few small glyphs (Hotel V2: 8 of 191)
+        bool SameTable(const Json& a, const Json& b)
+        {
+            const auto &x = a.at("glyphs"), &y = b.at("glyphs");
+            if (x.size() != y.size())
+                return false;
+            std::size_t equal = 0;
+            for (std::size_t i = 0; i < x.size(); ++i)
+                equal += x[i] == y[i];
+            return equal * 10 >= x.size() * 9;
+        }
+
         // font_glyphs: glyph table rows of a source font
         std::vector<std::vector<std::string>> FontGlyphs(SourceFinder& source, const std::string& fontName, const std::string& role, Stager& stager,
                                                          const std::set<char32_t>* chars = nullptr)
@@ -266,7 +278,7 @@ namespace w2b::pipeline
             const auto path = source.Font(fontName);
             if (!path)
                 throw Missing(fontName);
-            const auto font = mod::Json(*path);
+            auto font = mod::Json(*path);
             const auto materialName = font.at("material").get<std::string>();
             const auto material = source.Find("material", materialName);
             if (!material)
@@ -281,12 +293,13 @@ namespace w2b::pipeline
             // objectiveFont on a 512x1024 gamefonts_pc). The stock table only fits the stock atlas.
             if (!TableFitsAtlas(font, atlas))
                 if (const auto stockFont = source.Stock("font", fontName, files::FromUtf8(fontName + ".json")))
-                    if (mod::Json(*stockFont).at("glyphs") == font.at("glyphs"))
+                    if (auto stock = mod::Json(*stockFont); SameTable(stock, font))
                         if (const auto stockAtlas = source.Stock("image", imageName, assets::SourcePath({"image", imageName})))
                         {
+                            font = std::move(stock);
                             atlas = textures::DecodeDdsPillow(mod::Bytes(*stockAtlas));
                             mod::Print("WARNING: " + fontName + ": its glyph table is stock WaW's and does not fit the map's " + imageName +
-                                       "; drawn from the stock atlas");
+                                       "; drawn from the stock font and atlas");
                         }
             for (const auto& glyph : font.at("glyphs"))
             {
