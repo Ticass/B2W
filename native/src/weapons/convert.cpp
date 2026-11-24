@@ -73,20 +73,15 @@ namespace w2b::weapons
 
     namespace
     {
-        std::string NotetrackSounds(Weapon& weapon, std::string_view name, std::string_view value)
+        std::string NotetrackSounds(Weapon& weapon, std::string_view value)
         {
             std::string rewritten;
-            bool first = true;
-            for (const auto line : util::SplitLines(value))
-            {
-                const auto words = NotetrackWords(line);
-                if (words.size() != 2)
-                    throw WeaponError(std::string(name) + ": malformed notetrackSoundMap " + util::StringRepr(line));
-                if (!first)
-                    rewritten += '\n';
-                first = false;
-                rewritten += words[0] + " " + Reference(weapon, "sound", words[1]);
-            }
+            // words in pairs, as WaW reads them (sub_423250 case 35)
+            const auto words = NotetrackWords(value);
+            if (words.size() % 2 != 0)
+                weapon.translations["notetrackSoundMap"] = {{"source", words.back()}, {"target", nullptr}, {"reason", "notetrack without a sound; dropped as WaW does"}};
+            for (std::size_t i = 0; i + 1 < words.size(); i += 2)
+                rewritten += (i ? "\n" : "") + words[i] + " " + Reference(weapon, "sound", words[i + 1]);
             return rewritten;
         }
 
@@ -110,7 +105,7 @@ namespace w2b::weapons
             return stripped.starts_with('-') ? "-" + digits : digits;
         }
 
-        void RewriteReference(Weapon& weapon, std::string_view name, std::string_view key, std::string_view type,
+        void RewriteReference(Weapon& weapon, std::string_view key, std::string_view type,
                               std::string& value, const InfoFields& source)
         {
             if (value.empty())
@@ -129,7 +124,7 @@ namespace w2b::weapons
             else if (!asset.empty())
                 value = Reference(weapon, asset, value);
             if (type == "WFT_NOTETRACKSOUNDMAP")
-                value = NotetrackSounds(weapon, name, value);
+                value = NotetrackSounds(weapon, value);
             if (!value.empty() && key == "altWeapon")
                 value = Reference(weapon, "weapon", value);
             if (!value.empty() && (key == "aiVsAiAccuracyGraph" || key == "aiVsPlayerAccuracyGraph"))
@@ -243,7 +238,7 @@ namespace w2b::weapons
                 weapon.unsupported[key] = std::move(omitted);
                 continue;
             }
-            RewriteReference(weapon, name, key, src, value, source);
+            RewriteReference(weapon, key, src, value, source);
             weapon.fields[target] = value;
             if (zoom)
             {

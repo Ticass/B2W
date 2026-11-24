@@ -305,9 +305,12 @@ waw_contact_kill_end()
 
 // POI records are [position, owner]. T6's array == is not a location
 // comparison (see native _zm_utility::poi_locations_equal).
+// The map passes arrays WaW would end the thread on when undefined; T6 goes
+// on, and "i < undefined" never ends a loop (the translated scripts get the
+// same guard, LowerUndefinedSizeLoops).
 waw_poi_record_available( array, value )
 {
-    for ( i = 0; i < array.size; i++ )
+    for ( i = 0; isdefined( array ) && i < array.size; i++ )
         if ( array[i][0] == value[0] )
             return false;
     return true;
@@ -316,7 +319,7 @@ waw_poi_record_available( array, value )
 waw_poi_record_remove( array, value )
 {
     result = [];
-    for ( i = 0; i < array.size; i++ )
+    for ( i = 0; isdefined( array ) && i < array.size; i++ )
         if ( array[i][0] != value[0] )
             result[result.size] = array[i];
     return result;
@@ -325,7 +328,7 @@ waw_poi_record_remove( array, value )
 waw_array_remove( array, value )
 {
     result = [];
-    for ( i = 0; i < array.size; i++ )
+    for ( i = 0; isdefined( array ) && i < array.size; i++ )
         if ( array[i] != value )
             result[result.size] = array[i];
     return result;

@@ -820,7 +820,7 @@ namespace w2b::shaders::runtime
                 arg->type = 4;
             }
             const auto* native = textureName(static_cast<int>(texture));
-            const bool sourceSky = arg->type == 2 && StartsWith(sourceMaterial.techniqueSet, "mc_sky");
+            const bool sourceSky = arg->type == 2 && materials::IsSky(sourceMaterial);
             const std::string mapped = dim == "2d" ? "2d" : dim == "volume" ? "3d" : dim == "cube" ? "cube" : throw std::runtime_error("KeyError: " + gsc::Repr(dim));
             if (!sourceSky && (!native || mapped != native->dim))
                 throw ShaderError("texture dimension differs for " + reg + ": " + dim + " vs " + (native ? native->dim : "None"));
@@ -987,7 +987,7 @@ namespace w2b::shaders::runtime
         const auto& nativeVs = NativeProgram(nativeRoot, "vs", nativePass);
         auto incoming = Signature(nativeVs, "Input");
         const auto techniqueSet = sourceMaterial.techniqueSet;
-        const bool sky = StartsWith(techniqueSet, "mc_sky");
+        const bool sky = materials::IsSky(sourceMaterial);
         if (paired && sky)
         {
             incoming.try_emplace("COLOR0", 4, "float");

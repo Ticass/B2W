@@ -1082,6 +1082,72 @@ namespace w2b::gsc::port
         return changed;
     }
 
+    // "while ( players[0] != self ) players = array_randomize( players );": comparing an undefined element ends the
+    // thread in WaW; T6 goes on, and a loop that never waits hangs the server (Decagonal Demise). The loop stops
+    // when a compared element is undefined.
+    int LowerUndefinedSpinLoops(Tokens& tokens)
+    {
+        int changed = 0;
+        for (long long i = Len(tokens) - 2; i > -1; i--)
+        {
+            if (At(tokens, i).Low() != "while" || At(tokens, i + 1).text != "(")
+                continue;
+            const auto closeOpt = CloseParen(tokens, i + 1);
+            if (!closeOpt)
+                continue;
+            const auto first = i + 2, close = *closeOpt;
+            long long op = -1;
+            bool simple = true;
+            int depth = 0;
+            for (long long k = first; k < close; k++)
+            {
+                const auto& text = At(tokens, k).text;
+                depth += text.empty() ? 0 : (InChars(text, "([") - InChars(text, ")]"));
+                if (In(text, {"&&", "||", "!"}) || At(tokens, k).Low() == "isdefined")
+                    simple = false;
+                else if (!depth && In(text, {"==", "!="}))
+                    simple = simple && std::exchange(op, k) == -1;
+            }
+            if (!simple || op <= first || op + 1 >= close || close + 1 >= Len(tokens))
+                continue;
+            // the body never waits
+            auto end = close + 1;
+            if (At(tokens, end).text == "{")
+                end = static_cast<long long>(Match(tokens, static_cast<size_t>(end), "{", "}"));
+            else
+                while (end < Len(tokens) - 1 && At(tokens, end).text != ";")
+                    end++;
+            bool waits = false;
+            for (long long k = close + 1; k < end; k++)
+                waits = waits || Contains(At(tokens, k).Low(), "wait");
+            if (waits)
+                continue;
+            std::vector<std::string> owners;
+            for (const auto stop : {op, close})
+            {
+                const auto start = stop == op ? first : op + 1;
+                if (At(tokens, stop - 1).text != "]")
+                    continue;
+                const auto owner = SizeOwner(tokens, stop, start);
+                if (owner && *owner == start)
+                    owners.push_back(JoinText(tokens, start, stop));
+            }
+            if (owners.empty())
+                continue;
+            std::string guard;
+            for (const auto& owner : owners)
+                guard += (guard.empty() ? "isdefined( " : " && isdefined( ") + owner + " )";
+            tokens.insert(tokens.begin() + close, Token{Kind::Punct, ")", " ", 0});
+            auto fragment = Tokenize(guard + " && (");
+            fragment.pop_back();
+            fragment[0].pre = At(tokens, first).pre;
+            At(tokens, first).pre = " ";
+            tokens.insert(tokens.begin() + first, fragment.begin(), fragment.end());
+            changed++;
+        }
+        return changed;
+    }
+
     int WrapIntegerLiterals(Tokens& tokens)
     {
         int changed = 0;

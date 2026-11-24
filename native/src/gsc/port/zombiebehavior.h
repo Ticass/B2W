@@ -40,7 +40,8 @@ namespace w2b::gsc::port::zombiebehavior
     // speed -> picked variants; nullopt = every authored entry reachable
     std::vector<std::pair<std::string, std::optional<std::set<long long>>>> ReachableVariants(Sources& sources, const util::Json& definition);
     std::optional<LastZombie> SourceLastZombie(Sources& sources, const util::Json& definition);
-    std::optional<bool> FoldLevelGuard(const std::vector<std::string>& words, const std::string& mapName, const std::set<std::string>* assigned);
+    std::optional<bool> FoldLevelGuard(const std::vector<std::string>& words, const std::string& mapName, const std::set<std::string>* assigned,
+                                       const std::set<std::string>* unsetDvars = nullptr);
     std::pair<std::optional<std::string>, MovementSets> MovementSetsOf(Sources& sources, const util::Json& definition,
                                                                        const std::optional<std::string>& mapName = std::nullopt);
     MovementSets MeleeSets(Sources& sources, const util::Json& definition, const std::optional<std::string>& mapName = std::nullopt);

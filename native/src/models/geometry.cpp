@@ -1,40 +1,78 @@
 #include "models/models.h"
 
 #include "weapons/skeleton.h"
-#include "weapons/weapon.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <set>
 
 namespace w2b::models
 {
-    bool StripBadSkins(Json& geometry)
+    bool StripBadSkins(Json& geometry, bool rigid)
     {
-        try
-        {
-            weapons::PrepareSkeleton(geometry, false);
+        // An animated model keeps its root bones, however many (T6 allows several, as WaW does).
+        const auto skins = weapons::SkinRoots(geometry);
+        if (std::ranges::all_of(skins, [&](const auto& roots) { return roots.size() == 1 || (!rigid && !roots.empty()); }))
             return false;
-        }
-        catch (const weapons::WeaponError&)
+        geometry.erase("skins");
+        if (const auto nodes = geometry.find("nodes"); nodes != geometry.end())
+            for (auto& node : *nodes)
+                node.erase("skin");
+        if (const auto meshes = geometry.find("meshes"); meshes != geometry.end())
+            for (auto& mesh : *meshes)
+                if (const auto primitives = mesh.find("primitives"); primitives != mesh.end())
+                    for (auto& primitive : *primitives)
+                        if (const auto attributes = primitive.find("attributes"); attributes != primitive.end())
+                            for (auto field = attributes->begin(); field != attributes->end();)
+                            {
+                                if (field.key().starts_with("JOINTS_") || field.key().starts_with("WEIGHTS_"))
+                                    field = attributes->erase(field);
+                                else
+                                    ++field;
+                            }
+        return true;
+    }
+
+    std::size_t RepairHitboxes(Json& model)
+    {
+        // The dump writes a non-finite float as null. WaW tests a bone's sphere before its box, and a NaN or
+        // infinite sphere rejects nothing, so the box alone decides: the sphere becomes the box's own. Without
+        // a usable box the bone has no hitbox (radius 0).
+        const auto info = model.find("boneInfo");
+        if (info == model.end() || !info->is_array())
+            return 0;
+        const auto finite = [](const Json& value) {
+            return value.is_array() ? std::ranges::all_of(value, [](const Json& v) { return v.is_number(); }) : value.is_number();
+        };
+        std::size_t fixed = 0;
+        for (auto& bone : *info)
         {
-            geometry.erase("skins");
-            if (const auto nodes = geometry.find("nodes"); nodes != geometry.end())
-                for (auto& node : *nodes)
-                    node.erase("skin");
-            if (const auto meshes = geometry.find("meshes"); meshes != geometry.end())
-                for (auto& mesh : *meshes)
-                    if (const auto primitives = mesh.find("primitives"); primitives != mesh.end())
-                        for (auto& primitive : *primitives)
-                            if (const auto attributes = primitive.find("attributes"); attributes != primitive.end())
-                                for (auto field = attributes->begin(); field != attributes->end();)
-                                {
-                                    if (field.key().starts_with("JOINTS_") || field.key().starts_with("WEIGHTS_"))
-                                        field = attributes->erase(field);
-                                    else
-                                        ++field;
-                                }
-            return true;
+            if (std::ranges::all_of(std::array{"mins", "maxs", "offset", "radiusSquared"},
+                                    [&](const char* key) { return !bone.contains(key) || finite(bone.at(key)); }))
+                continue;
+            ++fixed;
+            if (!bone.contains("mins") || !bone.contains("maxs") || !finite(bone.at("mins")) || !finite(bone.at("maxs")) ||
+                bone.at("mins").size() != 3 || bone.at("maxs").size() != 3)
+            {
+                bone["mins"] = bone["maxs"] = bone["offset"] = Json::array({0.0, 0.0, 0.0});
+                bone["radiusSquared"] = 0.0;
+                continue;
+            }
+            const auto mins = bone.at("mins").get<Vec3>(), maxs = bone.at("maxs").get<Vec3>();
+            if (!bone.contains("offset") || !finite(bone.at("offset")) || bone.at("offset").size() != 3)
+                bone["offset"] = Vec3{(mins[0] + maxs[0]) / 2, (mins[1] + maxs[1]) / 2, (mins[2] + maxs[2]) / 2};
+            const auto offset = bone.at("offset").get<Vec3>();
+            double radius = 0;
+            for (std::size_t axis = 0; axis < 3; ++axis)
+            {
+                const auto reach = std::max(std::abs(mins[axis] - offset[axis]), std::abs(maxs[axis] - offset[axis]));
+                radius += reach * reach;
+            }
+            // a box of stray values (Return to Stairway to Hell) can exceed a float: the largest one still rejects nothing
+            bone["radiusSquared"] = std::min(radius, static_cast<double>(std::numeric_limits<float>::max()));
         }
+        return fixed;
     }
 
     std::size_t NeutralizeTransforms(Json& geometry)

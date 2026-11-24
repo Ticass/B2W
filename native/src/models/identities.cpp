@@ -76,7 +76,10 @@ namespace w2b::models
                 std::size_t split = name.empty() ? 0 : 1;
                 while (split < name.size() && (static_cast<unsigned char>(name[split]) & 0xc0) == 0x80)
                     ++split;
-                script += "    models[\"" + name.substr(0, split) + "\" + \"" + name.substr(split) + "\"] = \"" + target + "\";\n";
+                // Every name is stored once: T6 scripts address names with 16-bit offsets, and a table of both names
+                // passes 64 KiB on large maps (Nightclub, 1200 models).
+                script += "    m = \"" + name.substr(0, split) + "\" + \"" + name.substr(split) + "\";\n    models[m] = ";
+                script += target == std::string(Prefix) + name ? "\"" + std::string(Prefix) + "\" + m;\n" : "\"" + target + "\";\n";
             }
             return script + "    return models;\n}\n";
         }

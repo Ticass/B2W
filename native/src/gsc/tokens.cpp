@@ -283,7 +283,8 @@ namespace w2b::gsc
 
     std::vector<Token> Tokenize(const std::string_view source)
     {
-        const auto s = unicode::Decode(source);
+        // WaW reads a script as a C string (sub_689900): nothing after a NUL is script text
+        const auto s = unicode::Decode(source.substr(0, source.find('\0')));
         std::vector<Token> tokens;
         size_t pos = !s.empty() && s[0] == 0xFEFF ? 1 : 0; // a BOM is not script text
         int line = 1;

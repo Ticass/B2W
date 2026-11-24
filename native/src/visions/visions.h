@@ -22,6 +22,8 @@ namespace w2b::visions
 
     // vision_float: sscanf("%f") semantics with a numeric prefix accepted
     double VisionFloat(const std::string& value);
+    // sscanf("%f %f ...") as WaW's vision parser runs it (sub_462AA0): count floats, or none when malformed
+    std::vector<double> ScanFloats(const std::string& text, size_t count);
     // visions.film_terms: (contrast, brightness, desaturation weight)
     std::tuple<double, double, double> FilmTerms(const util::Json& fields);
     // visions.atlas: the IWI27 RGBA LUT atlas of the grades

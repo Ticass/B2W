@@ -96,15 +96,13 @@ namespace w2b::assets
             return dependencies;
         }
 
-        void ReadNotetracks(const Path& source, std::string_view value, AssetSet& dependencies)
+        void ReadNotetracks(std::string_view value, AssetSet& dependencies)
         {
-            for (const auto line : util::SplitLines(value))
-            {
-                const auto tokens = weapons::NotetrackWords(line);
-                if (tokens.size() != 2)
-                    throw weapons::WeaponError("invalid notetrack sound dependency in " + files::Utf8(source) + ": " + util::StringRepr(line));
-                dependencies.emplace("sound", tokens[1]);
-            }
+            // WaW (sub_423250 case 35) takes whitespace-separated words in pairs; line breaks mean nothing and a
+            // last notetrack without a sound is dropped with a warning
+            const auto words = weapons::NotetrackWords(value);
+            for (std::size_t i = 1; i < words.size(); i += 2)
+                dependencies.emplace("sound", words[i]);
         }
     }
 
@@ -140,7 +138,7 @@ namespace w2b::assets
             if (key == "aiVsAiAccuracyGraph" || key == "aiVsPlayerAccuracyGraph")
                 dependencies.emplace(key == "aiVsAiAccuracyGraph" ? "accuracy_aivsai" : "accuracy_aivsplayer", value);
             if (type == "WFT_NOTETRACKSOUNDMAP")
-                ReadNotetracks(source, value, dependencies);
+                ReadNotetracks(value, dependencies);
         }
         return dependencies;
     }

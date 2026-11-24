@@ -255,7 +255,7 @@ if(EXISTS "${OAT_THIRDPARTY}/catch2/CMakeLists.txt")
     add_subdirectory("${OAT_THIRDPARTY}/catch2" catch2 EXCLUDE_FROM_ALL)
     add_executable(w2b_tests tests/test_text.cpp tests/test_registers.cpp tests/test_translate.cpp
         tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp tests/test_extract.cpp tests/test_pipeline.cpp tests/test_t6_material.cpp)
-    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher w2b_extract w2b_pipeline Catch2::Catch2WithMain)
+    target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher w2b_extract w2b_pipeline w2b_models w2b_visions Catch2::Catch2WithMain)
     add_executable(fake_unlinker tests/fake_unlinker.cpp)
     add_dependencies(w2b_tests fake_unlinker)
     target_compile_definitions(w2b_tests PRIVATE FAKE_UNLINKER="$<TARGET_FILE:fake_unlinker>")

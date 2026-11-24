@@ -97,9 +97,17 @@ namespace w2b::materials
         std::vector<WawTexture> textures;
         std::vector<WawConstant> constants;
         std::vector<WawStateBits> stateBits;
+        // drawn by the map's sky model: T6 streams a sky's colour and UV whatever the technique (Purple
+        // Dimension's clouds are a lit decal material)
+        bool skyModel = false;
 
         // the render state of a technique, if the material has one for it
         const WawStateBits* TechniqueState(std::size_t technique) const;
         bool operator==(const WawMaterial&) const = default;
     };
+
+    inline bool IsSky(const WawMaterial& material)
+    {
+        return material.skyModel || material.techniqueSet.starts_with("mc_sky");
+    }
 } // namespace w2b::materials

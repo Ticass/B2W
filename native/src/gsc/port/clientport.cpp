@@ -27,6 +27,7 @@ namespace w2b::gsc::port::clientport
                                                                  {"syncsystemstates", "waw_syncsystemstates"},
                                                                  {"updatedvarsfromprofile", "waw_updatedvarsfromprofile"},
                                                                  {"getsoundvolume", "waw_getsoundvolume"},
+                                                                 {"getplayers", "waw_client_getplayers"},
                                                                  {"setclientdvar", "waw_setclientdvar"},
                                                                  {"prof_begin", "waw_prof"},
                                                                  {"prof_end", "waw_prof"},
@@ -152,7 +153,7 @@ namespace w2b::gsc::port::clientport
             std::string registrations, handlers;
             for (const auto& name : events)
             {
-                registrations += "\n    registersystem( \"" + name + "\", ::waw_notify_" + std::to_string(i) + " );";
+                registrations += "\n    " + std::string(ENVIRONMENT) + "::waw_register_system( \"" + name + "\", ::waw_notify_" + std::to_string(i) + " );";
                 handlers += "\nwaw_notify_" + std::to_string(i) + "( localclientnum, state )\n{\n    level notify( \"" + name + "\" );\n}\n";
                 i++;
             }
@@ -302,6 +303,14 @@ namespace w2b::gsc::port::clientport
                         report["compat"].push_back(key.second);
                 }
             }
+            // the port shares BO2's system table: WaW's script cap of 32 would count BO2's systems too
+            if (const Function* add = script->Find("registersystem"))
+                for (auto k = add->bodyOpen; k + 3 < add->bodyClose; k++)
+                    if (tokens[k].Low() == "size" && tokens[k + 1].text == ">=" && tokens[k + 2].text == "32")
+                    {
+                        tokens[k + 2].text = "1024";
+                        report["system_limit_lifted"] = path;
+                    }
             for (const auto& [start, end] : statements)
             {
                 std::vector<std::string> words;

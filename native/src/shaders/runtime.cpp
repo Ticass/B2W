@@ -325,7 +325,7 @@ namespace w2b::shaders
                         const auto translation = Translate(assembly, &contract);
                         const auto dxbc = CompileHlsl(translation.hlsl, "ps_5_0");
                         CheckLinkage(vertexCode, dxbc);
-                        if (sourceName.rfind("mc_sky", 0) == 0)
+                        if (materials::IsSky(sourceMaterial))
                         {
                             // donor skies stream only POSITION; the dome also reads color and UV
                             targetPass.vertexDecl = VertexDecl(vertexBinding, {{"POSITION0", {0, 0}}, {"COLOR0", {1, 2}}, {"TEXCOORD0", {2, 5}}});
