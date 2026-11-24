@@ -21,7 +21,7 @@ namespace w2b::world
     };
 
     // Fits the static models' palettes beside the grid's into T6's 16-bit index; returns how many were shared.
-    std::size_t SharePalettes(const std::vector<std::uint8_t>& grid, std::vector<std::uint8_t>& palette, util::Json& placements, std::size_t limit = 0xffff);
+    std::size_t SharePalettes(const std::vector<std::uint8_t>& grid, std::vector<std::uint8_t>& palette, util::Json& placements, std::size_t limit = 0x10000);
 
     // The staged grid's summary for the bridge report.
     util::Json StageGrid(const GridRequest& request);

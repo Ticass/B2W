@@ -119,7 +119,7 @@ namespace w2b::world
                             std::span<const std::uint8_t> extraColors, util::Json modelReport)
     {
         const auto count = (grid.colors.size() + extraColors.size()) / gridPaletteSize;
-        if (!modelReport.is_null() && count > 0xffff)
+        if (!modelReport.is_null() && count > 0x10000) // the index is 16 bits
             throw std::runtime_error("static model lighting exceeds the T6 palette index range");
         std::string output = "W2BT6LG1";
         output.reserve(headerSize + grid.rows.size() * 2 + grid.packedRows.size() + grid.entries.size() * 4 +
