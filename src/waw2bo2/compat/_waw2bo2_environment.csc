@@ -39,59 +39,64 @@ waw_watch( where )
     level waittill( "waw2bo2_killed_threads_never_resume" );
 }
 
-// T6 client scripts cannot tell an int from a float, so only undefined takes
-// the default label here.
+// T6's client scripts have no isint: "&" is a fault, and so undefined, for
+// anything but an int, and "<" for anything but a number.
 waw_switch( value )
 {
-    if ( isdefined( value ) )
+    if ( isdefined( value ) && ( isstring( value ) || waw_int( value ) ) )
         return value;
     return "waw2bo2_no_case";
 }
 
-// Multiplying is a fault, and so undefined, for a part that is not a number.
+waw_int( value )
+{
+    bits = value & 0;
+    return isdefined( bits );
+}
+
+waw_number( value )
+{
+    below = value < 0;
+    return isdefined( below );
+}
+
 waw_vector( x, y, z )
 {
-    x = x * 1;
-    y = y * 1;
-    z = z * 1;
-    if ( !isdefined( x ) || !isdefined( y ) || !isdefined( z ) )
+    if ( !waw_number( x ) || !waw_number( y ) || !waw_number( z ) )
         return undefined;
     return ( x, y, z );
 }
 
 // T4 compares arrays by identity: a copy not changed since is the same array,
-// two arrays built apart differ. T6 faults, and cannot tell them apart by
-// identity, so equal contents stand for the same array; an empty one is never
-// another's copy in practice ("x == []" is false in T4).
+// two built apart differ. T6's "==" faults on arrays, but its isinarray
+// compares elements the way T4's "==" compares arrays (measured, 30 cases).
 waw_same_array( a, b )
 {
-    if ( a.size == 0 || a.size != b.size )
-        return 0;
-    keys = getarraykeys( a );
-    for ( i = 0; i < keys.size; i++ )
-    {
-        x = a[keys[i]];
-        y = b[keys[i]];
-        if ( !isdefined( y ) || isarray( x ) != isarray( y ) )
-            return 0;
-        if ( isarray( x ) )
-        {
-            if ( !waw_same_array( x, y ) )
-                return 0;
-            continue;
-        }
-        same = x == y;
-        if ( !isdefined( same ) || !same )
-            return 0;
-    }
-    return 1;
+    holder = [];
+    holder[0] = a;
+    return isinarray( holder, b );
 }
 
 waw_equal( a, b )
 {
-    if ( isdefined( a ) && isdefined( b ) && isarray( a ) && isarray( b ) )
+    if ( !isdefined( a ) || !isdefined( b ) || ( !isarray( a ) && !isarray( b ) ) )
+        return a == b;
+    if ( isarray( a ) && isarray( b ) )
         return waw_same_array( a, b );
-    return a == b;
+    if ( isarray( a ) )
+        other = b;
+    else
+        other = a;
+    if ( waw_is_object( other ) )
+        return 0;
+    return undefined;
+}
+
+// Entities, structs and level compare with each other; nothing else does.
+waw_is_object( value )
+{
+    same = value == level;
+    return isdefined( same );
 }
 
 waw_not_equal( a, b )
@@ -102,36 +107,31 @@ waw_not_equal( a, b )
     return !same;
 }
 
-// T4 does not order strings (a fault); T6 does.
-waw_two_strings( a, b )
-{
-    return isdefined( a ) && isdefined( b ) && isstring( a ) && isstring( b );
-}
-
+// T4 orders numbers only; T6 orders strings and localized strings too.
 waw_less( a, b )
 {
-    if ( waw_two_strings( a, b ) )
+    if ( !waw_number( a ) || !waw_number( b ) )
         return undefined;
     return a < b;
 }
 
 waw_greater( a, b )
 {
-    if ( waw_two_strings( a, b ) )
+    if ( !waw_number( a ) || !waw_number( b ) )
         return undefined;
     return a > b;
 }
 
 waw_less_equal( a, b )
 {
-    if ( waw_two_strings( a, b ) )
+    if ( !waw_number( a ) || !waw_number( b ) )
         return undefined;
     return a <= b;
 }
 
 waw_greater_equal( a, b )
 {
-    if ( waw_two_strings( a, b ) )
+    if ( !waw_number( a ) || !waw_number( b ) )
         return undefined;
     return a >= b;
 }

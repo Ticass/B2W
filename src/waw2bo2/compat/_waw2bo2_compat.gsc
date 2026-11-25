@@ -77,7 +77,7 @@ waw_kill_thread( where )
 
 waw_level_running()
 {
-    wait 0.05;
+    waittillframeend;
     level.waw_running = 1;
 }
 
@@ -108,31 +108,13 @@ waw_number( value )
 }
 
 // T4 compares arrays by identity: a copy not changed since is the same array,
-// two arrays built apart differ. T6 faults, and cannot tell them apart by
-// identity, so equal contents stand for the same array; an empty one is never
-// another's copy in practice ("x == []" is false in T4).
+// two built apart differ. T6's "==" faults on arrays, but its isinarray
+// compares elements the way T4's "==" compares arrays (measured, 30 cases).
 waw_same_array( a, b )
 {
-    if ( a.size == 0 || a.size != b.size )
-        return 0;
-    keys = getarraykeys( a );
-    for ( i = 0; i < keys.size; i++ )
-    {
-        x = a[keys[i]];
-        y = b[keys[i]];
-        if ( !isdefined( y ) || isarray( x ) != isarray( y ) )
-            return 0;
-        if ( isarray( x ) )
-        {
-            if ( !waw_same_array( x, y ) )
-                return 0;
-            continue;
-        }
-        same = x == y;
-        if ( !isdefined( same ) || !same )
-            return 0;
-    }
-    return 1;
+    holder = [];
+    holder[0] = a;
+    return isinarray( holder, b );
 }
 
 waw_equal( a, b )
@@ -141,9 +123,13 @@ waw_equal( a, b )
         return a == b;
     if ( isarray( a ) && isarray( b ) )
         return waw_same_array( a, b );
-    if ( waw_is_object( a ) || waw_is_object( b ) )
+    if ( isarray( a ) )
+        other = b;
+    else
+        other = a;
+    if ( waw_is_object( other ) )
         return 0;
-    return a == b;
+    return undefined;
 }
 
 waw_not_equal( a, b )
@@ -154,41 +140,40 @@ waw_not_equal( a, b )
     return !same;
 }
 
+// Entities, structs and level compare with each other; nothing else does.
 waw_is_object( value )
 {
-    return !isarray( value ) && !isint( value ) && !isfloat( value ) && !isstring( value ) && !isvec( value );
+    if ( isarray( value ) || isint( value ) || isfloat( value ) || isstring( value ) || isvec( value ) )
+        return 0;
+    same = value == level;
+    return isdefined( same );
 }
 
-// T4 does not order strings (a fault); T6 does.
-waw_two_strings( a, b )
-{
-    return isdefined( a ) && isdefined( b ) && isstring( a ) && isstring( b );
-}
-
+// T4 orders numbers only; T6 orders strings and localized strings too.
 waw_less( a, b )
 {
-    if ( waw_two_strings( a, b ) )
+    if ( !waw_number( a ) || !waw_number( b ) )
         return undefined;
     return a < b;
 }
 
 waw_greater( a, b )
 {
-    if ( waw_two_strings( a, b ) )
+    if ( !waw_number( a ) || !waw_number( b ) )
         return undefined;
     return a > b;
 }
 
 waw_less_equal( a, b )
 {
-    if ( waw_two_strings( a, b ) )
+    if ( !waw_number( a ) || !waw_number( b ) )
         return undefined;
     return a <= b;
 }
 
 waw_greater_equal( a, b )
 {
-    if ( waw_two_strings( a, b ) )
+    if ( !waw_number( a ) || !waw_number( b ) )
         return undefined;
     return a >= b;
 }
@@ -1721,6 +1706,24 @@ waw_giveweapon( name, model_index, a, b )
         self giveweapon( weapon );
 }
 
+// Melee is part of every WaW weapon and the Bowie Knife a perk, so
+// TakeAllWeapons leaves both; T6's melee is a weapon of its own.
+waw_takeallweapons()
+{
+    if ( !isplayer( self ) )
+    {
+        self takeallweapons();
+        return;
+    }
+    knife = self hasweapon( "knife_zm" );
+    bowie = self hasweapon( "bowie_knife_zm" );
+    self takeallweapons();
+    if ( knife )
+        self giveweapon( "knife_zm" );
+    if ( bowie )
+        self giveweapon( "bowie_knife_zm" );
+}
+
 waw_takeweapon( name )
 {
     weapon = waw_weapon( name );
@@ -2038,15 +2041,57 @@ waw_getweaponslistprimaries()
 }
 
 
-// WaW _zombiemode sets "all_players_connected" once the starting players are
-// in; BO2's framework (which replaces it) sets "initial_players_connected".
-// Stock WaW utilities (set_all_players_visionset, ...) wait on the WaW flag.
+// WaW's _load sets "all_players_connected" once every expected player is in,
+// and _callbackglobal::spawnPlayer (synchronize_players, then waittillframeend
+// before "spawned_player") comes after it: scripts waiting on the flag start
+// their "spawned_player" threads in time for the first spawn. BO2 spawns
+// before its own flag, so the first spawn is held the same way.
 all_players_connected_bridge()
 {
     if ( !isdefined( level.flag ) || !isdefined( level.flag["all_players_connected"] ) )
         flag_init( "all_players_connected" );
-    flag_wait( "initial_players_connected" );
+    waw_hold_spawns();
+    while ( !waw_all_players_connected() && !flag( "initial_players_connected" ) )
+        wait 0.05;
+    waw_set_players_connected();
+}
+
+waw_hold_spawns()
+{
+    if ( !isdefined( level.spawnplayer ) )
+        waittillframeend;
+    if ( !isdefined( level.spawnplayer ) )
+        return;
+    level.waw_t6_spawnplayer = level.spawnplayer;
+    level.spawnplayer = ::waw_spawnplayer;
+}
+
+waw_all_players_connected()
+{
+    expected = getnumexpectedplayers();
+    return expected != 0 && getnumconnectedplayers() == expected;
+}
+
+waw_set_players_connected()
+{
+    if ( flag( "all_players_connected" ) )
+        return;
+    setdvar( "all_players_are_connected", "1" );
     flag_set( "all_players_connected" );
+}
+
+waw_spawnplayer()
+{
+    self endon( "disconnect" );
+    if ( !isdefined( self.waw_first_spawn ) )
+    {
+        self.waw_first_spawn = 1;
+        if ( waw_all_players_connected() )
+            waw_set_players_connected();
+        flag_wait( "all_players_connected" );
+        waittillframeend;
+    }
+    self [[ level.waw_t6_spawnplayer ]]();
 }
 
 // WaW _callbackglobal notifies "first_player_ready" when the first player
@@ -2567,6 +2612,24 @@ waw_set_health( value )
     if ( isplayer( self ) && !maps\mp\waw\_waw2bo2_fixes::enabled( "g_fix_tesla_bug" ) )
         self setmaxhealth( value );
     self.health = value;
+}
+
+// T4's Spawn (0x67C1B0) gives a player g_player_maxhealth as both health and
+// maximum, and RevivePlayer (0x4F3470) gives it back. T6's keep the last
+// maximum set, which WaW's last stand leaves at 1.
+waw_reset_health()
+{
+    value = getdvarint( "g_player_maxhealth" );
+    if ( value < 10 )
+        value = 100;
+    self setmaxhealth( value );
+    self.health = value;
+}
+
+waw_reviveplayer()
+{
+    self waw_reset_health();
+    self reviveplayer();
 }
 
 // WaW BloodImpact( bool ); T6 takes "normal", "hero" or "none" and errors on

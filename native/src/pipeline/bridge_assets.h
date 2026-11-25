@@ -35,6 +35,11 @@ namespace w2b::pipeline::bridge
     // _stage_weapons + weapons.stage: resolves and stages the map's compiled
     // weapons; `roots` widens to the resolved roots and `sounds` gains the
     // weapons' sounds. nullopt when there is nothing to stage.
+    // Weapons the ported scripts precache that the map's own zones do not hold but
+    // the zones WaW loads for every map do (the revive syrette). Adds their dumps to the roots.
+    Names EngineZoneWeapons(BridgeReport& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& compiled,
+                            extract::StockWaw& stock);
+
     std::optional<util::Json> StageWeapons(BridgeReport& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& weapons,
                                          const Names& scriptModels, extract::StockWaw* stock, Names& sounds);
 

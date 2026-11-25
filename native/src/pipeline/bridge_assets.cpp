@@ -5,6 +5,7 @@
 #include "bridge_images.h"
 #include "bridge_support.h"
 #include "core/asset_paths.h"
+#include "core/regex.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
 #include "extract/wawsource.h"
@@ -167,6 +168,39 @@ namespace w2b::pipeline::bridge
         if (processes)
             workers = std::min(workers, 61u); // ProcessPoolExecutor's Windows handle limit
         return static_cast<unsigned>(std::min<std::size_t>(workers, std::max<std::size_t>(1, total)));
+    }
+
+    Names EngineZoneWeapons(BridgeReport& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& compiled, extract::StockWaw& stock)
+    {
+        // later zones override earlier ones: the newest first
+        static const std::vector<std::string> zones{"patch", "common", "code_post_gfx"};
+        static const regex::Regex call("precacheitem\\s*\\(\\s*\"([^\"\\n]+)\"", regex::IGNORECASE);
+        Names named;
+        for (const auto& file : files::GlobSuffix(projectRoot / "maps/mp/waw", ".gsc"))
+            for (const auto& row : call.FindAll(files::ReadText(file)))
+                named.insert(mod::Lower(row[0]));
+        Names known;
+        for (const auto& name : compiled)
+            known.insert(mod::Lower(name));
+        Names out;
+        std::vector<std::string> sources;
+        for (const auto& name : named)
+        {
+            if (known.contains(name))
+                continue;
+            const auto defining = stock.ZonesDefining("weapon", name);
+            const auto zone = std::ranges::find_if(zones, [&](const std::string& z) { return std::ranges::find(defining, z) != defining.end(); });
+            if (zone == zones.end())
+                continue;
+            const auto root = stock.Dump(*zone, "weapon,xanim,xmodel");
+            if (std::ranges::find(roots, root) == roots.end())
+                roots.push_back(root);
+            out.insert(name);
+            sources.push_back(name + " (" + *zone + ".ff)");
+        }
+        if (!sources.empty())
+            report.Warn("ENGINE_ZONE_WEAPONS " + mod::Join(sources, ", ") + ": precached by the map's scripts, from the zones WaW always loads");
+        return out;
     }
 
     std::optional<Json> StageWeapons(BridgeReport& report, std::vector<fs::path>& roots, const fs::path& projectRoot, const Names& weapons,

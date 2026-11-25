@@ -449,7 +449,9 @@
     "detach",
     "linkto",
     "dodamage",
-    "bloodimpact"
+    "bloodimpact",
+    "reviveplayer",
+    "takeallweapons"
   ],
   "no_extract": [
     "maps\\_zombiemode",

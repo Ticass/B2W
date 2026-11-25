@@ -737,6 +737,10 @@ waw_tesla_network_choke()
             "vdir, shitloc, psoffsettime, deathanimduration );\n        return;\n    }\n\n"
             "    [[ maps\\mp\\zombies\\_zm_laststand::playerlaststand ]]( einflictor, eattacker, idamage, smeansofdeath, sweapon, "
             "vdir, shitloc, psoffsettime, deathanimduration );\n"};
+        const Patch WAW_RESPAWN_HEALTH{"    else\n        self spawn( origin, angles );\n",
+                                       "    else\n        self spawn( origin, angles );\n\n"
+                                       "    // waw2bo2: WaW's Spawn resets the player's health\n"
+                                       "    self maps\\mp\\waw\\_waw2bo2_compat::waw_reset_health();\n"};
         const Patch WAW_NO_PLAYABLE_AREA_MONITOR{"level.player_out_of_playable_area_monitor = 1;",
                                                  "level.player_out_of_playable_area_monitor = 0; // waw2bo2: WaW never kills outside zones"};
         const Patch WAW_ROUND_HEALTH{"    ai_calculate_health( level.round_number );\n",
@@ -1101,6 +1105,7 @@ waw2bo2_dog_keep_enemy()
         bootstrap = ApplyPatch(bootstrap, WAW_NO_PLAYABLE_AREA_MONITOR, "BO2 server bootstrap playable area monitor changed");
         bootstrap = ApplyPatch(bootstrap, WAW_SOURCE_PLAYER_DAMAGE, "BO2 server bootstrap player damage callback changed");
         bootstrap = ApplyPatch(bootstrap, WAW_SOURCE_PLAYER_LASTSTAND, "BO2 server bootstrap last stand callback changed");
+        bootstrap = ApplyPatch(bootstrap, WAW_RESPAWN_HEALTH, "BO2 server bootstrap spectator respawn changed");
         bootstrap = ApplyPatch(bootstrap, WAW_GAME_OVER_MUSIC, "BO2 server bootstrap game over music changed");
         bootstrap = ApplyPatch(bootstrap, WAW_ROUND_HEALTH, "BO2 server bootstrap round health call changed");
         bootstrap += WAW_ROUND_HEALTH_HELPER;

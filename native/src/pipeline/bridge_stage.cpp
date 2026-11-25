@@ -893,6 +893,8 @@ namespace w2b::pipeline
             // weapons first: their resolution widens the roots (stock WaW dumps
             // for script models too) and their effects join the map zone's conversion
             auto* stock = stock_ ? &*stock_ : nullptr;
+            if (stock)
+                compiledWeapons_ = Union(compiledWeapons_, bridge::EngineZoneWeapons(report_, roots_, projectRoot_, compiledWeapons_, *stock));
             weaponReport_ = bridge::StageWeapons(report_, roots_, projectRoot_, compiledWeapons_, scriptModels_, stock, compiledSounds_);
             auto effectNames = fxNames;
             if (weaponReport_)
