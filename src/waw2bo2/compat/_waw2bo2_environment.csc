@@ -96,9 +96,10 @@ waw_equal( a, b )
 
 waw_not_equal( a, b )
 {
-    if ( isdefined( a ) && isdefined( b ) && isarray( a ) && isarray( b ) )
-        return !waw_same_array( a, b );
-    return a != b;
+    same = waw_equal( a, b );
+    if ( !isdefined( same ) )
+        return undefined;
+    return !same;
 }
 
 // T4 does not order strings (a fault); T6 does.

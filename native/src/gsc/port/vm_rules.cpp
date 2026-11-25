@@ -411,7 +411,7 @@ namespace w2b::gsc::port
             bool IsTruth(const NodeId id) const
             {
                 const auto& n = ast_[id];
-                if (n.kind == NodeKind::Not || n.kind == NodeKind::True || n.kind == NodeKind::False)
+                if (n.kind == NodeKind::Not || n.kind == NodeKind::True || n.kind == NodeKind::False || compared_.count(id))
                     return true;
                 if (n.kind == NodeKind::Binary)
                 {
@@ -421,8 +421,8 @@ namespace w2b::gsc::port
                 return n.kind == NodeKind::Call && tokens_[n.token].Low() == "isdefined";
             }
 
-            // Comparisons whose sides may be two strings or two arrays. A side must be known to take
-            // that type, the other to allow it: comparisons of values nothing is known about stay as they are.
+            // Comparisons whose sides may both be strings, or arrays. T4 runs the left side first, and a
+            // call's last argument: two sides that call functions stay as they are.
             void Comparison(const NodeId id)
             {
                 const auto& n = ast_[id];
@@ -432,7 +432,11 @@ namespace w2b::gsc::port
                     return;
                 const auto type = order ? TYPE_STRING : TYPE_ARRAY;
                 const auto a = types_.Of(function_, n.kids[0]), b = types_.Of(function_, n.kids[1]);
-                if (!(a.Known(type) && b.May(type)) && !(b.Known(type) && a.May(type)))
+                // T4 compares an array with an object as well
+                const uint8_t other = order ? TYPE_STRING : TYPE_ARRAY | TYPE_OBJECT;
+                if (!(a.May(type) && b.May(other)) && !(b.May(type) && a.May(other)))
+                    return;
+                if (Calls(n.kids[0]) && Calls(n.kids[1]))
                     return;
                 if (order)
                 {
@@ -446,10 +450,17 @@ namespace w2b::gsc::port
                 }
             }
 
+            bool Calls(const NodeId id) const
+            {
+                const auto& n = ast_[id];
+                return n.kind == NodeKind::Call || std::any_of(n.kids.begin(), n.kids.end(), [this](const NodeId kid) { return Calls(kid); });
+            }
+
             // "a op b" -> "function( a, b )"
             void Call(const NodeId id, const char* function)
             {
                 tokens_[ast_[id].token].text = ",";
+                compared_.insert(id);
                 Wrap(id, " " + runtime_ + function + "(", " )");
             }
 
@@ -540,6 +551,7 @@ namespace w2b::gsc::port
             TypeInference types_;
             std::string runtime_;
             NodeId function_ = NO_NODE;
+            std::set<NodeId> compared_; // comparisons that became calls
             VmCounts counts_;
         };
     } // namespace

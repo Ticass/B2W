@@ -141,7 +141,11 @@ TEST_CASE("T4's results where T6's differ", "[gsc]")
     // comparisons
     CHECK(lower("a = []; if ( a == b.d ) c();") == "a = []; if ( run::waw_equal( a , b.d ) ) c();");
     CHECK(lower("if ( [] != b.c ) d();") == "if ( run::waw_not_equal( [] , b.c ) ) d();");
-    CHECK(lower("if ( a == b ) c();") == "if ( a == b ) c();");
+    CHECK(lower("if ( a == b ) c();") == "if ( a == b ) c();"); // two locals never set
+    CHECK(lower("if ( self.a == self.b ) c();") == "if ( run::waw_equal( self.a , self.b ) ) c();");
+    CHECK(lower("if ( self.a == 1 || self.b == undefined ) c();") == "if ( self.a == 1 || self.b == undefined ) c();");
+    CHECK(lower("if ( self.a < distance( b, c ) ) d();") == "if ( self.a < distance( b, c ) ) d();");
+    CHECK(lower("if ( a() == b() ) c();") == "if ( a() == b() ) c();");
     CHECK(lower("if ( b.c < \"d\" ) e();") == "if ( run::waw_less( b.c , \"d\" ) ) e();");
     CHECK(lower("a = getdvar( \"b\" ); if ( a >= c.d ) e();") == "a = getdvar( \"b\" ); if ( run::waw_greater_equal( a , c.d ) ) e();");
     CHECK(lower("a = \"b\"; if ( a < 5 ) c();") == "a = \"b\"; if ( a < 5 ) c();"); // a fault in both

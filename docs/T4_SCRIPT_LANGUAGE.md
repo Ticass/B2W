@@ -131,15 +131,15 @@ BO2 (2026-11-25): 6528 results, these differences and no others.
 | `( x, y, z )` with a part that is no number | undefined | garbage, and the script stack stays wrong: repeated, it stops threads | `waw_vector`, unless the parts are known numbers |
 | `switch` on anything but an int or a string | `default:` runs | no label runs | `waw_switch` |
 | array `==`/`!=` array | the same array or not | a fault | `waw_equal`, `waw_not_equal` |
-| array `==` object | 0 | a fault | not ported |
+| array `==` object | 0 | a fault | `waw_equal` (server) |
 | string `<` string (also `>`, `<=`, `>=`) | a fault | compares | `waw_less` and the like |
 
-Comparisons are rewritten where type inference (`types.*`) knows one side to
-take the type and the other to allow it. The corpus has 152 such string
-comparisons (most read `getdvar`) and one of arrays. Comparing values nothing
-is known about is left alone. T6 has no array identity: equal contents stand
-for the same array. T6 client scripts cannot tell an int from a float, so
-there only undefined takes the `default:` label.
+Comparisons are rewritten where type inference (`types.*`) allows both sides
+the type (per map about 180 array and 85 string comparisons of a few thousand)
+and at most one side calls functions, since T4 runs an operator's left side
+first and a call's last argument first. T6 has no array identity: equal
+contents stand for the same array. T6 client scripts cannot tell an int from a
+float, so there only undefined takes the `default:` label.
 
 Everything else matched: arithmetic, string conversion, arrays by value, key
 order of `getarraykeys`, `int / int` giving a float, division by zero giving 0,
