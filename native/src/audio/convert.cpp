@@ -10,6 +10,7 @@
 #include <mmreg.h>
 #include <msacm.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <mutex>
@@ -108,6 +109,45 @@ namespace w2b::audio
             acmStreamUnprepareHeader(handle, &header, 0);
             acmStreamClose(handle, 0);
             return output;
+        }
+
+        // the sample kind XAudio2 2.0 plays (1 integer, 3 float), also inside WAVEFORMATEXTENSIBLE
+        std::optional<int> SampleFormat(const std::string& fmt, int tag, const unsigned bits)
+        {
+            static constexpr unsigned char subFormat[] = {0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71};
+            if (tag == 0xFFFE && fmt.size() >= 40 && std::memcmp(fmt.data() + 26, subFormat, sizeof(subFormat)) == 0)
+                tag = Read<uint16_t>(fmt, 24);
+            if (tag == 1 && (bits == 8 || bits == 16 || bits == 24 || bits == 32))
+                return 1;
+            return tag == 3 && bits == 32 ? std::optional(3) : std::nullopt;
+        }
+
+        std::string Pcm16(const std::string_view data, const int kind, const unsigned bits)
+        {
+            if (kind == 1 && bits == 16)
+                return std::string(data);
+            const size_t width = bits / 8;
+            std::string out(data.size() / width * 2, '\0');
+            for (size_t i = 0; i * width < data.size(); i++)
+            {
+                const auto at = i * width;
+                double value; // of a 16-bit sample
+                if (kind == 3)
+                    value = static_cast<double>(Read<float>(data, at)) * 32768.0;
+                else if (bits == 8)
+                    value = (static_cast<unsigned char>(data[at]) - 128) * 256.0;
+                else if (bits == 24)
+                    value = (static_cast<int32_t>(static_cast<uint32_t>(static_cast<unsigned char>(data[at])) << 8
+                                                  | static_cast<uint32_t>(static_cast<unsigned char>(data[at + 1])) << 16
+                                                  | static_cast<uint32_t>(static_cast<unsigned char>(data[at + 2])) << 24))
+                        / 65536.0;
+                else
+                    value = Read<int32_t>(data, at) / 65536.0;
+                value = std::isnan(value) ? 0.0 : std::clamp(std::nearbyint(value), -32768.0, 32767.0);
+                const auto sample = static_cast<int16_t>(value);
+                std::memcpy(out.data() + i * 2, &sample, 2);
+            }
+            return out;
         }
 
         // xwma.validate
@@ -239,22 +279,21 @@ namespace w2b::audio
     {
         if (data.size() < 12 || data.compare(0, 4, "RIFF") != 0 || (data.compare(8, 4, "WAVE") != 0 && data.compare(8, 4, "XWMA") != 0))
             throw SoundError("unsupported audio container; expected original RIFF WAVE/XWMA");
-        const uint64_t riffEnd = static_cast<uint64_t>(Read<uint32_t>(data, 4)) + 8;
-        if (riffEnd < 12 || riffEnd > data.size())
-            throw SoundError("RIFF byte count exceeds or invalidates the original container");
+        if (static_cast<uint64_t>(Read<uint32_t>(data, 4)) + 8 > data.size())
+            throw SoundError("cut short of its RIFF size, which WaW does not play");
+        // t4sp 0x6BD120: chunks up to data, the last of a repeated one, sizes rounded up to 2
         ChunkViews chunks{data.substr(8, 4), {}};
-        uint64_t offset = 12;
-        while (offset < riffEnd)
+        size_t offset = 12;
+        while (offset + 8 <= data.size() && !chunks.Find("data"))
         {
-            if (offset + 8 > riffEnd)
-                throw SoundError("truncated RIFF chunk header");
-            const auto tag = data.substr(static_cast<size_t>(offset), 4);
-            const auto size = Read<uint32_t>(data, static_cast<size_t>(offset) + 4);
-            const uint64_t end = offset + 8 + size;
-            if (end > riffEnd || chunks.Find(tag))
-                throw SoundError("truncated or duplicate RIFF chunk");
-            chunks.parts.emplace_back(tag, data.substr(static_cast<size_t>(offset) + 8, size));
-            offset = end + (size & 1);
+            const auto tag = data.substr(offset, 4);
+            const size_t size = Read<uint32_t>(data, offset + 4);
+            offset += 8;
+            if (size > data.size() - offset || (size & 1) > data.size() - offset - size)
+                throw SoundError("a chunk past the end of the file, which WaW does not play");
+            std::erase_if(chunks.parts, [tag](const auto& part) { return part.first == tag; });
+            chunks.parts.emplace_back(tag, data.substr(offset, size));
+            offset += size + (size & 1);
         }
         if (!chunks.Find("fmt ") || !chunks.Find("data"))
             throw SoundError("missing RIFF format/audio data");
@@ -342,23 +381,27 @@ namespace w2b::audio
         report["alias_pitch_scale"] = static_cast<double>(rate) / target;
         std::string pcm;
         const std::string& data = *chunks.Find("data");
-        if (chunks.form == "WAVE" && tag == 1 && bits == 16 && align == channels * 2)
+        const auto sample = SampleFormat(fmt, tag, bits);
+        if (chunks.form == "WAVE" && sample && align == channels * bits / 8)
         {
-            pcm = data;
-            report["status"] = "exact_original_pcm";
+            // XAudio2 drops a partial frame
+            pcm = Pcm16(std::string_view(data).substr(0, data.size() / align * align), *sample, bits);
+            report["status"] = *sample == 1 && bits == 16 ? "exact_original_pcm" : "pcm_as_16_bits";
         }
         else if (chunks.form == "WAVE" && tag == 2 && bits == 4)
         {
-            if (fmt.size() < 50 || align < 7u * channels || data.size() % align)
+            // XAudio2 drops a partial block
+            const auto blocks = align ? data.size() / align * align : 0;
+            if (fmt.size() < 50 || align < 7u * channels || !blocks)
                 throw SoundError("incomplete Microsoft ADPCM blocks");
             const auto samplesPerBlock = Read<uint16_t>(fmt, 18);
             if (samplesPerBlock != 2 + (static_cast<int>(align) - 7 * channels) * 2 / channels)
                 throw SoundError("inconsistent Microsoft ADPCM samples per block");
             static constexpr int16_t coefficients[] = {256, 0, 512, -256, 0, 0, 192, 64, 240, 0, 460, -208, 392, -232};
             if (Read<uint16_t>(fmt, 20) != 7 || std::memcmp(fmt.data() + 22, coefficients, sizeof(coefficients)) != 0)
-                throw SoundError("custom ADPCM coefficient table requires XAudio2 semantics verification");
-            pcm = AcmDecode(fmt, data);
-            const auto expected = data.size() / align * samplesPerBlock * channels * 2;
+                throw SoundError("custom ADPCM coefficients, which XAudio2 does not play");
+            pcm = AcmDecode(fmt, data.substr(0, blocks));
+            const auto expected = blocks / align * samplesPerBlock * channels * 2;
             if (pcm.size() != expected)
                 throw SoundError("native ADPCM output length disagrees with source blocks");
             report["status"] = "native_ms_adpcm";
@@ -389,16 +432,6 @@ namespace w2b::audio
         report["pcm_sha256"] = hash::Sha256Hex(pcm);
         if (const auto* priv = chunks.Find("PRIV"))
             report["original_private_metadata_hex"] = Hex(*priv);
-        if (chunks.Find("smpl") || chunks.Find("cue "))
-        {
-            report["status"] = "loop_region_requires_translation";
-            Json loop = Json::object();
-            for (const char* t : {"smpl", "cue "})
-                if (const auto* bytes = chunks.Find(t))
-                    loop[t] = Hex(*bytes);
-            report["loop_metadata"] = loop;
-            return {std::nullopt, report};
-        }
         return {std::move(wav), report};
     }
 } // namespace w2b::audio

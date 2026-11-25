@@ -121,13 +121,15 @@ namespace w2b::audio
                 if (8 + headerSize <= hit->size())
                 {
                     const auto header = Json::parse(hit->substr(8, static_cast<size_t>(headerSize)));
-                    Decoded decoded;
-                    decoded.info = header["info"];
-                    for (const auto& k : header["added"])
-                        decoded.added.push_back(k.get<std::string>());
-                    if (header["has_pcm"].get<bool>())
+                    if (header["has_pcm"].get<bool>()) // without it: a sound with loop metadata, skipped by older versions
+                    {
+                        Decoded decoded;
+                        decoded.info = header["info"];
+                        for (const auto& k : header["added"])
+                            decoded.added.push_back(k.get<std::string>());
                         decoded.pcm = hit->substr(static_cast<size_t>(8 + headerSize));
-                    return decoded;
+                        return decoded;
+                    }
                 }
             }
             auto decoded = Decode(source, tools);

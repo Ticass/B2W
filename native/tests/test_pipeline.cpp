@@ -1,4 +1,5 @@
 // build-mod helpers against expected csv parses and mod zones.
+#include "audio/convert.h"
 #include "core/files.h"
 #include "pipeline/hud_menus.h"
 #include "pipeline/actor_trees.h"
@@ -261,4 +262,63 @@ TEST_CASE("Compiled HUD expressions become RPN")
     CHECK(w2b::pipeline::HudFontRole(6, 0.3) == "objective");
     CHECK(w2b::pipeline::HudFontRole(4, 0.548) == "bold");
     CHECK(w2b::pipeline::HudFontRole(0, 0.381) == "extrabig");
+}
+
+TEST_CASE("Sounds decode as XAudio2 2.0 plays them")
+{
+    using namespace w2b;
+    const auto bytes = [](const std::initializer_list<int> values) { std::string out; for (const int value : values) out += static_cast<char>(value); return out; };
+    const auto put = [](std::string& out, const auto value) { out.append(reinterpret_cast<const char*>(&value), sizeof(value)); };
+    const auto chunk = [&](const char* tag, const std::string& body)
+    {
+        std::string out = tag;
+        put(out, static_cast<uint32_t>(body.size()));
+        out += body;
+        if (body.size() & 1)
+            out += bytes({0x00});
+        return out;
+    };
+    const auto wave = [&](const uint16_t tag, const uint16_t channels, const uint16_t bits, const std::string& rest)
+    {
+        std::string fmt;
+        put(fmt, tag);
+        put(fmt, channels);
+        put(fmt, uint32_t{48000});
+        put(fmt, static_cast<uint32_t>(48000 * channels * bits / 8));
+        put(fmt, static_cast<uint16_t>(channels * bits / 8));
+        put(fmt, bits);
+        const auto body = "WAVE" + chunk("fmt ", fmt) + rest;
+        std::string out = "RIFF";
+        put(out, static_cast<uint32_t>(body.size()));
+        return out + body;
+    };
+    const auto folder = std::filesystem::temp_directory_path() / "w2b_sound_test";
+    const auto decode = [&](const std::string& bytes)
+    {
+        const auto path = folder / "sound.wav";
+        files::WriteBytes(path, bytes);
+        const auto wav = audio::Convert(path, {}).first;
+        REQUIRE(wav);
+        const auto pcm = *audio::ParseChunks(*wav).Find("data");
+        std::vector<int16_t> out(pcm.size() / 2);
+        std::memcpy(out.data(), pcm.data(), out.size() * 2);
+        return out;
+    };
+    using Samples = std::vector<int16_t>;
+    CHECK(decode(wave(1, 1, 8, chunk("data", bytes({0x80, 0x00, 0xFF, 0x81})))) == Samples{0, -32768, 32512, 256});
+    CHECK(decode(wave(1, 1, 24, chunk("data", bytes({0x00, 0x01, 0x00, 0x00, 0x00, 0x80})))) == Samples{1, -32768});
+    CHECK(decode(wave(1, 1, 32, chunk("data", bytes({0x00, 0x00, 0x02, 0x00})))) == Samples{2});
+    std::string floats;
+    for (const float value : {0.5f, -2.0f, 1.0f})
+        put(floats, value);
+    CHECK(decode(wave(3, 1, 32, chunk("data", floats))) == Samples{16384, -32768, 32767});
+    // a partial frame is dropped; nothing after data counts, nor what comes before in it twice
+    CHECK(decode(wave(1, 2, 16, chunk("PRIV", "a") + chunk("PRIV", "b") + chunk("smpl", "c") + chunk("data", bytes({0x01, 0x00, 0x02, 0x00, 0x03, 0x00})) + "cue"))
+          == Samples{1, 2});
+    CHECK(decode(wave(1, 1, 16, chunk("data", bytes({0x07, 0x00}))) + bytes({0xFF, 0xFF, 0xFF, 0xFF, 0xFF})) == Samples{7});
+    auto cut = wave(1, 1, 16, chunk("data", bytes({0x07, 0x00, 0x08, 0x00})));
+    cut.resize(cut.size() - 2);
+    files::WriteBytes(folder / "sound.wav", cut);
+    CHECK_THROWS_AS(audio::Convert(folder / "sound.wav", {}), audio::SoundError);
+    std::filesystem::remove_all(folder);
 }

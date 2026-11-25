@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Convert every sound WaW plays: 8, 24 and 32-bit PCM, 32-bit float, loop markers, and files with repeated chunks, trailing bytes or a partial last block were dropped (Nuketown 1886 lost over 700, gun fire included). The rules are WaW's own sound parser and XAudio2 2.0's, measured. What is still silent (`SOUND_SILENT`) is silent in WaW: files that are missing, or that the WaW Mod Tools ship cut short.
 - Keep every constant a map's `_zombiemode::main` assigns to a level field, also when other functions assign it again. Nuketown Remastered lost `zombies_to_add = 0` and spawned one zombie at a time.
 - HUD menus a map overrides (`weaponinfo`, `dpad`, `competitivemodescores`) are converted and replace the converter's WaW HUD: Nuketown 1886's Buried HUD, Decagonal Demise's Origins HUD. Their images, texts, engine draws and expressions run as in WaW, including material names built from a string and a number. A map's HUD scripts called from `maps\_load::main` run too.
 - The line under the map's name on the loading screen (BO2's "TRANZIT") is the Mode line of Map Details & Artwork.

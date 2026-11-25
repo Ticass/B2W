@@ -10,6 +10,7 @@
 #include "sound/bindings.h"
 #include "sound/stage.h"
 
+#include <map>
 #include <algorithm>
 #include <set>
 
@@ -137,6 +138,15 @@ namespace w2b::pipeline
         const auto decoder = sounds.audioDecoder ? Str(*sounds.audioDecoder) : std::string();
         Timed("Decode audio", [&] { return audio::Stage(content, content / "pcm", decoder, tools); });
         const auto audioReport = mod::Json(content / "pcm" / "audio.stage.json");
+        std::map<std::string, std::pair<std::size_t, std::string>> silent; // reason -> how many, the first
+        for (const auto& error : audioReport.at("errors"))
+        {
+            auto& [count, first] = silent[error.at("reason").get<std::string>()];
+            if (!count++)
+                first = error.at("name").get<std::string>();
+        }
+        for (const auto& [reason, sounds] : silent)
+            warnings.push_back("SOUND_SILENT " + std::to_string(sounds.first) + " sounds: " + reason + " (" + sounds.second + ")");
         const auto bindingReport = Timed("Bind decoded audio", [&] { return sound::BindPcm(content, content / "pcm"); });
         out["animation_sound_identities"] = found.animationSoundIdentities;
         const auto curveReport = Timed("Bind sound curves", [&] { return BindBridgeCurves(content, sounds); });
