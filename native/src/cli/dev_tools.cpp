@@ -5,6 +5,7 @@
 #include "core/files.h"
 #include "core/text.h"
 #include "gsc/ast.h"
+#include "gsc/port/loops.h"
 #include "launcher/settings.h"
 #include "pipeline/knowledge.h"
 
@@ -361,9 +362,11 @@ namespace w2b::cli
 
     int GscCheck(const Arguments& args)
     {
-        if (args.empty() || args.size() == 2 || args.size() > 3 || (args.size() == 3 && args[1] != "--dump"))
+        auto options = args;
+        const auto dialect = std::erase(options, std::string("--bo2")) ? gsc::Dialect::Bo2 : gsc::Dialect::Waw;
+        if (options.size() != 1 && (options.size() != 3 || options[1] != "--dump"))
             return 2;
-        const auto root = files::FromUtf8(args[0]);
+        const auto root = files::FromUtf8(options[0]);
         std::vector<fs::path> scripts;
         if (fs::is_directory(root))
         {
@@ -375,7 +378,8 @@ namespace w2b::cli
         else
             scripts.push_back(root);
         std::string dump;
-        int rejected = 0;
+        int rejected = 0, switches = 0;
+        gsc::port::LoopCounts loops;
         for (const auto& path : scripts)
         {
             const auto name = files::Utf8(fs::is_directory(root) ? path.lexically_relative(root) : path);
@@ -383,7 +387,14 @@ namespace w2b::cli
             try
             {
                 const auto tokens = gsc::Tokenize(encoding::UniversalNewlines(encoding::Utf8SigReplace(ReadFile(path))));
-                dump += gsc::DumpAst(gsc::ParseAst(tokens), tokens);
+                dump += gsc::DumpAst(gsc::ParseAst(tokens, dialect), tokens);
+                // the translator's VM rules, and that their result still parses
+                auto ported = tokens;
+                switches += gsc::port::LowerSwitches(ported, "waw_switch");
+                const auto counts = gsc::port::WatchLoops(ported, "waw_kill_thread");
+                loops.loops += counts.loops;
+                loops.watched += counts.watched;
+                gsc::ParseAst(gsc::Tokenize(gsc::Emit(ported)), dialect);
             }
             catch (const gsc::GscSyntaxError& error)
             {
@@ -392,9 +403,9 @@ namespace w2b::cli
                 Print(name + ": " + error.what());
             }
         }
-        Print(std::format("{} scripts, {} rejected", scripts.size(), rejected));
-        if (args.size() == 3)
-            files::WriteBytes(files::FromUtf8(args[2]), dump);
+        Print(std::format("{} scripts, {} rejected; {} of {} loops may never end, {} switches", scripts.size(), rejected, loops.watched, loops.loops, switches));
+        if (options.size() == 3)
+            files::WriteBytes(files::FromUtf8(options[2]), dump);
         return rejected ? 1 : 0;
     }
 } // namespace w2b::cli

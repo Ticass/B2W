@@ -221,19 +221,6 @@ TEST_CASE("a guard on a dvar nothing sets folds", "[pipeline]")
     CHECK_FALSE(fold({"getdvarint", "(", "\"other\"", ")", "==", "0"}).has_value());
 }
 
-TEST_CASE("a spin loop stops on an undefined element", "[pipeline]")
-{
-    const auto lower = [](const std::string& text) {
-        auto tokens = w2b::gsc::Tokenize(text);
-        w2b::gsc::port::LowerUndefinedSpinLoops(tokens);
-        return w2b::gsc::Emit(tokens);
-    };
-    CHECK(lower("while( players[ 0 ] != player_0 )\n\tplayers = array_randomize( players );") ==
-          "while( isdefined( players[0] ) && ( players[ 0 ] != player_0 ) )\n\tplayers = array_randomize( players );");
-    for (const auto* same : {"while( a[0] != b ) { wait 1; }", "while( a != b ) c = 1;", "while( isdefined( a[0] ) && a[0] != b ) c = 1;", "while( f( a[0] ) != b ) c = 1;"})
-        CHECK(lower(same) == same);
-}
-
 TEST_CASE("static model palettes share when the index range is full", "[pipeline]")
 {
     using w2b::world::gridPaletteSize;

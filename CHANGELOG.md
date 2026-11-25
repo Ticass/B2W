@@ -2,8 +2,10 @@
 
 ## Unreleased
 
+- Scripts are parsed with WaW's own grammar, read from its compiler's tables; over 1172 scripts of 28 custom maps the parser builds the same trees as those tables. `waw2bo2n gsc-check` runs it on a folder. See [docs/T4_SCRIPT_LANGUAGE.md](docs/T4_SCRIPT_LANGUAGE.md).
+- Loops that may never end get WaW's loop watchdog, which BO2 lacks: the thread ends, with its callers, instead of hanging the game. It covers every such loop and replaces the patches for single loop shapes (Yote's Lair, Nuketown 1886, Decagonal Demise). Those assumed WaW ends a thread on an undefined value; it does not, so code after such a loop no longer runs, as in WaW.
+- A `switch` on undefined or a float runs its `default:` label, as in WaW. BO2 runs no label.
 - Convert maps whose light grid nearly fills T6's 16-bit palette index ("static model lighting exceeds the T6 palette index range", Purple Dimension): the static models that change least share the closest grid palette.
-- Loops that never wait stop when the array element they compare is undefined, where WaW ends the thread and T6 hung (Decagonal Demise at player connect).
 - Store the model name table once per model: past 64 KiB of names T6 read wrapped names (Nightclub, about 1200 models; newer builds stopped on it).
 - Map WaW's client `getplayers` onto `getlocalplayers`, the same function in WaW ("Unresolved external: getplayers", Return to Stairway to Hell).
 - Any material of a sky model gets the sky's vertex streams ("source sky shader ... native vertex output cannot supply COLOR0", Purple Dimension).

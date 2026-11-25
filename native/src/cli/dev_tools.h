@@ -16,6 +16,7 @@ namespace w2b::cli
     int IpakCheck(const Arguments& args);
     // crash-summary <dump.dmp>...: the faulting module + offset, registers, stack returns
     int CrashSummary(const Arguments& args);
-    // gsc-check <folder or script> [--dump <file>]: parses every .gsc/.csc as WaW compiles it
+    // gsc-check <folder or script> [--bo2] [--dump <file>]: parses every .gsc/.csc as WaW compiles it
+    // (--bo2: as the converter writes it), and counts what the translator's VM rules change
     int GscCheck(const Arguments& args);
 } // namespace w2b::cli

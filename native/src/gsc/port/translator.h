@@ -52,7 +52,7 @@ namespace w2b::gsc::port
         void RewriteAnimationRefs(Tokens& tokens, const std::string& tree, const std::string& where, long long start = 0,
                                   std::optional<long long> end = std::nullopt);
         void KeepCoreAnimations(const Script& script, Tokens& tokens, const std::string& where, const std::optional<std::string>& animtree);
-        std::string GuardSizeLoops(const std::string& text);
+        std::string ApplyVmRules(const std::string& text, const std::string& where);
         void SourceLowerings(Tokens& tokens);
         std::string TranslateExtracted(const std::string& core, const std::string& name);
 

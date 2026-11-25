@@ -79,7 +79,7 @@ namespace w2b::gsc
         class Parser
         {
         public:
-            explicit Parser(const std::vector<Token>& tokens) : tokens_(tokens), lex_(Lexemes(tokens))
+            Parser(const std::vector<Token>& tokens, const Dialect dialect) : tokens_(tokens), lex_(Lexemes(tokens)), dialect_(dialect)
             {
                 ast_.nodes.reserve(tokens.size());
             }
@@ -277,6 +277,8 @@ namespace w2b::gsc
                 }
                 if (Is("for"))
                     return For();
+                if (dialect_ == Dialect::Bo2 && Is("foreach") && Is("(", 1))
+                    return ForEach();
                 if (Is("switch"))
                 {
                     const auto id = Open(NodeKind::Switch);
@@ -296,7 +298,7 @@ namespace w2b::gsc
                 }
                 const auto id = Simple();
                 Expect(";");
-                return id;
+                return Close(id); // with its ";"
             }
 
             NodeId For()
@@ -314,6 +316,24 @@ namespace w2b::gsc
                 Add(id, Is(";") ? Absent() : Expression());
                 Expect(";");
                 Add(id, Is(")") ? Absent() : Simple());
+                Expect(")");
+                Add(id, Statement());
+                return Close(id);
+            }
+
+            NodeId ForEach()
+            {
+                const auto id = Open(NodeKind::ForEach);
+                pos_++;
+                Expect("(");
+                do
+                {
+                    if (!IsIdent())
+                        Fail();
+                    Add(id, Leaf(NodeKind::Local));
+                } while (Accept(","));
+                Expect("in");
+                Add(id, Expression());
                 Expect(")");
                 Add(id, Statement());
                 return Close(id);
@@ -599,6 +619,7 @@ namespace w2b::gsc
 
             const std::vector<Token>& tokens_;
             std::vector<Lexeme> lex_;
+            Dialect dialect_;
             Ast ast_;
             size_t pos_ = 0;
         };
@@ -662,7 +683,7 @@ namespace w2b::gsc
         static constexpr const char* names[]{
             "script", "directive", "devbegin", "devend",     "func",     "param",    "block",    "do",       "set",      "inc",           "dec",
             "return", "wait",      "waittill", "waittillmatch", "waittillframeend", "notify",  "endon",    "break",    "continue", "breakpoint", "prof",
-            "if",     "while",     "for",      "switch",     "case",     "default",  "dev",      "empty",    "bin",      "not",           "compl",
+            "if",     "while",     "for",      "foreach",  "switch",     "case",     "default",  "dev",      "empty",    "bin",      "not",           "compl",
             "undefined", "self",   "level",    "game",       "anim",     "true",     "false",    "int",      "float",    "str",           "istr",
             "list",   "array",     "var",      "field",      "size",     "index",    "ref",      "animref",  "animtree", "call",          "callee"};
         static_assert(std::size(names) == static_cast<size_t>(NodeKind::Callee) + 1);
@@ -678,9 +699,9 @@ namespace w2b::gsc
         return out;
     }
 
-    Ast ParseAst(const std::vector<Token>& tokens)
+    Ast ParseAst(const std::vector<Token>& tokens, const Dialect dialect)
     {
-        return Parser(tokens).Run();
+        return Parser(tokens, dialect).Run();
     }
 
     std::string DumpAst(const Ast& ast, const std::vector<Token>& tokens)

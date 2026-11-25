@@ -47,11 +47,38 @@ waw_getent_linkname( value, key )
     return undefined;
 }
 
+// T4's VM (0x693E80, opcode 99) kills a thread that loops for 2.5 s without a
+// wait, with every function it is in; not while the level's scripts load
+// (0x503300). T6 has no watchdog and hangs. The translated loops that may
+// never end count their turns and call this. The thread stays parked: nothing
+// after the loop runs, in it or in its callers.
+waw_kill_thread( where )
+{
+    println( "WAW2BO2 potential infinite loop in script - killing thread: " + where );
+    level waittill( "waw2bo2_killed_threads_never_resume" );
+}
+
+waw_level_running()
+{
+    wait 0.05;
+    level.waw_running = 1;
+}
+
+// T4 runs a switch's default label for a value it cannot switch on ("cannot
+// switch on undefined"); T6 runs no label at all.
+waw_switch( value )
+{
+    if ( isdefined( value ) && ( isint( value ) || isstring( value ) ) )
+        return value;
+    return "waw2bo2_no_case";
+}
+
 init()
 {
     if ( isdefined( level.waw2bo2_compat_ready ) )
         return;
     level.waw2bo2_compat_ready = 1;
+    level thread waw_level_running();
     precachestring( &"waw_hud_reloading" );
     // T4 PM_RegisterDvars (0x40E298/0x40E2CE) defaults, before the map's
     // own init_dvars and any authored overrides. T6 uses 128/300 instead.
@@ -305,12 +332,19 @@ waw_contact_kill_end()
 
 // POI records are [position, owner]. T6's array == is not a location
 // comparison (see native _zm_utility::poi_locations_equal).
-// The map passes arrays WaW would end the thread on when undefined; T6 goes
-// on, and "i < undefined" never ends a loop (the translated scripts get the
-// same guard, LowerUndefinedSizeLoops).
+// "i < undefined.size" is a fault in both games, and a fault does not end a
+// loop: WaW's own loops over an undefined array ran until its watchdog killed
+// the thread.
+waw_array_loop( array )
+{
+    if ( !isdefined( array ) )
+        waw_kill_thread( "array loop" );
+}
+
 waw_poi_record_available( array, value )
 {
-    for ( i = 0; isdefined( array ) && i < array.size; i++ )
+    waw_array_loop( array );
+    for ( i = 0; i < array.size; i++ )
         if ( array[i][0] == value[0] )
             return false;
     return true;
@@ -319,7 +353,8 @@ waw_poi_record_available( array, value )
 waw_poi_record_remove( array, value )
 {
     result = [];
-    for ( i = 0; isdefined( array ) && i < array.size; i++ )
+    waw_array_loop( array );
+    for ( i = 0; i < array.size; i++ )
         if ( array[i][0] != value[0] )
             result[result.size] = array[i];
     return result;
@@ -328,7 +363,8 @@ waw_poi_record_remove( array, value )
 waw_array_remove( array, value )
 {
     result = [];
-    for ( i = 0; isdefined( array ) && i < array.size; i++ )
+    waw_array_loop( array );
+    for ( i = 0; i < array.size; i++ )
         if ( array[i] != value )
             result[result.size] = array[i];
     return result;

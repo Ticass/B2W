@@ -42,6 +42,7 @@ namespace w2b::gsc
         If,     // kids = condition, then, [else]
         While,  // kids = condition, body
         For,    // kids = init, condition, step, body; an absent part is an Empty
+        ForEach, // BO2 only. kids = Local, [Local], array, body
         Switch, // kids = value, Block
         Case,   // kids = value
         Default,
@@ -105,8 +106,14 @@ namespace w2b::gsc
         std::vector<NodeId> Functions() const;
     };
 
+    enum class Dialect : uint8_t
+    {
+        Waw,
+        Bo2, // translated scripts: the converter's own code also has foreach
+    };
+
     // Throws GscSyntaxError where WaW reports "bad syntax".
-    Ast ParseAst(const std::vector<Token>& tokens);
+    Ast ParseAst(const std::vector<Token>& tokens, Dialect dialect = Dialect::Waw);
 
     // one line per top-level node, for comparing trees
     std::string DumpAst(const Ast& ast, const std::vector<Token>& tokens);

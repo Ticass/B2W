@@ -190,6 +190,7 @@ add_library(w2b_gscport STATIC
     src/gsc/port/util.cpp
     src/gsc/port/api.cpp
     src/gsc/port/rewrites.cpp
+    src/gsc/port/loops.cpp
     src/gsc/port/t6api.cpp
     src/gsc/port/sources.cpp
     src/gsc/port/statements.cpp
@@ -255,7 +256,7 @@ enable_testing()
 if(EXISTS "${OAT_THIRDPARTY}/catch2/CMakeLists.txt")
     add_subdirectory("${OAT_THIRDPARTY}/catch2" catch2 EXCLUDE_FROM_ALL)
     add_executable(w2b_tests tests/test_text.cpp tests/test_registers.cpp tests/test_translate.cpp
-        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp tests/test_extract.cpp tests/test_pipeline.cpp tests/test_t6_material.cpp)
+        tests/test_world_vertices.cpp tests/test_world_fbx.cpp tests/test_collision_world.cpp tests/test_textures.cpp tests/test_launcher.cpp tests/test_extract.cpp tests/test_pipeline.cpp tests/test_t6_material.cpp tests/test_gsc.cpp)
     target_link_libraries(w2b_tests PRIVATE w2b_shaders w2b_world w2b_launcher w2b_extract w2b_pipeline w2b_models w2b_visions Catch2::Catch2WithMain)
     add_executable(fake_unlinker tests/fake_unlinker.cpp)
     add_dependencies(w2b_tests fake_unlinker)

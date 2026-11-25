@@ -42,9 +42,6 @@ namespace w2b::gsc::port
     int LowerHudFields(Tokens& tokens);
     int LowerZombieWeaponKeys(Tokens& tokens);
     std::optional<long long> CloseParen(const Tokens& tokens, long long start);
-    std::optional<long long> SizeOwner(const Tokens& tokens, long long dot, long long floor);
-    int LowerUndefinedSizeLoops(Tokens& tokens);
-    int LowerUndefinedSpinLoops(Tokens& tokens);
     int WrapIntegerLiterals(Tokens& tokens);
     int LowerStationaryFxCarriers(Tokens& tokens);
 
