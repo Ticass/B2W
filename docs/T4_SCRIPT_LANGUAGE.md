@@ -141,6 +141,10 @@ first and a call's last argument first. T6 has no array identity: equal
 contents stand for the same array. T6 client scripts cannot tell an int from a
 float, so there only undefined takes the `default:` label.
 
+With the rules applied, 6506 of the 6528 results in BO2 are WaW's. The other 22:
+an empty array compared with itself, arrays compared with functions or
+localized strings, and localized strings put in order.
+
 Everything else matched: arithmetic, string conversion, arrays by value, key
 order of `getarraykeys`, `int / int` giving a float, division by zero giving 0,
 integer wrap, missing and extra arguments, deleted entities, case fall-through,
