@@ -131,19 +131,19 @@ BO2 (2026-11-25): 6528 results, these differences and no others.
 | `( x, y, z )` with a part that is no number | undefined | garbage, and the script stack stays wrong: repeated, it stops threads | `waw_vector`, unless the parts are known numbers |
 | `switch` on anything but an int or a string | `default:` runs | no label runs | `waw_switch` |
 | array `==`/`!=` array | the same array or not | a fault | `waw_equal`, `waw_not_equal` |
-| array `==` object | 0 | a fault | `waw_equal` (server) |
-| string `<` string (also `>`, `<=`, `>=`) | a fault | compares | `waw_less` and the like |
+| array `==` object | 0 | a fault | `waw_equal` |
+| anything but numbers put in order (`<`, `>`, `<=`, `>=`) | a fault | strings compare | `waw_less` and the like |
 
 Comparisons are rewritten where type inference (`types.*`) allows both sides
 the type (per map about 180 array and 85 string comparisons of a few thousand)
 and at most one side calls functions, since T4 runs an operator's left side
-first and a call's last argument first. T6 has no array identity: equal
-contents stand for the same array. T6 client scripts cannot tell an int from a
-float, so there only undefined takes the `default:` label.
+first and a call's last argument first. Array identity is
+`isinarray( holder, b )` with the one array as the holder's only element: T6
+compares the references. In client scripts `value & 0` is defined only for an
+int and `value < 0` only for a number, which tells the types `switch` needs.
 
-With the rules applied, 6506 of the 6528 results in BO2 are WaW's. The other 22:
-an empty array compared with itself, arrays compared with functions or
-localized strings, and localized strings put in order.
+With the rules applied all 6528 results in BO2 are WaW's, in server and in
+client scripts.
 
 Everything else matched: arithmetic, string conversion, arrays by value, key
 order of `getarraykeys`, `int / int` giving a float, division by zero giving 0,

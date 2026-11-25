@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- HUD menus a map overrides (`weaponinfo`, `dpad`, `competitivemodescores`) are converted and replace the converter's WaW HUD: Nuketown 1886's Buried HUD, Decagonal Demise's Origins HUD. Their images, texts, engine draws and expressions run as in WaW, including material names built from a string and a number. A map's HUD scripts called from `maps\_load::main` run too.
+- The line under the map's name on the loading screen (BO2's "TRANZIT") is the Mode line of Map Details & Artwork.
+- Fix the weapon and arms turning black by area (Nuketown 1886, near lamps): the techniques lit by a shadowed lamp had their arguments out of T6's order, so the arms' light was never bound; and light grid points that WaW's corner traces hide are filled, since T6 does not trace.
+- Draw nothing for a material no zone defines, as WaW draws its `$default` (Nuketown 1886's purple "OWN3D" panels).
+- Bake `r_specularMap` when the map's scripts set it (Nuketown 1886: gray), since T6's does nothing.
+- Let scripts waiting for `all_players_connected` run before the players spawn, as WaW does: weapons and points given there were lost (Decagonal Demise started without weapons).
+- Convert the weapons the map's scripts use from WaW's always loaded zones: the revive syringe and its hand animation, Dirty Harry's pistol and others.
+- A player who spawns or is revived has full health, as in WaW; T6 kept the last `setmaxhealth`, leaving 1.
+- Fix Decagonal Demise hanging at load: threads started before the first frame get the loop watchdog from that frame on, as in WaW.
+- The last differences between the two script engines are ported: array identity, ordering of non-numbers, `switch` in client scripts. All 6528 measured results are WaW's on server and client.
 - Scripts are parsed with WaW's own grammar, read from its compiler's tables; over 1172 scripts of 28 custom maps the parser builds the same trees as those tables. `waw2bo2n gsc-check` runs it on a folder. See [docs/T4_SCRIPT_LANGUAGE.md](docs/T4_SCRIPT_LANGUAGE.md).
 - Loops that may never end get WaW's loop watchdog, which BO2 lacks: after about 2.5 s the thread ends, with its callers, instead of hanging the game, in server and client scripts. It covers every such loop and replaces the patches for single loop shapes (Yote's Lair, Nuketown 1886, Decagonal Demise). Those assumed WaW ends a thread on an undefined value; it does not, so code after such a loop no longer runs, as in WaW.
 - Every operator was run on every pair of types in WaW and in BO2, and the differences are ported: a vector with a part that is not a number is undefined (in BO2 it corrupted the script stack and could stop threads), `&&` and `||` give 0 or 1, a `switch` on a value that cannot match runs its `default:` label, arrays compare, strings do not order.
