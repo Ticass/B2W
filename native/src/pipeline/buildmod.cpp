@@ -224,7 +224,7 @@ namespace w2b::pipeline
         phase.reset();
         // stringtables and project rawfiles override loaded and stock assets
         for (const char* name : {"mapstable.csv", "gametypestable.csv", "zm_statstable.csv", "waw_menu_layers.csv", "waw_menu_preview.csv", "waw_hud_maps.csv",
-                                 "waw_hud_weapons.csv", "waw_hud_glyphs.csv"})
+                                 "waw_hud_weapons.csv", "waw_hud_glyphs.csv", "waw_hud_menus.csv"})
             if (IsFile(project / "zm" / name))
             {
                 MakeParent(overlay / "zm" / name);

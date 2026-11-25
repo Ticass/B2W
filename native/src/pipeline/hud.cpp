@@ -25,7 +25,7 @@ namespace w2b::pipeline
         const std::vector<std::tuple<std::string, std::string, std::string>> WRAPPERS{{AMMO, "ui_mp/t6/zombie/waw_ammoarea_base.lua", "waw_ammoarea"},
                                                                                       {SCORE, "ui_mp/t6/zombie/waw_scoreboard_base.lua", "waw_scoreboard"},
                                                                                       {OTHER, "ui_mp/t6/zombie/waw_otherammo_base.lua", "waw_otherammo"}};
-        const std::string MAPS = "zm/waw_hud_maps.csv", WEAPONS = "zm/waw_hud_weapons.csv", GLYPHS = "zm/waw_hud_glyphs.csv", MANIFEST = "content_source/waw_hud.json";
+        const std::string MAPS = "zm/waw_hud_maps.csv", WEAPONS = "zm/waw_hud_weapons.csv", GLYPHS = "zm/waw_hud_glyphs.csv", HUD_MENUS = "zm/waw_hud_menus.csv", MANIFEST = "content_source/waw_hud.json";
         const std::string MENU_TABLE = "zm/waw_menus.csv", MENU_GLYPHS = "zm/waw_menu_glyphs.csv", MENU_MANIFEST = "content_source/waw_menu.json";
 
         std::string Read(const fs::path& p)
@@ -111,7 +111,9 @@ namespace w2b::pipeline
             }
         WriteTable(p(WEAPONS), rows);
         Write(p(MENU), CheckedBytecode("waw_menu"));
-        std::vector<std::string> tables{MAPS, WEAPONS, GLYPHS};
+        std::vector<std::string> tables{MAPS, WEAPONS, GLYPHS, HUD_MENUS};
+        if (!fs::is_regular_file(p(HUD_MENUS), e))
+            WriteTable(p(HUD_MENUS), {});
         std::vector<std::string> materials;
         for (const auto& m : data["materials"])
             materials.push_back(m.get<std::string>());

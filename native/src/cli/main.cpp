@@ -11,6 +11,7 @@
 #include "oat/run_unlinker.h"
 #include "oat/waw_assets.h"
 #include "oat/zone_dumper.h"
+#include "oat/waw_menus.h"
 #include "pipeline/audit.h"
 #include "pipeline/bridge_stage.h"
 #include "pipeline/driver.h"
@@ -62,6 +63,7 @@ namespace
                    "diagnostics:\n"
                    "       waw2bo2n oat-unlink <Unlinker arguments>\n"
                    "       waw2bo2n oat-dump-assets <zone.ff> <output> <search;paths> <kind:name>...\n"
+                   "       waw2bo2n waw-menus <zone.ff> <output.json>\n"
                    "       waw2bo2n oat-check-materials <zone.ff> <dump root> [search paths...]\n"
                    "       waw2bo2n audit-zone | audit-material-args <arguments>\n"
                    "       waw2bo2n inspect | world-inspect <render-world> <clip-world>\n"
@@ -589,6 +591,14 @@ namespace
         {"oat-unlink", OatUnlinkCommand},
         {"oat-dump-assets", OatDumpAssetsCommand},
         {"oat-check-materials", OatCheckMaterialsCommand},
+        {"waw-menus", [](const Arguments& a)
+        {
+            if (a.size() != 2)
+                return Usage();
+            const w2b::files::fs::path zone = w2b::files::FromUtf8(a[0]);
+            w2b::files::WriteText(w2b::files::FromUtf8(a[1]), w2b::oat::ReadMenus({zone, {}}) + "\n");
+            return 0;
+        }},
         {"audit-zone", AuditZoneCommand},
         {"audit-material-args", AuditMaterialArgsCommand},
         {"inspect", Inspect},

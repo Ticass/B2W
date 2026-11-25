@@ -99,6 +99,15 @@ functions.when = functions.text
 functions.int = function(host, a) return math.floor(number(a[1])) end
 functions.min = function(host, a) return math.min(number(a[1]), number(a[2])) end
 functions.max = function(host, a) return math.max(number(a[1]), number(a[2])) end
+functions.float = function(host, a) return number(a[1]) end
+functions.string = function(host, a) return tostring(a[1] or "") end
+functions.sin = function(host, a) return math.sin(number(a[1])) end
+functions.cos = function(host, a) return math.cos(number(a[1])) end
+functions.milliseconds = function(host) return host.time or 0 end
+functions.locstring = function(host, a) return Engine.Localize("WAW2BO2_" .. tostring(a[1] or "")) end
+functions.keybinding = function(host, a) return host.keyBinding and host.keyBinding(a[1]) or "" end
+functions.actionslotusable = function(host, a) return bool(host.slots ~= nil and host.slots[number(a[1])] == true) end
+functions.hudfade = function() return 1 end
 functions.issplitscreenhost = function(host)
     return bool(guarded(Engine.IsSplitscreen) ~= true or host.controller == 0)
 end
@@ -125,9 +134,7 @@ local binary = {
     [">="] = function(a, b) return bool(number(a) >= number(b)) end,
     -- T4 concatenates when either side is a string ("menu_map_" + mapname).
     ["+"] = function(a, b)
-        if type(a) == "string" and not tonumber(a) or type(b) == "string" and not tonumber(b) then
-            return tostring(a) .. tostring(b)
-        end
+        if type(a) == "string" or type(b) == "string" then return tostring(a) .. tostring(b) end
         return number(a) + number(b)
     end,
     ["-"] = function(a, b) return number(a) - number(b) end,

@@ -97,6 +97,7 @@ namespace w2b::gsc::port
         std::vector<std::string> ClientFxListeners();
         std::optional<ListenerCopy> ClientFxListener(const std::string& key, const Script& script, const std::string& entry,
                                                      const std::map<std::string, std::string>& effects);
+        std::vector<std::string> LoadHooks();
         std::vector<std::string> FrameworkHooks();
         void SplitMain(Script& script);
         std::string StubSource() const;

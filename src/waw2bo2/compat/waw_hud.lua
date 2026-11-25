@@ -5,6 +5,7 @@ CoD.WawHUD = W
 local maps = "zm/waw_hud_maps.csv"
 local weapons = "zm/waw_hud_weapons.csv"
 local glyphs = "zm/waw_hud_glyphs.csv"
+local hudMenus = "zm/waw_hud_menus.csv"
 local function lookup(t, key, column, keyColumn)
     return UIExpression.TableLookup(nil, t, keyColumn or 0, tostring(key), column) or ""
 end
@@ -159,23 +160,24 @@ function W.drawAmmo(e)
     if e.overheat then e.clipText:setText(""); e.stockText:setText("") end
     e.heat:setAlpha(e.overheat and e.heatIcon ~= "" and not e.hideAmmo and 1 or 0)
     for i, bullet in ipairs(e.bullets) do bullet:setAlpha(0) end
-    if not style or e.overheat or e.hideAmmo then
+    if not style or e.overheat or e.hideAmmo or e.noClip then
         if e.hideAmmo then e.clipText:setText(""); e.stockText:setText("") end
         return
     end
+    local anchorX, anchorY = e.clipX or -118.5, e.clipY or -6
     local step, width, height = style[4], style[2], style[3]
     local sprite = data.sprite ~= "" and data.sprite or style[1]
     -- T4 shows the whole magazine; spent rounds become grey, rather than vanish.
     for i = 1, math.min(300, total) do
-        local x, y = -118.5 - (width + (i-1)*step) * 1.5, -6 - height * 0.75
+        local x, y = anchorX - (width + (i-1)*step) * 1.5, anchorY - height * 0.75
         if data.style == "Beltfed" then
             -- sub_42BC40: rows of 20 that snake back, 2 units apart, starting
             -- (count / 20) * height / 4 below the anchor; no half-height lift.
             local row = math.floor((i - 1) / 20)
             local col = (i - 1) % 20
             if row % 2 == 1 then col = 19 - col end
-            x = -118.5 - (col + 1) * step * 1.5
-            y = -6 + (math.floor(total/20) * height * 0.25 - (row + 1) * 2) * 1.5
+            x = anchorX - (col + 1) * step * 1.5
+            y = anchorY + (math.floor(total/20) * height * 0.25 - (row + 1) * 2) * 1.5
         end
         local bullet = e.bullets[i]
         if not bullet then bullet = image(e.anchor, "waw_hud/" .. sprite, x, y, width*1.5, height*1.5); e.bullets[i] = bullet end
@@ -230,7 +232,7 @@ end
 function W.drawLowAmmo(e)
     local state = W.lowAmmoState(e)
     local warn = e.lowAmmo
-    if not state then
+    if not state or e.noLowAmmo then
         warn:setAlpha(0)
         warn.state = nil
         return
@@ -272,6 +274,7 @@ function W.updateAmmo(e, event)
     W.drawAmmo(e)
     W.drawStock(e)
     W.drawLowAmmo(e)
+    W.ammoTexts(e)
 end
 function W.updateWeapon(e, event)
     if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then
@@ -306,7 +309,245 @@ function W.updateWeapon(e, event)
     W.drawAmmo(e)
     W.drawStock(e)
     W.drawLowAmmo(e)
+    W.ammoTexts(e)
     updateVisibility(e, event)
+end
+-- ---- the map's own HUD menus ----
+-- zm/waw_hud_menus.csv holds the menus its zones override, as T4 compiled
+-- them: 640x480 rects with alignment, engine draws, expressions (waw_menu.lua
+-- evaluates them). They take the place of the stock layout below.
+local function hudCell(key, column) return lookup(hudMenus, key, column) end
+local function unescape(s)
+    return (string.gsub(s, "%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
+end
+local function numbers(s)
+    local t = {}
+    for v in string.gmatch(s, "%S+") do t[#t + 1] = tonumber(v) or 0 end
+    return t
+end
+function W.menuItems(name)
+    local count = tonumber(hudCell("hud:" .. name, 1))
+    if not count then return nil end
+    local items = {}
+    for i = 1, count do
+        local key = "hud:" .. name .. ":" .. i
+        local r = numbers(hudCell(key, 1))
+        local d = {x = r[1] or 0, y = r[2] or 0, w = r[3] or 0, h = r[4] or 0, ha = r[5] or 0, va = r[6] or 0,
+            type = tonumber(hudCell(key, 2)) or 0, draw = tonumber(hudCell(key, 3)) or 0, style = tonumber(hudCell(key, 4)) or 0,
+            background = hudCell(key, 5), color = numbers(hudCell(key, 6)), back = numbers(hudCell(key, 7)),
+            text = unescape(hudCell(key, 8)), role = hudCell(key, 9), scale = tonumber(hudCell(key, 10)) or 0.55,
+            align = tonumber(hudCell(key, 11)) or 0, alignX = tonumber(hudCell(key, 12)) or 0,
+            alignY = tonumber(hudCell(key, 13)) or 0, visible = hudCell(key, 15), exp = {}}
+        for entry in string.gmatch(hudCell(key, 16), "[^|]+") do
+            local at = string.find(entry, "=", 1, true)
+            if at then d.exp[string.sub(entry, 1, at - 1)] = string.sub(entry, at + 1) end
+        end
+        if #d.color < 4 then d.color = {1, 1, 1, 1} end
+        items[i] = d
+    end
+    return items
+end
+-- an element at T4's anchor of an alignment; its children are placed from it
+local function anchorAt(e, ha, va)
+    e.anchors = e.anchors or {}
+    local key = ha .. ":" .. va
+    local a = e.anchors[key]
+    if a then return a end
+    a = LUI.UIElement.new()
+    if ha == 1 or ha == 4 then a:setLeftRight(true, false, 0, 0)
+    elseif ha == 2 or ha == 7 then a:setLeftRight(false, false, 0, 0)
+    elseif ha == 3 then a:setLeftRight(false, true, 0, 0)
+    else a:setLeftRight(false, false, -480, -480) end
+    if va == 2 or va == 7 then a:setTopBottom(false, false, 0, 0)
+    elseif va == 3 then a:setTopBottom(false, true, 0, 0)
+    else a:setTopBottom(true, false, 0, 0) end
+    e:addElement(a)
+    e.anchors[key] = a
+    return a
+end
+-- a text: T4 Item_SetTextExtents; its baseline is rect.y with no vertical alignment
+local function textAt(e, d, right)
+    local height = 48 * d.scale
+    local alignX, alignY = d.align % 4, d.align - d.align % 4
+    local x, how = d.x + d.alignX, false
+    if right then x, how = right, true
+    elseif alignX == 1 then x, how = d.x + d.w / 2 + d.alignX, "center"
+    elseif alignX == 2 then x, how = d.x + d.w + d.alignX, true end
+    local y = d.y + d.alignY
+    if alignY == 4 then y = y + height elseif alignY == 8 then y = y + (d.h + height) / 2 elseif alignY == 12 then y = y + d.h end
+    local label = W.label(anchorAt(e, d.ha, d.va), d.role, height * 1.5, x * 1.5, y * 1.5, how)
+    label:setColor(d.color[1], d.color[2], d.color[3])
+    return label
+end
+local function imageAt(e, d, material)
+    local i = image(anchorAt(e, d.ha, d.va), material, d.x * 1.5, d.y * 1.5, d.w * 1.5, d.h * 1.5)
+    i:setRGB(d.color[1], d.color[2], d.color[3])
+    i:setAlpha(d.color[4])
+    return i
+end
+local noText = {setText = function() end, setColor = function() end, setAlpha = function() end, text = ""}
+local function materialNamed(name)
+    if name == "" then return nil end
+    local art = hudCell("art:" .. string.lower(name), 1)
+    return RegisterMaterial(art ~= "" and art or name)
+end
+-- The items any menu may hold: images, texts and what their expressions say.
+-- `special(d)` builds an engine draw and returns its element, or nil.
+function W.buildMenu(e, items, special)
+    e.parts = {}
+    for _, d in ipairs(items) do
+        local part = {data = d}
+        local drawn = d.draw ~= 0 and special and special(d, part)
+        if drawn then part.element = drawn
+        elseif d.draw == 116 or d.draw == 0 and (d.style == 3 or d.exp.material) then
+            part.element = imageAt(e, d, d.background ~= "" and d.background or "white")
+            part.picture = true
+        elseif d.draw == 0 and d.style == 1 and #d.back >= 4 then
+            part.element = imageAt(e, d, "white")
+            part.element:setRGB(d.back[1], d.back[2], d.back[3])
+            part.alpha = d.back[4]
+        end
+        if d.draw == 0 and (d.text ~= "" or d.exp.text) then
+            part.label = textAt(e, d)
+            local text = d.text
+            if string.sub(text, 1, 1) == "@" then text = Engine.Localize("WAW2BO2_" .. string.sub(text, 2)) end
+            part.label:setText(text)
+        end
+        e.parts[#e.parts + 1] = part
+    end
+    e.host = {controller = e.controller, vars = {}, slots = {}, time = 0, keyBinding = function(command)
+        return W.plainText(W.keyBinding(e.controller, command))
+    end}
+    e:registerEventHandler("waw_hud_menu", function(self) W.updateMenu(self) end)
+    if LUI.UITimer then e:addElement(LUI.UITimer.new(100, "waw_hud_menu", false, e)) end
+    W.updateMenu(e)
+end
+function W.updateMenu(e)
+    local M = CoD.WawMenu
+    if not M or not e.parts then return end
+    e.host.time = e.host.time + 100
+    for _, part in ipairs(e.parts) do
+        local d = part.data
+        local shown = d.visible == "" or (tonumber(M.eval(e.host, d.visible)) or 0) ~= 0
+        local alpha = part.alpha or d.color[4]
+        if d.exp.a then alpha = math.max(0, math.min(1, tonumber(M.eval(e.host, d.exp.a)) or 0)) end
+        if shown and (d.exp.x or d.exp.y or d.exp.w or d.exp.h) then
+            local function value(key) return d.exp[key] and tonumber(M.eval(e.host, d.exp[key])) or d[key] end
+            local x, y, w, h = value("x"), value("y"), value("w"), value("h")
+            if part.element and part.picture then rect(part.element, x * 1.5, y * 1.5, w * 1.5, h * 1.5) end
+            if part.label then
+                local at = x + d.alignX
+                if d.align % 4 == 1 then at = x + w / 2 + d.alignX elseif d.align % 4 == 2 then at = x + w + d.alignX end
+                rect(part.label, at * 1.5, (y + d.alignY) * 1.5, 0, 0)
+            end
+        end
+        if shown and part.picture and d.exp.material then
+            local name = tostring(M.eval(e.host, d.exp.material) or "")
+            if name ~= part.material then
+                part.material = name
+                local material = materialNamed(name)
+                if material then part.element:setImage(material) end
+            end
+            if name == "" then shown = false end
+        end
+        if shown and part.label and d.exp.text then
+            local text = M.eval(e.host, d.exp.text)
+            if type(text) == "number" and text == math.floor(text) then text = string.format("%d", text) end
+            part.label:setText(text)
+        end
+        if part.element and not part.free then part.element:setAlpha(shown and (part.blank and 0 or alpha) or 0) end
+        if part.label then part.label:setAlpha(shown and alpha or 0) end
+    end
+end
+-- CG_PLAYER_AMMO_VALUE: the clip and the reserve
+function W.ammoTexts(e)
+    if not e.ammoLabels then return end
+    local text = ""
+    if not e.hideAmmo and e.clip ~= nil and e.stock ~= nil then
+        local clip, stock = tonumber(e.clip) or 0, tonumber(e.stock) or 0
+        text = clip >= 0 and (clip .. "/" .. stock) or tostring(stock)
+    end
+    for _, label in ipairs(e.ammoLabels) do label:setText(text) end
+end
+-- weaponinfo: the stock counters move to the map's items, or go
+function W.mapAmmo(e, items)
+    for _, label in ipairs({e.stockText, e.clipText, e.weaponText}) do label:setAlpha(0) end
+    e.stockText, e.clipText, e.weaponText = noText, noText, noText
+    e.noClip, e.noLowAmmo, e.ammoLabels = true, true, {}
+    e.offhandIcons = {lethal = {}, tactical = {}}
+    e.offhandTexts = {lethal = {}, tactical = {}}
+    local kinds = {[103] = "lethal", [104] = "tactical", [105] = "lethal", [106] = "tactical"}
+    W.buildMenu(e, items, function(d, part)
+        if d.draw == 81 then -- sub_44F7F0: right-aligned 28 units inside the rect
+            part.alpha = 1 -- T4 fades it with the ammo display, not with its colour
+            e.weaponText = textAt(e, d, d.x + d.w - 28)
+            return e.weaponText
+        elseif d.draw == 119 then
+            e.stockText = textAt(e, d)
+            return e.stockText
+        elseif d.draw == 5 then
+            local label = textAt(e, d)
+            table.insert(e.ammoLabels, label)
+            return label
+        elseif d.draw == 117 then
+            e.noClip, e.clipX, e.clipY = false, d.x * 1.5, d.y * 1.5
+            return nil
+        elseif d.draw == 103 or d.draw == 104 then
+            local icon = imageAt(e, d, nil)
+            part.blank = true
+            table.insert(e.offhandIcons[kinds[d.draw]], {icon = icon, part = part})
+            return icon
+        elseif d.draw == 105 or d.draw == 106 then
+            local label = textAt(e, d)
+            table.insert(e.offhandTexts[kinds[d.draw]], label)
+            return label
+        elseif d.draw == 120 then
+            e.noLowAmmo = false
+            return nil
+        elseif d.draw >= 166 and d.draw <= 169 then return W.slotItem(e, d, part) end
+    end)
+end
+function W.mapOffhand(e, event)
+    for kind, icons in pairs(e.offhandIcons) do
+        local data = event[kind]
+        for _, entry in ipairs(icons) do
+            if data and data.material then
+                entry.icon:setImage(data.material)
+                entry.part.blank = false
+            end
+        end
+        local count = tonumber(data and data.ammo) or 0
+        for _, label in ipairs(e.offhandTexts[kind]) do
+            label:setText(data and count or "")
+            if count == 0 then label:setColor(0.89, 0.18, 0.01) else label:setColor(1, 1, 1) end
+        end
+    end
+    W.updateMenu(e)
+end
+-- CG_PLAYER_ACTIONSLOT_1..4: the slot's icon and its ammo count
+function W.slotItem(e, d, part)
+    e.slotParts = e.slotParts or {}
+    local icon = imageAt(e, d, nil)
+    part.blank = true
+    local count = W.label(anchorAt(e, d.ha, d.va), "score", 18, (d.x + d.w) * 1.5 + 3, (d.y + d.h) * 1.5, false)
+    table.insert(e.slotParts, {index = d.draw - 165, icon = icon, count = count, part = part})
+    return icon
+end
+function W.mapSlots(e, event)
+    local held = {}
+    for key, data in pairs(event.actionSlots or {}) do
+        local index = tonumber(data.slotIndex or data.index or key)
+        local material = data.material or (data.materialName and RegisterMaterial(data.materialName))
+        if index and material then held[index] = {material = material, ammo = data.ammo} end
+    end
+    for index = 1, 4 do e.host.slots[index] = held[index] ~= nil end
+    for _, slot in ipairs(e.slotParts or {}) do
+        local data = held[slot.index]
+        if data then slot.icon:setImage(data.material) end
+        slot.part.blank = data == nil
+        slot.count:setText(data and data.ammo ~= nil and data.ammo or "")
+    end
+    W.updateMenu(e)
 end
 -- hud.menu PC "DPad" (rect 0 -42, centre bottom): slot 1 up, 3 left, 4 right,
 -- 28x28 icons (CG_PLAYER_ACTIONSLOT_n, HUD_ALPHA) with their ammo count, and
@@ -321,7 +562,30 @@ local function slotKey(controller, index)
     end)
     return ok and key or ""
 end
+W.keyBinding = function(controller, command)
+    local ok, key = pcall(function()
+        if Engine.GetKeyBindingLocalizedString then return Engine.GetKeyBindingLocalizedString(controller, command) end
+        return UIExpression.KeyBinding(controller, command)
+    end)
+    return ok and key or ""
+end
 function W.actionSlots(e, controller)
+    local items = W.menuItems("dpad")
+    if items then
+        local pad = LUI.UIElement.new()
+        pad:setLeftRight(true, true, 0, 0)
+        pad:setTopBottom(true, true, 0, 0)
+        pad.controller = controller
+        e:addElement(pad)
+        W.buildMenu(pad, items, function(d, part)
+            if d.draw >= 166 and d.draw <= 169 then return W.slotItem(pad, d, part) end
+        end)
+        e:registerEventHandler("hud_update_actionslots", function(self, event)
+            W.mapSlots(pad, event)
+            if self.slotParts then W.mapSlots(self, event) end
+        end)
+        return
+    end
     local pad = LUI.UIElement.new()
     pad:setLeftRight(false, false, 0, 0)
     pad:setTopBottom(false, true, -63, -63)
@@ -402,6 +666,7 @@ function W.ammo(controller)
         offhands[kind].icon:setAlpha(0)
     end
     e:registerEventHandler("hud_update_offhand", function(self, event)
+        if self.offhandIcons then W.mapOffhand(self, event); return end
         for kind, parts in pairs(offhands) do
             local data = event[kind]
             -- T6 drops an empty offhand from the event; T4 keeps drawing the
@@ -433,6 +698,8 @@ function W.ammo(controller)
     end)
     if LUI.UITimer then e:addElement(LUI.UITimer.new(50, "waw_low_ammo_pulse", false, e)) end
     W.actionSlots(e, controller)
+    local items = W.menuItems("weaponinfo")
+    if items then W.mapAmmo(e, items) end
     e:registerEventHandler("waw_hud_reloading", function(self, event)
         self.reloading = event.data and event.data[1] == 1
         W.drawLowAmmo(self)
@@ -613,8 +880,17 @@ function W.scores(controller)
     if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then print("WAW HUD create scores") end
     local e = area("CompetitiveScoreboard", controller)
     e.rows = {}
+    local items, bars, barsX, barsY = W.menuItems("competitivemodescores"), true, 0, 0
+    if items then
+        bars = false
+        W.buildMenu(e, items, function(d)
+            if d.draw == 288 then -- stock rect -103 -71 100 0
+                bars, barsX, barsY = true, (d.x + d.w + 3) * 1.5, (d.y + 71) * 1.5
+            end
+        end)
+    end
     e:registerEventHandler("hud_update_competitive_scoreboard", function(self, event)
-        if not event.competitivescores then return end
+        if not event.competitivescores or not bars then return end
         if UIExpression.DvarInt(nil, "waw_hud_debug") == 1 then
             print("WAW HUD scores: " .. tostring(#event.competitivescores) .. " players")
         end
@@ -625,13 +901,13 @@ function W.scores(controller)
             local row = self.rows[i]
             if not row then
                 row = LUI.UIElement.new()
-                row:setLeftRight(false, true, -154.5, -4.5)
+                row:setLeftRight(false, true, -154.5 + barsX, -4.5 + barsX)
                 row.bg = image(row, nil, 0, 0, 150, 31.5)
                 row.text = W.label(row, "score", 20, 7.5, 24, false)
                 self:addElement(row)
                 self.rows[i] = row
             end
-            local y = -106.5 - (#players - i)*27
+            local y = -90 + barsY - (#players - i)*27
             row:setTopBottom(false, true, y - 31.5, y)
             row.bg:setImage(RegisterMaterial("waw_hud/scorebar_zom_" .. ((player.clientNum % 4) + 1)))
             row.bg:setRGB(0.474, 0.004, 0)

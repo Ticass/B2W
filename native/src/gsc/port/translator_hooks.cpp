@@ -778,16 +778,48 @@ namespace w2b::gsc::port
         return ListenerCopy{prefix + entry, registrations, code};
     }
 
+    // what a map adds to maps\\_load::main, which BO2's _load replaces: calls of scripts stock WaW does not have
+    std::vector<std::string> Translator::LoadHooks()
+    {
+        static const std::string LOAD = "maps\\_load";
+        const auto load = sources.Get(LOAD);
+        const Function* fnp = load ? load->Find("main") : nullptr;
+        if (!fnp)
+            return {};
+        std::vector<std::string> calls;
+        for (const auto& ref : References(load->tokens, fnp->bodyOpen, fnp->bodyClose))
+        {
+            if (!ref.qualifier || ref.pointer || ref.method)
+                continue;
+            const auto target = Norm(*ref.qualifier);
+            if (IsCore(target, sources) || sources.stock->Find(target + ".gsc"))
+                continue;
+            const auto script = sources.Get(target);
+            const Function* hook = script ? script->Find(Lower(ref.name)) : nullptr;
+            const auto argc = Argc(load->tokens, static_cast<long long>(ref.index));
+            if (!hook || !hook->params.empty() || (argc && *argc))
+                continue;
+            const bool threaded = At(load->tokens, static_cast<long long>(*ref.qualIndex) - 1).Low() == "thread";
+            const auto call = (threaded ? "level thread " : "") + PortedPath(target) + "::" + ref.name + "();";
+            if (std::find(calls.begin(), calls.end(), call) != calls.end())
+                continue;
+            Want(target);
+            calls.push_back(call);
+            report.rewrites["map hook in _load::main " + target + "::" + ref.name + " -> waw_main_post"] += 1;
+        }
+        return calls;
+    }
+
     std::vector<std::string> Translator::FrameworkHooks()
     {
+        auto calls = LoadHooks();
         const auto zm = sources.Get(ZOMBIEMODE);
         const Function* fnp = zm ? zm->Find("main") : nullptr;
         if (!fnp)
-            return {};
+            return calls;
         const Function fn = *fnp;
         const auto whereFile = Origin(sources, std::string(ZOMBIEMODE) + ".gsc", ZOMBIEMODE);
         const auto& A = Api();
-        std::vector<std::string> calls;
         for (const auto& ref : References(zm->tokens, fn.bodyOpen, fn.bodyClose))
         {
             if (!ref.qualifier || ref.pointer || ref.method)

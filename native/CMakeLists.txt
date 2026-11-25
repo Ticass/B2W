@@ -50,7 +50,7 @@ set(OAT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../vendor/OpenAssetTools" CACHE PATH "O
 set(OAT_LIB_DIR "${OAT_DIR}/build/lib/Release_x64")
 set(OAT_LIBS Unlinking ZoneLoading ObjWriting ObjLoading ObjImage ZoneCommon Cryptography ObjCommon Common Parser XMemCompress Utils
     minilzo salsa20 lzx minizip zlib libtomcrypt libtommath lz4)
-add_library(w2b_oat STATIC src/oat/run_unlinker.cpp src/oat/loaded_zones.cpp src/oat/zone_dumper.cpp src/oat/waw_assets.cpp)
+add_library(w2b_oat STATIC src/oat/run_unlinker.cpp src/oat/loaded_zones.cpp src/oat/zone_dumper.cpp src/oat/waw_assets.cpp src/oat/waw_menus.cpp)
 set_target_properties(w2b_oat PROPERTIES CXX_STANDARD 23)
 target_include_directories(w2b_oat PUBLIC src)
 target_include_directories(w2b_oat SYSTEM PRIVATE
@@ -240,11 +240,11 @@ add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp s
     src/pipeline/menu_artwork.cpp src/pipeline/menu_pixels.cpp src/pipeline/menu_media.cpp
     src/pipeline/rumbles.cpp
     src/pipeline/materials_stage.cpp src/pipeline/effects_stage.cpp
-    src/pipeline/scripts_stage.cpp src/pipeline/hooks_stage.cpp src/pipeline/sound_mix.cpp src/pipeline/amb_stage.cpp src/pipeline/sound_refs.cpp src/pipeline/coverage_stage.cpp src/pipeline/hud_stage.cpp src/pipeline/ingame_menus.cpp src/pipeline/weapon_runtime.cpp src/pipeline/weapon_visuals.cpp src/pipeline/skybox_stage.cpp src/pipeline/client_stage.cpp src/pipeline/lighting_tail.cpp src/pipeline/bridge_tail.cpp
+    src/pipeline/scripts_stage.cpp src/pipeline/hooks_stage.cpp src/pipeline/sound_mix.cpp src/pipeline/amb_stage.cpp src/pipeline/sound_refs.cpp src/pipeline/coverage_stage.cpp src/pipeline/hud_stage.cpp src/pipeline/hud_menus.cpp src/pipeline/ingame_menus.cpp src/pipeline/weapon_runtime.cpp src/pipeline/weapon_visuals.cpp src/pipeline/skybox_stage.cpp src/pipeline/client_stage.cpp src/pipeline/lighting_tail.cpp src/pipeline/bridge_tail.cpp
     src/pipeline/actor_trees.cpp src/pipeline/bridge_sound.cpp src/pipeline/bridge_geometry.cpp src/pipeline/geometry_materials.cpp
     src/pipeline/bridge_navigation.cpp src/pipeline/bridge_inventory.cpp src/pipeline/bridge_images.cpp
     src/pipeline/bridge_assets.cpp src/pipeline/bridge_stage.cpp src/pipeline/bridge_report.cpp src/pipeline/material_record.cpp)
-target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials w2b_effects w2b_assets w2b_barricades w2b_paths)
+target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials w2b_effects w2b_assets w2b_barricades w2b_paths PRIVATE w2b_oat)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 
 add_executable(waw2bo2n src/cli/main.cpp src/cli/dev_tools.cpp src/cli/gsc_tools.cpp src/app.manifest)

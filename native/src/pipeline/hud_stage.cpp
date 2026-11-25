@@ -5,6 +5,7 @@
 #include "core/unicode.h"
 #include "csvtable.h"
 #include "extract/stockwaw.h"
+#include "hud_menus.h"
 #include "menu_artwork.h"
 #include "modutil.h"
 #include "textures/block_compress.h"
@@ -347,6 +348,13 @@ namespace w2b::pipeline
         }
     } // namespace
 
+    namespace
+    {
+        const std::map<std::string, std::string> FONT_FILES{{"small", "fonts/smallFont"},   {"normal", "fonts/normalFont"}, {"big", "fonts/bigFont"},
+                                                            {"extrabig", "fonts/extraBigFont"}, {"bold", "fonts/boldFont"},   {"console", "fonts/consoleFont"},
+                                                            {"objective", "fonts/objectiveFont"}};
+    } // namespace
+
     Json StageWawHud(const fs::path& project, const std::vector<fs::path>& roots, extract::StockWaw* stock)
     {
         SourceFinder source(roots, stock);
@@ -387,8 +395,36 @@ namespace w2b::pipeline
                 names += (names.empty() ? "" : ", ") + m;
             throw StepError("ValueError", "WaW HUD source assets missing: " + names);
         }
+        // the map's own HUD menus, their art and the fonts they add
+        std::map<std::string, std::optional<std::string>> art;
+        auto menus = ReadHudMenus(project, roots, stock, [&](const std::string& name) -> std::optional<std::string>
+        {
+            const auto [entry, added] = art.try_emplace(name);
+            if (added)
+                if (const auto path = source.MaterialImage(name))
+                    entry->second = stager.Sprite(name, textures::DecodeDdsPillow(mod::Bytes(*path)));
+            return entry->second;
+        });
+        std::set<char32_t> ascii;
+        for (char32_t c = 32; c < 127; c++)
+            ascii.insert(c);
+        for (const auto& role : menus.fonts)
+        {
+            if (role == "objective" || role == "score")
+                continue;
+            try
+            {
+                auto rows = FontGlyphs(source, FONT_FILES.at(role), role, stager, &ascii);
+                glyphRows.insert(glyphRows.end(), rows.begin(), rows.end());
+            }
+            catch (const Missing& error)
+            {
+                menus.warnings.push_back(std::string("HUD_MENU font missing: ") + error.what());
+            }
+        }
+        files::WriteText(project / "zm/waw_hud_menus.csv", CsvText(menus.rows, "\n"));
         files::WriteText(project / "zm/waw_hud_glyphs.csv", CsvText(glyphRows, "\n"));
-        const Json result{{"materials", stager.materials}, {"fonts", fonts}, {"glyphs", glyphRows.size()}};
+        const Json result{{"materials", stager.materials}, {"fonts", fonts}, {"glyphs", glyphRows.size()}, {"menus", menus.menus}, {"warnings", menus.warnings}};
         files::WriteText(project / "content_source/waw_hud.json", util::JsonDumps(result, 2) + "\n");
         return result;
     }
@@ -398,10 +434,6 @@ namespace w2b::pipeline
         // wawmenu.FONT_ROLES / FONT_FILES
         const std::map<long long, std::vector<std::string>> FONT_ROLES{
             {0, {"small", "extrabig", "big", "normal"}}, {1, {"normal"}}, {3, {"small"}}, {4, {"small", "bold", "normal"}}, {5, {"console"}}, {6, {"objective"}}};
-        const std::map<std::string, std::string> FONT_FILES{{"small", "fonts/smallFont"},   {"normal", "fonts/normalFont"}, {"big", "fonts/bigFont"},
-                                                            {"extrabig", "fonts/extraBigFont"}, {"bold", "fonts/boldFont"},   {"console", "fonts/consoleFont"},
-                                                            {"objective", "fonts/objectiveFont"}};
-
         const std::vector<std::string>& FontRoles(const long long font)
         {
             const auto it = FONT_ROLES.find(font);
