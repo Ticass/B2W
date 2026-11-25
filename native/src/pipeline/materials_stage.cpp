@@ -59,6 +59,16 @@ namespace w2b::pipeline
             return out;
         }
 
+        const std::string UNDRAWN_DONOR = "mc/mtl_default";
+
+        void Undraw(materials::T6Material& material)
+        {
+            material.cameraRegion = "none";
+            std::erase(material.gameFlags, std::string("CASTS_SHADOW"));
+            for (auto& state : material.stateBits)
+                state.colorWriteRgb = state.colorWriteAlpha = state.depthWrite = false;
+        }
+
         // dangling_substitute: a defined material for a reference no WaW zone defines
         std::optional<std::pair<std::string, std::string>> DanglingSubstitute(const std::string& name, const extract::MaterialSources& sources)
         {
@@ -93,9 +103,11 @@ namespace w2b::pipeline
                     return std::pair{best->second, "dangling reference " + name + ": WaW draws its default material; using blend " + best->second};
                 return std::nullopt;
             }
-            const std::string fallback = "mc/mtl_default";
-            if (sources.Has(fallback))
-                return std::pair{fallback, "dangling reference " + name + ": WaW draws its default material; using " + fallback};
+            // T4 makes a copy of "$default" of it (sub_48D860): camera region none and no
+            // lit, shadow or depth states, so no pass draws its surfaces. mc/mtl_default
+            // only lends the T6 material a model's technique set.
+            if (sources.Has(UNDRAWN_DONOR))
+                return std::pair{UNDRAWN_DONOR, "dangling reference " + name + ": a copy of WaW's $default, which no pass draws"};
             return std::nullopt;
         }
 
@@ -230,6 +242,8 @@ namespace w2b::pipeline
                 if (!c.imagePrefix.empty() && !image.empty() && !StartsWith(image, ",") && !StartsWith(image, "$") && !StartsWith(image, c.imagePrefix))
                     texture.image = c.imagePrefix + image;
             }
+            if (substitute && substitute->first == UNDRAWN_DONOR)
+                Undraw(out);
             entry.t6Techset = out.techniqueSet;
             entry.donor = Generic(fs::path(files::FromUtf8(c.donorPaths[target].get<std::string>())).lexically_relative(c.stockMaterials));
             entry.cost = prepared.cost;
