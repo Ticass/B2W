@@ -1,5 +1,6 @@
 // build-mod helpers against expected csv parses and mod zones.
 #include "core/files.h"
+#include "pipeline/hud_menus.h"
 #include "pipeline/actor_trees.h"
 #include "pipeline/bridge_inventory.h"
 #include "pipeline/csvtable.h"
@@ -241,4 +242,23 @@ TEST_CASE("static model palettes share when the index range is full", "[pipeline
     CHECK(w2b::world::SharePalettes(grid, palette, placements, 3) == 2);
     CHECK(palette == palettes({200}));
     CHECK(placements["models"] == w2b::util::Json::array({{{"colorsIndex", 0}}, {{"colorsIndex", 2}}, {{"colorsIndex", 0}}, {{"colorsIndex", 1}}}));
+}
+
+TEST_CASE("Compiled HUD expressions become RPN")
+{
+    using w2b::pipeline::HudExpression;
+    const auto parse = [](const char* text) { return HudExpression(w2b::util::Json::parse(text)); };
+    // the compiler leaves its outer parenthesis open: ( ( -70 - 50 )
+    CHECK(parse(R"([{"op":16},{"op":16},{"op":6},{"int":70},{"op":6},{"int":50},{"op":1}])") == "n:70 op:neg n:50 op:-");
+    CHECK(parse(R"([{"op":16},{"op":28},{"string":"a b"},{"op":1},{"op":11},{"int":1}])") == "s:a%20b f:dvarint:1 n:1 op:>=");
+    // "[" + keybinding( "+actionslot 1" ) + "]"
+    CHECK(parse(R"([{"op":16},{"string":"["},{"op":5},{"op":75},{"string":"+actionslot 1"},{"op":1},{"op":5},{"string":"]"}])") ==
+          "s:%5b s:%2bactionslot%201 f:keybinding:1 op:+ s:%5d op:+");
+    // !ui_active() && a == 0 || b
+    CHECK(parse(R"([{"op":16},{"op":7},{"op":33},{"op":1},{"op":14},{"int":2},{"op":12},{"int":0},{"op":15},{"int":3}])") ==
+          "f:ui_active:0 op:! n:2 n:0 op:== op:&& n:3 op:||");
+    CHECK_THROWS(parse(R"([{"op":16},{"op":12},{"int":0}])"));
+    CHECK(w2b::pipeline::HudFontRole(6, 0.3) == "objective");
+    CHECK(w2b::pipeline::HudFontRole(4, 0.548) == "bold");
+    CHECK(w2b::pipeline::HudFontRole(0, 0.381) == "extrabig");
 }

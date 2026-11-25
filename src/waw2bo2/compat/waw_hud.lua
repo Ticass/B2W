@@ -389,7 +389,7 @@ local noText = {setText = function() end, setColor = function() end, setAlpha = 
 local function materialNamed(name)
     if name == "" then return nil end
     local art = hudCell("art:" .. string.lower(name), 1)
-    return RegisterMaterial(art ~= "" and art or name)
+    return art ~= "" and RegisterMaterial(art) or nil
 end
 -- The items any menu may hold: images, texts and what their expressions say.
 -- `special(d)` builds an engine draw and returns its element, or nil.
@@ -446,9 +446,10 @@ function W.updateMenu(e)
             if name ~= part.material then
                 part.material = name
                 local material = materialNamed(name)
+                part.known = material ~= nil
                 if material then part.element:setImage(material) end
             end
-            if name == "" then shown = false end
+            if not part.known then shown = false end
         end
         if shown and part.label and d.exp.text then
             local text = M.eval(e.host, d.exp.text)

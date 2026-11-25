@@ -241,8 +241,9 @@ namespace w2b::pipeline
             return value.is_string() ? value.get<std::string>() : std::string();
         }
 
-        // the materials the map ships that its scripts name: what a material expression can hold
-        std::set<std::string> ScriptMaterials(const fs::path& project, const std::vector<fs::path>& roots)
+        // the materials the map ships that a material expression can hold: the ones its scripts name, and the ones that
+        // start with a string of the expressions themselves ("hud_num_" + a digit)
+        std::set<std::string> ExpressionMaterials(const fs::path& project, const std::vector<fs::path>& roots, const std::set<std::string>& strings)
         {
             std::set<std::string> shipped;
             for (const auto& root : roots)
@@ -262,6 +263,9 @@ namespace w2b::pipeline
                 for (const auto& row : literal.FindAll(files::ReadText(script)))
                     if (const auto name = mod::Lower(row[0]); shipped.contains(name))
                         out.insert(name);
+            for (const auto& text : strings)
+                for (auto name = shipped.lower_bound(text); name != shipped.end() && name->starts_with(text); ++name)
+                    out.insert(*name);
             return out;
         }
     } // namespace
@@ -305,6 +309,7 @@ namespace w2b::pipeline
         for (const auto& zone : zones)
             loaded.push_back(Menus(zone));
         bool dynamic = false;
+        std::set<std::string> strings;
         for (const std::string name : HUD_MENUS)
         {
             std::optional<std::set<std::string>> originals;
@@ -354,7 +359,13 @@ namespace w2b::pipeline
                                                                                                     {"forecolorAExp", "a"}}})
                     if (const auto code = expression(key); !code.empty())
                         expressions += (expressions.empty() ? "" : "|") + std::string(label) + "=" + code;
-                dynamic |= !item["materialExp"].is_null();
+                if (!item["materialExp"].is_null())
+                {
+                    dynamic = true;
+                    for (const auto& token : item["materialExp"])
+                        if (token.contains("string") && Text(token["string"]).size() >= 3)
+                            strings.insert(mod::Lower(Text(token["string"])));
+                }
                 const auto background = Text(window["background"]);
                 const auto art = background.empty() ? std::nullopt : sprite(background);
                 const auto scale = item["textScale"].get<double>();
@@ -371,7 +382,7 @@ namespace w2b::pipeline
             }
         }
         if (dynamic)
-            for (const auto& name : ScriptMaterials(project, roots))
+            for (const auto& name : ExpressionMaterials(project, roots, strings))
                 if (const auto art = sprite(name))
                     out.rows.push_back({"art:" + name, *art});
         return out;
