@@ -7,6 +7,7 @@
 #include "core/asset_paths.h"
 #include "core/hash.h"
 #include "core/parallel.h"
+#include "core/regex.h"
 #include "extract/cache.h"
 #include "extract/material_sources.h"
 #include "materials/prepare.h"
@@ -132,7 +133,25 @@ namespace w2b::pipeline
             bool lightShadows = true, layered = false;
             std::set<std::string> native, nativeFallbacks;
             std::map<std::string, fs::path> fallbacks;
+            std::optional<std::string> specularMap; // every material's, as r_specularMap
         };
+
+        // WaW's r_specularMap (Black, Unchanged, White, Gray) puts one image in every material's specular slot; the
+        // map's scripts set it for all players and T6's does nothing, so it is baked.
+        std::optional<std::string> ScriptSpecularMap(const fs::path& projectRoot)
+        {
+            static const regex::Regex comment("//[^\\n]*|/\\*.*?\\*/", regex::DOTALL);
+            static const regex::Regex set("\"r_specularmap\"\\s*,\\s*\"?([a-z0-9]+)\"?\\s*\\)", regex::IGNORECASE);
+            static const std::map<std::string, std::string> images{{"0", "$black"}, {"black", "$black"}, {"1", ""}, {"unchanged", ""},
+                                                                    {"2", "$white"}, {"white", "$white"}, {"3", "$gray"}, {"gray", "$gray"}};
+            std::set<std::string> values;
+            for (const auto& root : {projectRoot, projectRoot.parent_path()})
+                for (const auto& script : files::GlobSuffix(root / "maps/mp/waw", ".gsc"))
+                    for (const auto& row : set.FindAll(comment.Sub("", files::ReadText(script))))
+                        if (const auto image = images.find(Lower(row[0])); image != images.end())
+                            values.insert(image->second);
+            return values.size() == 1 && !values.begin()->empty() ? values.begin()->c_str() : std::optional<std::string>();
+        }
 
         std::string Renamed(const Context& c, const std::string& name)
         {
@@ -178,6 +197,10 @@ namespace w2b::pipeline
                 notes.push_back(substitute->second);
                 result.warnings.push_back(substitute->second);
             }
+            if (c.specularMap)
+                for (auto& texture : source->textures)
+                    if (texture.semantic == "specularMap")
+                        texture.image = *c.specularMap;
             const auto& t4 = *source;
             const auto& t4ts = t4.techniqueSet;
             entry.t4Techset = std::optional(t4ts);
@@ -346,6 +369,7 @@ namespace w2b::pipeline
         c.layered = request.layeredVertexData;
         c.fallbacks = request.nativeFallbacks;
         c.rename = request.rename;
+        c.specularMap = ScriptSpecularMap(c.projectRoot);
         std::vector<std::string> names(request.names.begin(), request.names.end());
         std::sort(names.begin(), names.end());
         materials::Donors donors(c.donorPaths);
