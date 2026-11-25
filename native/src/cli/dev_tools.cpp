@@ -1,8 +1,10 @@
 // Developer diagnostics (see dev_tools.h).
 #include "cli/dev_tools.h"
 
+#include "core/encoding.h"
 #include "core/files.h"
 #include "core/text.h"
+#include "gsc/ast.h"
 #include "launcher/settings.h"
 #include "pipeline/knowledge.h"
 
@@ -355,5 +357,44 @@ namespace w2b::cli
         for (const auto& path : args)
             SummarizeDump(files::FromUtf8(path));
         return 0;
+    }
+
+    int GscCheck(const Arguments& args)
+    {
+        if (args.empty() || args.size() == 2 || args.size() > 3 || (args.size() == 3 && args[1] != "--dump"))
+            return 2;
+        const auto root = files::FromUtf8(args[0]);
+        std::vector<fs::path> scripts;
+        if (fs::is_directory(root))
+        {
+            scripts = files::GlobSuffix(root, ".gsc");
+            const auto client = files::GlobSuffix(root, ".csc");
+            scripts.insert(scripts.end(), client.begin(), client.end());
+            std::sort(scripts.begin(), scripts.end());
+        }
+        else
+            scripts.push_back(root);
+        std::string dump;
+        int rejected = 0;
+        for (const auto& path : scripts)
+        {
+            const auto name = files::Utf8(fs::is_directory(root) ? path.lexically_relative(root) : path);
+            dump += "== " + name + "\n";
+            try
+            {
+                const auto tokens = gsc::Tokenize(encoding::UniversalNewlines(encoding::Utf8SigReplace(ReadFile(path))));
+                dump += gsc::DumpAst(gsc::ParseAst(tokens), tokens);
+            }
+            catch (const gsc::GscSyntaxError& error)
+            {
+                rejected++;
+                dump += std::string("!! ") + error.what() + "\n";
+                Print(name + ": " + error.what());
+            }
+        }
+        Print(std::format("{} scripts, {} rejected", scripts.size(), rejected));
+        if (args.size() == 3)
+            files::WriteBytes(files::FromUtf8(args[2]), dump);
+        return rejected ? 1 : 0;
     }
 } // namespace w2b::cli

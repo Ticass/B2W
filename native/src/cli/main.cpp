@@ -72,7 +72,8 @@ namespace
                    "       waw2bo2n dds2iwi <source.dds|folder> <output.iwi|folder>\n"
                    "       waw2bo2n knowledge-report [--ledger <folder>]... [--bundle <zip>]... [--report <json>]... [--record] [--write <json>] [--top <n>]\n"
                    "       waw2bo2n ipak-check <file.ipak>\n"
-                   "       waw2bo2n crash-summary <dump.dmp>...\n",
+                   "       waw2bo2n crash-summary <dump.dmp>...\n"
+                   "       waw2bo2n gsc-check <folder|script> [--dump <file>]\n",
                    stderr);
         return 2;
     }
@@ -602,6 +603,7 @@ namespace
         {"knowledge-report", w2b::cli::KnowledgeReport},
         {"ipak-check", w2b::cli::IpakCheck},
         {"crash-summary", w2b::cli::CrashSummary},
+        {"gsc-check", w2b::cli::GscCheck},
     };
 } // namespace
 

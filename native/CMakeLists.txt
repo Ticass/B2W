@@ -179,6 +179,7 @@ target_link_libraries(w2b_world PUBLIC w2b_core w2b_textures)
 
 add_library(w2b_gsc STATIC
     src/gsc/tokens.cpp
+    src/gsc/ast.cpp
     src/gsc/parse.cpp)
 target_link_libraries(w2b_gsc PUBLIC w2b_core)
 
