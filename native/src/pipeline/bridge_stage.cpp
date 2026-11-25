@@ -16,6 +16,7 @@
 #include "effects_stage.h"
 #include "impact_table.h"
 #include "unread_assets.h"
+#include "destructibles.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
 #include "extract/wawsource.h"
@@ -895,6 +896,17 @@ namespace w2b::pipeline
                     destroyFx.insert(entry["destroyFx"].get<std::string>());
             for (const auto& name : Difference(destroyFx, Names(fxNames.begin(), fxNames.end())))
                 fxNames.push_back(name);
+            // the map's destructibles: their models, break effects and sounds join the map's
+            const auto destructibles = ReadDestructiblePort(entitiesJson, mapRoots_);
+            for (const auto& name : Difference(Names(destructibles.effects.begin(), destructibles.effects.end()), Names(fxNames.begin(), fxNames.end())))
+                fxNames.push_back(name);
+            scriptModels_.insert(destructibles.models.begin(), destructibles.models.end());
+            compiledSounds_.insert(destructibles.sounds.begin(), destructibles.sounds.end());
+            files::WriteText(projectRoot_ / "maps/mp/waw/_waw2bo2_destructibles.gsc", DestructiblesSource(destructibles));
+            if (destructibles.placed)
+                report_.Warn("DESTRUCTIBLES " + std::to_string(destructibles.placed) + " placed, broken by WaW's piece tables (compat waw_destructible_*)");
+            if (!destructibles.missing.empty())
+                report_.Warn("DESTRUCTIBLE_DEF_MISSING " + mod::Join(destructibles.missing, ", ") + ": no zone of the map holds them (" + mod::Join(destructibles.zones, ", ") + "); they stay whole");
             // weapons first: their resolution widens the roots (stock WaW dumps
             // for script models too) and their effects join the map zone's conversion
             auto* stock = stock_ ? &*stock_ : nullptr;

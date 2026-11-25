@@ -19,7 +19,7 @@ namespace w2b::pipeline
         // what the stage reads: dumped kinds (extract::WAW_ASSETS), the impact table and the HUD menus
         const std::set<std::string> READ{"clipmap",  "clipmap_pvs", "mapents", "gfxworld", "gameworldsp", "material", "techniqueset", "image", "fx", "xmodel",
                                          "weapon",   "xanim",       "sound",   "loadedsound", "rawfile", "comworld", "lightdef", "physpreset",
-                                         "physconstraints", "snddriverglobals", "localize", "stringtable", "font", "impactfx", "menu", "menulist"};
+                                         "physconstraints", "snddriverglobals", "localize", "stringtable", "font", "impactfx", "menu", "menulist", "destructibledef"};
 
         std::set<std::string> ScriptMenus(const fs::path& project)
         {

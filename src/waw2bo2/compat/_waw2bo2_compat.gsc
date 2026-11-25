@@ -225,6 +225,8 @@ init()
     if ( !isdefined( level.waw2bo2_bo2_weapons ) )
         level.waw2bo2_bo2_weapons = [];
     maps\mp\waw\_waw2bo2_assets::init();
+    maps\mp\waw\_waw2bo2_destructibles::init();
+    level thread waw_destructibles_start();
     maps\mp\waw\_waw2bo2_hint_defaults::init();
     maps\mp\waw\_waw2bo2_bo2weapons::init();
     maps\mp\waw\_waw2bo2_visions::init();
@@ -2957,4 +2959,358 @@ waw_settimescale( scale )
 waw_playerpositionvalid( ent )
 {
     return 1;
+}
+
+// ---- WaW destructibles (engine semantics) ----
+// WaW's engine breaks a destructible piece by piece: each piece has health and
+// up to five stages, a stage per model, and the stage is the first whose
+// breakHealth * health the piece still has (t4sp 0x56E1C0). BO2's destructibles
+// show bones of one model, so the map's models stay and this runs WaW's rules
+// on the table _waw2bo2_destructibles generates from the map's DestructibleDefs.
+waw_destructible_def( name, base )
+{
+    definition = spawnstruct();
+    definition.name = name;
+    definition.base = base;
+    definition.pieces = [];
+    if ( isdefined( base ) )
+        waw_precachemodel( base );
+    level.waw_destructible_defs[name] = definition;
+    return definition;
+}
+
+waw_destructible_piece( bone, parent, parentpercent, bulletscale, explosivescale, health )
+{
+    piece = spawnstruct();
+    piece.bone = bone;
+    piece.parent = parent;
+    piece.parentpercent = parentpercent;
+    piece.bulletscale = bulletscale;
+    piece.explosivescale = explosivescale;
+    piece.health = health;
+    piece.stages = [];
+    self.pieces[self.pieces.size] = piece;
+    return piece;
+}
+
+waw_destructible_stage( model, breakhealth, flags, effect, sound, notifyname, loopsound, spawn0, spawn1, spawn2 )
+{
+    stage = spawnstruct();
+    stage.model = model;
+    stage.breakhealth = breakhealth;
+    stage.flags = flags;
+    if ( isdefined( effect ) )
+        stage.effect = waw_loadfx( effect );
+    stage.sound = sound;
+    stage.notifyname = notifyname;
+    stage.loopsound = loopsound;
+    stage.spawn = [];
+    spawned = [];
+    spawned[0] = spawn0;
+    spawned[1] = spawn1;
+    spawned[2] = spawn2;
+    foreach ( name in spawned )
+        if ( isdefined( name ) )
+        {
+            waw_precachemodel( name );
+            stage.spawn[stage.spawn.size] = name;
+        }
+    waw_precachemodel( model );
+    self.stages[self.stages.size] = stage;
+}
+
+waw_destructible_place( origin, name )
+{
+    place = spawnstruct();
+    place.origin = origin;
+    place.name = name;
+    return place;
+}
+
+waw_destructibles_start()
+{
+    waittillframeend;
+    if ( !isdefined( level.waw_destructibles_placed ) || !level.waw_destructibles_placed.size )
+        return;
+    models = getentarray( "script_model", "classname" );
+    foreach ( place in level.waw_destructibles_placed )
+    {
+        definition = level.waw_destructible_defs[place.name];
+        foreach ( ent in models )
+            if ( !isdefined( ent.waw_destructible ) && distancesquared( ent.origin, place.origin ) < 1 )
+            {
+                ent.waw_destructible = definition;
+                ent thread waw_destructible_think();
+                break;
+            }
+    }
+}
+
+// t4sp 0x56E1C0
+waw_destructible_stage_for( index, health )
+{
+    piece = self.waw_destructible.pieces[index];
+    stage = 0;
+    for ( ;; )
+    {
+        fraction = 0;
+        if ( stage < piece.stages.size )
+            fraction = piece.stages[stage].breakhealth;
+        if ( !( health < fraction * piece.health ) )
+            break;
+        if ( stage >= piece.stages.size )
+        {
+            if ( index == 0 )
+                return stage - 1;
+            return -1;
+        }
+        stage++;
+        if ( stage >= 5 )
+            return -1;
+    }
+    if ( stage >= piece.stages.size )
+        return -1;
+    return stage;
+}
+
+waw_destructible_think()
+{
+    self endon( "death" );
+    definition = self.waw_destructible;
+    self.waw_piece_health = [];
+    self.waw_piece_model = [];
+    for ( i = 0; i < definition.pieces.size; i++ )
+        self.waw_piece_health[i] = definition.pieces[i].health;
+    self.waw_pieces_shown = 0;
+    // only the pieces have health in WaW; a BO2 script_model dies at 0 ("death")
+    self.health = 1000000;
+    self setcandamage( 1 );
+    for ( ;; )
+    {
+        self waittill( "damage", amount, attacker, direction, point, type );
+        self.health = 1000000;
+        if ( !isdefined( direction ) )
+            direction = ( 0, 0, 1 );
+        if ( !self.waw_pieces_shown )
+            self waw_destructible_show_pieces();
+        splash = type == "MOD_GRENADE_SPLASH" || type == "MOD_PROJECTILE_SPLASH" || type == "MOD_EXPLOSIVE";
+        if ( splash )
+        {
+            // t4sp 0x56EC70: radius damage reaches every piece, at the explosive scale
+            for ( i = 0; i < definition.pieces.size; i++ )
+                self waw_destructible_damage( i, int( amount * definition.pieces[i].explosivescale ), type, direction );
+            continue;
+        }
+        // t4sp 0x56F950: the piece hit; projectiles and grenades at the explosive scale
+        index = self waw_destructible_piece_at( point );
+        piece = definition.pieces[index];
+        scale = piece.bulletscale;
+        if ( type == "MOD_GRENADE" || type == "MOD_PROJECTILE" )
+            scale = piece.explosivescale;
+        self waw_destructible_damage( index, int( amount * scale ), type, direction );
+    }
+}
+
+// the base model until the first damage, then the pieces (t4sp 0x5717F0)
+waw_destructible_show_pieces()
+{
+    definition = self.waw_destructible;
+    self.waw_pieces_shown = 1;
+    self waw_destructible_set_model( 0, self waw_destructible_stage_for( 0, self.waw_piece_health[0] ) );
+    // the new model's bones exist on the next frame
+    wait 0.05;
+    for ( i = 1; i < definition.pieces.size; i++ )
+        self waw_destructible_set_model( i, self waw_destructible_stage_for( i, self.waw_piece_health[i] ) );
+}
+
+waw_destructible_set_model( index, stage )
+{
+    piece = self.waw_destructible.pieces[index];
+    model = undefined;
+    if ( stage >= 0 )
+        model = waw_model_name( piece.stages[stage].model );
+    if ( index == 0 )
+    {
+        if ( isdefined( model ) && model != self.model )
+        {
+            self setmodel( model );
+            // what hung on the old model's bones hangs again on the new one's
+            if ( self.waw_pieces_shown )
+                self thread waw_destructible_reattach();
+        }
+        return;
+    }
+    if ( isdefined( self.waw_piece_model[index] ) )
+    {
+        if ( isdefined( model ) && model == self.waw_piece_model[index] )
+            return;
+        self waw_destructible_detach( index );
+    }
+    if ( isdefined( model ) )
+        self waw_destructible_attach( index, model );
+}
+
+// BO2 attaches at most 19 models to an entity (WaW's truck has 21 pieces on
+// its body): the rest hang on the bone as entities of their own.
+waw_destructible_attach( index, model )
+{
+    bone = self.waw_destructible.pieces[index].bone;
+    if ( !isdefined( self.waw_piece_entity ) )
+        self.waw_piece_entity = [];
+    attached = 0;
+    foreach ( i, name in self.waw_piece_model )
+        if ( !isdefined( self.waw_piece_entity[i] ) )
+            attached++;
+    if ( attached < 19 )
+    {
+        if ( isdefined( bone ) )
+            self attach( model, bone );
+        else
+            self attach( model );
+    }
+    else
+    {
+        tag = bone;
+        if ( !isdefined( tag ) )
+            tag = "tag_origin";
+        part = spawn( "script_model", self gettagorigin( tag ) );
+        part.angles = self gettagangles( tag );
+        part setmodel( model );
+        part linkto( self, tag );
+        self.waw_piece_entity[index] = part;
+    }
+    self.waw_piece_model[index] = model;
+}
+
+waw_destructible_detach( index )
+{
+    if ( isdefined( self.waw_piece_entity ) && isdefined( self.waw_piece_entity[index] ) )
+    {
+        self.waw_piece_entity[index] delete();
+        self.waw_piece_entity[index] = undefined;
+    }
+    else if ( isdefined( self.waw_destructible.pieces[index].bone ) )
+        self detach( self.waw_piece_model[index], self.waw_destructible.pieces[index].bone );
+    else
+        self detach( self.waw_piece_model[index] );
+    self.waw_piece_model[index] = undefined;
+}
+
+waw_destructible_reattach()
+{
+    self endon( "death" );
+    attached = self.waw_piece_model;
+    foreach ( index, model in attached )
+        self waw_destructible_detach( index );
+    wait 0.05;
+    foreach ( index, model in attached )
+        if ( !isdefined( self.waw_piece_model[index] ) )
+            self waw_destructible_attach( index, model );
+}
+
+waw_destructible_piece_origin( index )
+{
+    piece = self.waw_destructible.pieces[index];
+    if ( isdefined( piece.bone ) )
+    {
+        origin = self gettagorigin( piece.bone );
+        if ( isdefined( origin ) )
+            return origin;
+    }
+    return self.origin;
+}
+
+// The traced part picks the piece in WaW; BO2 traces the entity's box, so the
+// piece is the one attached nearest the hit, the later of equals (WaW's glass
+// over its frame).
+waw_destructible_piece_at( point )
+{
+    best = 0;
+    if ( !isdefined( point ) )
+        return best;
+    distance = undefined;
+    for ( i = 0; i < self.waw_destructible.pieces.size; i++ )
+    {
+        if ( i && !isdefined( self.waw_piece_model[i] ) )
+            continue;
+        d = distancesquared( point, self waw_destructible_piece_origin( i ) );
+        if ( !isdefined( distance ) || d <= distance )
+        {
+            distance = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+// t4sp 0x56E890
+waw_destructible_damage( index, amount, type, direction )
+{
+    definition = self.waw_destructible;
+    piece = definition.pieces[index];
+    old = self.waw_piece_health[index];
+    health = old - amount;
+    if ( health < -1 )
+        health = -1;
+    current = self waw_destructible_stage_for( index, old );
+    target = self waw_destructible_stage_for( index, health );
+    explosive = type == "MOD_GRENADE_SPLASH" || type == "MOD_PROJECTILE_SPLASH" || type == "MOD_EXPLOSIVE";
+    if ( !explosive )
+    {
+        // a stage flagged 1 is only entered by explosive damage
+        if ( current >= 0 && ( piece.stages[current].flags & 1 ) )
+            return;
+        last = target;
+        if ( last < 0 )
+            last = piece.stages.size - 1;
+        for ( k = current + 1; k <= last; k++ )
+            if ( piece.stages[k].flags & 1 )
+            {
+                health = int( piece.health * piece.stages[k].breakhealth ) + 1;
+                target = self waw_destructible_stage_for( index, health );
+                break;
+            }
+    }
+    self.waw_piece_health[index] = health;
+    if ( current != target && current >= 0 )
+    {
+        if ( isdefined( piece.stages[current].notifyname ) )
+            self notify( piece.stages[current].notifyname );
+        if ( index == 0 )
+        {
+            self stoploopsound();
+            if ( target >= 0 && isdefined( piece.stages[target].loopsound ) )
+                self waw_playloopsound( piece.stages[target].loopsound );
+        }
+        // every stage left plays its break (t4sp 0x5702C0)
+        last = target;
+        if ( last < 0 )
+            last = piece.stages.size;
+        for ( k = current; k < last; k++ )
+            self waw_destructible_break( index, piece.stages[k], direction );
+        self waw_destructible_set_model( index, target );
+    }
+    for ( i = 0; i < definition.pieces.size; i++ )
+        if ( i != index && definition.pieces[i].parent == index )
+        {
+            transferred = int( amount * definition.pieces[i].parentpercent );
+            if ( transferred != 0 )
+                self waw_destructible_damage( i, transferred, type, direction );
+        }
+}
+
+waw_destructible_break( index, stage, direction )
+{
+    origin = self waw_destructible_piece_origin( index );
+    if ( isdefined( stage.effect ) )
+        playfx( stage.effect, origin, anglestoforward( self.angles ), anglestoup( self.angles ) );
+    if ( isdefined( stage.sound ) )
+        waw_playsoundatposition( stage.sound, origin );
+    foreach ( name in stage.spawn )
+    {
+        debris = spawn( "script_model", origin );
+        debris.angles = self.angles;
+        debris setmodel( waw_model_name( name ) );
+        debris physicslaunch( origin, direction * 100 );
+    }
 }

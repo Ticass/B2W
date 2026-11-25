@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Port WaW's destructibles: Nacht der Untoten's Opel trucks and generators, Verrückt's breakable windows and the destructibles of custom maps break as in WaW. The pieces, stages, damage scales, explosive-only stages, break effects, sounds and debris come from the map's DestructibleDefs; the compat script runs WaW's engine rules on them (pieces past BO2's 19 attachments hang on their bone as entities).
 - Port the map's impact effect table, the effect each hit plays on each surface (Der Riese's Wonder Waffe hits, blood, sparks). BO2's own table played until now; the map's patch, map or mod zone wins as in WaW, else WaW's `common.ff`. The engine's own knife, blood and water effects are WaW's too.
 - Every build names the asset types of the map's zones nothing converts (`UNREAD_ASSET`, for example destructibles) and the menus its scripts open that are not converted (`SCRIPT_MENU`). Sounds the map names but lacks are told apart from the author's own linker log stored in the map.
 - Convert every sound WaW plays: 8, 24 and 32-bit PCM, 32-bit float, loop markers, and files with repeated chunks, trailing bytes or a partial last block were dropped (Nuketown 1886 lost over 700, gun fire included). The rules are WaW's own sound parser and XAudio2 2.0's, measured. What is still silent (`SOUND_SILENT`) is silent in WaW: files that are missing, or that the WaW Mod Tools ship cut short.

@@ -529,6 +529,7 @@ namespace w2b::gsc::port
         files::WriteText(outDir / "_waw2bo2_hud_materials.gsc", HudMaterialTableSource({}));
         files::WriteText(outDir / "_waw2bo2_models.gsc", "table()\n{\n    return [];\n}\n");
         files::WriteText(outDir / "_waw2bo2_assets.gsc", AssetsSource(options.fxTable, mapName));
+        files::WriteText(outDir / "_waw2bo2_destructibles.gsc", "init()\n{\n    level.waw_destructible_defs = [];\n    level.waw_destructibles_placed = [];\n}\n");
         files::WriteText(outDir / BO2_WEAPONS_SCRIPT, Bo2WeaponsSource());
         files::WriteText(outDir / "_waw2bo2_visions.gsc", "init()\n{\n    level.waw2bo2_visions = [];\n}\n");
         files::WriteText(outDir / perktable::SCRIPT, perktable::Source({}));

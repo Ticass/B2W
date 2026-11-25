@@ -179,6 +179,9 @@ namespace w2b::models
                         result.warnings.emplace_back("xmodel " + job.name + ": physPreset dropped (static models do not simulate)");
                     model.erase(preset);
                 }
+                // and the joints of its parts (the Opel truck's door hinges): the linker cannot load one without its asset
+                if (const auto constraints = model.find("physConstraints"); constraints != model.end())
+                    model.erase(constraints);
             }
 
             std::vector<Path> roots_;
