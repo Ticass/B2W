@@ -4,8 +4,10 @@
 #include "core/encoding.h"
 #include "core/files.h"
 #include "core/text.h"
+#include "extract/cache.h"
 #include "gsc/ast.h"
-#include "gsc/port/loops.h"
+#include "gsc/port/link_check.h"
+#include "gsc/port/vm_rules.h"
 #include "launcher/settings.h"
 #include "pipeline/knowledge.h"
 
@@ -378,8 +380,8 @@ namespace w2b::cli
         else
             scripts.push_back(root);
         std::string dump;
-        int rejected = 0, switches = 0;
-        gsc::port::LoopCounts loops;
+        int rejected = 0;
+        gsc::port::VmCounts counts;
         for (const auto& path : scripts)
         {
             const auto name = files::Utf8(fs::is_directory(root) ? path.lexically_relative(root) : path);
@@ -390,10 +392,7 @@ namespace w2b::cli
                 dump += gsc::DumpAst(gsc::ParseAst(tokens, dialect), tokens);
                 // the translator's VM rules, and that their result still parses
                 auto ported = tokens;
-                switches += gsc::port::LowerSwitches(ported, "waw_switch");
-                const auto counts = gsc::port::WatchLoops(ported, "waw_kill_thread");
-                loops.loops += counts.loops;
-                loops.watched += counts.watched;
+                counts.Add(gsc::port::ApplyVmRules(ported, {"runtime"}));
                 gsc::ParseAst(gsc::Tokenize(gsc::Emit(ported)), dialect);
             }
             catch (const gsc::GscSyntaxError& error)
@@ -403,9 +402,35 @@ namespace w2b::cli
                 Print(name + ": " + error.what());
             }
         }
-        Print(std::format("{} scripts, {} rejected; {} of {} loops may never end, {} switches", scripts.size(), rejected, loops.watched, loops.loops, switches));
+        Print(std::format("{} scripts, {} rejected; {} of {} loops may never end, {} switches, {} vectors, {} logic values, {} array and {} string comparisons",
+                          scripts.size(), rejected, counts.watched, counts.loops, counts.switches, counts.vectors, counts.logic, counts.arrays,
+                          counts.comparisons));
         if (options.size() == 3)
             files::WriteBytes(files::FromUtf8(options[2]), dump);
         return rejected ? 1 : 0;
+    }
+
+    int GscLink(const Arguments& args)
+    {
+        if (args.empty())
+            return 2;
+        const auto compat = extract::ResourceRoot() / "src/waw2bo2/compat";
+        const auto api = gsc::port::T6Api::Load(compat / "t6_script_api.json", fs::path());
+        const auto problems = gsc::port::LinkCheck(files::FromUtf8(args[0]), api, {args.begin() + 1, args.end()});
+        for (const auto& problem : problems)
+            Print(problem);
+        Print(std::format("{} problems", problems.size()));
+        return problems.empty() ? 0 : 1;
+    }
+
+    int GscRules(const Arguments& args)
+    {
+        if (args.size() != 3)
+            return 2;
+        auto tokens = gsc::Tokenize(encoding::UniversalNewlines(encoding::Utf8SigReplace(ReadFile(files::FromUtf8(args[0])))));
+        const auto counts = gsc::port::ApplyVmRules(tokens, {args[2]});
+        files::WriteBytes(files::FromUtf8(args[1]), gsc::Emit(tokens));
+        Print(std::format("{} changes", counts.Changes()));
+        return 0;
     }
 } // namespace w2b::cli

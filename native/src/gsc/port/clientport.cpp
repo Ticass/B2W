@@ -4,6 +4,7 @@
 #include "core/files.h"
 #include "core/regex.h"
 #include "rewrites.h"
+#include "vm_rules.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -253,6 +254,7 @@ namespace w2b::gsc::port::clientport
                     shadowed.insert(name);
             }
         std::set<std::string> events;
+        VmCounts vm;
         for (const auto& path : order)
         {
             const auto script = sources.Get(path, ".csc");
@@ -374,10 +376,23 @@ namespace w2b::gsc::port::clientport
                 else if (t.Low() == "waittill" && i > 1 && tokens[i - 1].Low() == "level" && At(tokens, i + 1).text == "(" && At(tokens, i + 2).kind == Kind::String)
                     events.insert(Inner(At(tokens, i + 2).text));
             }
-            files::WriteText(outRoot / files::FromUtf8(Replace(Ported(path), "\\", "/") + ".csc"), std::string(PORT_HEADER) + " Source: " + path + ".csc\n" + Emit(tokens));
+            // the passes above edit text in place; the VM rules read it as tokens again
+            auto ported = Tokenize(Emit(tokens));
+            try
+            {
+                vm.Add(ApplyVmRules(ported, VmRuntime{ENVIRONMENT}));
+            }
+            catch (const GscSyntaxError& error)
+            {
+                report["vm_rules_skipped"].push_back(path + ": " + error.what());
+                ported = Tokenize(Emit(tokens));
+            }
+            files::WriteText(outRoot / files::FromUtf8(Replace(Ported(path), "\\", "/") + ".csc"), std::string(PORT_HEADER) + " Source: " + path + ".csc\n" + Emit(ported));
             report["modules"].push_back(Ported(path));
         }
         report["events"] = std::vector<std::string>(events.begin(), events.end());
+        report["vm_rules"] = {{"loops_watched", vm.watched}, {"loops", vm.loops}, {"switches", vm.switches}, {"vectors", vm.vectors},
+                              {"logic_values", vm.logic}, {"array_comparisons", vm.arrays}, {"string_comparisons", vm.comparisons}};
         std::set<std::string> fx;
         for (const auto& f : report["fx"])
             fx.insert(f.get<std::string>());

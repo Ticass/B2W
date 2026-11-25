@@ -19,4 +19,8 @@ namespace w2b::cli
     // gsc-check <folder or script> [--bo2] [--dump <file>]: parses every .gsc/.csc as WaW compiles it
     // (--bo2: as the converter writes it), and counts what the translator's VM rules change
     int GscCheck(const Arguments& args);
+    // gsc-rules <in.gsc> <out.gsc> <runtime script>: a script with T4's VM rules applied
+    int GscRules(const Arguments& args);
+    // gsc-link <folder of translated scripts> [<path prefix>...]: what T6 would not resolve
+    int GscLink(const Arguments& args);
 } // namespace w2b::cli

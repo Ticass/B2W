@@ -1468,6 +1468,10 @@
 2,
 2
 ],
+"precacheanimstatedef": [
+3,
+3
+],
 "precacheheadicon": [
 1,
 1
@@ -2211,6 +2215,2282 @@
 "worldtrace": [
 2,
 2
+]
+},
+"client_builtins": {
+"abs": [
+0,
+32
+],
+"absangleclamp180": [
+1,
+1
+],
+"acos": [
+1,
+1
+],
+"addzombieboxweapon": [
+3,
+3
+],
+"aimingatfriendly": [
+0,
+0
+],
+"allocatemixerlights": [
+1,
+1
+],
+"allocatesoundrandoms": [
+1,
+1
+],
+"allowroundanimation": [
+1,
+1
+],
+"angleclamp180": [
+0,
+32
+],
+"anglestoforward": [
+0,
+32
+],
+"anglestoright": [
+0,
+32
+],
+"anglestoup": [
+0,
+32
+],
+"animateui": [
+5,
+5
+],
+"argusforcedrawbracket": [
+2,
+2
+],
+"argusgetorigin": [
+1,
+1
+],
+"argusgetui": [
+1,
+1
+],
+"argussetattach": [
+2,
+2
+],
+"argussetbracket": [
+2,
+2
+],
+"argussetdistance": [
+2,
+2
+],
+"argussetfaderate": [
+2,
+2
+],
+"argussetoffset": [
+2,
+2
+],
+"argussetstacked": [
+2,
+2
+],
+"argussetvisible": [
+2,
+2
+],
+"array": [
+0,
+32
+],
+"arraycombine": [
+4,
+4
+],
+"arraycopy": [
+1,
+1
+],
+"arrayinsert": [
+3,
+3
+],
+"arrayremoveindex": [
+2,
+3
+],
+"arrayremovevalue": [
+2,
+3
+],
+"asin": [
+1,
+1
+],
+"assert": [
+1,
+2
+],
+"assertex": [
+0,
+32
+],
+"assertmsg": [
+1,
+1
+],
+"atan": [
+1,
+1
+],
+"box": [
+1,
+8
+],
+"bullettrace": [
+4,
+5
+],
+"bullettracer": [
+2,
+2
+],
+"ceil": [
+1,
+1
+],
+"clienthassnapshot": [
+1,
+1
+],
+"closefile": [
+1,
+1
+],
+"closer": [
+3,
+3
+],
+"codegetclientfield": [
+2,
+2
+],
+"codegetplayerstateclientfield": [
+2,
+2
+],
+"codegetworldclientfield": [
+1,
+1
+],
+"combineangles": [
+2,
+2
+],
+"cos": [
+1,
+1
+],
+"createdynentandlaunch": [
+6,
+8
+],
+"createqrcode": [
+2,
+2
+],
+"createsoundrandom": [
+4,
+4
+],
+"deactivatereverb": [
+1,
+2
+],
+"debugbreak": [
+0,
+0
+],
+"debugstar": [
+1,
+3
+],
+"deleteelem": [
+1,
+1
+],
+"deletefakeent": [
+2,
+2
+],
+"deletefx": [
+2,
+3
+],
+"deleteqrcode": [
+1,
+1
+],
+"demoisanyfreemovecamera": [
+0,
+0
+],
+"demoisdollycamera": [
+0,
+0
+],
+"demoiseditcamera": [
+0,
+0
+],
+"demoismoviecamera": [
+0,
+0
+],
+"disableimpactmarks": [
+0,
+0
+],
+"distance": [
+2,
+2
+],
+"distance2d": [
+2,
+2
+],
+"distancesquared": [
+2,
+2
+],
+"elemphysicaltovirtual": [
+4,
+4
+],
+"elemvirtualtophysical": [
+2,
+2
+],
+"enabledarkness": [
+2,
+2
+],
+"enableflamesystem": [
+0,
+7
+],
+"enableimpactmarks": [
+0,
+0
+],
+"fgetarg": [
+2,
+2
+],
+"findstaticmodelindex": [
+1,
+1
+],
+"float": [
+1,
+1
+],
+"floor": [
+1,
+1
+],
+"flushgump": [
+1,
+1
+],
+"footstepdoeverything": [
+0,
+0
+],
+"footstepdofootstepfx": [
+0,
+0
+],
+"footstepdonothing": [
+0,
+0
+],
+"footstepdosound": [
+0,
+0
+],
+"forceambientpackage": [
+2,
+3
+],
+"forceambientroom": [
+2,
+3
+],
+"forwardrotatearoundupbyangle": [
+2,
+2
+],
+"fprintfields": [
+2,
+2
+],
+"fprintln": [
+2,
+2
+],
+"freadln": [
+1,
+1
+],
+"gamemodeismode": [
+1,
+1
+],
+"gamemodeisusingstats": [
+0,
+0
+],
+"gamemodeisusingxp": [
+0,
+0
+],
+"getactivelocalclients": [
+0,
+0
+],
+"getanimlength": [
+1,
+1
+],
+"getarraykeys": [
+1,
+1
+],
+"getbinklength": [
+1,
+1
+],
+"getcamanglesbylocalclientnum": [
+1,
+1
+],
+"getcamposbylocalclientnum": [
+1,
+1
+],
+"getclientfieldversion": [
+2,
+2
+],
+"getcurrentweapon": [
+1,
+1
+],
+"getcurrentweaponincludingmelee": [
+1,
+1
+],
+"getdebugdvar": [
+1,
+1
+],
+"getdebugdvarfloat": [
+1,
+1
+],
+"getdebugdvarint": [
+1,
+1
+],
+"getdvar": [
+0,
+32
+],
+"getdvarcolorblue": [
+0,
+32
+],
+"getdvarcolorgreen": [
+0,
+32
+],
+"getdvarcolorred": [
+0,
+32
+],
+"getdvarfloat": [
+0,
+32
+],
+"getdvarint": [
+0,
+32
+],
+"getdynent": [
+1,
+1
+],
+"getdynentarray": [
+0,
+1
+],
+"getent": [
+3,
+3
+],
+"getentarray": [
+1,
+3
+],
+"getentbynum": [
+2,
+2
+],
+"getextracamstatic": [
+1,
+1
+],
+"getfirstarraykey": [
+1,
+1
+],
+"getfootstepstrings": [
+0,
+0
+],
+"getgametypesetting": [
+1,
+1
+],
+"getgridfrompos": [
+2,
+2
+],
+"getknownlength": [
+1,
+1
+],
+"getlastarraykey": [
+1,
+1
+],
+"getlocalclientangles": [
+1,
+1
+],
+"getlocalclienteyepos": [
+1,
+1
+],
+"getlocalclientpos": [
+1,
+1
+],
+"getlocalplayer": [
+1,
+1
+],
+"getlocalplayers": [
+0,
+0
+],
+"getlocalplayerteam": [
+1,
+1
+],
+"getmapcenter": [
+0,
+0
+],
+"getmaxlocalclients": [
+0,
+0
+],
+"getminbitcountfornum": [
+1,
+1
+],
+"getnextarraykey": [
+2,
+2
+],
+"getnonpredictedlocalplayer": [
+1,
+1
+],
+"getplaybacktime": [
+1,
+1
+],
+"getprevarraykey": [
+2,
+2
+],
+"getrealtime": [
+0,
+0
+],
+"getrope": [
+1,
+1
+],
+"getscreenheight": [
+0,
+0
+],
+"getscreenwidth": [
+0,
+0
+],
+"getserverhighestclientfieldversion": [
+0,
+0
+],
+"getservertime": [
+1,
+1
+],
+"getservervolumetricfogdensity": [
+1,
+1
+],
+"getsoundcount": [
+0,
+0
+],
+"getsoundname": [
+1,
+1
+],
+"getstartangles": [
+3,
+3
+],
+"getstartorigin": [
+3,
+3
+],
+"getsubstr": [
+2,
+3
+],
+"getsurfacestrings": [
+0,
+0
+],
+"getsystemtime": [
+0,
+1
+],
+"gettime": [
+0,
+0
+],
+"gettotalammo": [
+2,
+2
+],
+"getvisionsetnaked": [
+1,
+1
+],
+"getweaponammoclip": [
+2,
+2
+],
+"getweaponmodel": [
+1,
+2
+],
+"getworldfogscriptid": [
+1,
+1
+],
+"hasdlcavailable": [
+1,
+1
+],
+"hasweapon": [
+2,
+2
+],
+"hidestaticmodel": [
+1,
+1
+],
+"initclientobjectives": [
+1,
+1
+],
+"int": [
+1,
+1
+],
+"iprintlnbold": [
+1,
+32
+],
+"isads": [
+1,
+1
+],
+"isalive": [
+1,
+1
+],
+"isarray": [
+1,
+1
+],
+"isbinkfinished": [
+1,
+1
+],
+"iscameraspiketoggled": [
+1,
+1
+],
+"isdefined": [
+0,
+32
+],
+"isdemoplaying": [
+0,
+0
+],
+"isfxplaying": [
+2,
+2
+],
+"isinarray": [
+2,
+2
+],
+"isinhelicopter": [
+1,
+1
+],
+"isinvehicle": [
+2,
+2
+],
+"isluienabled": [
+1,
+1
+],
+"ismaturecontentenabled": [
+0,
+0
+],
+"ismeleeing": [
+1,
+1
+],
+"ismixerbehaviorhardcoded": [
+1,
+1
+],
+"ismixerlightbehaviorhardcoded": [
+1,
+1
+],
+"isonturret": [
+1,
+1
+],
+"ispc": [
+0,
+0
+],
+"isps3": [
+0,
+0
+],
+"issoundloop": [
+1,
+1
+],
+"isspectating": [
+1,
+2
+],
+"issplitscreen": [
+0,
+0
+],
+"issplitscreenhost": [
+1,
+1
+],
+"isstereoon": [
+0,
+0
+],
+"isstring": [
+1,
+1
+],
+"issubstr": [
+2,
+2
+],
+"isswitchingweapons": [
+1,
+1
+],
+"isthrowinggrenade": [
+1,
+1
+],
+"istring": [
+1,
+1
+],
+"isweaponoverheating": [
+1,
+3
+],
+"isxenon": [
+0,
+0
+],
+"launchdynent": [
+2,
+3
+],
+"length": [
+1,
+1
+],
+"lengthsquared": [
+1,
+1
+],
+"lerpfloat": [
+3,
+3
+],
+"lerpvector": [
+3,
+3
+],
+"line": [
+2,
+6
+],
+"loadfx": [
+1,
+1
+],
+"loadgump": [
+2,
+2
+],
+"localclientactive": [
+1,
+1
+],
+"luidisable": [
+1,
+1
+],
+"luienable": [
+2,
+2
+],
+"luievent": [
+2,
+2
+],
+"luihide": [
+2,
+2
+],
+"luiload": [
+1,
+1
+],
+"luishow": [
+2,
+2
+],
+"makelocalizedstring": [
+1,
+1
+],
+"max": [
+2,
+2
+],
+"min": [
+2,
+2
+],
+"moveelem": [
+6,
+6
+],
+"newmaterialelem": [
+7,
+7
+],
+"newradialmaterialelem": [
+7,
+7
+],
+"newtextelem": [
+9,
+9
+],
+"objective_add": [
+3,
+6
+],
+"objective_delete": [
+2,
+2
+],
+"objective_flipicon": [
+2,
+2
+],
+"objective_onentity": [
+5,
+6
+],
+"objective_seticon": [
+3,
+3
+],
+"objective_seticonsize": [
+3,
+3
+],
+"objective_setstencil": [
+3,
+3
+],
+"objective_state": [
+3,
+3
+],
+"openfile": [
+2,
+2
+],
+"physicsexplosioncylinder": [
+5,
+5
+],
+"pixbeginevent": [
+1,
+1
+],
+"pixendevent": [
+0,
+0
+],
+"playbink": [
+2,
+2
+],
+"playerbeingspectated": [
+1,
+1
+],
+"playfx": [
+3,
+8
+],
+"playfxondynent": [
+2,
+2
+],
+"playfxontag": [
+4,
+4
+],
+"playloopedfx": [
+4,
+10
+],
+"playloopsound": [
+3,
+4
+],
+"playrumbleonposition": [
+3,
+3
+],
+"playsound": [
+2,
+5
+],
+"playviewmodelfx": [
+3,
+3
+],
+"pointonsegmentnearesttopoint": [
+3,
+3
+],
+"precacheanimstatedef": [
+3,
+3
+],
+"precacherumble": [
+1,
+1
+],
+"print": [
+1,
+32
+],
+"print3d": [
+2,
+6
+],
+"println": [
+1,
+32
+],
+"project2dto3d": [
+3,
+3
+],
+"randomfloat": [
+1,
+1
+],
+"randomfloatrange": [
+2,
+2
+],
+"randomint": [
+1,
+1
+],
+"randomintrange": [
+2,
+2
+],
+"registerclientfield": [
+6,
+10
+],
+"resetzombieboxweapons": [
+0,
+0
+],
+"ropegetposition": [
+2,
+2
+],
+"ropepulse": [
+5,
+5
+],
+"rotateelem": [
+3,
+3
+],
+"scalespeed": [
+5,
+5
+],
+"scriptcallbackonfootstepevent": [
+1,
+1
+],
+"scriptmodelsuseanimtree": [
+1,
+1
+],
+"sessionmodeisonlinegame": [
+0,
+0
+],
+"sessionmodeisprivate": [
+0,
+0
+],
+"sessionmodeisprivateonlinegame": [
+0,
+0
+],
+"sessionmodeissystemlink": [
+0,
+0
+],
+"sessionmodeiszombiesgame": [
+0,
+0
+],
+"setambientpackage": [
+6,
+7
+],
+"setambientroomcontextengine": [
+3,
+4
+],
+"setambientsidechainduck": [
+1,
+1
+],
+"setambientsnapshot": [
+1,
+1
+],
+"setblurbylocalclientnum": [
+3,
+3
+],
+"setburn": [
+2,
+2
+],
+"setclientvolumetricfog": [
+8,
+18
+],
+"setcolorelem": [
+6,
+6
+],
+"setdemolockonvalues": [
+8,
+8
+],
+"setdvar": [
+2,
+2
+],
+"setdvarbool": [
+2,
+2
+],
+"setdvarfloat": [
+2,
+2
+],
+"setdvarint": [
+2,
+2
+],
+"setdynentenabled": [
+1,
+2
+],
+"setelectrified": [
+2,
+2
+],
+"setextracamactive": [
+2,
+2
+],
+"setextracamangles": [
+2,
+2
+],
+"setextracamentity": [
+2,
+2
+],
+"setextracamorigin": [
+2,
+2
+],
+"setextracamstatic": [
+2,
+2
+],
+"setfakeentorg": [
+3,
+3
+],
+"setflagasaway": [
+3,
+3
+],
+"setgenericscenevalue": [
+3,
+3
+],
+"setglobalfutz": [
+1,
+2
+],
+"setgroupsnapshot": [
+1,
+1
+],
+"sethealthsnapshot": [
+2,
+2
+],
+"sethidegumpalpha": [
+1,
+2
+],
+"setlevelfadesnapshot": [
+2,
+2
+],
+"setlocalradarenabled": [
+2,
+2
+],
+"setlocalradarposition": [
+2,
+2
+],
+"setlutscriptindex": [
+2,
+2
+],
+"setlutvolumeactivebank": [
+2,
+2
+],
+"setmaplatlong": [
+4,
+4
+],
+"setreverb": [
+2,
+5
+],
+"setrimintensity": [
+2,
+2
+],
+"setripplewave": [
+10,
+10
+],
+"setsaveddvar": [
+2,
+2
+],
+"setservervolumetricfogdensity": [
+3,
+3
+],
+"setsoundcontext": [
+2,
+2
+],
+"setsoundpitch": [
+2,
+2
+],
+"setsoundpitchrate": [
+2,
+2
+],
+"setsoundvolume": [
+2,
+2
+],
+"setsoundvolumerate": [
+2,
+2
+],
+"setteamreviveicon": [
+2,
+3
+],
+"setthirdperson": [
+1,
+1
+],
+"setupclientfieldanimspeedcallbacks": [
+1,
+32
+],
+"setupclientfieldcodecallbacks": [
+1,
+32
+],
+"setworldfogactivebank": [
+2,
+2
+],
+"showui": [
+3,
+3
+],
+"sin": [
+1,
+1
+],
+"soundlineemitter": [
+3,
+3
+],
+"soundloopemitter": [
+2,
+2
+],
+"soundplaying": [
+1,
+1
+],
+"soundsetmusicstate": [
+1,
+1
+],
+"soundstoplineemitter": [
+3,
+3
+],
+"soundstoploopemitter": [
+2,
+2
+],
+"soundtimescale": [
+1,
+1
+],
+"spawn": [
+2,
+3
+],
+"spawndynent": [
+3,
+3
+],
+"spawnfakeent": [
+1,
+1
+],
+"spawnfx": [
+4,
+6
+],
+"spawnplane": [
+6,
+6
+],
+"spawnstruct": [
+0,
+0
+],
+"splitargs": [
+1,
+1
+],
+"sqrt": [
+1,
+1
+],
+"startwatersheetingfx": [
+1,
+3
+],
+"stopbink": [
+1,
+1
+],
+"stopfx": [
+2,
+2
+],
+"stoplocalsound": [
+2,
+2
+],
+"stoploopsound": [
+2,
+3
+],
+"stopsound": [
+1,
+1
+],
+"stopwatersheetingfx": [
+1,
+2
+],
+"strtok": [
+2,
+2
+],
+"suidisable": [
+1,
+1
+],
+"suienable": [
+1,
+1
+],
+"switchtoclientvolumetricfog": [
+1,
+1
+],
+"switchtoservervolumetricfog": [
+1,
+1
+],
+"tablelookup": [
+4,
+8
+],
+"tablelookupcolumnforrow": [
+3,
+3
+],
+"tablelookupfindcoreasset": [
+1,
+1
+],
+"tablelookupistring": [
+4,
+4
+],
+"tablelookuprownum": [
+3,
+3
+],
+"tan": [
+1,
+1
+],
+"tolower": [
+1,
+1
+],
+"tracepoint": [
+2,
+2
+],
+"triggerfx": [
+1,
+2
+],
+"ui3dsetwindow": [
+5,
+5
+],
+"unhidestaticmodel": [
+1,
+1
+],
+"usealternatereviveicon": [
+1,
+1
+],
+"usefootstepfxtable": [
+2,
+2
+],
+"usefootsteptable": [
+2,
+2
+],
+"vectorcross": [
+2,
+2
+],
+"vectordot": [
+2,
+2
+],
+"vectorfromlinetopoint": [
+3,
+3
+],
+"vectorlerp": [
+3,
+3
+],
+"vectornormalize": [
+1,
+1
+],
+"vectorscale": [
+0,
+32
+],
+"vectortoangles": [
+0,
+32
+],
+"visionsetnaked": [
+2,
+3
+],
+"visionsetnakedlerp": [
+4,
+4
+],
+"waitrealtime": [
+1,
+1
+],
+"weaponclass": [
+1,
+1
+],
+"zacklodscalerigid": [
+0,
+3
+]
+},
+"client_methods": {
+"activatemixer": [
+0,
+0
+],
+"addfriendlyscrambler": [
+3,
+3
+],
+"animflaggedscripted": [
+2,
+5
+],
+"animgetchildat": [
+2,
+2
+],
+"animgetnumchildren": [
+1,
+1
+],
+"animscripted": [
+1,
+4
+],
+"attach": [
+1,
+2
+],
+"cincapturedisablealpha": [
+0,
+1
+],
+"cincaptureenablealpha": [
+0,
+1
+],
+"clearalternateaimparams": [
+0,
+0
+],
+"clearanim": [
+2,
+2
+],
+"clearanimlimited": [
+2,
+2
+],
+"clearmaterialoverride": [
+0,
+0
+],
+"clearnearestenemyscrambler": [
+0,
+0
+],
+"clearphysicsgravity": [
+0,
+0
+],
+"clearsteptriggersound": [
+0,
+0
+],
+"delete": [
+0,
+0
+],
+"earthquake": [
+4,
+4
+],
+"equipflashlight": [
+0,
+0
+],
+"forcedelete": [
+0,
+0
+],
+"forceinfraredmaterialsstreaming": [
+1,
+1
+],
+"getanimcurrframecount": [
+1,
+1
+],
+"getanimstate": [
+0,
+0
+],
+"getanimstatecategory": [
+0,
+0
+],
+"getanimtime": [
+1,
+1
+],
+"getbrake": [
+0,
+0
+],
+"getcamangles": [
+0,
+0
+],
+"getcampos": [
+0,
+0
+],
+"getcharacterindex": [
+0,
+0
+],
+"getcontrollertype": [
+0,
+0
+],
+"getenemyscrambleramount": [
+0,
+0
+],
+"getentityanimrate": [
+0,
+0
+],
+"getentitynumber": [
+0,
+0
+],
+"getentnum": [
+0,
+0
+],
+"geteye": [
+0,
+0
+],
+"geteyeapprox": [
+0,
+0
+],
+"getfriendlyscrambleramount": [
+0,
+0
+],
+"gethelidamagestate": [
+0,
+0
+],
+"getinkillcam": [
+1,
+1
+],
+"getlightcolor": [
+0,
+0
+],
+"getlightexponent": [
+0,
+0
+],
+"getlightfovinner": [
+0,
+0
+],
+"getlightfovouter": [
+0,
+0
+],
+"getlightintensity": [
+0,
+0
+],
+"getlightradius": [
+0,
+0
+],
+"getlocalclientdriver": [
+0,
+0
+],
+"getlocalclientnumber": [
+0,
+0
+],
+"getlocalgunnerangles": [
+1,
+1
+],
+"getmaxreversespeed": [
+0,
+0
+],
+"getmaxspeed": [
+0,
+0
+],
+"getmovementtype": [
+0,
+0
+],
+"getowner": [
+1,
+1
+],
+"getparententity": [
+0,
+0
+],
+"getspeed": [
+0,
+0
+],
+"getstance": [
+0,
+0
+],
+"getsteering": [
+0,
+0
+],
+"gettagangles": [
+1,
+1
+],
+"gettagorigin": [
+1,
+1
+],
+"getthrottle": [
+0,
+0
+],
+"getvehiclehealth": [
+0,
+0
+],
+"getvelocity": [
+0,
+0
+],
+"getweaponposfrac": [
+1,
+1
+],
+"getwheelsurface": [
+1,
+1
+],
+"getwiiuremotepointerposition": [
+0,
+0
+],
+"hasanimtree": [
+0,
+0
+],
+"hasdobj": [
+1,
+1
+],
+"hasperk": [
+1,
+2
+],
+"hastacticalmaskoverlay": [
+0,
+0
+],
+"hide": [
+0,
+0
+],
+"isai": [
+0,
+0
+],
+"isalive": [
+0,
+0
+],
+"isburning": [
+0,
+0
+],
+"isdriving": [
+1,
+1
+],
+"isextracam": [
+1,
+1
+],
+"isgrenadedud": [
+0,
+0
+],
+"isinsideheightlock": [
+0,
+0
+],
+"islocalclientdriver": [
+1,
+1
+],
+"islocalplayer": [
+0,
+0
+],
+"islocalplayerviewlinked": [
+1,
+1
+],
+"islocalplayerweaponviewonlylinked": [
+0,
+0
+],
+"ispeelingout": [
+0,
+0
+],
+"isplayer": [
+0,
+0
+],
+"isplayingloopsound": [
+0,
+0
+],
+"ispoisoned": [
+0,
+0
+],
+"isremotecontrolling": [
+0,
+0
+],
+"isscrambled": [
+0,
+0
+],
+"issplitscreenhost": [
+0,
+0
+],
+"istouching": [
+1,
+1
+],
+"iswheelcolliding": [
+1,
+1
+],
+"iswheelsliding": [
+1,
+1
+],
+"launchragdoll": [
+1,
+1
+],
+"linkto": [
+1,
+4
+],
+"makelight": [
+1,
+1
+],
+"makelightslave": [
+1,
+1
+],
+"makemixerlight": [
+1,
+1
+],
+"map_material": [
+2,
+2
+],
+"mapshaderconstant": [
+3,
+7
+],
+"movegravity": [
+2,
+2
+],
+"moveto": [
+2,
+4
+],
+"movex": [
+2,
+4
+],
+"movey": [
+2,
+4
+],
+"movez": [
+2,
+4
+],
+"overridelightingorigin": [
+1,
+1
+],
+"playloopsound": [
+1,
+2
+],
+"playrumblelooponentity": [
+2,
+2
+],
+"playrumbleonentity": [
+2,
+2
+],
+"playsound": [
+2,
+4
+],
+"print": [
+1,
+32
+],
+"processclientfieldsasifnew": [
+0,
+0
+],
+"removeallfriendlyscramblers": [
+0,
+0
+],
+"removeflashlight": [
+0,
+0
+],
+"removefriendlyscrambler": [
+1,
+1
+],
+"rotatepitch": [
+2,
+4
+],
+"rotateroll": [
+2,
+4
+],
+"rotateto": [
+2,
+4
+],
+"rotatevelocity": [
+2,
+4
+],
+"rotateyaw": [
+2,
+4
+],
+"set_filter_bit_flag": [
+3,
+3
+],
+"set_filter_pass_constant": [
+4,
+4
+],
+"set_filter_pass_enabled": [
+3,
+3
+],
+"set_filter_pass_material": [
+3,
+3
+],
+"set_filter_pass_quads": [
+3,
+3
+],
+"set_overlay_constant": [
+3,
+3
+],
+"set_overlay_enabled": [
+2,
+2
+],
+"set_overlay_material": [
+3,
+3
+],
+"setalphafadeforname": [
+1,
+1
+],
+"setambienttrigger": [
+0,
+0
+],
+"setanim": [
+1,
+4
+],
+"setanimknob": [
+1,
+4
+],
+"setanimknoball": [
+2,
+5
+],
+"setanimknoballlimited": [
+2,
+5
+],
+"setanimknoballlimitedrestart": [
+2,
+5
+],
+"setanimknoballrestart": [
+2,
+5
+],
+"setanimknoblimited": [
+1,
+4
+],
+"setanimknoblimitedrestart": [
+1,
+4
+],
+"setanimknobrestart": [
+1,
+4
+],
+"setanimlimited": [
+1,
+4
+],
+"setanimlimitedrestart": [
+1,
+4
+],
+"setanimrestart": [
+1,
+4
+],
+"setanimtime": [
+2,
+2
+],
+"setblur": [
+2,
+2
+],
+"setcompassicon": [
+1,
+1
+],
+"setenemyglobalscrambler": [
+1,
+1
+],
+"setenemyscrambleramount": [
+1,
+1
+],
+"setentityanimrate": [
+1,
+1
+],
+"setflagasaway": [
+2,
+2
+],
+"setflaggedanim": [
+2,
+5
+],
+"setflaggedanimknob": [
+2,
+5
+],
+"setflaggedanimknoball": [
+3,
+5
+],
+"setflaggedanimknoballrestart": [
+3,
+5
+],
+"setflaggedanimknoblimited": [
+2,
+5
+],
+"setflaggedanimknoblimitedrestart": [
+2,
+5
+],
+"setflaggedanimknobrestart": [
+2,
+5
+],
+"setflaggedanimlimited": [
+2,
+5
+],
+"setflaggedanimlimitedrestart": [
+2,
+5
+],
+"setflaggedanimrestart": [
+2,
+5
+],
+"setforcenotsimple": [
+0,
+0
+],
+"setfriendlyscrambleramount": [
+1,
+1
+],
+"setinfraredvisionset": [
+1,
+1
+],
+"setlightcolor": [
+1,
+1
+],
+"setlightexponent": [
+1,
+1
+],
+"setlightfovrange": [
+1,
+2
+],
+"setlightintensity": [
+1,
+1
+],
+"setlightradius": [
+1,
+1
+],
+"setloopstate": [
+3,
+5
+],
+"setmaterialoverride": [
+1,
+1
+],
+"setmixerbehavior": [
+1,
+1
+],
+"setmixerexploderid": [
+1,
+1
+],
+"setmixerl2rrampspeed": [
+1,
+1
+],
+"setmixerlightbehavior": [
+2,
+2
+],
+"setmixerlightcolor": [
+2,
+2
+],
+"setmixerlightexponent": [
+2,
+2
+],
+"setmixerlightfovrange": [
+2,
+3
+],
+"setmixerlightintensity": [
+2,
+2
+],
+"setmixerlightmodels": [
+3,
+3
+],
+"setmixerlightparam": [
+3,
+3
+],
+"setmixerlightradius": [
+2,
+2
+],
+"setmixerlightrotatetime": [
+1,
+1
+],
+"setmixerparam": [
+2,
+2
+],
+"setmixerr2lrampspeed": [
+1,
+1
+],
+"setmixerspinmodels": [
+5,
+5
+],
+"setmodel": [
+1,
+1
+],
+"setmultiextracamactive": [
+1,
+1
+],
+"setnearestenemyscrambler": [
+1,
+1
+],
+"setphysicsgravity": [
+1,
+1
+],
+"setrenderinthirdpersonspectate": [
+1,
+1
+],
+"setscale": [
+1,
+1
+],
+"setshaderconstant": [
+6,
+6
+],
+"setsonarattachmentenabled": [
+1,
+1
+],
+"setsonarenabled": [
+1,
+1
+],
+"setsoundentcontext": [
+2,
+2
+],
+"setsteptriggersound": [
+1,
+1
+],
+"setstunned": [
+1,
+1
+],
+"settargethighlight": [
+1,
+5
+],
+"setviewmodelrenderflag": [
+1,
+1
+],
+"setwatchstyle": [
+1,
+1
+],
+"shellshock": [
+3,
+3
+],
+"show": [
+0,
+0
+],
+"startpoisoning": [
+0,
+0
+],
+"stoploopsound": [
+0,
+1
+],
+"stoppoisoning": [
+0,
+0
+],
+"stoprumble": [
+2,
+2
+],
+"underwater": [
+0,
+0
+],
+"unlink": [
+0,
+0
+],
+"usealternateaimparams": [
+0,
+0
+],
+"useanimtree": [
+1,
+1
+],
+"useweaponhidetags": [
+1,
+1
+],
+"useweaponmodel": [
+1,
+3
+],
+"zbarriergetnumpieces": [
+0,
+0
+],
+"zbarriergetpiece": [
+1,
+1
 ]
 },
 "methods": {

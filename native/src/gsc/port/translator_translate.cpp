@@ -4,8 +4,8 @@
 
 #include "api.h"
 #include "core/regex.h"
-#include "loops.h"
 #include "rewrites.h"
+#include "vm_rules.h"
 
 namespace w2b::gsc::port
 {
@@ -190,7 +190,7 @@ namespace w2b::gsc::port
         report.rewrites["run-time HUD material names -> converted table"] += BridgeDynamicHudMaterials(tokens);
         report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += MirrorTeamZombieVars(tokens);
         const std::string header = "// Translated from World at War by waw2bo2 (gscport). Source: " + whereFile + "\n";
-        return header + ApplyVmRules(Emit(tokens), whereFile);
+        return header + VmRules(Emit(tokens), whereFile);
     }
 
     void Translator::AdaptNativeArguments(Tokens& tokens, const Ref& ref, const std::string& native, const std::optional<int> argc, const std::string& where)
@@ -520,24 +520,31 @@ namespace w2b::gsc::port
         RewriteAnimationRefs(tokens, tree, where);
     }
 
-    // What T4's VM does and T6's does not (docs/T4_SCRIPT_LANGUAGE.md)
-    std::string Translator::ApplyVmRules(const std::string& text, const std::string& where)
+    std::string Translator::VmRules(const std::string& text, const std::string& where)
     {
         auto tokens = Tokenize(text);
         try
         {
-            const auto switches = LowerSwitches(tokens, std::string(COMPAT) + "::waw_switch");
-            report.rewrites["switches run the default label for a value that cannot match"] += switches;
-            const auto loops = WatchLoops(tokens, std::string(COMPAT) + "::waw_kill_thread");
-            report.rewrites["loops that may never end (T4's loop watchdog)"] += loops.watched;
-            report.rewrites["loops known to end or to wait"] += loops.loops - loops.watched;
-            return switches || loops.watched ? Emit(tokens) : text;
+            const auto counts = ApplyVmRules(tokens, VmRuntime{COMPAT});
+            AddVmCounts(report, counts);
+            return counts.Changes() ? Emit(tokens) : text;
         }
         catch (const GscSyntaxError& error)
         {
-            report.Unsupported("script WaW's grammar does not accept: no loop watchdog", where + ": " + error.what());
+            report.Unsupported("script WaW's grammar does not accept: T4's VM rules not applied", where + ": " + error.what());
             return text;
         }
+    }
+
+    void AddVmCounts(PortReport& report, const VmCounts& counts)
+    {
+        report.rewrites["loops that may never end (T4's loop watchdog)"] += counts.watched;
+        report.rewrites["loops known to end or to wait"] += counts.loops - counts.watched;
+        report.rewrites["switches run the default label for a value that cannot match"] += counts.switches;
+        report.rewrites["vectors with a part that may not be a number"] += counts.vectors;
+        report.rewrites["&& and || used as a value (0 or 1)"] += counts.logic;
+        report.rewrites["array comparisons"] += counts.arrays;
+        report.rewrites["string order comparisons (a fault in WaW)"] += counts.comparisons;
     }
 
     void Translator::SourceLowerings(Tokens& tokens)
@@ -590,6 +597,6 @@ namespace w2b::gsc::port
             report.rewrites["intermission player link -> T6 script camera"] += BridgeIntermissionCamera(tokens);
         auto text = Emit(tokens);
         const auto patch = postPatches.find({core, name});
-        return ApplyVmRules(patch != postPatches.end() ? patch->second(text) : text, core + "::" + name);
+        return VmRules(patch != postPatches.end() ? patch->second(text) : text, core + "::" + name);
     }
 } // namespace w2b::gsc::port

@@ -190,7 +190,8 @@ add_library(w2b_gscport STATIC
     src/gsc/port/util.cpp
     src/gsc/port/api.cpp
     src/gsc/port/rewrites.cpp
-    src/gsc/port/loops.cpp
+    src/gsc/port/vm_rules.cpp
+    src/gsc/port/link_check.cpp
     src/gsc/port/t6api.cpp
     src/gsc/port/sources.cpp
     src/gsc/port/statements.cpp

@@ -16,6 +16,8 @@
 
 namespace w2b::gsc::port
 {
+    struct VmCounts;
+
     struct ListenerCopy
     {
         std::string entry, effects, code;
@@ -52,7 +54,7 @@ namespace w2b::gsc::port
         void RewriteAnimationRefs(Tokens& tokens, const std::string& tree, const std::string& where, long long start = 0,
                                   std::optional<long long> end = std::nullopt);
         void KeepCoreAnimations(const Script& script, Tokens& tokens, const std::string& where, const std::optional<std::string>& animtree);
-        std::string ApplyVmRules(const std::string& text, const std::string& where);
+        std::string VmRules(const std::string& text, const std::string& where);
         void SourceLowerings(Tokens& tokens);
         std::string TranslateExtracted(const std::string& core, const std::string& name);
 
@@ -133,6 +135,8 @@ namespace w2b::gsc::port
                                                          const std::map<std::string, std::string>& effects);
         static void DropArgument(Tokens& toks, long long nameIndex, size_t index);
     };
+
+    void AddVmCounts(PortReport& report, const VmCounts& counts);
 
     // API.get(key, {}) without a copy: the section, or a null value when absent
     const util::Json& ApiSection(const std::string& key);

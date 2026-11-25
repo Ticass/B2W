@@ -1,6 +1,6 @@
 // The script front end: T4's grammar and the VM rules (docs/T4_SCRIPT_LANGUAGE.md).
 #include "gsc/ast.h"
-#include "gsc/port/loops.h"
+#include "gsc/port/vm_rules.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -41,7 +41,7 @@ namespace
     int Watched(const std::string& body)
     {
         auto tokens = Tokenize("f( p ) { " + body + " }");
-        return port::WatchLoops(tokens, "kill").watched;
+        return port::ApplyVmRules(tokens, {"run"}).watched;
     }
 } // namespace
 
@@ -101,21 +101,46 @@ TEST_CASE("loops that may never end get T4's watchdog", "[gsc]")
     auto tokens = Tokenize("f( x )\n{\n\twhile ( x ) // forever\n\t\tg();\n\th();\n}\n");
     const auto ast = ParseAst(tokens);
     CHECK_FALSE(port::LoopIsBounded(ast, tokens, ast.Functions()[0], ast[ast[ast.Functions()[0]].kids[1]].kids[0]));
-    port::WatchLoops(tokens, "kill");
+    port::ApplyVmRules(tokens, {"run"});
     const auto text = Emit(tokens);
     CHECK(text.starts_with("f( x )\n{ waw2bo2_turns = 0;\n\twhile ( x ) { waw2bo2_turns++;"));
-    CHECK(text.ends_with("kill( \"f\" ); waw2bo2_frame = gettime(); waw2bo2_turns = 0; } // forever\n\t\tg(); }\n\th();\n}\n"));
+    CHECK(text.ends_with("if ( waw2bo2_turns > 100 ) { waw2bo2_turns = 0; run::waw_watch( \"f\" ); } // forever\n\t\tg(); }\n\th();\n}\n"));
     CHECK(Accepts(text));
 }
 
-TEST_CASE("a switch reads its value as T4 does", "[gsc]")
+TEST_CASE("T4's results where T6's differ", "[gsc]")
 {
     const auto lower = [](const std::string& body) {
         auto tokens = Tokenize("f() { " + body + " }");
-        const auto changed = port::LowerSwitches(tokens, "reader");
-        return std::to_string(changed) + Emit(tokens);
+        port::ApplyVmRules(tokens, {"run"});
+        const auto text = Emit(tokens);
+        CHECK(Accepts(text));
+        return text.substr(6, text.size() - 8);
     };
-    CHECK(lower("switch ( a.b ) { case 1: c(); break; default: d(); }") == "1f() { switch ( reader( a.b ) ) { case 1: c(); break; default: d(); } }");
-    CHECK(lower("switch ( a ) { case 1: c(); }") == "0f() { switch ( a ) { case 1: c(); } }");
-    CHECK(lower("switch ( 2 ) { default: c(); }") == "0f() { switch ( 2 ) { default: c(); } }");
+    // a value that cannot match runs the default label
+    CHECK(lower("switch ( a.b ) { case 1: c(); break; default: d(); }") == "switch ( run::waw_switch( a.b ) ) { case 1: c(); break; default: d(); }");
+    CHECK(lower("switch ( a ) { case 1: c(); }") == "switch ( a ) { case 1: c(); }");
+    CHECK(lower("switch ( 2 ) { default: c(); }") == "switch ( 2 ) { default: c(); }");
+    // vectors of parts that may not be numbers
+    CHECK(lower("a = ( 1, -2, 3 * 4 );") == "a = ( 1, -2, 3 * 4 );");
+    CHECK(lower("a = ( 0, randomint( 5 ), 0 );") == "a = ( 0, randomint( 5 ), 0 );");
+    CHECK(lower("a = b + ( c[0], d.e, 0 );") == "a = b + run::waw_vector ( c[0], d.e, 0 );");
+    CHECK(lower("a = ( b, 0, 0 )[0];") == "a = ( b, 0, 0 )[0];");
+    CHECK(lower("a = ( b );") == "a = ( b );");
+    // && and || give 0 or 1
+    CHECK(lower("a = b && c;") == "a = b && !( !( c ) );");
+    CHECK(lower("a = b || c == 1;") == "a = b || c == 1;");
+    CHECK(lower("a = b && ( c || d.e );") == "a = b && ( c || !( !( d.e ) ) );");
+    CHECK(lower("if ( b && c ) d();") == "if ( b && c ) d();");
+    CHECK(lower("if ( e( b && c ) ) d();") == "if ( e( b && !( !( c ) ) ) ) d();");
+    CHECK(lower("return !( b && c );") == "return !( b && c );");
+    CHECK(lower("a = b[c && d[0]];") == "a = b[c && !( !( d[0] ) )];");
+    // comparisons
+    CHECK(lower("a = []; if ( a == b ) c();") == "a = []; if ( run::waw_equal( a , b ) ) c();");
+    CHECK(lower("if ( [] != b.c ) d();") == "if ( run::waw_not_equal( [] , b.c ) ) d();");
+    CHECK(lower("if ( a == b ) c();") == "if ( a == b ) c();");
+    CHECK(lower("if ( a < \"b\" ) c();") == "if ( run::waw_fault( a , \"b\" ) ) c();");
+    CHECK(lower("if ( a == \"b\" ) c();") == "if ( a == \"b\" ) c();");
+    // brackets keep their text
+    CHECK(lower("[[ a ]](); self [[ b.c ]]( d[e[0]] );") == "[[ a ]](); self [[ b.c ]]( d[e[0]] );");
 }

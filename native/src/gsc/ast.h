@@ -43,6 +43,7 @@ namespace w2b::gsc
         While,  // kids = condition, body
         For,    // kids = init, condition, step, body; an absent part is an Empty
         ForEach, // BO2 only. kids = Local, [Local], array, body
+        DoWhile, // BO2 only. kids = body, condition
         Switch, // kids = value, Block
         Case,   // kids = value
         Default,
@@ -51,6 +52,7 @@ namespace w2b::gsc
 
         // expressions
         Binary, // token = operator; kids = left, right
+        Conditional, // BO2 only: "a ? b : c"
         Not,
         Complement,
         Undefined,
@@ -109,7 +111,7 @@ namespace w2b::gsc
     enum class Dialect : uint8_t
     {
         Waw,
-        Bo2, // translated scripts: the converter's own code also has foreach
+        Bo2, // translated scripts and BO2's own: also foreach, do, ?:, %tree::anim
     };
 
     // Throws GscSyntaxError where WaW reports "bad syntax".

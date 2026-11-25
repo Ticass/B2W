@@ -279,6 +279,16 @@ namespace w2b::gsc
                     return For();
                 if (dialect_ == Dialect::Bo2 && Is("foreach") && Is("(", 1))
                     return ForEach();
+                if (dialect_ == Dialect::Bo2 && Is("do") && !Is("(", 1) && !Is("=", 1) && !Is(".", 1))
+                {
+                    const auto id = Open(NodeKind::DoWhile);
+                    pos_++;
+                    Add(id, Statement());
+                    Expect("while");
+                    Add(id, Condition());
+                    Expect(";");
+                    return Close(id);
+                }
                 if (Is("switch"))
                 {
                     const auto id = Open(NodeKind::Switch);
@@ -431,7 +441,7 @@ namespace w2b::gsc
                 Add(id, Expression());
                 while (kind != NodeKind::EndOn && Accept(","))
                 {
-                    if (kind == NodeKind::WaitTill && !IsIdent())
+                    if (kind == NodeKind::WaitTill && !IsIdent() && !(dialect_ == Dialect::Bo2 && Is("undefined")))
                         Fail(); // its results are local variables
                     Add(id, kind == NodeKind::WaitTill ? Leaf(NodeKind::Local) : Expression());
                 }
@@ -452,6 +462,16 @@ namespace w2b::gsc
                     pos_++;
                     Add(id, left);
                     Add(id, Expression(precedence + 1));
+                    left = Close(id);
+                }
+                if (dialect_ == Dialect::Bo2 && minimum == 1 && Is("?"))
+                {
+                    const auto id = OpenAt(NodeKind::Conditional, left);
+                    pos_++;
+                    Add(id, left);
+                    Add(id, Expression());
+                    Expect(":");
+                    Add(id, Expression());
                     left = Close(id);
                 }
                 return left;
@@ -609,7 +629,7 @@ namespace w2b::gsc
                 if (Is("-") && Peek(1).kind == Kind::Number)
                     return Leaf(Peek(1).text.find('.') == std::string_view::npos ? NodeKind::Int : NodeKind::Float, 2);
                 if (Is("%") && Peek(1).kind == Kind::Ident)
-                    return Leaf(NodeKind::AnimRef, 2);
+                    return Leaf(NodeKind::AnimRef, dialect_ == Dialect::Bo2 && Is("::", 2) && Peek(3).kind == Kind::Ident ? 4 : 2);
                 if (Is("#") && Is("animtree", 1))
                     return Leaf(NodeKind::AnimTree, 2);
                 if (Is("::") && IsIdent(1))
@@ -683,7 +703,7 @@ namespace w2b::gsc
         static constexpr const char* names[]{
             "script", "directive", "devbegin", "devend",     "func",     "param",    "block",    "do",       "set",      "inc",           "dec",
             "return", "wait",      "waittill", "waittillmatch", "waittillframeend", "notify",  "endon",    "break",    "continue", "breakpoint", "prof",
-            "if",     "while",     "for",      "foreach",  "switch",     "case",     "default",  "dev",      "empty",    "bin",      "not",           "compl",
+            "if",     "while",     "for",      "foreach",  "dowhile",  "switch",     "case",     "default",  "dev",      "empty",    "bin",      "cond",     "not",           "compl",
             "undefined", "self",   "level",    "game",       "anim",     "true",     "false",    "int",      "float",    "str",           "istr",
             "list",   "array",     "var",      "field",      "size",     "index",    "ref",      "animref",  "animtree", "call",          "callee"};
         static_assert(std::size(names) == static_cast<size_t>(NodeKind::Callee) + 1);

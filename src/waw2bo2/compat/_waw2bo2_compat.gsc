@@ -47,11 +47,28 @@ waw_getent_linkname( value, key )
     return undefined;
 }
 
-// T4's VM (0x693E80, opcode 99) kills a thread that loops for 2.5 s without a
-// wait, with every function it is in; not while the level's scripts load
-// (0x503300). T6 has no watchdog and hangs. The translated loops that may
-// never end count their turns and call this. The thread stays parked: nothing
-// after the loop runs, in it or in its callers.
+// T4's VM (0x693E80, opcode 99) kills a thread that loops until 2.5 s have
+// passed since the engine entered the VM, with every function it is in, and
+// starts the clock again; not while the level's scripts load (0x503300). T6
+// has no watchdog and hangs. The translated loops that may never end call
+// this every 100 turns. GetUTC, in whole seconds, is the server scripts' only
+// clock that runs within a frame: the third tick comes after 2 to 3 s.
+waw_watch( where )
+{
+    now = getutc();
+    if ( !isdefined( level.waw_running ) || !isdefined( level.waw_watch_frame ) || level.waw_watch_frame != gettime() )
+    {
+        level.waw_watch_frame = gettime();
+        level.waw_watch_start = now;
+        return;
+    }
+    if ( now - level.waw_watch_start < 3 )
+        return;
+    level.waw_watch_start = now;
+    waw_kill_thread( where );
+}
+
+// The thread stays parked: nothing after the loop runs, in it or its callers.
 waw_kill_thread( where )
 {
     println( "WAW2BO2 potential infinite loop in script - killing thread: " + where );
@@ -64,6 +81,9 @@ waw_level_running()
     level.waw_running = 1;
 }
 
+// The rest are differences between the two VMs, measured with one script in
+// both games (docs/T4_SCRIPT_LANGUAGE.md).
+
 // T4 runs a switch's default label for a value it cannot switch on ("cannot
 // switch on undefined"); T6 runs no label at all.
 waw_switch( value )
@@ -71,6 +91,41 @@ waw_switch( value )
     if ( isdefined( value ) && ( isint( value ) || isstring( value ) ) )
         return value;
     return "waw2bo2_no_case";
+}
+
+// A vector part that is not a number: undefined in T4; garbage and a wrong
+// script stack in T6.
+waw_vector( x, y, z )
+{
+    if ( !waw_number( x ) || !waw_number( y ) || !waw_number( z ) )
+        return undefined;
+    return ( x, y, z );
+}
+
+waw_number( value )
+{
+    return isdefined( value ) && ( isint( value ) || isfloat( value ) );
+}
+
+// T4 compares arrays by identity, so two arrays differ; T6 faults.
+waw_equal( a, b )
+{
+    if ( isdefined( a ) && isdefined( b ) && isarray( a ) && isarray( b ) )
+        return 0;
+    return a == b;
+}
+
+waw_not_equal( a, b )
+{
+    if ( isdefined( a ) && isdefined( b ) && isarray( a ) && isarray( b ) )
+        return 1;
+    return a != b;
+}
+
+// an operation T4 cannot do: both sides run, the result is undefined
+waw_fault( a, b )
+{
+    return undefined;
 }
 
 init()

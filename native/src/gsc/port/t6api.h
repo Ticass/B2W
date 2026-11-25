@@ -30,7 +30,8 @@ namespace w2b::gsc::port
         std::optional<bool> BuiltinAccepts(const std::string& name, int argc, std::optional<bool> method = std::nullopt) const;
         const std::vector<std::string>& ByName(const std::string& name) const;
 
-        std::unordered_map<std::string, Range> builtins, methods;
+        std::unordered_map<std::string, Range> builtins, methods;             // server
+        std::unordered_map<std::string, Range> clientBuiltins, clientMethods; // client (t6zm.exe tables 0xD3AF00, 0xC62CA8)
         std::vector<std::pair<std::string, std::map<std::string, int>>> scripts; // file order
         std::unordered_map<std::string, size_t> scriptIndex;                     // lower path -> scripts index
         std::unordered_map<std::string, std::vector<std::string>> byName;
