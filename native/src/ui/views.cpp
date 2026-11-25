@@ -602,7 +602,7 @@ namespace w2b::ui
             {
                 field("menu_title", "Map name", "Globe signpost, map selection, lobby and loading screen.", -1);
                 field("menu_description", "Description", "Under the map name on the map selection screen.", Previews::MapSelection);
-                field("menu_mode", "Mode line", "Replaces \"TRANZIT\" under the map name in the lobby.", Previews::Lobby);
+                field("menu_mode", "Mode line", "Replaces \"TRANZIT\" under the map name in the lobby and on the loading screen.", Previews::Lobby);
                 field("menu_location", "Location", "Under the map name on the loading screen.", Previews::Loading);
             }
             EndGroup();

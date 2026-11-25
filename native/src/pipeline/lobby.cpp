@@ -234,6 +234,11 @@ namespace w2b::pipeline
         for (const auto& key : GametypeNameKeys(projectRoot, project))
             values.Set(key, Upper(strings.at("mode")));
         StartLocationOptionStrings(projectRoot, project, strings, values);
+        // the gametype's own name ("TRANZIT"): the loading screen's mode line (zclassic.txt) and the mode lists
+        for (const char* key : {"ZMUI_ZCLASSIC_CAPS", "ZMUI_ZCLASSIC_SHORT_CAPS", "ZMUI_CLASSIC_CAPS"})
+            values.Set(key, Upper(strings.at("mode")));
+        for (const char* key : {"ZMUI_ZCLASSIC", "ZMUI_CLASSIC"})
+            values.Set(key, strings.at("mode"));
         std::string text = "VERSION \"1\"\nCONFIG \"\"\nFILENOTES \"Converted map menu\"\n\n";
         for (const auto& [key, value] : values.items)
             text += "REFERENCE " + key + "\nLANG_ENGLISH " + Quote(value) + "\n\n";
