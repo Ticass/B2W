@@ -24,7 +24,9 @@ namespace w2b::models
     std::optional<Bounds> GameBounds(const Json& geometry);
     Vec3 LightingOrigin(const Json& placement, const Bounds& bounds);
     Json CollisionBox(Bounds bounds, const Json& bone);
-    bool StripBadSkins(Json& geometry);
+    bool StripBadSkins(Json& geometry, bool rigid);
+    // Replaces non-finite authored hitbox values; returns the number of bones changed.
+    std::size_t RepairHitboxes(Json& model);
     std::size_t NeutralizeTransforms(Json& geometry);
     std::vector<std::string> DropShadowSurfaces(Json& geometry, const std::function<bool(const std::string&)>& shadowOnly);
     Json StageModels(const Path& project, const Path& partCsv, std::vector<Path> roots, Json placements,

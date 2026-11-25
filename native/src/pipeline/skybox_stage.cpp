@@ -238,7 +238,8 @@ namespace w2b::pipeline
                 const auto materialFile = Find(roots, assets::MaterialPath(name));
                 if (!materialFile)
                     throw StageError("source sky material " + name + " missing");
-                const auto source = materials::FromOatJson(mod::Json(*materialFile));
+                auto source = materials::FromOatJson(mod::Json(*materialFile));
+                source.skyModel = true;
                 auto target = donor;
                 target.textures.clear();
                 for (const auto& texture : source.textures)

@@ -46,6 +46,8 @@ namespace w2b::visions
                                                                            {"r_filmtweakinvert", "r_filminvert"},
                                                                            {"r_filmtweakdarktint", "r_filmdarktint"},
                                                                            {"r_filmtweaklighttint", "r_filmlighttint"}};
+        // the vec3 fields of WaW's vision table (0x8DD648) the film reads
+        const std::set<std::string> VECTOR_FIELDS{"r_filmdarktint", "r_filmlighttint"};
         const std::string FILM_TWEAK_GRADE = "_filmtweak";
 
         std::string Str(fs::path p)
@@ -691,6 +693,26 @@ namespace w2b::visions
         }
     } // namespace
 
+    std::vector<double> ScanFloats(const std::string& text, const size_t count)
+    {
+        static const regex::Regex prefix("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?");
+        std::vector<double> values;
+        size_t at = 0;
+        while (values.size() < count)
+        {
+            while (at < text.size() && util::IsSpace(text[at]))
+                at++;
+            const auto match = prefix.MatchAt(text.substr(at));
+            if (!match)
+                return {};
+            values.push_back(PyFloat((*match)[0]));
+            if (!std::isfinite(values.back()))
+                return {};
+            at += (*match)[0].size();
+        }
+        return values;
+    }
+
     double VisionFloat(const std::string& value)
     {
         double result = 0;
@@ -827,7 +849,8 @@ namespace w2b::visions
                     {"sampling", "32^3 RGB8, native T6 spatial LUT interpolation"},
                     {"transition", "LUT grade switches immediately; shared vision fields retain native fade time"},
                     {"errors", Json::array()},
-                    {"numeric_prefixes", Json::array()}};
+                    {"numeric_prefixes", Json::array()},
+                    {"malformed", Json::array()}};
         const auto lookup = [&](const std::string& name)
         {
             if (!sources.count(name) && stock)
@@ -877,7 +900,6 @@ namespace w2b::visions
             if (StartsWith(k, "r_") || StartsWith(k, "sm_"))
                 report["script_render_dvars"][k] = v;
         static const regex::Regex validName("[a-z0-9_/.-]+");
-        static const regex::Regex prefix("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?");
         for (const auto& name : wanted)
         {
             if (!sources.count(name))
@@ -893,19 +915,28 @@ namespace w2b::visions
             for (auto& [key, value] : fields.items())
             {
                 const auto text = value.get<std::string>();
-                if (!StartsWith(key, "r_") || SplitWhite(text).size() != 1)
+                if (!StartsWith(key, "r_"))
                     continue;
+                const bool vector = VECTOR_FIELDS.contains(key);
+                const auto words = SplitWhite(text);
                 double ignored = 0;
-                if (util::ParseFloat(text, ignored))
+                if (!vector && words.size() > 1) // other vec3 fields
                     continue;
-                size_t i = 0;
-                while (i < text.size() && util::IsSpace(text[i]))
-                    i++;
-                if (!prefix.MatchAt(text.substr(i)))
+                if (words.size() == (vector ? 3u : 1u) && std::ranges::all_of(words, [&](const auto& w) { return util::ParseFloat(w, ignored); }))
                     continue;
-                const double parsed = VisionFloat(text);
-                value = util::FloatRepr(parsed);
-                report["numeric_prefixes"].push_back(Json{{"vision", name}, {"source", sources[name].second}, {"field", key}, {"original", text}, {"parsed", parsed}});
+                const auto values = ScanFloats(text, vector ? 3 : 1);
+                if (values.empty())
+                {
+                    // sub_462B70: "malformed dvar", the field stays at the cleared vision's 0
+                    value = vector ? "0 0 0" : "0";
+                    report["malformed"].push_back(Json{{"vision", name}, {"source", sources[name].second}, {"field", key}, {"original", text}});
+                    continue;
+                }
+                std::string parsed;
+                for (const double v : values)
+                    parsed += (parsed.empty() ? "" : " ") + util::FloatRepr(v);
+                value = parsed;
+                report["numeric_prefixes"].push_back(Json{{"vision", name}, {"source", sources[name].second}, {"field", key}, {"original", text}, {"parsed", vector ? Json(parsed) : Json(values[0])}});
             }
             const auto index = grades.size();
             // vc_LUT's native range is -32..32; it selects abs(value)-1

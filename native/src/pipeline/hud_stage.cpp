@@ -110,6 +110,15 @@ namespace w2b::pipeline
                 return std::nullopt;
             }
 
+            // the stock WaW copy of an asset, whatever the map ships
+            std::optional<fs::path> Stock(const std::string& kind, const std::string& name, const fs::path& relative)
+            {
+                if (!stock_)
+                    return std::nullopt;
+                const auto hit = stock_->RootFor(kind, name);
+                return hit && IsFile(hit->second / relative) ? std::optional(hit->second / relative) : std::nullopt;
+            }
+
         private:
             std::vector<fs::path> Roots() const
             {
@@ -234,6 +243,34 @@ namespace w2b::pipeline
             return out;
         }
 
+        // whether the atlas rectangles of a font have the proportions its glyphs are drawn with
+        bool TableFitsAtlas(const Json& font, const textures::RgbaImage& atlas)
+        {
+            std::size_t fits = 0, stretched = 0;
+            for (const auto& glyph : font.at("glyphs"))
+            {
+                const auto w = glyph.at("pixelWidth").get<double>(), h = glyph.at("pixelHeight").get<double>();
+                if (w < 4 || h < 4)
+                    continue;
+                const auto x = (glyph.at("s1").get<double>() - glyph.at("s0").get<double>()) * atlas.width / w;
+                const auto y = (glyph.at("t1").get<double>() - glyph.at("t0").get<double>()) * atlas.height / h;
+                (x > y * 1.5 || y > x * 1.5 ? stretched : fits)++;
+            }
+            return stretched <= fits;
+        }
+
+        // whether two glyph tables are one font: stock compiles differ in a few small glyphs (Hotel V2: 8 of 191)
+        bool SameTable(const Json& a, const Json& b)
+        {
+            const auto &x = a.at("glyphs"), &y = b.at("glyphs");
+            if (x.size() != y.size())
+                return false;
+            std::size_t equal = 0;
+            for (std::size_t i = 0; i < x.size(); ++i)
+                equal += x[i] == y[i];
+            return equal * 10 >= x.size() * 9;
+        }
+
         // font_glyphs: glyph table rows of a source font
         std::vector<std::vector<std::string>> FontGlyphs(SourceFinder& source, const std::string& fontName, const std::string& role, Stager& stager,
                                                          const std::set<char32_t>* chars = nullptr)
@@ -241,7 +278,7 @@ namespace w2b::pipeline
             const auto path = source.Font(fontName);
             if (!path)
                 throw Missing(fontName);
-            const auto font = mod::Json(*path);
+            auto font = mod::Json(*path);
             const auto materialName = font.at("material").get<std::string>();
             const auto material = source.Find("material", materialName);
             if (!material)
@@ -251,7 +288,19 @@ namespace w2b::pipeline
             if (!atlasPath)
                 throw Missing(imageName);
             std::vector<std::vector<std::string>> rows;
-            const auto atlas = textures::DecodeDdsPillow(mod::Bytes(*atlasPath));
+            auto atlas = textures::DecodeDdsPillow(mod::Bytes(*atlasPath));
+            // A map can replace the shared atlas image and still carry the stock table for one of its fonts (Hotel V2:
+            // objectiveFont on a 512x1024 gamefonts_pc). The stock table only fits the stock atlas.
+            if (!TableFitsAtlas(font, atlas))
+                if (const auto stockFont = source.Stock("font", fontName, files::FromUtf8(fontName + ".json")))
+                    if (auto stock = mod::Json(*stockFont); SameTable(stock, font))
+                        if (const auto stockAtlas = source.Stock("image", imageName, assets::SourcePath({"image", imageName})))
+                        {
+                            font = std::move(stock);
+                            atlas = textures::DecodeDdsPillow(mod::Bytes(*stockAtlas));
+                            mod::Print("WARNING: " + fontName + ": its glyph table is stock WaW's and does not fit the map's " + imageName +
+                                       "; drawn from the stock font and atlas");
+                        }
             for (const auto& glyph : font.at("glyphs"))
             {
                 const auto& letter = glyph.at("letter");

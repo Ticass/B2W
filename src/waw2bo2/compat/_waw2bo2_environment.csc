@@ -2,11 +2,24 @@
 
 init()
 {
-    registersystem( "waw_sun", ::sun_state );
+    waw_register_system( "waw_sun", ::sun_state );
     level.waw_global_vision = [];
     level.waw_player_vision = [];
-    registersystem( "waw_vision_global", ::global_vision_state );
-    registersystem( "waw_vision_player", ::player_vision_state );
+    waw_register_system( "waw_vision_global", ::global_vision_state );
+    waw_register_system( "waw_vision_player", ::player_vision_state );
+}
+
+// WaW and BO2 both cap registersystem at 32 systems in script, not in the
+// engine. BO2's own systems take part of that, so a map that fits WaW's 32
+// lost its last ones ("Max num client systems exceeded").
+waw_register_system( name, callback )
+{
+    if ( !isdefined( level._systemstates ) )
+        level._systemstates = [];
+    if ( !isdefined( level._systemstates[name] ) )
+        level._systemstates[name] = spawnstruct();
+    if ( !isdefined( level._systemstates[name].callback ) )
+        level._systemstates[name].callback = callback;
 }
 
 global_vision_state( localclientnum, state )
@@ -86,6 +99,13 @@ waw_client_sound_log( kind, alias, origin )
     if ( isdefined( origin ) )
         where = " " + origin;
     println( "WAW CLIENT SOUND " + kind + " " + waw_client_alias( alias ) + where );
+}
+
+// WaW's client getplayers and getlocalplayers are one function (0x66DD40);
+// T6 has only the second.
+waw_client_getplayers()
+{
+    return getlocalplayers();
 }
 
 waw_client_playsound( clientnum, alias, origin )

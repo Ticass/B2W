@@ -98,7 +98,7 @@ namespace w2b::shaders
         using Present = std::function<bool(int)>;
 
         // source_slot: the WaW technique feeding T6 slot
-        std::optional<int> SourceSlot(const Present& present, const std::string& sourceName, const int slot)
+        std::optional<int> SourceSlot(const Present& present, const std::string& sourceName, const int slot, const bool sky = false)
         {
             const int index = WawSlot(slot);
             const bool decal = sourceName.find("projected_decal") != std::string::npos;
@@ -111,7 +111,7 @@ namespace w2b::shaders
             if (present(index))
                 return index;
             const auto parsed = materials::ParseTechnique(sourceName);
-            const bool selfLit = sourceName.rfind("mc_sky", 0) == 0 || (!parsed.lit && SELF_LIT_KINDS.count(parsed.unlit));
+            const bool selfLit = sky || sourceName.rfind("mc_sky", 0) == 0 || (!parsed.lit && SELF_LIT_KINDS.count(parsed.unlit));
             if ((slot == 2 || slot == 3) && selfLit)
                 for (const int alias : {4, 8})
                     if (present(alias))
@@ -126,7 +126,7 @@ namespace w2b::shaders
 
         const materials::WawStateBits* SourceState(const materials::WawMaterial& sourceMaterial, const std::string& sourceName, const int slot)
         {
-            const auto index = SourceSlot(StatePresent(sourceMaterial), sourceName, slot);
+            const auto index = SourceSlot(StatePresent(sourceMaterial), sourceName, slot, materials::IsSky(sourceMaterial));
             return index ? sourceMaterial.TechniqueState(static_cast<size_t>(*index)) : nullptr;
         }
 
@@ -182,10 +182,10 @@ namespace w2b::shaders
             return (rule == "gt0" || rule == "ge128" || rule == "lt128") && Get(state, &S::blendOpRgb, "disabled") == "disabled";
         }
 
-        const WawTechnique* SourceTechnique(const WawTechniqueSet& original, const std::string& sourceName, const int slot)
+        const WawTechnique* SourceTechnique(const WawTechniqueSet& original, const std::string& sourceName, const int slot, const bool sky)
         {
             const auto& techniques = original.techniques;
-            const auto index = SourceSlot([&](const int i) { return i >= 0 && i < static_cast<int>(techniques.size()) && techniques[i].has_value(); }, sourceName, slot);
+            const auto index = SourceSlot([&](const int i) { return i >= 0 && i < static_cast<int>(techniques.size()) && techniques[i].has_value(); }, sourceName, slot, sky);
             return index ? &*techniques[static_cast<size_t>(*index)] : nullptr;
         }
 
@@ -261,7 +261,7 @@ namespace w2b::shaders
             auto native = pristine;
             for (const auto& [slot, _] : SLOTS)
             {
-                const auto* source = SourceTechnique(original, sourceName, slot);
+                const auto* source = SourceTechnique(original, sourceName, slot, materials::IsSky(sourceMaterial));
                 if (!Has(native, slot) || !source || source->passes.empty())
                     continue;
                 auto& target = *native.techniques[static_cast<size_t>(slot)].technique;
@@ -325,7 +325,7 @@ namespace w2b::shaders
                         const auto translation = Translate(assembly, &contract);
                         const auto dxbc = CompileHlsl(translation.hlsl, "ps_5_0");
                         CheckLinkage(vertexCode, dxbc);
-                        if (sourceName.rfind("mc_sky", 0) == 0)
+                        if (materials::IsSky(sourceMaterial))
                         {
                             // donor skies stream only POSITION; the dome also reads color and UV
                             targetPass.vertexDecl = VertexDecl(vertexBinding, {{"POSITION0", {0, 0}}, {"COLOR0", {1, 2}}, {"TEXCOORD0", {2, 5}}});
@@ -625,7 +625,7 @@ namespace w2b::shaders
             }
             if (!IsSlot(source))
                 continue;
-            const auto index = SourceSlot(present, name, source);
+            const auto index = SourceSlot(present, name, source, materials::IsSky(sourceMaterial));
             if (!index)
                 continue;
             const auto wanted = materials::ToT6(*sourceMaterial.TechniqueState(static_cast<size_t>(*index)));

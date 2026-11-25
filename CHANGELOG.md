@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Convert maps whose light grid nearly fills T6's 16-bit palette index ("static model lighting exceeds the T6 palette index range", Purple Dimension): the static models that change least share the closest grid palette.
+- Loops that never wait stop when the array element they compare is undefined, where WaW ends the thread and T6 hung (Decagonal Demise at player connect).
+- Store the model name table once per model: past 64 KiB of names T6 read wrapped names (Nightclub, about 1200 models; newer builds stopped on it).
+- Map WaW's client `getplayers` onto `getlocalplayers`, the same function in WaW ("Unresolved external: getplayers", Return to Stairway to Hell).
+- Any material of a sky model gets the sky's vertex streams ("source sky shader ... native vertex output cannot supply COLOR0", Purple Dimension).
+- Fix the scrambled HUD font on maps that replace the font atlas but keep the stock glyph table of one font (Hotel V2's objective font): those letters now come from the stock atlas they belong to.
+- Fix maps hanging at level start with "potential infinite loop in script" (Nuketown 1886): the converter's `array_remove` looped forever on an undefined array, where WaW ends the thread.
+- Movement tables behind a dvar that only the map reads and nothing sets are built for the unset value, as WaW plays them ("conditional movement table requires runtime translation", Decagonal Demise).
+- Read weapon files as WaW does: the first of a repeated key counts and an unnamed one is never read ("duplicate weapon field", Hotel V2), and notetrack sounds are words in pairs whatever the line breaks ("invalid notetrack sound dependency", Zombie Library).
+- Keep every root bone of an animated model. WaW models can have several root bones (Library's `viewmodel_mw2_aug_cowman`); the BO2 linker accepted one, so the converter stripped the skeleton and the build then stopped on "Authored bone hitboxes changed during linking: missing hitbox bone". Library, My Little Pony and Nukecraft hit this.
+- Fix "boneInfo radiusSquared type must be number, but is null" (Return to Stairway to Hell). A weapon model's hitbox sphere holds NaN; the hitbox now takes the sphere of its own box.
+- Read vision values as WaW's parser does. A malformed field ("invalid vision vector r_filmlighttint", Hotel V2) is skipped with a warning and stays at 0, as in WaW, instead of stopping the build.
+- A script ends at its first NUL byte, as in WaW ("cannot tokenize '\x00'", Purple Dimension).
+- Register the map's client systems past BO2's script cap of 32 ("Max num client systems exceeded", Nuketown 1886). BO2's own systems took part of that cap, and the map lost its last ones.
 - The converter is now entirely C++: the release ships the native launcher (`B2W.exe`) and converter (`waw2bo2n.exe`) instead of the Python application, and the Linux release runs those same programs through Wine (no Python, Tk or Pillow to install). The Python converter, its tests and tools are removed; the packaging, release and map catalog scripts are PowerShell.
 - The WaW Mod Tools chosen in Setup now also decode wavelet images when source FX recovery is off. Before, only a copy inside the converter's folder or the WaW install was found, so a packaged install with the Mod Tools elsewhere failed on maps with wavelet images.
 - Window boards rebuild with the map's own motion: the board lifts from where it lay, turns upright, waits and is pushed into the window, timed by the map's `replace_chunk`, instead of BO2's flip-and-bounce repair animation. Windows stay BO2 barriers (no extra entities).

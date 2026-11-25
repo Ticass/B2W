@@ -210,12 +210,52 @@ namespace w2b::gsc::port::zombiebehavior
         {
         };
 
+        // The map's own dvars nothing sets: only getdvar calls of the map's scripts name them and no stock script
+        // does, so they read as unset ("" and 0) in WaW.
+        std::set<std::string> UnsetDvars(const Sources& sources)
+        {
+            std::set<std::string> read, other;
+            const auto scan = [&](const std::string& text, const bool own)
+            {
+                const auto tokens = Tokenize(text);
+                for (long long i = 0; i < static_cast<long long>(tokens.size()); i++)
+                {
+                    if (tokens[i].kind != Kind::String)
+                        continue;
+                    const auto name = StripChars(tokens[i].Low(), "\"");
+                    const bool getter = own && i > 1 && tokens[i - 1].text == "(" && In(tokens[i - 2].Low(), {"getdvar", "getdvarint", "getdvarfloat"});
+                    (getter ? read : other).insert(name);
+                }
+            };
+            const auto scanAll = [&](const TextDict& dict, const bool own)
+            {
+                for (const auto& [key, text] : dict.values)
+                    try
+                    {
+                        scan(text, own);
+                    }
+                    catch (const GscSyntaxError&)
+                    {
+                    }
+            };
+            scanAll(*sources.text, true);
+            if (read.empty())
+                return read;
+            scanAll(*sources.stock, false);
+            std::erase_if(read, [&](const auto& name) { return other.count(name) != 0; });
+            return read;
+        }
+
         // _folded_body
         Tokens FoldedBody(Sources& sources, const Script& script, const Function& fn, const std::optional<std::string>& mapName)
         {
             std::optional<std::set<std::string>> assigned;
+            std::set<std::string> unsetDvars;
             if (mapName && !mapName->empty())
+            {
                 assigned = LevelFieldsAssignedReachable(sources, *mapName);
+                unsetDvars = UnsetDvars(sources);
+            }
             const auto& toks = script.tokens;
             std::function<Tokens(long long, long long)> fold = [&](const long long opening, const long long closing)
             {
@@ -230,7 +270,7 @@ namespace w2b::gsc::port::zombiebehavior
                     }
                     const auto guardEnd = static_cast<long long>(Match(toks, static_cast<size_t>(a + 1), "(", ")"));
                     const auto words = LowsRange(toks, a + 2, guardEnd);
-                    const auto matched = FoldLevelGuard(words, *mapName, assigned ? &*assigned : nullptr);
+                    const auto matched = FoldLevelGuard(words, *mapName, assigned ? &*assigned : nullptr, &unsetDvars);
                     if (!matched)
                     {
                         result.insert(result.end(), original.begin(), original.end());
@@ -727,7 +767,8 @@ namespace w2b::gsc::port::zombiebehavior
         return std::nullopt;
     }
 
-    std::optional<bool> FoldLevelGuard(const Words& words, const std::string& mapName, const std::set<std::string>* assigned)
+    std::optional<bool> FoldLevelGuard(const Words& words, const std::string& mapName, const std::set<std::string>* assigned,
+                                       const std::set<std::string>* unsetDvars)
     {
         size_t pos = 0;
         const auto peek = [&](const size_t n = 0) -> const std::string*
@@ -771,6 +812,30 @@ namespace w2b::gsc::port::zombiebehavior
                 const bool equal = is(3, "==");
                 pos += 5;
                 return equal ? matched : !matched;
+            }
+            if (unsetDvars && peek() && In(*peek(), {"getdvar", "getdvarint", "getdvarfloat"}) && is(1, "(") && peek(2) && StartsWith(*peek(2), "\"")
+                && is(3, ")") && unsetDvars->count(StripChars(*peek(2), "\"")))
+            {
+                const bool text = is(0, "getdvar");
+                pos += 4;
+                static const std::set<std::string> operators{"==", "!=", "<", ">", "<=", ">="};
+                if (!peek() || !operators.count(*peek()) || !peek(1))
+                    return false; // "" and 0 are false
+                const auto op = *peek();
+                const auto literal = StripChars(*peek(1), "\"");
+                const bool quoted = StartsWith(*peek(1), "\"");
+                double number = 0;
+                if (!quoted && !util::ParseFloat(literal, number))
+                    throw NoGuard{};
+                if (text && op != "==" && op != "!=")
+                    throw NoGuard{};
+                pos += 2;
+                // a text dvar against a number: WaW compares the unset "" as 0
+                if (text && quoted)
+                    return (op == "==") == literal.empty();
+                if (quoted && !util::ParseFloat(literal, number))
+                    throw NoGuard{};
+                return op == "==" ? 0 == number : op == "!=" ? 0 != number : op == "<" ? 0 < number : op == ">" ? 0 > number : op == "<=" ? 0 <= number : 0 >= number;
             }
             throw NoGuard{};
         };

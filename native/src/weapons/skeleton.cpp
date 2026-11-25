@@ -80,28 +80,40 @@ namespace w2b::weapons
         }
     }
 
-    Json PrepareSkeleton(Json& gltf, bool rigid)
+    std::vector<std::vector<std::size_t>> SkinRoots(const Json& gltf)
     {
+        std::vector<std::vector<std::size_t>> result;
         const auto skins = gltf.find("skins");
-        auto merged = Json::array();
-        if (skins == gltf.end() || skins->empty())
-            return merged;
+        if (skins == gltf.end())
+            return result;
         const auto nodes = gltf.find("nodes");
         const auto parents = nodes == gltf.end() ? Parents{} : FindParents(*nodes);
         for (const auto& skin : *skins)
         {
             const auto joints = skin.value("joints", std::set<std::size_t>{});
-            std::vector<std::size_t> roots;
+            auto& roots = result.emplace_back();
             for (const auto joint : joints)
             {
                 const auto parent = Parent(parents, joint);
                 if (!parent || !joints.contains(*parent))
                     roots.push_back(joint);
             }
-            if (roots.size() == 1)
+        }
+        return result;
+    }
+
+    Json PrepareSkeleton(Json& gltf, bool rigid)
+    {
+        auto merged = Json::array();
+        for (const auto& roots : SkinRoots(gltf))
+        {
+            if (roots.empty())
+                throw WeaponError("absent skin root: skeleton preserved at source, not stripped");
+            // an animated model keeps its root bones: WaW and T6 models can have several
+            if (roots.size() == 1 || !rigid)
                 continue;
-            if (roots.empty() || !rigid || !MergeRoots(gltf, roots))
-                throw WeaponError("multiple/absent skin roots: skeleton preserved at source, not stripped");
+            if (!MergeRoots(gltf, roots))
+                throw WeaponError("multiple skin roots of a rigid model: skeleton preserved at source, not stripped");
             merged.clear();
             for (const auto root : roots)
                 merged.push_back(gltf.at("nodes").at(root).value("name", Json()));

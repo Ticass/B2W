@@ -71,17 +71,16 @@ namespace w2b::weapons
         const auto parts = util::Split(text, "\\");
         if (signature == "FLAMETABLEFILE" && (parts.size() < 2 || parts[0] != signature))
             throw WeaponError(files::Utf8(source) + ": expected compiled FLAMETABLEFILE");
-        if (parts[0] != signature || parts.size() % 2 != 1)
+        if (parts[0] != signature)
             throw WeaponError("invalid WEAPONFILE key/value stream");
 
         InfoFields fields;
         fields.fields.reserve(parts.size() / 2);
-        for (std::size_t i = 1; i < parts.size(); i += 2)
-        {
-            if (fields.Has(parts[i]))
-                throw WeaponError("duplicate weapon field " + std::string(parts[i]));
-            fields.fields.emplace_back(std::string(parts[i]), std::string(parts[i + 1]));
-        }
+        // WaW looks each field up by name and takes the first (sub_5F6DF0): a repeated key, an unnamed one or a
+        // last key without a value is never read
+        for (std::size_t i = 1; i + 1 < parts.size(); i += 2)
+            if (!parts[i].empty() && !fields.Has(parts[i]))
+                fields.fields.emplace_back(std::string(parts[i]), std::string(parts[i + 1]));
         return fields;
     }
 

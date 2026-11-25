@@ -406,10 +406,13 @@ namespace
             return true;
         }
 
-        static std::optional<unsigned> GetRootNodeForSkin(const JsonRoot& jRoot, const JsonSkin& skin)
+        // The skin's root joints. WaW models can have several (XModel numRootBones);
+        // they lead the bone list, as T6 requires.
+        static std::vector<unsigned> GetRootNodesForSkin(const JsonRoot& jRoot, const JsonSkin& skin)
         {
+            std::vector<unsigned> rootNodes;
             if (!jRoot.nodes || skin.joints.empty())
-                return std::nullopt;
+                return rootNodes;
 
             const auto jointCount = skin.joints.size();
             auto rootCount = jointCount;
@@ -439,16 +442,19 @@ namespace
                 }
             }
 
-            if (rootCount != 1)
-                throw GltfLoadException("Skins must have exactly one common root node");
-
+            if (rootCount == 0)
+                throw GltfLoadException("Skins must have a root node");
+            // a single root may sit anywhere in the joint list (exporters other than OAT)
             for (auto index = 0u; index < jointCount; index++)
             {
-                if (isRoot[index])
-                    return skin.joints[index];
+                if (!isRoot[index])
+                    continue;
+                if (rootCount > 1 && index != rootNodes.size())
+                    throw GltfLoadException("Skins with several root nodes must list them before the other joints");
+                rootNodes.emplace_back(skin.joints[index]);
             }
 
-            return std::nullopt;
+            return rootNodes;
         }
 
         void ApplyNodeMatrixTRS(const JsonNode& node, float (&localOffsetRhc)[3], float (&localRotationRhc)[4], float (&scaleRhc)[3])
@@ -626,7 +632,7 @@ namespace
             if (!jRoot.nodes)
                 return false;
 
-            const auto rootNode = GetRootNodeForSkin(jRoot, skin).value_or(skin.joints[0]);
+            const auto rootNodes = GetRootNodesForSkin(jRoot, skin);
             const auto skinBoneOffset = static_cast<unsigned>(common.m_bones.size());
             common.m_bones.resize(skinBoneOffset + skin.joints.size());
 
@@ -634,8 +640,11 @@ namespace
             const Eigen::Quaternionf defaultRotation(1.0f, 0.0f, 0.0f, 0.0f);
             constexpr float defaultScale[3]{1.0f, 1.0f, 1.0f};
 
-            if (!ConvertJoint(jRoot, skin, common, skinBoneOffset, rootNode, std::nullopt, defaultTranslation, defaultRotation, defaultScale))
-                return false;
+            for (const auto rootNode : rootNodes)
+            {
+                if (!ConvertJoint(jRoot, skin, common, skinBoneOffset, rootNode, std::nullopt, defaultTranslation, defaultRotation, defaultScale))
+                    return false;
+            }
 
             common.CalculateBoneLocalsFromGlobals();
             return true;

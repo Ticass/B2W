@@ -399,13 +399,19 @@ namespace w2b::pipeline
             });
             for (const auto& note : vision.value("numeric_prefixes", Json::array()))
             {
-                char parsed[64];
-                std::snprintf(parsed, sizeof parsed, "%g", note.at("parsed").get<double>());
+                char number[64];
+                if (note.at("parsed").is_number())
+                    std::snprintf(number, sizeof number, "%g", note.at("parsed").get<double>());
+                const std::string parsed = note.at("parsed").is_number() ? std::string(number) : note.at("parsed").get<std::string>();
                 const auto& original = note.at("original");
                 mod::Print("WARNING: vision " + note.at("vision").get<std::string>() + ": " + note.at("field").get<std::string>() + " " +
                            (original.is_string() ? util::StringRepr(original.get<std::string>()) : original.dump()) + " read as " + parsed +
                            " using WaW numeric-prefix parsing (" + note.at("source").get<std::string>() + ")");
             }
+            for (const auto& note : vision.value("malformed", Json::array()))
+                mod::Print("WARNING: vision " + note.at("vision").get<std::string>() + ": " + note.at("field").get<std::string>() + " " +
+                           util::StringRepr(note.at("original").get<std::string>()) + " is malformed; left at 0 as WaW does (" +
+                           note.at("source").get<std::string>() + ")");
             for (const auto& e : vision.at("errors"))
                 errors.push_back(e);
             const auto overlay = vision.contains("overlay") && vision["overlay"].is_object() ? vision["overlay"] : Json::object();

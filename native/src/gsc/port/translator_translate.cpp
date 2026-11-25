@@ -524,7 +524,9 @@ namespace w2b::gsc::port
         auto tokens = Tokenize(text);
         const auto changed = LowerUndefinedSizeLoops(tokens);
         report.rewrites["loops over a .size that may be undefined"] += changed;
-        return changed ? Emit(tokens) : text;
+        const auto spins = LowerUndefinedSpinLoops(tokens);
+        report.rewrites["loops without a wait over an element that may be undefined"] += spins;
+        return changed || spins ? Emit(tokens) : text;
     }
 
     void Translator::SourceLowerings(Tokens& tokens)

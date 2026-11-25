@@ -111,7 +111,7 @@ namespace w2b::models
                     auto geometry = weapons::ReadAssetJson(lod.source);
                     if (lods.empty())
                         result.bounds = GameBounds(geometry);
-                    WriteGeometry(geometry, lod, job.name, result);
+                    WriteGeometry(geometry, lod, job.model, job.name, result);
                     lods.push_back(lod.definition);
                 }
                 if (!lods.empty())
@@ -123,10 +123,11 @@ namespace w2b::models
             }
 
         private:
-            void WriteGeometry(Json& geometry, const Lod& lod, const std::string& name, Result& result)
+            void WriteGeometry(Json& geometry, const Lod& lod, const Json& model, const std::string& name, Result& result)
             {
                 const auto& file = lod.definition.at("file").get_ref<const std::string&>();
-                const bool stripped = StripBadSkins(geometry);
+                const auto kind = model.value("type", Json());
+                const bool stripped = StripBadSkins(geometry, kind != "animated" && kind != "viewhands");
                 if (stripped)
                     result.warnings.emplace_back("xmodel " + name + ": skin without a single root joint removed (" + file +
                                                  "); drawn rigid in its bind pose");
@@ -151,6 +152,9 @@ namespace w2b::models
             {
                 auto& model = job.model;
                 model["_game"] = "t6";
+                if (const auto bones = RepairHitboxes(model); bones != 0)
+                    result.warnings.emplace_back("xmodel " + job.name + ": " + std::to_string(bones) +
+                                                 " bone hitbox(es) with NaN or infinite values use their own box");
                 model["lods"] = std::move(lods);
                 const auto authored = model.find("collSurfs");
                 if (boxModels_.contains(job.name) && (authored == model.end() || authored->empty() || *authored == false || *authored == 0))
