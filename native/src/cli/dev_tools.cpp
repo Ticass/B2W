@@ -1,13 +1,8 @@
 // Developer diagnostics (see dev_tools.h).
 #include "cli/dev_tools.h"
 
-#include "core/encoding.h"
 #include "core/files.h"
 #include "core/text.h"
-#include "extract/cache.h"
-#include "gsc/ast.h"
-#include "gsc/port/link_check.h"
-#include "gsc/port/vm_rules.h"
 #include "launcher/settings.h"
 #include "pipeline/knowledge.h"
 
@@ -359,78 +354,6 @@ namespace w2b::cli
             throw std::invalid_argument("usage: waw2bo2n crash-summary <dump.dmp>...");
         for (const auto& path : args)
             SummarizeDump(files::FromUtf8(path));
-        return 0;
-    }
-
-    int GscCheck(const Arguments& args)
-    {
-        auto options = args;
-        const auto dialect = std::erase(options, std::string("--bo2")) ? gsc::Dialect::Bo2 : gsc::Dialect::Waw;
-        if (options.size() != 1 && (options.size() != 3 || options[1] != "--dump"))
-            return 2;
-        const auto root = files::FromUtf8(options[0]);
-        std::vector<fs::path> scripts;
-        if (fs::is_directory(root))
-        {
-            scripts = files::GlobSuffix(root, ".gsc");
-            const auto client = files::GlobSuffix(root, ".csc");
-            scripts.insert(scripts.end(), client.begin(), client.end());
-            std::sort(scripts.begin(), scripts.end());
-        }
-        else
-            scripts.push_back(root);
-        std::string dump;
-        int rejected = 0;
-        gsc::port::VmCounts counts;
-        for (const auto& path : scripts)
-        {
-            const auto name = files::Utf8(fs::is_directory(root) ? path.lexically_relative(root) : path);
-            dump += "== " + name + "\n";
-            try
-            {
-                const auto tokens = gsc::Tokenize(encoding::UniversalNewlines(encoding::Utf8SigReplace(ReadFile(path))));
-                dump += gsc::DumpAst(gsc::ParseAst(tokens, dialect), tokens);
-                // the translator's VM rules, and that their result still parses
-                auto ported = tokens;
-                counts.Add(gsc::port::ApplyVmRules(ported, {"runtime"}));
-                gsc::ParseAst(gsc::Tokenize(gsc::Emit(ported)), dialect);
-            }
-            catch (const gsc::GscSyntaxError& error)
-            {
-                rejected++;
-                dump += std::string("!! ") + error.what() + "\n";
-                Print(name + ": " + error.what());
-            }
-        }
-        Print(std::format("{} scripts, {} rejected; {} of {} loops may never end, {} switches, {} vectors, {} logic values, {} array and {} string comparisons",
-                          scripts.size(), rejected, counts.watched, counts.loops, counts.switches, counts.vectors, counts.logic, counts.arrays,
-                          counts.comparisons));
-        if (options.size() == 3)
-            files::WriteBytes(files::FromUtf8(options[2]), dump);
-        return rejected ? 1 : 0;
-    }
-
-    int GscLink(const Arguments& args)
-    {
-        if (args.empty())
-            return 2;
-        const auto compat = extract::ResourceRoot() / "src/waw2bo2/compat";
-        const auto api = gsc::port::T6Api::Load(compat / "t6_script_api.json", fs::path());
-        const auto problems = gsc::port::LinkCheck(files::FromUtf8(args[0]), api, {args.begin() + 1, args.end()});
-        for (const auto& problem : problems)
-            Print(problem);
-        Print(std::format("{} problems", problems.size()));
-        return problems.empty() ? 0 : 1;
-    }
-
-    int GscRules(const Arguments& args)
-    {
-        if (args.size() != 3)
-            return 2;
-        auto tokens = gsc::Tokenize(encoding::UniversalNewlines(encoding::Utf8SigReplace(ReadFile(files::FromUtf8(args[0])))));
-        const auto counts = gsc::port::ApplyVmRules(tokens, {args[2]});
-        files::WriteBytes(files::FromUtf8(args[1]), gsc::Emit(tokens));
-        Print(std::format("{} changes", counts.Changes()));
         return 0;
     }
 } // namespace w2b::cli

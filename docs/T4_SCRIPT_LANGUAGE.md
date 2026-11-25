@@ -2,7 +2,7 @@
 
 What World at War does with a script, read from `t4sp.exe` (the unpacked
 Plutonium copy) and measured in game. The converter's front end
-(`native/src/gsc/ast.*`) and VM rules (`native/src/gsc/port/loops.*`) follow it.
+(`native/src/gsc/ast.*`) and VM rules (`native/src/gsc/port/vm_rules.*`) follow it.
 T6 means BO2 zombies under Plutonium.
 
 ## Where it was read
@@ -106,11 +106,13 @@ T6's engine has no such clock. Plutonium adds one, off by default
 (`scr_kill_infinite_loops 0`, `scr_max_loop_time 2500`); on, it does not
 restart the clock after a kill, so it ends every later thread of that frame
 that loops (16 unrelated ones in a Der Riese test). The converter leaves it off
-and gives the watchdog to the loops that need it: `WatchLoops` counts the turns
-of each loop not proven to end or to wait, and after two counts of 100,000 in
-one server frame parks the thread (`waw_kill_thread`). Nothing after the loop
-runs, in the thread or its callers, as in T4. Client scripts have no watchdog
-yet.
+and gives the watchdog to the loops that need it: every 100 turns a loop not
+proven to end or to wait calls `waw_watch`, which parks the thread when the
+time is up. Nothing after the loop runs, in the thread or its callers, as in
+T4; other threads go on. The clock is `getutc()` in server scripts (whole
+seconds, so 2 to 3 s) and `getrealtime()` in client scripts (2.5 s). Measured
+in game, server side: kills after 2.3 to 2.7 s, callers ended, a started
+thread's starter and the other threads untouched.
 
 Loops proven to end: a counter that starts at a number, steps one way, is not
 assigned in the body, and runs to a number or the size of a variable that only
@@ -119,24 +121,49 @@ literal above 0 or a `waittill` of a literal on `self` or `level`.
 
 ## Measured differences between the two VMs
 
-One probe script, run in WaW and in BO2 (2026-11-24): 171 lines of output in each
-before the loop tests, identical except:
+Every operator on every pair of 17 kinds of value, and every unary operation,
+index, store, switch, event and call on each, run by one script in WaW and in
+BO2 (2026-11-25): 6528 results, these differences and no others.
 
 | Script | WaW | BO2 | Converter |
 |---|---|---|---|
-| `switch` on undefined or a float | `default:` runs | no label runs | `waw_switch` |
-| `"a" < "b"` | undefined (a fault) | compares | not ported |
-| array `==` array | 0 | undefined (a fault) | POI records only (`BridgePoiRecordComparisons`) |
-| `( 1, undefined, 3 )` | undefined | garbage | not ported |
-| `wait 0` at level start | 100 ms | 50 ms | not ported; the level's first frames |
+| `a && b`, <code>a &#124;&#124; b</code> as a value | 0, 1, or undefined | `b` itself | the right side becomes `!( !( b ) )` |
+| `( x, y, z )` with a part that is no number | undefined | garbage, and the script stack stays wrong: repeated, it stops threads | `waw_vector`, unless the parts are known numbers |
+| `switch` on anything but an int or a string | `default:` runs | no label runs | `waw_switch` |
+| array `==`/`!=` array | the same array or not | a fault | `waw_equal`, `waw_not_equal` |
+| array `==` object | 0 | a fault | not ported |
+| string `<` string (also `>`, `<=`, `>=`) | a fault | compares | `waw_less` and the like |
+
+Comparisons are rewritten where type inference (`types.*`) knows one side to
+take the type and the other to allow it. The corpus has 152 such string
+comparisons (most read `getdvar`) and one of arrays. Comparing values nothing
+is known about is left alone. T6 has no array identity: equal contents stand
+for the same array. T6 client scripts cannot tell an int from a float, so
+there only undefined takes the `default:` label.
 
 Everything else matched: arithmetic, string conversion, arrays by value, key
 order of `getarraykeys`, `int / int` giving a float, division by zero giving 0,
 integer wrap, missing and extra arguments, deleted entities, case fall-through,
-evaluation order.
+evaluation order, notifies with bad events.
+
+## The link check
+
+T6 resolves calls when a map loads and reports the first that fails as
+"Unresolved external". `link_check.*` does it when the scripts are staged, for
+every server and client script, with the file, line and function: calls and
+function pointers that resolve to nothing, arguments past a function's
+parameters or outside a builtin's range, missing includes, functions defined
+twice. T6's builtins come from its tables (`compat/t6_script_api.json`; client
+ones from `0xD3AF00` and `0xC62CA8` of `t6zm.exe`).
 
 ## Checking
 
     tools\build_gsc_corpus.ps1
     native\build\waw2bo2n.exe gsc-check work\gsc_corpus\maps
     native\build\waw2bo2n.exe gsc-check <build>\stage\zone_raw --bo2
+    native\build\waw2bo2n.exe gsc-link <build>\stage\zone_raw\<project>
+    native\build\waw2bo2n.exe gsc-port work\gsc_corpus\maps <stock WaW scripts> <BO2 folder> work\gsc_corpus\ported
+
+`gsc-port` translates and link-checks every collected map without building
+anything (35 maps in 90 s); the stock scripts are the `views` folder of the WaW
+asset cache. `gsc-rules` applies the VM rules to one script.

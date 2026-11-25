@@ -1,5 +1,8 @@
 // The script front end: T4's grammar and the VM rules (docs/T4_SCRIPT_LANGUAGE.md).
 #include "gsc/ast.h"
+#include "core/files.h"
+#include "gsc/port/link_check.h"
+#include "gsc/port/types.h"
 #include "gsc/port/vm_rules.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -148,4 +151,41 @@ TEST_CASE("T4's results where T6's differ", "[gsc]")
     CHECK(lower("if ( a == \"b\" ) c();") == "if ( a == \"b\" ) c();");
     // brackets keep their text
     CHECK(lower("[[ a ]](); self [[ b.c ]]( d[e[0]] );") == "[[ a ]](); self [[ b.c ]]( d[e[0]] );");
+}
+
+TEST_CASE("types are inferred over a script", "[gsc]")
+{
+    const auto tokens = Tokenize("f( p ) { a = 1; a = \"x\" + p; b = g(); c = self.arr; d = p; e = a.size; }\ng() { return []; }\nh() { self.arr[0] = 1; }");
+    const auto ast = ParseAst(tokens);
+    const port::TypeInference types(ast, tokens);
+    const auto function = ast.Functions()[0];
+    const auto block = ast[function].kids[1];
+    const auto of = [&](const size_t statement) { return types.Of(function, ast[ast[block].kids[statement]].kids[0]); };
+    CHECK(of(0).Known(port::TYPE_STRING));
+    CHECK(of(0).Known(port::TYPE_NUMBER));
+    CHECK(of(2).Known(port::TYPE_ARRAY)); // through g's return
+    CHECK_FALSE(of(2).May(port::TYPE_STRING));
+    CHECK(of(3).Known(port::TYPE_ARRAY)); // stored in h
+    CHECK(of(3).May(port::TYPE_STRING));  // and by other scripts
+    CHECK(of(4).open);
+    CHECK_FALSE(of(5).open);
+}
+
+TEST_CASE("what T6 would not resolve is reported", "[gsc]")
+{
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / "w2b_link_check_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "maps");
+    const auto write = [&](const char* name, const std::string& text) { w2b::files::WriteText(root / "maps" / name, text); };
+    write("a.gsc", "#include maps\\b;\nmain()\n{\n\tin_b( 1 );\n\tmaps\\b::in_b();\n\tx = ::in_b;\n\tnative( 1 );\n\tself method();\n\t/# nothing(); #/\n}\n");
+    write("b.gsc", "in_b( x )\n{\n}\n");
+    port::T6Api api;
+    api.builtins["native"] = {1, 2};
+    api.methods["method"] = {0, 0};
+    CHECK(port::LinkCheck(root, api).empty());
+    write("a.gsc", "main()\n{\n\tin_b();\n\tmaps\\b::gone();\n\tmaps\\c::gone();\n\tmaps\\b::in_b( 1, 2 );\n\tnative();\n\tmethod();\n\tx = ::gone;\n}\nmain()\n{\n}\n");
+    CHECK(port::LinkCheck(root, api).size() == 8);
+    CHECK(port::LinkCheck(root, api, {"maps\\b"}).empty());
+    fs::remove_all(root);
 }

@@ -247,7 +247,7 @@ add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp s
 target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials w2b_effects w2b_assets w2b_barricades w2b_paths)
 target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 
-add_executable(waw2bo2n src/cli/main.cpp src/cli/dev_tools.cpp src/app.manifest)
+add_executable(waw2bo2n src/cli/main.cpp src/cli/dev_tools.cpp src/cli/gsc_tools.cpp src/app.manifest)
 target_link_libraries(waw2bo2n PRIVATE w2b_oat w2b_extract w2b_strings w2b_visions w2b_pipeline w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
     w2b_materials w2b_effects w2b_weapons w2b_assets w2b_physics w2b_mapents w2b_paths w2b_barricades w2b_models)
 if(MSVC)
