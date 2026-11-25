@@ -199,8 +199,21 @@ namespace w2b::pipeline
         {
             auto all = Json::parse(oat::ReadMenus({fastfile, {}}));
             Json out = Json::object();
-            for (const auto& [name, menu] : all.items())
+            // "," marks a material of another zone
+            const auto resolve = [](Json& window)
+            {
+                auto& name = window["background"];
+                if (name.is_string() && name.get_ref<const std::string&>().starts_with(','))
+                    name = name.get<std::string>().substr(1);
+            };
+            for (auto& [name, menu] : all.items())
+            {
+                if (menu.contains("window"))
+                    resolve(menu["window"]);
+                for (auto& item : menu["items"])
+                    resolve(item["window"]);
                 out[mod::Lower(name)] = menu;
+            }
             return out;
         }
 

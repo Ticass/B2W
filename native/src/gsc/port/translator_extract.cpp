@@ -523,8 +523,15 @@ namespace w2b::gsc::port
         }
         std::set<std::string> defaults;
         for (const auto& [a, b] : TopLevelStatements(toks, static_cast<long long>(main.bodyOpen), static_cast<long long>(main.bodyClose)))
-            if (const auto field = GuardedLevelDefault(SliceCopy(toks, a, b)))
+        {
+            const auto stmt = SliceCopy(toks, a, b);
+            if (const auto field = GuardedLevelDefault(stmt))
                 defaults.insert(*field);
+            // a constant is the field's first value, whatever assigns it later
+            else if (stmt.size() == 6 && stmt[0].Low() == "level" && stmt[1].text == "." && stmt[3].text == "="
+                     && (stmt[4].kind == Kind::Number || stmt[4].kind == Kind::String || In(stmt[4].Low(), {"true", "false"})))
+                defaults.insert(stmt[2].Low());
+        }
         std::set<std::string> fields;
         for (const auto& f : read)
         {
