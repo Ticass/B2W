@@ -15,6 +15,7 @@
 #include "core/timeline.h"
 #include "effects_stage.h"
 #include "impact_table.h"
+#include "unread_assets.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
 #include "extract/wawsource.h"
@@ -272,6 +273,7 @@ namespace w2b::pipeline
             fs::path projectRoot_;
             BridgeReport report_;
             std::vector<fs::path> roots_, imageIwds_;
+            std::vector<fs::path> mapRoots_; // the map's own zones, without the stock ones roots_ gains
             std::optional<extract::StockWaw> stock_;
             std::optional<extract::WawSource> source_; // --waw-source-fx: WaW Mod Tools sources
             std::unique_ptr<textures::IwdRecovery> recovery_;
@@ -305,6 +307,7 @@ namespace w2b::pipeline
             report_ = BridgeReport{};
             report_.project = o_.project;
             roots_ = Concat({{o_.stage}, o_.extraRoots});
+            mapRoots_ = roots_;
             if (o_.wawRoot && o_.t4Unlinker)
             {
                 stock_.emplace(*o_.wawRoot, *o_.t4Unlinker, o_.wawStockDumps.value_or(o_.stage / "waw_stock_dumps"));
@@ -904,7 +907,9 @@ namespace w2b::pipeline
                     effectNames.push_back(name);
             if (!stock_)
                 report_.Warn("no --waw-root/--t4-unlinker: assets the map only references cannot be looked up in the stock WaW zones");
-            const auto impacts = ReadImpacts(roots_, stock);
+            for (const auto& warning : UnreadAssets(projectRoot_, mapRoots_))
+                report_.Warn(warning);
+            const auto impacts = ReadImpacts(mapRoots_, stock);
             const auto impactOnly = Difference(impacts.effects, Names(effectNames.begin(), effectNames.end()));
             effectNames.insert(effectNames.end(), impactOnly.begin(), impactOnly.end());
             StageEffects(effectNames);

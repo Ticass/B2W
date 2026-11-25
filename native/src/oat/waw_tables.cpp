@@ -93,6 +93,19 @@ namespace w2b::oat
         return out.dump();
     }
 
+    std::string AssetNames(const WawZone& zone)
+    {
+        const std::lock_guard guard(StateLock());
+        const CapturedOutput quiet;
+        auto out = Json::object();
+        const auto& loaded = Loaded(zone.fastfile, zone.searchPaths).Get();
+        for (const auto& asset : loaded.m_pools)
+            if (!asset->IsReference())
+                if (const auto type = IGame::GetGameById(loaded.m_game_id)->GetAssetTypeName(asset->m_type))
+                    out[*type].push_back(asset->m_name);
+        return out.dump(-1, ' ', false, Json::error_handler_t::replace);
+    }
+
     std::string ReadDestructibles(const WawZone& zone)
     {
         const std::lock_guard guard(StateLock());

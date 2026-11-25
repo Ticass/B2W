@@ -12,4 +12,6 @@ namespace w2b::oat
     std::string ReadImpactTable(const WawZone& zone);
     // JSON text: destructible name -> its base model and pieces
     std::string ReadDestructibles(const WawZone& zone);
+    // JSON text: asset type -> the names the zone defines of it (not references)
+    std::string AssetNames(const WawZone& zone);
 } // namespace w2b::oat

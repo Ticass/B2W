@@ -7,11 +7,12 @@
 #include "pipeline/finish.h"
 #include "pipeline/sound_mix.h"
 #include "pipeline/sound_refs.h"
+#include "pipeline/unread_assets.h"
 #include "sound/bindings.h"
 #include "sound/stage.h"
 
-#include <map>
 #include <algorithm>
+#include <map>
 #include <set>
 
 namespace w2b::pipeline
@@ -138,10 +139,18 @@ namespace w2b::pipeline
         const auto decoder = sounds.audioDecoder ? Str(*sounds.audioDecoder) : std::string();
         Timed("Decode audio", [&] { return audio::Stage(content, content / "pcm", decoder, tools); });
         const auto audioReport = mod::Json(content / "pcm" / "audio.stage.json");
+        const auto missed = SoundsLinkerMissed(roots);
         std::map<std::string, std::pair<std::size_t, std::string>> silent; // reason -> how many, the first
         for (const auto& error : audioReport.at("errors"))
         {
-            auto& [count, first] = silent[error.at("reason").get<std::string>()];
+            auto reason = error.at("reason").get<std::string>();
+            if (reason == "missing_original_audio")
+            {
+                auto name = mod::Lower(error.at("name").get<std::string>());
+                std::ranges::replace(name, '\\', '/');
+                reason = missed.contains(name) ? "the map does not have them: its author's linker did not find them either" : "not in the map's archives or fastfiles";
+            }
+            auto& [count, first] = silent[reason];
             if (!count++)
                 first = error.at("name").get<std::string>();
         }
