@@ -2,6 +2,7 @@
 #include "audio/convert.h"
 #include "core/files.h"
 #include "pipeline/hud_menus.h"
+#include "pipeline/impact_table.h"
 #include "pipeline/actor_trees.h"
 #include "pipeline/bridge_inventory.h"
 #include "pipeline/csvtable.h"
@@ -321,4 +322,25 @@ TEST_CASE("Sounds decode as XAudio2 2.0 plays them")
     files::WriteBytes(folder / "sound.wav", cut);
     CHECK_THROWS_AS(audio::Convert(folder / "sound.wav", {}), audio::SoundError);
     std::filesystem::remove_all(folder);
+}
+
+TEST_CASE("WaW's impact table becomes BO2's rows and surfaces")
+{
+    using namespace w2b;
+    std::vector<std::vector<std::string>> rows(16, std::vector<std::string>(35));
+    rows[0][13] = "impacts/metal"; // bullet_small_normal on metal
+    rows[0][31] = "impacts/blood"; // body nonfatal
+    rows[9][5] = "impacts/lost";   // grenade_bounce on concrete
+    rows[14][0] = "maps/tesla";    // tank_shell, default surface
+    const auto t6 = pipeline::T6Impacts(rows, {{"impacts/metal", "waw/m"}, {"impacts/blood", "waw/b"}, {"maps/tesla", "waw/t"}});
+    REQUIRE(t6.size() == 21);
+    for (const auto& row : t6)
+        CHECK(row.size() == 36);
+    CHECK(t6[0][13] == "waw/m");
+    CHECK(t6[0][32] == "waw/b"); // after riotshield
+    CHECK(t6[0][31].empty());
+    CHECK(t6[17][0] == "waw/t");
+    CHECK(t6[11][5].empty()); // grenade_bounce: not converted
+    CHECK(t6[20][13] == "waw/m"); // blade, a hit WaW lacks
+    CHECK_THROWS(pipeline::T6Impacts({}, {}));
 }

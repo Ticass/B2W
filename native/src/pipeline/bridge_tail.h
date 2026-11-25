@@ -75,7 +75,7 @@ namespace w2b::pipeline
         std::vector<fs::path> roots, rawRoots, iwdDirs, coverageRoots;
         std::optional<fs::path> bo2Root, techsetDump, t4Unlinker, t6Unlinker;
         std::optional<std::string> wawMapStem;
-        std::vector<std::string> images, hudMaterials, zoneModels, zoneFx;
+        std::vector<std::string> images, hudMaterials, zoneModels, zoneFx, zoneImpacts;
         bool ipak = true, bo2StockPerks = false, hasWater = false;
         TailScripts scripts;
         TailWeapons weapons;

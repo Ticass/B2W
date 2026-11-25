@@ -14,6 +14,7 @@
 #include "materials/t6_material.h"
 #include "core/timeline.h"
 #include "effects_stage.h"
+#include "impact_table.h"
 #include "extract/cache.h"
 #include "extract/stockwaw.h"
 #include "extract/wawsource.h"
@@ -227,7 +228,7 @@ namespace w2b::pipeline
         struct Effects
         {
             std::map<std::string, std::string> table; // script-loaded WaW effect -> converted name
-            std::vector<std::string> zoneFx;
+            std::vector<std::string> zoneFx, zoneImpacts;
             Names models, sounds, techsets;
             std::vector<fs::path> extraRoots;
         };
@@ -839,6 +840,7 @@ namespace w2b::pipeline
             input.hudMaterials = hudMaterials.get<std::vector<std::string>>();
             input.zoneModels.assign(zoneModels.begin(), zoneModels.end());
             input.zoneFx = effects_.zoneFx;
+            input.zoneImpacts = effects_.zoneImpacts;
             input.ipak = !o_.noIpak;
             input.bo2StockPerks = o_.bo2StockPerks;
             input.hasWater = hasWater_;
@@ -902,7 +904,18 @@ namespace w2b::pipeline
                     effectNames.push_back(name);
             if (!stock_)
                 report_.Warn("no --waw-root/--t4-unlinker: assets the map only references cannot be looked up in the stock WaW zones");
+            const auto impacts = ReadImpacts(roots_, stock);
+            const auto impactOnly = Difference(impacts.effects, Names(effectNames.begin(), effectNames.end()));
+            effectNames.insert(effectNames.end(), impactOnly.begin(), impactOnly.end());
             StageEffects(effectNames);
+            auto staged = StageImpacts(projectRoot_, impacts, effects_.table);
+            effects_.zoneImpacts = std::move(staged.table);
+            effects_.zoneFx.insert(effects_.zoneFx.end(), staged.fx.begin(), staged.fx.end());
+            if (!impacts.rows.empty())
+                report_.Warn("IMPACT_EFFECTS " + std::to_string(impacts.effects.size() - staged.missing.size()) + " impact effects from " + impacts.zone +
+                             (staged.missing.empty() ? "" : "; not converted (nothing plays): " + mod::ListRepr({staged.missing.begin(), staged.missing.end()})));
+            for (const auto& name : impactOnly) // the impact table's, which scripts must not register: BO2 takes 451 effects from scripts
+                effects_.table.erase(name);
             compiledSounds_ = Union(compiledSounds_, effects_.sounds);
             roots_.insert(roots_.end(), effects_.extraRoots.begin(), effects_.extraRoots.end());
             scriptModels_ = Union(scriptModels_, effects_.models);

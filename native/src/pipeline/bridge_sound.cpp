@@ -145,8 +145,8 @@ namespace w2b::pipeline
             if (!count++)
                 first = error.at("name").get<std::string>();
         }
-        for (const auto& [reason, sounds] : silent)
-            warnings.push_back("SOUND_SILENT " + std::to_string(sounds.first) + " sounds: " + reason + " (" + sounds.second + ")");
+        for (const auto& [reason, counted] : silent)
+            warnings.push_back("SOUND_SILENT " + std::to_string(counted.first) + " sounds: " + reason + " (" + counted.second + ")");
         const auto bindingReport = Timed("Bind decoded audio", [&] { return sound::BindPcm(content, content / "pcm"); });
         out["animation_sound_identities"] = found.animationSoundIdentities;
         const auto curveReport = Timed("Bind sound curves", [&] { return BindBridgeCurves(content, sounds); });

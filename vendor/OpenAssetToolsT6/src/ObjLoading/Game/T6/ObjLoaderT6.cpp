@@ -11,6 +11,7 @@
 #include "Game/T6/T6.h"
 #include "Game/T6/XModel/LoaderXModelT6.h"
 #include "Fx/JsonLoaderFxT6.h"
+#include "Fx/JsonLoaderImpactFxT6.h"
 #include "Image/Dx12TextureLoader.h"
 #include "Image/IwiLoader.h"
 #include "Image/IwiTypes.h"
@@ -427,6 +428,7 @@ namespace T6
             collection.AddAssetCreator(camo::CreateJsonLoaderT6(memory, searchPath));
             // collection.AddAssetCreator(std::make_unique<AssetLoaderSoundDriverGlobals>(memory));
             collection.AddAssetCreator(fx::CreateJsonLoaderT6(memory, searchPath));
+            collection.AddAssetCreator(fx::CreateJsonLoaderImpactT6(memory, searchPath));
             // collection.AddAssetCreator(std::make_unique<AssetLoaderImpactFx>(memory));
             collection.AddAssetCreator(raw_file::CreateLoaderT6(memory, searchPath));
             collection.AddAssetCreator(string_table::CreateLoaderT6(memory, searchPath));

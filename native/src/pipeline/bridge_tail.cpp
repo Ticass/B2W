@@ -712,6 +712,7 @@ namespace w2b::pipeline
             assets.image = images;
             assets.xmodel = std::move(xmodels);
             assets.fx = input.zoneFx;
+            assets.fximpacttable = input.zoneImpacts;
             assets.fx.insert(assets.fx.end(), overlayVariants.begin(), overlayVariants.end());
             for (const auto& m : hudMaterials)
                 if (staged.count(m))

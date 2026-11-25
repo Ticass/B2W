@@ -6,6 +6,7 @@
 #include "extract/stockwaw.h"
 #include "modutil.h"
 #include "oat/waw_menus.h"
+#include "source_zones.h"
 
 #include <algorithm>
 #include <array>
@@ -183,18 +184,6 @@ namespace w2b::pipeline
             std::string out_;
         };
 
-        // the fastfile a root was dumped from
-        std::optional<fs::path> Fastfile(const fs::path& root)
-        {
-            const auto extraction = root / "extraction.json";
-            if (!mod::IsFile(extraction))
-                return std::nullopt;
-            const auto data = mod::Json(extraction);
-            const auto file = data.value("inputs", Json::object()).value("file", std::string());
-            const auto path = files::FromUtf8(file);
-            return file.empty() || !mod::IsFile(path) ? std::nullopt : std::optional(path);
-        }
-
         Json Menus(const fs::path& fastfile)
         {
             auto all = Json::parse(oat::ReadMenus({fastfile, {}}));
@@ -313,9 +302,9 @@ namespace w2b::pipeline
         if (!stock)
             return out;
         std::vector<fs::path> zones;
-        for (const auto& root : roots)
-            if (const auto file = Fastfile(root); file && file->parent_path() != stock->ZoneDir() && std::ranges::find(zones, *file) == zones.end())
-                zones.push_back(*file);
+        for (const auto& zone : SourceZones(roots))
+            if (zone.parent_path() != stock->ZoneDir())
+                zones.push_back(zone);
         // the mod's own zone is loaded over the map's
         std::ranges::stable_partition(zones, [](const fs::path& zone) { return mod::Lower(files::Utf8(zone.filename())) == "mod.ff"; });
         std::vector<Json> loaded;

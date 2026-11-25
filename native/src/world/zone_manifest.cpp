@@ -13,8 +13,9 @@ namespace w2b::world
         std::string text = ">game,T6\n>map,zm\n>level.@00012d3c,0\n";
         if (ipak)
             text += ">level.ipak_read," + project + "\n>ipak," + project + "\n";
-        const std::array<std::pair<std::string_view, const std::vector<std::string>*>, 8> kinds{{
+        const std::array<std::pair<std::string_view, const std::vector<std::string>*>, 9> kinds{{
             {"image", &assets.image}, {"xmodel", &assets.xmodel}, {"zbarrier", &assets.zbarrier}, {"fx", &assets.fx},
+            {"fximpacttable", &assets.fximpacttable},
             {"material", &assets.material}, {"script", &assets.script}, {"localize", &assets.localize}, {"rawfile", &assets.rawfile},
         }};
         for (const auto& [kind, entries] : kinds)
