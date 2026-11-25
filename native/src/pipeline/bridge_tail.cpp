@@ -14,6 +14,7 @@
 #include "hooks_stage.h"
 #include "extract/cache.h"
 #include "gsc/port/api.h"
+#include "gsc/port/link_check.h"
 #include "gsc/port/portmap.h"
 #include "gsc/port/t6api.h"
 #include "gsc/port/zone_scripts.h"

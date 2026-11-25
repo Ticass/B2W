@@ -47,11 +47,158 @@ waw_getent_linkname( value, key )
     return undefined;
 }
 
+// T4's VM (0x693E80, opcode 99) kills a thread that loops until 2.5 s have
+// passed since the engine entered the VM, with every function it is in, and
+// starts the clock again; not while the level's scripts load (0x503300). T6
+// has no watchdog and hangs. The translated loops that may never end call
+// this every 100 turns. GetUTC, in whole seconds, is the server scripts' only
+// clock that runs within a frame: the third tick comes after 2 to 3 s.
+waw_watch( where )
+{
+    now = getutc();
+    if ( !isdefined( level.waw_running ) || !isdefined( level.waw_watch_frame ) || level.waw_watch_frame != gettime() )
+    {
+        level.waw_watch_frame = gettime();
+        level.waw_watch_start = now;
+        return;
+    }
+    if ( now - level.waw_watch_start < 3 )
+        return;
+    level.waw_watch_start = now;
+    waw_kill_thread( where );
+}
+
+// The thread stays parked: nothing after the loop runs, in it or its callers.
+waw_kill_thread( where )
+{
+    println( "WAW2BO2 potential infinite loop in script - killing thread: " + where );
+    level waittill( "waw2bo2_killed_threads_never_resume" );
+}
+
+waw_level_running()
+{
+    wait 0.05;
+    level.waw_running = 1;
+}
+
+// The rest are differences between the two VMs, measured with one script in
+// both games (docs/T4_SCRIPT_LANGUAGE.md).
+
+// T4 runs a switch's default label for a value it cannot switch on ("cannot
+// switch on undefined"); T6 runs no label at all.
+waw_switch( value )
+{
+    if ( isdefined( value ) && ( isint( value ) || isstring( value ) ) )
+        return value;
+    return "waw2bo2_no_case";
+}
+
+// A vector part that is not a number: undefined in T4; garbage and a wrong
+// script stack in T6.
+waw_vector( x, y, z )
+{
+    if ( !waw_number( x ) || !waw_number( y ) || !waw_number( z ) )
+        return undefined;
+    return ( x, y, z );
+}
+
+waw_number( value )
+{
+    return isdefined( value ) && ( isint( value ) || isfloat( value ) );
+}
+
+// T4 compares arrays by identity: a copy not changed since is the same array,
+// two arrays built apart differ. T6 faults, and cannot tell them apart by
+// identity, so equal contents stand for the same array; an empty one is never
+// another's copy in practice ("x == []" is false in T4).
+waw_same_array( a, b )
+{
+    if ( a.size == 0 || a.size != b.size )
+        return 0;
+    keys = getarraykeys( a );
+    for ( i = 0; i < keys.size; i++ )
+    {
+        x = a[keys[i]];
+        y = b[keys[i]];
+        if ( !isdefined( y ) || isarray( x ) != isarray( y ) )
+            return 0;
+        if ( isarray( x ) )
+        {
+            if ( !waw_same_array( x, y ) )
+                return 0;
+            continue;
+        }
+        same = x == y;
+        if ( !isdefined( same ) || !same )
+            return 0;
+    }
+    return 1;
+}
+
+waw_equal( a, b )
+{
+    if ( !isdefined( a ) || !isdefined( b ) || ( !isarray( a ) && !isarray( b ) ) )
+        return a == b;
+    if ( isarray( a ) && isarray( b ) )
+        return waw_same_array( a, b );
+    if ( waw_is_object( a ) || waw_is_object( b ) )
+        return 0;
+    return a == b;
+}
+
+waw_not_equal( a, b )
+{
+    same = waw_equal( a, b );
+    if ( !isdefined( same ) )
+        return undefined;
+    return !same;
+}
+
+waw_is_object( value )
+{
+    return !isarray( value ) && !isint( value ) && !isfloat( value ) && !isstring( value ) && !isvec( value );
+}
+
+// T4 does not order strings (a fault); T6 does.
+waw_two_strings( a, b )
+{
+    return isdefined( a ) && isdefined( b ) && isstring( a ) && isstring( b );
+}
+
+waw_less( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a < b;
+}
+
+waw_greater( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a > b;
+}
+
+waw_less_equal( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a <= b;
+}
+
+waw_greater_equal( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a >= b;
+}
+
 init()
 {
     if ( isdefined( level.waw2bo2_compat_ready ) )
         return;
     level.waw2bo2_compat_ready = 1;
+    level thread waw_level_running();
     precachestring( &"waw_hud_reloading" );
     // T4 PM_RegisterDvars (0x40E298/0x40E2CE) defaults, before the map's
     // own init_dvars and any authored overrides. T6 uses 128/300 instead.
@@ -305,12 +452,19 @@ waw_contact_kill_end()
 
 // POI records are [position, owner]. T6's array == is not a location
 // comparison (see native _zm_utility::poi_locations_equal).
-// The map passes arrays WaW would end the thread on when undefined; T6 goes
-// on, and "i < undefined" never ends a loop (the translated scripts get the
-// same guard, LowerUndefinedSizeLoops).
+// "i < undefined.size" is a fault in both games, and a fault does not end a
+// loop: WaW's own loops over an undefined array ran until its watchdog killed
+// the thread.
+waw_array_loop( array )
+{
+    if ( !isdefined( array ) )
+        waw_kill_thread( "array loop" );
+}
+
 waw_poi_record_available( array, value )
 {
-    for ( i = 0; isdefined( array ) && i < array.size; i++ )
+    waw_array_loop( array );
+    for ( i = 0; i < array.size; i++ )
         if ( array[i][0] == value[0] )
             return false;
     return true;
@@ -319,7 +473,8 @@ waw_poi_record_available( array, value )
 waw_poi_record_remove( array, value )
 {
     result = [];
-    for ( i = 0; isdefined( array ) && i < array.size; i++ )
+    waw_array_loop( array );
+    for ( i = 0; i < array.size; i++ )
         if ( array[i][0] != value[0] )
             result[result.size] = array[i];
     return result;
@@ -328,7 +483,8 @@ waw_poi_record_remove( array, value )
 waw_array_remove( array, value )
 {
     result = [];
-    for ( i = 0; isdefined( array ) && i < array.size; i++ )
+    waw_array_loop( array );
+    for ( i = 0; i < array.size; i++ )
         if ( array[i] != value )
             result[result.size] = array[i];
     return result;

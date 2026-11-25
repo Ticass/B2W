@@ -38,6 +38,11 @@ namespace w2b::gsc::port
         api.builtins = Ranges(data["builtins"]);
         api.builtins.emplace("replacefunc", Range{2, 2}); // PLUTONIUM_BUILTINS, overridden by the table
         api.methods = Ranges(data["methods"]);
+        if (stock.contains("client_builtins"))
+        {
+            api.clientBuiltins = Ranges(stock["client_builtins"]);
+            api.clientMethods = Ranges(stock["client_methods"]);
+        }
         for (const auto& [path, names] : data["scripts"].items())
         {
             std::map<std::string, int> functions;

@@ -35,7 +35,6 @@ namespace w2b::gsc::port
     PortReport PortMap(const Sources& sources, const T6Api& api, const std::string& mapName, const std::filesystem::path& outRoot,
                        const PortMapOptions& options = {});
     int FixArity(const std::filesystem::path& outRoot, const T6Api& api, PortReport* report = nullptr);
-    std::vector<std::string> LinkCheck(const std::filesystem::path& outRoot, const T6Api& api);
 
     // copy.deepcopy(sources): private tables and parsed scripts
     Sources DeepCopy(const Sources& sources);

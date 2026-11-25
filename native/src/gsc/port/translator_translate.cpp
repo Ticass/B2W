@@ -5,6 +5,7 @@
 #include "api.h"
 #include "core/regex.h"
 #include "rewrites.h"
+#include "vm_rules.h"
 
 namespace w2b::gsc::port
 {
@@ -189,7 +190,7 @@ namespace w2b::gsc::port
         report.rewrites["run-time HUD material names -> converted table"] += BridgeDynamicHudMaterials(tokens);
         report.rewrites["WaW team-held zombie vars mirrored to BO2's teams"] += MirrorTeamZombieVars(tokens);
         const std::string header = "// Translated from World at War by waw2bo2 (gscport). Source: " + whereFile + "\n";
-        return header + GuardSizeLoops(Emit(tokens));
+        return header + VmRules(Emit(tokens), whereFile);
     }
 
     void Translator::AdaptNativeArguments(Tokens& tokens, const Ref& ref, const std::string& native, const std::optional<int> argc, const std::string& where)
@@ -519,14 +520,31 @@ namespace w2b::gsc::port
         RewriteAnimationRefs(tokens, tree, where);
     }
 
-    std::string Translator::GuardSizeLoops(const std::string& text)
+    std::string Translator::VmRules(const std::string& text, const std::string& where)
     {
         auto tokens = Tokenize(text);
-        const auto changed = LowerUndefinedSizeLoops(tokens);
-        report.rewrites["loops over a .size that may be undefined"] += changed;
-        const auto spins = LowerUndefinedSpinLoops(tokens);
-        report.rewrites["loops without a wait over an element that may be undefined"] += spins;
-        return changed || spins ? Emit(tokens) : text;
+        try
+        {
+            const auto counts = ApplyVmRules(tokens, VmRuntime{COMPAT});
+            AddVmCounts(report, counts);
+            return counts.Changes() ? Emit(tokens) : text;
+        }
+        catch (const GscSyntaxError& error)
+        {
+            report.Unsupported("script WaW's grammar does not accept: T4's VM rules not applied", where + ": " + error.what());
+            return text;
+        }
+    }
+
+    void AddVmCounts(PortReport& report, const VmCounts& counts)
+    {
+        report.rewrites["loops that may never end (T4's loop watchdog)"] += counts.watched;
+        report.rewrites["loops known to end or to wait"] += counts.loops - counts.watched;
+        report.rewrites["switches run the default label for a value that cannot match"] += counts.switches;
+        report.rewrites["vectors with a part that may not be a number"] += counts.vectors;
+        report.rewrites["&& and || used as a value (0 or 1)"] += counts.logic;
+        report.rewrites["array comparisons"] += counts.arrays;
+        report.rewrites["string order comparisons (a fault in WaW)"] += counts.comparisons;
     }
 
     void Translator::SourceLowerings(Tokens& tokens)
@@ -579,6 +597,6 @@ namespace w2b::gsc::port
             report.rewrites["intermission player link -> T6 script camera"] += BridgeIntermissionCamera(tokens);
         auto text = Emit(tokens);
         const auto patch = postPatches.find({core, name});
-        return GuardSizeLoops(patch != postPatches.end() ? patch->second(text) : text);
+        return VmRules(patch != postPatches.end() ? patch->second(text) : text, core + "::" + name);
     }
 } // namespace w2b::gsc::port

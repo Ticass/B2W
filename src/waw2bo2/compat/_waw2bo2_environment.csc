@@ -7,6 +7,133 @@ init()
     level.waw_player_vision = [];
     waw_register_system( "waw_vision_global", ::global_vision_state );
     waw_register_system( "waw_vision_player", ::player_vision_state );
+    level thread waw_frames();
+}
+
+// ---- T4's script VM where T6's differs (see _waw2bo2_compat.gsc) ----
+
+waw_frames()
+{
+    level.waw_frame = 0;
+    for ( ;; )
+    {
+        level.waw_frame++;
+        wait 0.01;
+    }
+}
+
+// Client scripts have a millisecond clock: T4's 2.5 s as it is.
+waw_watch( where )
+{
+    now = getrealtime();
+    if ( !isdefined( level.waw_frame ) || !isdefined( level.waw_watch_frame ) || level.waw_watch_frame != level.waw_frame )
+    {
+        level.waw_watch_frame = level.waw_frame;
+        level.waw_watch_start = now;
+        return;
+    }
+    if ( now - level.waw_watch_start < 2500 )
+        return;
+    level.waw_watch_start = now;
+    println( "WAW2BO2 potential infinite loop in client script - killing thread: " + where );
+    level waittill( "waw2bo2_killed_threads_never_resume" );
+}
+
+// T6 client scripts cannot tell an int from a float, so only undefined takes
+// the default label here.
+waw_switch( value )
+{
+    if ( isdefined( value ) )
+        return value;
+    return "waw2bo2_no_case";
+}
+
+// Multiplying is a fault, and so undefined, for a part that is not a number.
+waw_vector( x, y, z )
+{
+    x = x * 1;
+    y = y * 1;
+    z = z * 1;
+    if ( !isdefined( x ) || !isdefined( y ) || !isdefined( z ) )
+        return undefined;
+    return ( x, y, z );
+}
+
+// T4 compares arrays by identity: a copy not changed since is the same array,
+// two arrays built apart differ. T6 faults, and cannot tell them apart by
+// identity, so equal contents stand for the same array; an empty one is never
+// another's copy in practice ("x == []" is false in T4).
+waw_same_array( a, b )
+{
+    if ( a.size == 0 || a.size != b.size )
+        return 0;
+    keys = getarraykeys( a );
+    for ( i = 0; i < keys.size; i++ )
+    {
+        x = a[keys[i]];
+        y = b[keys[i]];
+        if ( !isdefined( y ) || isarray( x ) != isarray( y ) )
+            return 0;
+        if ( isarray( x ) )
+        {
+            if ( !waw_same_array( x, y ) )
+                return 0;
+            continue;
+        }
+        same = x == y;
+        if ( !isdefined( same ) || !same )
+            return 0;
+    }
+    return 1;
+}
+
+waw_equal( a, b )
+{
+    if ( isdefined( a ) && isdefined( b ) && isarray( a ) && isarray( b ) )
+        return waw_same_array( a, b );
+    return a == b;
+}
+
+waw_not_equal( a, b )
+{
+    same = waw_equal( a, b );
+    if ( !isdefined( same ) )
+        return undefined;
+    return !same;
+}
+
+// T4 does not order strings (a fault); T6 does.
+waw_two_strings( a, b )
+{
+    return isdefined( a ) && isdefined( b ) && isstring( a ) && isstring( b );
+}
+
+waw_less( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a < b;
+}
+
+waw_greater( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a > b;
+}
+
+waw_less_equal( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a <= b;
+}
+
+waw_greater_equal( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a >= b;
 }
 
 // WaW and BO2 both cap registersystem at 32 systems in script, not in the

@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+- Scripts are parsed with WaW's own grammar, read from its compiler's tables; over 1172 scripts of 28 custom maps the parser builds the same trees as those tables. `waw2bo2n gsc-check` runs it on a folder. See [docs/T4_SCRIPT_LANGUAGE.md](docs/T4_SCRIPT_LANGUAGE.md).
+- Loops that may never end get WaW's loop watchdog, which BO2 lacks: after about 2.5 s the thread ends, with its callers, instead of hanging the game, in server and client scripts. It covers every such loop and replaces the patches for single loop shapes (Yote's Lair, Nuketown 1886, Decagonal Demise). Those assumed WaW ends a thread on an undefined value; it does not, so code after such a loop no longer runs, as in WaW.
+- Every operator was run on every pair of types in WaW and in BO2, and the differences are ported: a vector with a part that is not a number is undefined (in BO2 it corrupted the script stack and could stop threads), `&&` and `||` give 0 or 1, a `switch` on a value that cannot match runs its `default:` label, arrays compare, strings do not order.
+- Scripts are link-checked as BO2 loads them, server and client, when they are staged: unresolved calls and wrong argument counts are reported together, with the file, line and function. `waw2bo2n gsc-port` does it for a folder of maps without building them.
 - Convert maps whose light grid nearly fills T6's 16-bit palette index ("static model lighting exceeds the T6 palette index range", Purple Dimension): the static models that change least share the closest grid palette.
-- Loops that never wait stop when the array element they compare is undefined, where WaW ends the thread and T6 hung (Decagonal Demise at player connect).
 - Store the model name table once per model: past 64 KiB of names T6 read wrapped names (Nightclub, about 1200 models; newer builds stopped on it).
 - Map WaW's client `getplayers` onto `getlocalplayers`, the same function in WaW ("Unresolved external: getplayers", Return to Stairway to Hell).
 - Any material of a sky model gets the sky's vertex streams ("source sky shader ... native vertex output cannot supply COLOR0", Purple Dimension).
