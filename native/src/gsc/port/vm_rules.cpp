@@ -1,5 +1,7 @@
 #include "vm_rules.h"
 
+#include "types.h"
+
 #include <algorithm>
 #include <array>
 #include <functional>
@@ -47,28 +49,6 @@ namespace w2b::gsc::port
                 if (AlwaysWaits(body))
                     return true;
                 return n.kind == NodeKind::For && Counts(n);
-            }
-
-            // whether the variable is ever given an array, or used as one
-            bool HoldsArray(const std::string& name) const
-            {
-                bool found = false;
-                Walk(function_,
-                     [&](const NodeId id)
-                     {
-                         const auto& n = ast_[id];
-                         if (n.kind != NodeKind::Assign)
-                             return;
-                         auto target = n.kids[0];
-                         const bool element = ast_[target].kind == NodeKind::Index && ast_[ast_[target].kids[0]].kind == NodeKind::Local;
-                         if (element)
-                             target = ast_[target].kids[0];
-                         if (ast_[target].kind != NodeKind::Local || Text(tokens_, ast_, target) != name)
-                             return;
-                         const auto value = Unwrap(ast_, n.kids[1]);
-                         found = found || element || ast_[value].kind == NodeKind::EmptyArray || ArrayCall(value);
-                     });
-                return found;
             }
 
         private:
@@ -325,7 +305,7 @@ namespace w2b::gsc::port
         class Rules
         {
         public:
-            Rules(std::vector<Token>& tokens, const VmRuntime& runtime) : tokens_(tokens), ast_(ParseAst(tokens, Dialect::Bo2)), runtime_(runtime.script + "::")
+            Rules(std::vector<Token>& tokens, const VmRuntime& runtime) : tokens_(tokens), ast_(ParseAst(tokens, Dialect::Bo2)), types_(ast_, tokens_), runtime_(runtime.script + "::")
             {
             }
 
@@ -441,22 +421,26 @@ namespace w2b::gsc::port
                 return n.kind == NodeKind::Call && tokens_[n.token].Low() == "isdefined";
             }
 
+            // Comparisons whose sides may be two strings or two arrays. A side must be known to take
+            // that type, the other to allow it: comparisons of values nothing is known about stay as they are.
             void Comparison(const NodeId id)
             {
                 const auto& n = ast_[id];
                 const auto& op = Operator(id);
-                if (op == "<" || op == ">" || op == "<=" || op == ">=")
+                const bool order = op == "<" || op == ">" || op == "<=" || op == ">=";
+                if (!order && op != "==" && op != "!=")
+                    return;
+                const auto type = order ? TYPE_STRING : TYPE_ARRAY;
+                const auto a = types_.Of(function_, n.kids[0]), b = types_.Of(function_, n.kids[1]);
+                if (!(a.Known(type) && b.May(type)) && !(b.Known(type) && a.May(type)))
+                    return;
+                if (order)
                 {
-                    // a fault in T4 whatever the other side is; T6 compares two strings
-                    if (!IsString(n.kids[0]) && !IsString(n.kids[1]))
-                        return;
                     counts_.comparisons++;
-                    Call(id, "waw_fault");
+                    Call(id, op == "<" ? "waw_less" : op == ">" ? "waw_greater" : op == "<=" ? "waw_less_equal" : "waw_greater_equal");
                 }
-                else if (op == "==" || op == "!=")
+                else
                 {
-                    if (!IsArray(n.kids[0]) && !IsArray(n.kids[1]))
-                        return;
                     counts_.arrays++;
                     Call(id, op == "==" ? "waw_equal" : "waw_not_equal");
                 }
@@ -467,22 +451,6 @@ namespace w2b::gsc::port
             {
                 tokens_[ast_[id].token].text = ",";
                 Wrap(id, " " + runtime_ + function + "(", " )");
-            }
-
-            bool IsString(const NodeId id) const
-            {
-                const auto value = Unwrap(ast_, id);
-                if (ast_[value].kind == NodeKind::String || ast_[value].kind == NodeKind::LocalizedString)
-                    return true;
-                return ast_[value].kind == NodeKind::Call && tokens_[ast_[value].token].Low() == "getdvar";
-            }
-
-            bool IsArray(const NodeId id) const
-            {
-                const auto value = Unwrap(ast_, id);
-                if (ast_[value].kind == NodeKind::EmptyArray)
-                    return true;
-                return ast_[value].kind == NodeKind::Local && Function(ast_, tokens_, function_).HoldsArray(tokens_[ast_[value].token].text);
             }
 
             // A vector part that is not a number is a fault in both games. T4 gives undefined;
@@ -569,6 +537,7 @@ namespace w2b::gsc::port
 
             std::vector<Token>& tokens_;
             Ast ast_;
+            TypeInference types_;
             std::string runtime_;
             NodeId function_ = NO_NODE;
             VmCounts counts_;

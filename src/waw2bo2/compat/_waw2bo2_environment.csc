@@ -59,23 +59,80 @@ waw_vector( x, y, z )
     return ( x, y, z );
 }
 
+// T4 compares arrays by identity: a copy not changed since is the same array,
+// two arrays built apart differ. T6 faults, and cannot tell them apart by
+// identity, so equal contents stand for the same array; an empty one is never
+// another's copy in practice ("x == []" is false in T4).
+waw_same_array( a, b )
+{
+    if ( a.size == 0 || a.size != b.size )
+        return 0;
+    keys = getarraykeys( a );
+    for ( i = 0; i < keys.size; i++ )
+    {
+        x = a[keys[i]];
+        y = b[keys[i]];
+        if ( !isdefined( y ) || isarray( x ) != isarray( y ) )
+            return 0;
+        if ( isarray( x ) )
+        {
+            if ( !waw_same_array( x, y ) )
+                return 0;
+            continue;
+        }
+        same = x == y;
+        if ( !isdefined( same ) || !same )
+            return 0;
+    }
+    return 1;
+}
+
 waw_equal( a, b )
 {
     if ( isdefined( a ) && isdefined( b ) && isarray( a ) && isarray( b ) )
-        return 0;
+        return waw_same_array( a, b );
     return a == b;
 }
 
 waw_not_equal( a, b )
 {
     if ( isdefined( a ) && isdefined( b ) && isarray( a ) && isarray( b ) )
-        return 1;
+        return !waw_same_array( a, b );
     return a != b;
 }
 
-waw_fault( a, b )
+// T4 does not order strings (a fault); T6 does.
+waw_two_strings( a, b )
 {
-    return undefined;
+    return isdefined( a ) && isdefined( b ) && isstring( a ) && isstring( b );
+}
+
+waw_less( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a < b;
+}
+
+waw_greater( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a > b;
+}
+
+waw_less_equal( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a <= b;
+}
+
+waw_greater_equal( a, b )
+{
+    if ( waw_two_strings( a, b ) )
+        return undefined;
+    return a >= b;
 }
 
 // WaW and BO2 both cap registersystem at 32 systems in script, not in the

@@ -10,7 +10,8 @@
 namespace w2b::gsc::port
 {
     // Where the compat functions the rewrites call live:
-    // "<runtime>::waw_watch", "::waw_switch", "::waw_vector", "::waw_equal", "::waw_not_equal", "::waw_fault"
+    // "<runtime>::waw_watch", "::waw_switch", "::waw_vector", "::waw_equal", "::waw_not_equal",
+    // "::waw_less", "::waw_greater", "::waw_less_equal", "::waw_greater_equal"
     struct VmRuntime
     {
         std::string script;

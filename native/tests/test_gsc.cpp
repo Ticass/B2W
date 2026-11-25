@@ -136,10 +136,15 @@ TEST_CASE("T4's results where T6's differ", "[gsc]")
     CHECK(lower("return !( b && c );") == "return !( b && c );");
     CHECK(lower("a = b[c && d[0]];") == "a = b[c && !( !( d[0] ) )];");
     // comparisons
-    CHECK(lower("a = []; if ( a == b ) c();") == "a = []; if ( run::waw_equal( a , b ) ) c();");
+    CHECK(lower("a = []; if ( a == b.d ) c();") == "a = []; if ( run::waw_equal( a , b.d ) ) c();");
     CHECK(lower("if ( [] != b.c ) d();") == "if ( run::waw_not_equal( [] , b.c ) ) d();");
     CHECK(lower("if ( a == b ) c();") == "if ( a == b ) c();");
-    CHECK(lower("if ( a < \"b\" ) c();") == "if ( run::waw_fault( a , \"b\" ) ) c();");
+    CHECK(lower("if ( b.c < \"d\" ) e();") == "if ( run::waw_less( b.c , \"d\" ) ) e();");
+    CHECK(lower("a = getdvar( \"b\" ); if ( a >= c.d ) e();") == "a = getdvar( \"b\" ); if ( run::waw_greater_equal( a , c.d ) ) e();");
+    CHECK(lower("a = \"b\"; if ( a < 5 ) c();") == "a = \"b\"; if ( a < 5 ) c();"); // a fault in both
+    CHECK(lower("a = 1; if ( a < b.c ) d();") == "a = 1; if ( a < b.c ) d();");
+    CHECK(lower("a = getentarray( \"b\" ); if ( a == 1 ) c();") == "a = getentarray( \"b\" ); if ( a == 1 ) c();");
+    CHECK(lower("level.a[0] = 1; if ( level.a == b.c ) d();") == "level.a[0] = 1; if ( run::waw_equal( level.a , b.c ) ) d();");
     CHECK(lower("if ( a == \"b\" ) c();") == "if ( a == \"b\" ) c();");
     // brackets keep their text
     CHECK(lower("[[ a ]](); self [[ b.c ]]( d[e[0]] );") == "[[ a ]](); self [[ b.c ]]( d[e[0]] );");
