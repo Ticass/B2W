@@ -4,6 +4,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+
 namespace w2b::shaders
 {
     namespace
@@ -36,8 +38,13 @@ namespace w2b::shaders
 
         Sorted ToSorted(const T6Pass& pass)
         {
+            // T6 sets a pass's stable arguments one type after the other: every stock pass has them in ascending
+            // type order, and a texture after an argument of a later type is never bound.
+            auto ordered = pass.args;
+            const auto stable = std::min(static_cast<std::size_t>(pass.perPrimArgCount + pass.perObjArgCount), ordered.size());
+            std::ranges::stable_sort(ordered.begin() + static_cast<std::ptrdiff_t>(stable), ordered.end(), {}, &T6PassArg::type);
             Sorted args = Sorted::array();
-            for (const auto& arg : pass.args)
+            for (const auto& arg : ordered)
                 args.push_back({{"buffer", arg.buffer}, {"location", arg.location}, {"size", arg.size}, {"type", arg.type}, {"u", {{"value", arg.value}}}});
             Sorted routing = Sorted::array();
             for (const auto& [source, dest] : pass.vertexDecl.routing)

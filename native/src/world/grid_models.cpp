@@ -1,5 +1,7 @@
 #include "world/grid_models.h"
 
+#include "core/parallel.h"
+
 #include <algorithm>
 #include <map>
 #include <stdexcept>
@@ -200,16 +202,185 @@ namespace w2b::world
         }
     }
 
+    namespace
+    {
+        Columns LowestPoints(const LightGrid& grid)
+        {
+            Columns columns;
+            for (const auto& [point, _] : grid.points)
+            {
+                const auto [column, added] = columns.try_emplace({point[grid.rowAxis], point[grid.colAxis]}, point[2]);
+                if (!added)
+                    column->second = std::min(column->second, point[2]);
+            }
+            return columns;
+        }
+
+        using Blend = std::array<double, gridPaletteSize>;
+
+        struct Lookup
+        {
+            Blend colors{};
+            int dominant = 0;
+        };
+
+        // T4's lookup at a point: the corners it can trace to, or its fallback palettes
+        Lookup LightingAt(const LightGrid& grid, const Columns& columns, const WorldTracer& tracer, const Vec3& origin)
+        {
+            const ModelCell cell(origin);
+            auto corners = Corners(grid, cell);
+            std::vector<Corner*> kept;
+            kept.reserve(corners.size());
+            Lookup out;
+            out.dominant = DominantLight(corners, tracer, origin, kept);
+            double total = 0;
+            for (const auto corner : kept)
+            {
+                if (!corner->Visible(tracer, origin))
+                    continue;
+                total += corner->weight;
+                const auto offset = corner->entry->color * gridPaletteSize;
+                for (std::size_t i = 0; i < out.colors.size(); ++i)
+                    out.colors[i] += grid.colors[offset + i] * corner->weight;
+            }
+            if (total > 0)
+            {
+                for (auto& value : out.colors)
+                    value /= total;
+                return out;
+            }
+            const std::size_t fallback = BelowGrid(grid, columns, cell) ? 0 : 1;
+            for (std::size_t i = 0; i < out.colors.size(); ++i)
+                out.colors[i] = grid.colors.size() >= (fallback + 1) * gridPaletteSize ? grid.colors[fallback * gridPaletteSize + i] : 0;
+            out.dominant = static_cast<int>(grid.sun);
+            return out;
+        }
+
+        bool InOpen(const WorldTracer& tracer, const Vec3& at)
+        {
+            unsigned open = 0;
+            for (std::size_t axis = 0; axis < at.size(); ++axis)
+                for (const double step : {-4.0, 4.0})
+                {
+                    auto end = at;
+                    end[axis] += step;
+                    open += tracer.Visible(at, end);
+                }
+            return open >= 4;
+        }
+
+        struct HiddenPoint
+        {
+            std::uint32_t entry = 0;
+            double change = 0;
+            std::array<std::uint8_t, gridPaletteSize> colors{};
+            std::optional<std::uint8_t> primary;
+        };
+
+        std::optional<HiddenPoint> FillPoint(const LightGrid& grid, const Columns& columns, const WorldTracer& tracer, const Cell& key, const std::uint32_t index)
+        {
+            const auto& entry = grid.entries[index];
+            Vec3 point;
+            for (std::size_t axis = 0; axis < point.size(); ++axis)
+                point[axis] = key[axis] * cellSize[axis] - gridOffset;
+            double seen = 0, hidden = 0;
+            Blend around{};
+            std::map<int, double> lights;
+            for (unsigned bits = 0; bits < 8; ++bits)
+            {
+                Cell step{};
+                step[grid.rowAxis] = (bits & 4) != 0;
+                step[grid.colAxis] = (bits & 2) != 0;
+                step[2] = (bits & 1) != 0;
+                for (unsigned sample = 0; sample < 8; ++sample)
+                {
+                    Vec3 at;
+                    double weight = 1;
+                    for (std::size_t axis = 0; axis < at.size(); ++axis)
+                    {
+                        const double away = (sample >> axis) & 1 ? 0.6 : 0.2;
+                        at[axis] = point[axis] + (step[axis] ? -away : away) * cellSize[axis];
+                        weight *= 1 - away;
+                    }
+                    Vec3 end;
+                    for (std::size_t axis = 0; axis < end.size(); ++axis)
+                        end[axis] = point[axis] + 0.01 * (at[axis] - point[axis]);
+                    if (!(entry.trace & (1u << bits)) || tracer.Visible(at, end))
+                    {
+                        seen += weight;
+                        continue;
+                    }
+                    if (!InOpen(tracer, at))
+                        continue;
+                    const auto lit = LightingAt(grid, columns, tracer, at);
+                    hidden += weight;
+                    for (std::size_t i = 0; i < around.size(); ++i)
+                        around[i] += lit.colors[i] * weight;
+                    lights[lit.dominant] += weight;
+                }
+            }
+            if (hidden == 0)
+                return std::nullopt;
+            HiddenPoint out;
+            out.entry = index;
+            const auto* original = grid.colors.data() + entry.color * gridPaletteSize;
+            for (std::size_t i = 0; i < around.size(); ++i)
+            {
+                const double value = (original[i] * seen + around[i]) / (seen + hidden);
+                out.colors[i] = static_cast<std::uint8_t>(std::min(255.0, std::nearbyint(value)));
+                const double difference = static_cast<double>(out.colors[i]) - original[i];
+                out.change += difference * difference * hidden;
+            }
+            if (hidden > seen)
+                out.primary = static_cast<std::uint8_t>(std::ranges::max_element(lights, {}, [](const auto& light) { return light.second; })->first);
+            return out;
+        }
+    }
+
+    std::vector<std::uint8_t> FillHiddenPoints(LightGrid& grid, const WorldTracer& tracer, const std::size_t firstColor, util::Json& summary)
+    {
+        const auto columns = LowestPoints(grid);
+        std::vector<std::pair<Cell, std::uint32_t>> points;
+        for (const auto& [key, index] : grid.points)
+            if (grid.entries[index].trace)
+                points.emplace_back(key, index);
+        std::ranges::sort(points, {}, [](const auto& point) { return point.second; });
+        std::vector<std::optional<HiddenPoint>> filled(points.size());
+        parallel::For(points.size(), [&](const std::size_t i) { filled[i] = FillPoint(grid, columns, tracer, points[i].first, points[i].second); });
+        std::vector<HiddenPoint> changed;
+        for (auto& point : filled)
+            if (point && point->change > 0)
+                changed.push_back(std::move(*point));
+        std::ranges::stable_sort(changed, [](const HiddenPoint& a, const HiddenPoint& b) { return a.change > b.change; });
+        std::vector<std::uint8_t> palette;
+        std::map<std::array<std::uint8_t, gridPaletteSize>, std::size_t> indices;
+        std::size_t written = 0;
+        for (const auto& point : changed)
+        {
+            auto found = indices.find(point.colors);
+            if (found == indices.end())
+            {
+                const auto index = firstColor + palette.size() / gridPaletteSize;
+                if (index >= 0x10000) // the index is 16 bits
+                    continue;
+                palette.insert(palette.end(), point.colors.begin(), point.colors.end());
+                found = indices.emplace(point.colors, index).first;
+            }
+            auto& entry = grid.entries[point.entry];
+            entry.color = static_cast<std::uint16_t>(found->second);
+            if (point.primary)
+                entry.primary = *point.primary;
+            ++written;
+        }
+        summary["traced_points"] = points.size();
+        summary["hidden_points_filled"] = written;
+        return palette;
+    }
+
     ModelGridSamples SampleModelLighting(const LightGrid& grid, util::Json& placements, const WorldTracer& tracer,
                                         const util::Json& lights, bool compensated)
     {
-        Columns columns;
-        for (const auto& [point, _] : grid.points)
-        {
-            const auto [column, added] = columns.try_emplace({point[grid.rowAxis], point[grid.colAxis]}, point[2]);
-            if (!added)
-                column->second = std::min(column->second, point[2]);
-        }
+        const auto columns = LowestPoints(grid);
         std::vector<std::uint8_t> palette;
         std::size_t count = 0, unreached = 0, outside = 0;
         for (auto& model : placements.at("models"))

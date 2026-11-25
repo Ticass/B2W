@@ -83,7 +83,7 @@ namespace w2b::world
     util::Json StageGrid(const GridRequest& request)
     {
         using util::Json;
-        const auto grid = ReadLightGrid(request.source);
+        auto grid = ReadLightGrid(request.source);
         if (!request.models)
             return WriteLightGrid(grid, request.destination, {}, {});
 
@@ -95,6 +95,8 @@ namespace w2b::world
         if (const auto shared = SharePalettes(grid.colors, samples.palette, placements))
             samples.summary["shared_palettes"] = shared;
         files::WriteText(request.models->placements, util::JsonDumps(placements, 1) + "\n");
+        const auto filled = FillHiddenPoints(grid, tracer, (grid.colors.size() + samples.palette.size()) / gridPaletteSize, samples.summary);
+        samples.palette.insert(samples.palette.end(), filled.begin(), filled.end());
         return WriteLightGrid(grid, request.destination, samples.palette, std::move(samples.summary));
     }
 }
