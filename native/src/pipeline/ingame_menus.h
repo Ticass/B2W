@@ -7,6 +7,7 @@
 #include "core/text.h"
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -16,8 +17,11 @@ namespace w2b::pipeline
     struct MenuStage
     {
         util::Json result;                  // content_source/waw_menu.json, as written
-        std::optional<std::string> error; // the WaW menu sources are missing or incomplete
+        std::optional<std::string> error; // the pause menu's WaW sources are missing or incomplete
     };
 
-    MenuStage StageWawMenus(const std::filesystem::path& project, const std::vector<std::filesystem::path>& rawRoots, const std::string& mapname);
+    // scriptMenus: the map's own menus its scripts open (script_menus.h), encoded beside the pause menu;
+    // with them the result stands even when the pause menu's sources are missing (error says so)
+    MenuStage StageWawMenus(const std::filesystem::path& project, const std::vector<std::filesystem::path>& rawRoots, const std::string& mapname,
+                            const std::map<std::string, util::Json>& scriptMenus = {});
 } // namespace w2b::pipeline

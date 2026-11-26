@@ -3,6 +3,8 @@
 #include "core/files.h"
 #include "pipeline/hud_menus.h"
 #include "pipeline/impact_table.h"
+#include "pipeline/ingame_menus.h"
+#include "pipeline/script_menus.h"
 #include "pipeline/actor_trees.h"
 #include "pipeline/bridge_inventory.h"
 #include "pipeline/csvtable.h"
@@ -343,4 +345,55 @@ TEST_CASE("WaW's impact table becomes BO2's rows and surfaces")
     CHECK(t6[11][5].empty()); // grenade_bounce: not converted
     CHECK(t6[20][13] == "waw/m"); // blade, a hit WaW lacks
     CHECK_THROWS(pipeline::T6Impacts({}, {}));
+}
+
+TEST_CASE("A map's script menu runs its compiled scripts and keys")
+{
+    using namespace w2b;
+    using util::Json;
+    const Json window{{"name", "title"},
+                      {"rect", {{"x", 85.0}, {"y", 320.0}, {"w", 100.0}, {"h", 32.0}, {"horzAlign", 0}, {"vertAlign", 0}}},
+                      {"style", 1},
+                      {"border", 0},
+                      {"borderSize", 0.0},
+                      {"ownerDraw", 0},
+                      {"staticFlags", 0x100000},
+                      {"dynamicFlags", 0x10004},
+                      {"foreColor", {1.0, 1.0, 1.0, 1.0}},
+                      {"backColor", {0.0, 0.0, 0.0, 0.5}},
+                      {"borderColor", {0.0, 0.0, 0.0, 0.0}},
+                      {"background", ",white"}};
+    Json item{{"window", window},   {"type", 0},           {"font", 1},           {"textAlignMode", 1}, {"textAlignX", 0.0},   {"textAlignY", 0.0},
+              {"textScale", 0.24},  {"textStyle", 0},      {"text", "Select Song"}, {"action", nullptr}, {"onFocus", nullptr},  {"leaveFocus", nullptr},
+              {"mouseEnter", nullptr}, {"mouseExit", nullptr}, {"onKey", Json::array()}, {"visibleExp", nullptr}, {"textExp", nullptr},
+              {"materialExp", nullptr}, {"rectXExp", nullptr}, {"rectYExp", nullptr}, {"rectWExp", nullptr}, {"rectHExp", nullptr}, {"forecolorAExp", nullptr}};
+    auto hidden = item;
+    hidden["window"]["dynamicFlags"] = 0;
+    hidden["window"]["staticFlags"] = 0;
+    const Json menu{{"window", window},
+                    {"fullScreen", 0},
+                    {"visibleExp", nullptr},
+                    {"onOpen", "\"setDvar\" \"cl_bypassMouseInput\" 1 "},
+                    {"onClose", nullptr},
+                    {"onESC", "\"scriptMenuResponse\" 9 ; \"close\" \"tom\" "},
+                    {"onKey", {{{"key", 49}, {"action", "\"scriptMenuResponse\" 1 ; \"close\" \"tom\" "}}}},
+                    {"blurRadius", 0.0},
+                    {"focusColor", {1.0, 1.0, 1.0, 1.0}},
+                    {"items", {item, hidden}}};
+    const auto project = std::filesystem::temp_directory_path() / ("w2b-script-menu-" + std::to_string(std::random_device{}()));
+    const auto staged = pipeline::StageWawMenus(project, {}, "test", {{"tom", pipeline::CompiledMenuSource("tom", menu)}});
+    // no Mod Tools sources: the pause menu stays BO2's, the map's menu converts
+    REQUIRE(staged.error);
+    REQUIRE(!staged.result.is_null());
+    CHECK(staged.result["script_menus"] == Json::array({"tom"}));
+    const auto table = files::ReadText(project / "zm/waw_menus.csv");
+    CHECK(table.find("scriptmenus,tom") != std::string::npos);
+    CHECK(table.find("scriptMenuResponse 9;close tom") != std::string::npos);
+    CHECK(table.find("49=scriptMenuResponse 1;close tom") != std::string::npos);
+    CHECK(table.find("setDvar cl_bypassMouseInput 1") != std::string::npos);
+    CHECK(table.find("item:tom:1,85 320 100 32 0 0,1,white,1 1 1 1,0 0 0 0.5") != std::string::npos);
+    CHECK(table.find("Select Song") != std::string::npos);
+    CHECK(table.find("n:1") != std::string::npos);
+    CHECK(table.find("n:0") != std::string::npos); // the item without "visible 1"
+    std::filesystem::remove_all(project);
 }

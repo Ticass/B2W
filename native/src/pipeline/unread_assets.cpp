@@ -5,6 +5,7 @@
 #include "core/regex.h"
 #include "modutil.h"
 #include "oat/waw_tables.h"
+#include "script_menus.h"
 #include "source_zones.h"
 
 #include <map>
@@ -20,36 +21,12 @@ namespace w2b::pipeline
         const std::set<std::string> READ{"clipmap",  "clipmap_pvs", "mapents", "gfxworld", "gameworldsp", "material", "techniqueset", "image", "fx", "xmodel",
                                          "weapon",   "xanim",       "sound",   "loadedsound", "rawfile", "comworld", "lightdef", "physpreset",
                                          "physconstraints", "snddriverglobals", "localize", "stringtable", "font", "impactfx", "menu", "menulist", "destructibledef"};
-
-        std::set<std::string> ScriptMenus(const fs::path& project)
-        {
-            static const regex::Regex open("openmenu(?:nomouse)?\\s*\\(\\s*\"([^\"]+)\"", regex::IGNORECASE);
-            static const regex::Regex openGame("openmenu(?:nomouse)?\\s*\\(\\s*game\\s*\\[\\s*\"([^\"]+)\"", regex::IGNORECASE);
-            static const regex::Regex setGame("game\\s*\\[\\s*\"([^\"]+)\"\\s*\\]\\s*=\\s*\"([^\"]+)\"", regex::IGNORECASE);
-            std::set<std::string> menus, keys;
-            std::map<std::string, std::string> game;
-            for (const auto& script : files::GlobSuffix(project / "maps/mp/waw", ".gsc"))
-            {
-                const auto text = files::ReadText(script);
-                for (const auto& row : open.FindAll(text))
-                    menus.insert(mod::Lower(row[0]));
-                for (const auto& row : openGame.FindAll(text))
-                    keys.insert(mod::Lower(row[0]));
-                for (const auto& row : setGame.FindAll(text))
-                    game[mod::Lower(row[0])] = mod::Lower(row[1]);
-            }
-            for (const auto& key : keys)
-                if (const auto found = game.find(key); found != game.end())
-                    menus.insert(found->second);
-            return menus;
-        }
     } // namespace
 
     std::vector<std::string> UnreadAssets(const fs::path& project, const std::vector<fs::path>& roots)
     {
         std::vector<std::string> out;
-        const auto opened = ScriptMenus(project);
-        std::set<std::string> menus;
+        auto missing = ScriptOpenedMenus(project); // the ones no zone of the map defines
         for (const auto& zone : SourceZones(roots))
         {
             const auto assets = Json::parse(oat::AssetNames({zone, {}}));
@@ -66,12 +43,12 @@ namespace w2b::pipeline
                 }
                 if (type == "menu")
                     for (const auto& name : names)
-                        if (opened.contains(mod::Lower(name.get<std::string>())))
-                            menus.insert(name.get<std::string>());
+                        missing.erase(mod::Lower(name.get<std::string>()));
             }
         }
-        if (!menus.empty())
-            out.push_back("SCRIPT_MENU not converted, scripts open them: " + mod::Join({menus.begin(), menus.end()}, ", "));
+        // WaW's own (briefing, the pause menus) live in its stock zones
+        if (!missing.empty())
+            out.push_back("SCRIPT_MENU_NOT_IN_MAP scripts open " + mod::Join({missing.begin(), missing.end()}, ", ") + ": not in the map's zones (stock WaW's or none)");
         return out;
     }
 

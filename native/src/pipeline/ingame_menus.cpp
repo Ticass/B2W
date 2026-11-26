@@ -1292,9 +1292,9 @@ namespace w2b::pipeline
                     References(item, out);
         }
 
-        std::vector<std::string> Closure(const std::map<std::string, Json>& menus, const std::set<std::string>& stop)
+        std::vector<std::string> Closure(const std::map<std::string, Json>& menus, const std::set<std::string>& stop, std::vector<std::string> todo)
         {
-            std::vector<std::string> seen, todo{ROOT_MENU};
+            std::vector<std::string> seen;
             while (!todo.empty())
             {
                 const auto name = todo.front();
@@ -1473,8 +1473,8 @@ namespace w2b::pipeline
         const std::vector<std::string> ITEM_COLUMNS{"rect",       "style",      "background", "forecolor", "backcolor", "bordercolor", "border",
                                                     "bordersize", "text",       "textfont",   "textscale", "textstyle", "textalign",   "textalignx",
                                                     "textaligny", "visible",    "exp",        "type",      "name",      "onfocus",     "leavefocus",
-                                                    "action",     "decoration", "ownerdraw",  "origin",    "autowrapped"};
-        const std::vector<std::string> MENU_COLUMNS{"rect", "onopen", "onclose", "onesc", "blurworld", "items", "visible", "fullscreen", "focuscolor"};
+                                                    "action",     "decoration", "ownerdraw",  "origin",    "autowrapped", "keys"};
+        const std::vector<std::string> MENU_COLUMNS{"rect", "onopen", "onclose", "onesc", "blurworld", "items", "visible", "fullscreen", "focuscolor", "keys"};
         const std::set<std::string> SCRIPTS{"onfocus", "leavefocus", "action", "onopen", "onclose", "onesc"};
         const std::set<std::string> NUMBERS{"style",      "border",     "bordersize", "textfont", "textscale", "textstyle", "textalign",
                                             "textalignx", "textaligny", "type",       "ownerdraw", "blurworld", "fullscreen"};
@@ -1483,6 +1483,18 @@ namespace w2b::pipeline
         std::string Value(const Json& item, const std::string& key)
         {
             const bool has = item.contains(key);
+            // a compiled menu (script_menus.cpp) carries its expressions as RPN already
+            if (item.contains("compiled") && item["compiled"].contains(key))
+                return item["compiled"][key].get<std::string>();
+            if (key == "keys")
+            {
+                // execKey: "<key code>=<script>|..."
+                std::string out;
+                if (has)
+                    for (const auto& handler : item[key])
+                        out += (out.empty() ? "" : "|") + std::to_string(handler["key"].get<long long>()) + "=" + Script(handler["commands"]);
+                return out;
+            }
             if (key == "visible")
                 return has ? Rpn(AsTokens(item[key])) : "n:1";
             if (!has)
@@ -1619,7 +1631,8 @@ namespace w2b::pipeline
         }
     } // namespace
 
-    MenuStage StageWawMenus(const fs::path& project, const std::vector<fs::path>& rawRoots, const std::string& mapname)
+    MenuStage StageWawMenus(const fs::path& project, const std::vector<fs::path>& rawRoots, const std::string& mapname,
+                            const std::map<std::string, Json>& scriptMenus)
     {
         try
         {
@@ -1632,28 +1645,52 @@ namespace w2b::pipeline
                     break;
                 }
             }
+            // the pause menu needs the Mod Tools sources; the map's own script menus are in its zones
+            std::optional<std::string> pauseError;
+            std::map<std::string, Json> menus;
             if (!raw)
-                throw MenuSourceError("WaW menu sources (raw/ui/ingame.txt, raw/ui/hud.txt) not found; the WaW Mod Tools raw folder is required");
-            const auto menus = LoadSources(*raw);
+                pauseError = "WaW menu sources (raw/ui/ingame.txt, raw/ui/hud.txt) not found; the WaW Mod Tools raw folder is required";
+            else
+                menus = LoadSources(*raw);
             const auto glue = mod::Json(extract::ResourceRoot() / "src/waw2bo2/compat/waw_menu_glue.json");
             const auto& engine = glue.at("engine_menus");
             std::set<std::string> stop;
             for (const auto& [k, _] : engine.items())
                 stop.insert(k);
-            const auto names = Closure(menus, stop);
-            if (std::find(names.begin(), names.end(), ROOT_MENU) == names.end())
-                throw MenuSourceError(ROOT_MENU + " is not defined by ui/ingame.txt, ui/hud.txt");
+            std::vector<std::string> names;
+            if (!pauseError)
+            {
+                names = Closure(menus, stop, {ROOT_MENU});
+                if (std::find(names.begin(), names.end(), ROOT_MENU) == names.end())
+                    pauseError = ROOT_MENU + " is not defined by ui/ingame.txt, ui/hud.txt";
+            }
+            if (pauseError)
+            {
+                names.clear();
+                if (scriptMenus.empty())
+                    throw MenuSourceError(*pauseError);
+            }
+            // a map's menu of the same name replaces WaW's (it is loaded over common.ff)
+            std::vector<std::string> scripted;
+            for (const auto& [name, menu] : scriptMenus)
+            {
+                menus[name] = menu;
+                scripted.push_back(name);
+            }
+            for (const auto& name : Closure(menus, stop, scripted))
+                if (std::find(names.begin(), names.end(), name) == names.end())
+                    names.push_back(name);
             const auto required = Requirements(menus, names, mapname);
-            std::map<std::string, std::string> context{{"mapname", mapname}};
+            std::map<std::string, std::string> context{{"mapname", mapname}, {"scriptmenus", mod::Join(scripted, " ")}};
             for (const auto& [k, v] : engine.items())
                 context["engine:" + k] = v.at("t6_menu").get<std::string>();
             files::WriteText(project / "zm/waw_menus.csv", CsvText(Encode(menus, names, context), "\n"));
-            Json result{{"source", mod::Str(*raw)}, {"menus", names}, {"mapname", mapname}};
+            Json result{{"source", raw ? mod::Str(*raw) : std::string()}, {"menus", names}, {"mapname", mapname}, {"script_menus", scripted}};
             for (const auto& [k, v] : required.items())
                 result[k] = v;
             result["engine_menus"] = std::vector<std::string>(stop.begin(), stop.end());
             files::WriteText(project / "content_source/waw_menu.json", util::JsonDumps(result, 2) + "\n");
-            return {std::move(result), std::nullopt};
+            return {std::move(result), pauseError};
         }
         catch (const MenuSourceError& error)
         {

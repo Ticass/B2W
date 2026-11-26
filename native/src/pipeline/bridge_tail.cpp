@@ -28,6 +28,7 @@
 #include "client_stage.h"
 #include "weapons/water_bullets.h"
 #include "ingame_menus.h"
+#include "script_menus.h"
 #include "lighting_tail.h"
 #include "models/identities.h"
 #include "models/material_identity.h"
@@ -592,10 +593,16 @@ namespace w2b::pipeline
             // WaW's own pause menu (ui/hud.txt + ui/ingame.txt) replaces BO2's class menu
             std::error_code e;
             fs::remove(projectRoot / "content_source/waw_menu.json", e);
-            const auto staged = Timed("Translate WaW in-game menus", [&] { return StageWawMenus(projectRoot, rawRoots, *wawMapStem); });
+            // and the map's own menus its scripts open (music players, gunsmiths)
+            const auto scriptMenus = ReadScriptMenus(projectRoot, input.mapRoots);
+            warnings.insert(warnings.end(), scriptMenus.warnings.begin(), scriptMenus.warnings.end());
+            const auto staged = Timed("Translate WaW in-game menus", [&] { return StageWawMenus(projectRoot, rawRoots, *wawMapStem, scriptMenus.menus); });
             if (staged.error)
                 warnings.push_back("FRAMEWORK_BO2 pause menu: " + *staged.error + "; BO2 pause menu kept");
-            else
+            if (!scriptMenus.menus.empty())
+                warnings.push_back("SCRIPT_MENUS " + std::to_string(scriptMenus.menus.size()) + " opened by the map's scripts, run by waw_menu.lua: " +
+                                   mod::Join(staged.result.value("script_menus", std::vector<std::string>{}), ", "));
+            if (!staged.result.is_null())
             {
                 content["waw_menu"] = staged.result;
                 menuReady = true;

@@ -5,6 +5,12 @@ require("T6.Waw_Hud_Runtime")
 require("T6.Waw_Menu")
 CoD.WawHUD.hookScoreboard()
 CoD.WawMenu.hook()
+-- the server's closemenu closes a map's script menu too (the HUD registers this global when it is built)
+local closeIngame = HUD_CloseInGameMenu
+HUD_CloseInGameMenu = function(hud, event)
+    CoD.WawMenu.closeScriptMenus(event.controller)
+    return closeIngame(hud, event)
+end
 local original = HUD_FirstSnapshot_Zombie
 HUD_FirstSnapshot_Zombie = function(hud, event)
     if not CoD.WawHUD.active() then return original(hud, event) end

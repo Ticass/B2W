@@ -10,10 +10,10 @@ local TABLE = "zm/waw_menus.csv"
 local GLYPHS = "zm/waw_menu_glyphs.csv"
 local S = 1.5 -- 480 virtual units -> 720 LUI units
 -- wawmenu.MENU_COLUMNS / ITEM_COLUMNS (column 0 is the key).
-local MENU = {rect = 1, onopen = 2, onclose = 3, onesc = 4, blurworld = 5, items = 6, visible = 7, focuscolor = 9}
+local MENU = {rect = 1, onopen = 2, onclose = 3, onesc = 4, blurworld = 5, items = 6, visible = 7, focuscolor = 9, keys = 10}
 local ITEM = {rect = 1, style = 2, background = 3, forecolor = 4, backcolor = 5, text = 9, textfont = 10,
     textscale = 11, textstyle = 12, textalign = 13, textalignx = 14, textaligny = 15, visible = 16, exp = 17,
-    type = 18, name = 19, onfocus = 20, leavefocus = 21, action = 22, decoration = 23, origin = 25, autowrapped = 26}
+    type = 18, name = 19, onfocus = 20, leavefocus = 21, action = 22, decoration = 23, origin = 25, autowrapped = 26, keys = 27}
 -- compat/waw_menu_glue.json leave_commands: T6 clears cl_paused before these.
 local LEAVE = {disconnect = true, fast_restart = true, map_restart = true, quit = true, checkpoint_restart = true}
 
@@ -382,6 +382,16 @@ end
 
 -- ------------------------------------------------------------ menus
 
+-- execKey scripts by key code: "<code>=<script>|..." (compiled menus only)
+local function keyScripts(s)
+    local t = {}
+    for _, entry in ipairs(split(s or "", "|")) do
+        local i = string.find(entry, "=", 1, true)
+        if i then t[tonumber(string.sub(entry, 1, i - 1)) or -1] = string.sub(entry, i + 1) end
+    end
+    return t
+end
+
 local function readItem(menuName, index)
     local key = "item:" .. menuName .. ":" .. index
     local function col(name) return UIExpression.TableLookup(nil, TABLE, 0, key, ITEM[name]) or "" end
@@ -394,7 +404,7 @@ local function readItem(menuName, index)
         visible = col("visible"), type = tonumber(col("type")) or 0, name = string.lower(col("name")),
         onfocus = col("onfocus"), leavefocus = col("leavefocus"), action = col("action"),
         decoration = col("decoration") == "1", origin = numbers(col("origin")), autowrapped = col("autowrapped") == "1",
-        exp = {},
+        exp = {}, keys = keyScripts(col("keys")),
     }
     for _, entry in ipairs(split(col("exp"), "|")) do
         local i = string.find(entry, "=", 1, true)
@@ -413,7 +423,7 @@ function M.definition(name)
     if not count then return nil end
     d = {name = name, onopen = cell(key, MENU.onopen), onclose = cell(key, MENU.onclose), onesc = cell(key, MENU.onesc),
         blurworld = tonumber(cell(key, MENU.blurworld)) or 0, visible = cell(key, MENU.visible),
-        focuscolor = numbers(cell(key, MENU.focuscolor)), items = {}}
+        focuscolor = numbers(cell(key, MENU.focuscolor)), keys = keyScripts(cell(key, MENU.keys)), items = {}}
     if #d.focuscolor < 4 then d.focuscolor = {1, 1, 1, 1} end
     for i = 1, count do d.items[i] = readItem(name, i) end
     definitions[name] = d
@@ -662,8 +672,8 @@ commands.execnow = commands.exec
 -- it (popup_leavegame, after its Close), others under the host "class" menu.
 commands.scriptmenuresponse = function(host, layer, a)
     local response = a[1] or ""
-    local menu = "class"
-    if string.lower(response) == "endround" then
+    local menu = host.script or "class"
+    if not host.script and string.lower(response) == "endround" then
         M.leave(host)
         menu = "popup_leavegame"
     end
@@ -703,6 +713,10 @@ function M.settle(host)
         host:close()
         return
     end
+    if host.top == nil and host.script then
+        M.closeScript(host)
+        return
+    end
     if host.top == nil and not host.resumed then
         host.resumed = true
         guarded(Engine.BlurWorld, host.controller, 0)
@@ -718,11 +732,42 @@ function M.escape(host)
     return true
 end
 
+-- T4 key codes of the keys T6 names otherwise (K_TAB, K_ENTER, K_ESCAPE, K_SPACE, K_BACKSPACE)
+local KEY_NAMES = {[9] = "TAB", [13] = "ENTER", [27] = "ESCAPE", [32] = "SPACE", [127] = "BACKSPACE"}
+local function keyName(code)
+    if KEY_NAMES[code] then return KEY_NAMES[code] end
+    if code > 32 and code < 127 then return string.upper(string.char(code)) end
+end
+-- T4 Item_HandleKey / Menu_HandleKey: the focused item's execKey, else the menu's.
+-- On PC T6 hands keys to LUI as gamepad_button "key_shortcut" with the key's name.
+function M.key(host, layer, name)
+    name = string.upper(tostring(name or ""))
+    local lists = {}
+    if layer.focus then lists[#lists + 1] = layer.focus.data.keys end
+    lists[#lists + 1] = layer.def.keys
+    for _, keys in ipairs(lists) do
+        for code, script in pairs(keys) do
+            if keyName(code) == name then
+                debug("key " .. name .. " " .. script)
+                M.run(host, layer, script)
+                M.settle(host)
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function M.gamepad(host, event)
-    if event.down ~= true then return true end
+    if event.down == false then return true end
     local layer = host.top
     if not layer then return true end
     local button = event.button
+    if button == "key_shortcut" then
+        M.key(host, layer, event.key)
+        return true
+    end
+    if event.down ~= true then return true end
     if button == "up" or button == "down" then
         local list = {}
         local current = 0
@@ -770,6 +815,55 @@ function M.create(controller)
     return host
 end
 
+-- ------------------------------------------------------------ script menus
+-- A map's own menu its scripts open: T6's openmenu raises open_ingame_menu,
+-- and the HUD opens LUI.createMenu[name] as a popup. It does not pause.
+local scriptHosts = {}
+function M.closeScript(host)
+    if host.closed then return end
+    host.closed = true
+    for i = #host.layers, 1, -1 do M.closeLayer(host, host.layers[i].def.name) end
+    if scriptHosts[host.controller] == host then scriptHosts[host.controller] = nil end
+    guarded(Engine.BlurWorld, host.controller, 0)
+    host:close()
+    -- as HUD_CloseInGameMenu
+    if CoD.isZombie and CoD.UIMENU_NONE then guarded(Engine.SetActiveMenu, host.controller, CoD.UIMENU_NONE) end
+end
+-- the server's closemenu (close_ingame_menu reaches the HUD)
+function M.closeScriptMenus(controller)
+    local host = scriptHosts[controller]
+    if host then M.closeScript(host) end
+end
+function M.scriptMenu(name)
+    return function(controller)
+        M.closeScriptMenus(controller)
+        local host = CoD.Menu.New(name)
+        host.controller = controller
+        host.script = name
+        host.layers, host.vars, host.hidden = {}, {}, {}
+        host.canvas = LUI.UIElement.new()
+        host.canvas:setLeftRight(false, false, -screenWidth() / 2, screenWidth() / 2)
+        host.canvas:setTopBottom(false, false, -360, 360)
+        host:addElement(host.canvas)
+        host:registerEventHandler("gamepad_button", M.gamepad)
+        host:registerEventHandler("button_prompt_back", M.escape)
+        host:registerEventHandler("button_prompt_start", M.escape)
+        host:registerEventHandler("waw_menu_tick", function(self) M.refresh(self) end)
+        local timer = LUI.UITimer and guarded(LUI.UITimer.new, 250, "waw_menu_tick", false)
+        if timer then host:addElement(timer) end
+        scriptHosts[controller] = host
+        debug("script menu " .. name)
+        M.openLayer(host, name, true)
+        M.settle(host)
+        return host
+    end
+end
+function M.hookScriptMenus()
+    for name in string.gmatch(cell("scriptmenus", 1), "%S+") do
+        if not LUI.createMenu[name] then LUI.createMenu[name] = M.scriptMenu(name) end
+    end
+end
+
 function M.available()
     return cell("menu:pausedmenu", MENU.items) ~= ""
 end
@@ -779,6 +873,7 @@ function M.classMenu(controller)
 end
 -- Wrap whichever "class" menu is defined (BO2's pause menu, T6.HUD.class).
 function M.hook()
+    M.hookScriptMenus()
     local original = LUI.createMenu.class
     if original and original ~= M.classMenu then
         M.stockClass = original

@@ -845,6 +845,7 @@ namespace w2b::pipeline
             input.zoneModels.assign(zoneModels.begin(), zoneModels.end());
             input.zoneFx = effects_.zoneFx;
             input.zoneImpacts = effects_.zoneImpacts;
+            input.mapRoots = mapRoots_;
             input.ipak = !o_.noIpak;
             input.bo2StockPerks = o_.bo2StockPerks;
             input.hasWater = hasWater_;

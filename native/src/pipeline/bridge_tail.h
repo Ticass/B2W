@@ -72,7 +72,7 @@ namespace w2b::pipeline
     {
         std::string project;
         fs::path projectRoot, stage;
-        std::vector<fs::path> roots, rawRoots, iwdDirs, coverageRoots;
+        std::vector<fs::path> roots, rawRoots, iwdDirs, coverageRoots, mapRoots; // mapRoots: the map's own zones
         std::optional<fs::path> bo2Root, techsetDump, t4Unlinker, t6Unlinker;
         std::optional<std::string> wawMapStem;
         std::vector<std::string> images, hudMaterials, zoneModels, zoneFx, zoneImpacts;

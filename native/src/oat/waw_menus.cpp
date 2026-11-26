@@ -78,9 +78,30 @@ namespace w2b::oat
             return out;
         }
 
+        // execKey handlers: the key's code and its script
+        Json Keys(const T4::ItemKeyHandler* handler)
+        {
+            Json out = Json::array();
+            for (; handler; handler = handler->next)
+                out.push_back({{"key", handler->key}, {"action", Text(handler->action)}});
+            return out;
+        }
+
         Json Item(const T4::itemDef_s& item)
         {
             return {{"window", Window(item.window)},
+                    {"itemFlags", item.itemFlags},
+                    {"dataType", item.dataType},
+                    {"mouseEnterText", Text(item.mouseEnterText)},
+                    {"mouseExitText", Text(item.mouseExitText)},
+                    {"mouseEnter", Text(item.mouseEnter)},
+                    {"mouseExit", Text(item.mouseExit)},
+                    {"action", Text(item.action)},
+                    {"onAccept", Text(item.onAccept)},
+                    {"onFocus", Text(item.onFocus)},
+                    {"leaveFocus", Text(item.leaveFocus)},
+                    {"onKey", Keys(item.onKey)},
+                    {"focusSound", item.focusSound && item.focusSound->aliasName ? Text(item.focusSound->aliasName) : Json()},
                     {"type", item.type},
                     {"alignment", item.alignment},
                     {"font", item.fontEnum},
@@ -126,6 +147,12 @@ namespace w2b::oat
                                   {"rectXExp", Statement(menu.rectXExp)},
                                   {"rectYExp", Statement(menu.rectYExp)},
                                   {"onOpen", Text(menu.onOpen)},
+                                  {"onClose", Text(menu.onClose)},
+                                  {"onESC", Text(menu.onESC)},
+                                  {"onKey", Keys(menu.onKey)},
+                                  {"blurRadius", menu.blurRadius},
+                                  {"focusColor", Floats(menu.focusColor, 4)},
+                                  {"soundName", Text(menu.soundName)},
                                   {"items", std::move(items)}};
         }
         return out.dump(1, ' ', false, nlohmann::json::error_handler_t::replace);
