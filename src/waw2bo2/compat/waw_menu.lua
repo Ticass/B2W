@@ -263,9 +263,16 @@ local function codes(text)
     end
     return result
 end
+-- "^N" colour codes become bytes 14..23 (other control bytes are dropped)
 local function plain(value)
-    return (string.gsub(string.gsub(tostring(value or ""), "%^[0-9]", ""), "[%z\1-\9\11-\31\127]", ""))
+    local text = string.gsub(tostring(value or ""), "[%z\1-\9\11-\31\127]", "")
+    return (string.gsub(text, "%^([0-9])", function(n) return string.char(14 + tonumber(n)) end))
 end
+-- T4 ColorForChar (t4sp 0x63C7D0, table 0x838680): ^0-^7; ^8/^9 are runtime colours, drawn white
+local CODE_COLORS = {[0] = {0, 0, 0}, {1, 0.2, 0.2}, {0, 1, 0}, {1, 1, 0}, {0, 0, 1}, {0, 1, 1}, {1, 0.36, 1}, {1, 1, 1}}
+-- a glyph code carries its colour code above CODE (0 = the item's colour)
+local CODE = 0x200000
+local function char(c) return c % CODE end
 -- Lines of glyph codes and their widths in virtual units (R_NormalizedTextScale:
 -- 48 * scale / font pixel height).
 function M.measure(text, role, scale, wrap)
@@ -276,23 +283,26 @@ function M.measure(text, role, scale, wrap)
         lines[#lines + 1] = {chars = line, width = width}
         line, width = {}, 0
     end
-    for _, c in ipairs(chars) do
-        if c == 10 then push()
+    local colour = 0
+    for _, raw in ipairs(chars) do
+        if raw >= 14 and raw <= 23 then colour = raw - 13
+        elseif raw == 10 then push()
         else
-            local advance = glyph(role, c)[4] * k
-            if wrap and wrap > 0 and width + advance > wrap and c ~= 32 then
+            local c = raw + colour * CODE
+            local advance = glyph(role, raw)[4] * k
+            if wrap and wrap > 0 and width + advance > wrap and raw ~= 32 then
                 -- Break at the last space of the line, as T4's wrapped text does.
                 local cut
-                for i = #line, 1, -1 do if line[i] == 32 then cut = i; break end end
+                for i = #line, 1, -1 do if char(line[i]) == 32 then cut = i; break end end
                 if cut then
                     local rest = {}
                     for i = cut + 1, #line do rest[#rest + 1] = line[i] end
                     for i = #line, cut, -1 do line[i] = nil end
                     local w = 0
-                    for _, d in ipairs(line) do w = w + glyph(role, d)[4] * k end
+                    for _, d in ipairs(line) do w = w + glyph(role, char(d))[4] * k end
                     width = w
                     push()
-                    for _, d in ipairs(rest) do line[#line + 1] = d; width = width + glyph(role, d)[4] * k end
+                    for _, d in ipairs(rest) do line[#line + 1] = d; width = width + glyph(role, char(d))[4] * k end
                 else push() end
             end
             line[#line + 1] = c
@@ -335,8 +345,9 @@ function M.drawText(item, text, color)
         elseif alignY == 12 then y = rect[2] + rect[4] + d.textaligny end
         y = y + (n - 1) * height
         local cursor = x
-        for _, c in ipairs(line.chars) do
-            local g = glyph(role, c)
+        for _, coded in ipairs(line.chars) do
+            local g = glyph(role, char(coded))
+            local code = CODE_COLORS[math.floor(coded / CODE) - 1]
             used = used + 1
             local part = item.glyphs[used]
             if not part then
@@ -349,7 +360,8 @@ function M.drawText(item, text, color)
                 local gx, gy, gw, gh = cursor + g[2] * k, y + g[3] * k, g[5] * k, g[6] * k
                 part.ink:setImage(material)
                 place(part.ink, gx, gy, gw, gh, item.ha, item.va)
-                part.ink:setRGB(color[1], color[2], color[3])
+                if code then part.ink:setRGB(code[1], code[2], code[3])
+                else part.ink:setRGB(color[1], color[2], color[3]) end
                 part.ink:setAlpha(color[4])
                 if shadow > 0 then
                     part.shadow:setImage(material)
@@ -825,6 +837,7 @@ function M.closeScript(host)
     for i = #host.layers, 1, -1 do M.closeLayer(host, host.layers[i].def.name) end
     if scriptHosts[host.controller] == host then scriptHosts[host.controller] = nil end
     guarded(Engine.BlurWorld, host.controller, 0)
+    guarded(Engine.LockInput, host.controller, false)
     host:close()
     -- as HUD_CloseInGameMenu
     if CoD.isZombie and CoD.UIMENU_NONE then guarded(Engine.SetActiveMenu, host.controller, CoD.UIMENU_NONE) end
@@ -851,6 +864,11 @@ function M.scriptMenu(name)
         host:registerEventHandler("waw_menu_tick", function(self) M.refresh(self) end)
         local timer = LUI.UITimer and guarded(LUI.UITimer.new, 250, "waw_menu_tick", false)
         if timer then host:addElement(timer) end
+        -- CoD.Menu.updateBlur blurs the world (2) under any in-game popup; WaW blurs
+        -- only by the menu's own blurWorld (openLayer), so the popup only takes input
+        host.updateBlur = function(self)
+            guarded(Engine.LockInput, self.controller, true)
+        end
         scriptHosts[controller] = host
         debug("script menu " .. name)
         M.openLayer(host, name, true)
@@ -858,9 +876,27 @@ function M.scriptMenu(name)
         return host
     end
 end
+local scriptNames = {}
 function M.hookScriptMenus()
-    for name in string.gmatch(cell("scriptmenus", 1), "%S+") do
+    local names = cell("scriptmenus", 1)
+    for name in string.gmatch(names, "%S+") do
+        scriptNames[name] = true
         if not LUI.createMenu[name] then LUI.createMenu[name] = M.scriptMenu(name) end
+    end
+    debug("script menus [" .. names .. "]")
+end
+-- A menuDef script menu reaches LUI as "popup_script_menu" (menuName); T6's own
+-- HUD has no handler for it (its legacy menus drew them), so the HUD opens ours
+-- beside it, as CoD.Menu.openPopup does but without occluding the HUD (that dims
+-- and disables it; WaW draws the menu over the game), and takes the input.
+function M.popupScriptMenu(hud, event)
+    local name = string.lower(tostring(event.menuName or ""))
+    debug("popup_script_menu " .. name)
+    if scriptNames[name] and LUI.createMenu[name] then
+        local host = LUI.createMenu[name](event.controller or hud.controller or 0)
+        hud:getParent():addElement(host)
+        host:updateBlur()
+        return true
     end
 end
 

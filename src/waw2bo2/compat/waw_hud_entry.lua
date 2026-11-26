@@ -13,6 +13,7 @@ HUD_CloseInGameMenu = function(hud, event)
 end
 local original = HUD_FirstSnapshot_Zombie
 HUD_FirstSnapshot_Zombie = function(hud, event)
+    hud:registerEventHandler("popup_script_menu", CoD.WawMenu.popupScriptMenu)
     if not CoD.WawHUD.active() then return original(hud, event) end
     CoD.WawHUD.hookScoreboard()
     CoD.WawMenu.hook()
