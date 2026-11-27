@@ -11,6 +11,13 @@
 #include <cstdio>
 #include <set>
 
+#ifndef W2B_VERSION
+#define W2B_VERSION "0.0.0"
+#endif
+#ifndef W2B_BUILD_LABEL
+#define W2B_BUILD_LABEL ""
+#endif
+
 namespace w2b::extract
 {
     namespace
@@ -590,7 +597,10 @@ namespace w2b::extract
         for (const auto& [_, ff] : selected)
             if (std::none_of(unique.begin(), unique.end(), [&](const fs::path& u) { return SamePath(u, ff); }))
                 unique.push_back(ff);
-        const auto toolHash = UnlinkerIdentity(settings.t4Tool) + ":short-staging";
+        // the map's own zones are dumped again by every converter build: a dump an older build cached is
+        // never reused (a stale Purple Dimension dump held the stock font atlas the map replaces). Stock
+        // zones stay keyed on the tool alone: they are large and the same for every map.
+        const auto toolHash = UnlinkerIdentity(settings.t4Tool) + ":short-staging:" + W2B_VERSION + ":" + W2B_BUILD_LABEL;
         const auto outputs = ParallelZones(
             unique,
             [&](const fs::path& ff)

@@ -83,20 +83,27 @@ namespace w2b::pipeline
                         const auto image = t.at("image");
                         if (!image.is_string() || image.get<std::string>().empty())
                             return std::nullopt;
-                        const auto found = Find("image", image.get<std::string>());
-                        if (!recovery_)
-                            return found;
-                        const auto resolved = recovery_->Resolve(image.get<std::string>(), found ? *found : fs::path());
-                        if (!resolved.archive.empty())
-                        {
-                            Json metadata{{"archive", files::Utf8(resolved.archive)}, {"entry", resolved.entry}, {"iwi_format", resolved.iwiFormat}};
-                            if (resolved.decoderTables)
-                                metadata["decoder_tables"] = files::Utf8(*resolved.decoderTables);
-                            recovered[image.get<std::string>()] = metadata;
-                        }
-                        return resolved.path.empty() ? std::nullopt : std::optional(resolved.path);
+                        return Image(image.get<std::string>());
                     }
                 return std::nullopt;
+            }
+
+            // an image as WaW loads it: the zone dump, unless an IWD shadowed the map's own copy in the dump
+            // (Purple Dimension's gamefonts_pc dumped as localized_english_iw00.iwd's stock atlas)
+            std::optional<fs::path> Image(const std::string& name)
+            {
+                const auto found = Find("image", name);
+                if (!recovery_)
+                    return found;
+                const auto resolved = recovery_->Resolve(name, found ? *found : fs::path());
+                if (!resolved.archive.empty())
+                {
+                    Json metadata{{"archive", files::Utf8(resolved.archive)}, {"entry", resolved.entry}, {"iwi_format", resolved.iwiFormat}};
+                    if (resolved.decoderTables)
+                        metadata["decoder_tables"] = files::Utf8(*resolved.decoderTables);
+                    recovered[name] = metadata;
+                }
+                return resolved.path.empty() ? std::nullopt : std::optional(resolved.path);
             }
 
             std::optional<fs::path> Font(const std::string& fontName)
@@ -285,7 +292,7 @@ namespace w2b::pipeline
             if (!material)
                 throw Missing(materialName);
             const auto imageName = mod::Json(*material).at("textures").at(0).at("image").get<std::string>();
-            const auto atlasPath = source.Find("image", imageName);
+            const auto atlasPath = source.Image(imageName);
             if (!atlasPath)
                 throw Missing(imageName);
             std::vector<std::vector<std::string>> rows;
@@ -355,9 +362,9 @@ namespace w2b::pipeline
                                                             {"objective", "fonts/objectiveFont"}};
     } // namespace
 
-    Json StageWawHud(const fs::path& project, const std::vector<fs::path>& roots, extract::StockWaw* stock)
+    Json StageWawHud(const fs::path& project, const std::vector<fs::path>& roots, extract::StockWaw* stock, textures::IwdRecovery* recovery)
     {
-        SourceFinder source(roots, stock);
+        SourceFinder source(roots, stock, recovery);
         Stager stager(project, "waw_hud");
         std::vector<std::string> missing;
         for (const auto& name : ASSETS)
@@ -424,7 +431,8 @@ namespace w2b::pipeline
         }
         files::WriteText(project / "zm/waw_hud_menus.csv", CsvText(menus.rows, "\n"));
         files::WriteText(project / "zm/waw_hud_glyphs.csv", CsvText(glyphRows, "\n"));
-        const Json result{{"materials", stager.materials}, {"fonts", fonts}, {"glyphs", glyphRows.size()}, {"menus", menus.menus}, {"warnings", menus.warnings}};
+        const Json result{{"materials", stager.materials}, {"fonts", fonts},          {"glyphs", glyphRows.size()},
+                          {"menus", menus.menus},         {"warnings", menus.warnings}, {"recovered", source.recovered}};
         files::WriteText(project / "content_source/waw_hud.json", util::JsonDumps(result, 2) + "\n");
         return result;
     }

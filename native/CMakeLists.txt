@@ -228,6 +228,8 @@ target_link_libraries(B2W PRIVATE w2b_launcher w2b_imgui d3d11 dxgi d3dcompiler 
 add_library(w2b_extract STATIC src/extract/cache.cpp src/extract/stock.cpp src/extract/stockwaw.cpp src/extract/wawsource.cpp src/extract/unlinker.cpp
     src/extract/material_sources.cpp)
 target_link_libraries(w2b_extract PUBLIC w2b_core w2b_materials w2b_shaders PRIVATE w2b_oat)
+# the map's own zone dumps are keyed on the converter build (stock.cpp)
+target_compile_definitions(w2b_extract PRIVATE W2B_VERSION="${W2B_VERSION}" W2B_BUILD_LABEL="${W2B_BUILD_LABEL}")
 
 add_library(w2b_strings STATIC src/strings/localization.cpp)
 target_link_libraries(w2b_strings PUBLIC w2b_core w2b_gsc w2b_weapons w2b_extract)

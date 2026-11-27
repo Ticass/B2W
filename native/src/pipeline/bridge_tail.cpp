@@ -342,7 +342,7 @@ namespace w2b::pipeline
         }
         {
             if (stock && hasScripts)
-                content["waw_hud"] = Timed("Stage original WaW HUD", [&] { return StageWawHud(projectRoot, roots, stock); });
+                content["waw_hud"] = Timed("Stage original WaW HUD", [&] { return StageWawHud(projectRoot, roots, stock, &recovery); });
             // shaders.stage, then what the shader runtime bound
             std::vector<std::string> rootStrings;
             for (const auto& r : roots)

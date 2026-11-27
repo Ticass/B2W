@@ -22,8 +22,10 @@ namespace w2b::textures
 
 namespace w2b::pipeline
 {
-    // the original WaW HUD sprites and glyphs; returns content_source/waw_hud.json as written
-    util::Json StageWawHud(const std::filesystem::path& project, const std::vector<std::filesystem::path>& roots, extract::StockWaw* stock);
+    // the original WaW HUD sprites and glyphs; returns content_source/waw_hud.json as written.
+    // recovery: images resolve through the map's IWDs as WaW loads them (a font atlas a zone dump took from another IWD)
+    util::Json StageWawHud(const std::filesystem::path& project, const std::vector<std::filesystem::path>& roots, extract::StockWaw* stock,
+                           textures::IwdRecovery* recovery = nullptr);
 
     struct MenuArt
     {
