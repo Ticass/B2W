@@ -601,7 +601,8 @@ namespace w2b::pipeline
                 warnings.push_back("FRAMEWORK_BO2 pause menu: " + *staged.error + "; BO2 pause menu kept");
             if (!scriptMenus.menus.empty())
                 warnings.push_back("SCRIPT_MENUS " + std::to_string(scriptMenus.menus.size()) + " opened by the map's scripts, run by waw_menu.lua: " +
-                                   mod::Join(staged.result.value("script_menus", std::vector<std::string>{}), ", "));
+                                   (staged.result.is_object() ? mod::Join(staged.result.value("script_menus", std::vector<std::string>{}), ", ")
+                                                              : std::string("none staged")));
             if (!staged.result.is_null())
             {
                 content["waw_menu"] = staged.result;

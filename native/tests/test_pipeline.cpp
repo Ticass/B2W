@@ -396,4 +396,18 @@ TEST_CASE("A map's script menu runs its compiled scripts and keys")
     CHECK(table.find("n:1") != std::string::npos);
     CHECK(table.find("n:0") != std::string::npos); // the item without "visible 1"
     std::filesystem::remove_all(project);
+
+    // a raw/ui another mod edited that does not parse: the pause menu stays BO2's, the map's menus still convert
+    const auto raw = project.string() + "-raw";
+    std::filesystem::create_directories(std::filesystem::path(raw) / "ui");
+    files::WriteText(std::filesystem::path(raw) / "ui/ingame.txt", "{\n    loadMenu { \"ui/broken.menu\" }\n}\n");
+    files::WriteText(std::filesystem::path(raw) / "ui/hud.txt", "{\n}\n");
+    files::WriteText(std::filesystem::path(raw) / "ui/broken.menu", "#define F(a) a\nF(1\n");
+    const auto broken = pipeline::StageWawMenus(project, {raw}, "test", {{"tom", pipeline::CompiledMenuSource("tom", menu)}});
+    REQUIRE(broken.error);
+    CHECK(broken.error->find("not found") == std::string::npos); // the sources were found and failed to parse
+    REQUIRE(!broken.result.is_null());
+    CHECK(broken.result["script_menus"] == Json::array({"tom"}));
+    std::filesystem::remove_all(project);
+    std::filesystem::remove_all(raw);
 }

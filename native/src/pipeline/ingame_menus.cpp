@@ -1651,7 +1651,18 @@ namespace w2b::pipeline
             if (!raw)
                 pauseError = "WaW menu sources (raw/ui/ingame.txt, raw/ui/hud.txt) not found; the WaW Mod Tools raw folder is required";
             else
-                menus = LoadSources(*raw);
+            {
+                // a raw/ui another mod edited may not parse: the map's script menus still stand
+                try
+                {
+                    menus = LoadSources(*raw);
+                }
+                catch (const MenuSourceError& error)
+                {
+                    pauseError = error.what();
+                    menus.clear();
+                }
+            }
             const auto glue = mod::Json(extract::ResourceRoot() / "src/waw2bo2/compat/waw_menu_glue.json");
             const auto& engine = glue.at("engine_menus");
             std::set<std::string> stop;
