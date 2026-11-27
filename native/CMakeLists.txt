@@ -210,11 +210,16 @@ target_link_libraries(w2b_gscport PUBLIC w2b_gsc w2b_mapentity)
 # the converter version (VERSION at the repository root)
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" W2B_VERSION LIMIT_COUNT 1)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION")
-# which build this is (Test build #212, Nightly 2026-11-27, Stable 0.2.16): set by CI, empty for a local build
-set(W2B_BUILD_LABEL "$ENV{W2B_BUILD_LABEL}")
+# which build this is (Test build #212, Nightly 2026-11-27, Stable 0.2.16): set by CI, empty for a local build.
+# Written to a header: CMake drops a compile definition holding '#' ("Test build #214" never reached the code).
+string(REPLACE "\\" "\\\\" W2B_BUILD_LABEL_C "$ENV{W2B_BUILD_LABEL}")
+string(REPLACE "\"" "\\\"" W2B_BUILD_LABEL_C "${W2B_BUILD_LABEL_C}")
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/w2b_build_label.h"
+     CONTENT "#pragma once\n#define W2B_BUILD_LABEL \"@W2B_BUILD_LABEL_C@\"\n" @ONLY)
 add_library(w2b_launcher STATIC src/launcher/settings.cpp src/launcher/images.cpp src/launcher/build.cpp src/launcher/diagnostics.cpp)
 target_link_libraries(w2b_launcher PUBLIC w2b_core)
-target_compile_definitions(w2b_launcher PRIVATE W2B_VERSION="${W2B_VERSION}" W2B_BUILD_LABEL="${W2B_BUILD_LABEL}")
+target_compile_definitions(w2b_launcher PRIVATE W2B_VERSION="${W2B_VERSION}")
+target_include_directories(w2b_launcher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 # the desktop launcher: Dear ImGui on Direct3D 11 (vendor/imgui, MIT)
 set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../vendor/imgui")
@@ -246,7 +251,7 @@ add_library(w2b_pipeline STATIC src/pipeline/finish.cpp src/pipeline/audit.cpp s
     src/pipeline/bridge_navigation.cpp src/pipeline/bridge_inventory.cpp src/pipeline/bridge_images.cpp
     src/pipeline/bridge_assets.cpp src/pipeline/bridge_stage.cpp src/pipeline/bridge_report.cpp src/pipeline/material_record.cpp)
 target_link_libraries(w2b_pipeline PUBLIC w2b_gscport w2b_gsc w2b_extract w2b_launcher w2b_audio w2b_weapons w2b_textures w2b_shaders w2b_shaderruntime w2b_materials w2b_effects w2b_assets w2b_barricades w2b_paths PRIVATE w2b_oat)
-target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}" W2B_BUILD_LABEL="${W2B_BUILD_LABEL}")
+target_compile_definitions(w2b_pipeline PRIVATE W2B_VERSION="${W2B_VERSION}")
 
 add_executable(waw2bo2n src/cli/main.cpp src/cli/dev_tools.cpp src/cli/gsc_tools.cpp src/app.manifest)
 target_link_libraries(waw2bo2n PRIVATE w2b_oat w2b_extract w2b_strings w2b_visions w2b_pipeline w2b_launcher w2b_shaders w2b_audio w2b_sound w2b_gsc w2b_gscport w2b_world w2b_textures
