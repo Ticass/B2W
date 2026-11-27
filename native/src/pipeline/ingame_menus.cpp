@@ -1122,12 +1122,17 @@ namespace w2b::pipeline
 
             Json Expression()
             {
+                // after one of these an operand follows; after anything else the operand is complete
+                static const std::set<std::string> EXPECTS_OPERAND{"(", ",", "!", "||", "&&", "==", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/", "%"};
                 int depth = 0;
                 Tokens out;
                 while (Peek())
                 {
                     const auto tok = *Peek();
-                    if (depth == 0 && (tok == ";" || tok == "}" || (!out.empty() && IsKeyword(tok) && !FUNCTIONS.count(LowerU(tok)))))
+                    // a keyword ends the expression, unless it is a function an operator is waiting for:
+                    // "exp forecolor A(x)" then "text ..." on the next line is the item's text (UGX objective_info.menu)
+                    if (depth == 0 && (tok == ";" || tok == "}" ||
+                                       (!out.empty() && IsKeyword(tok) && (!FUNCTIONS.count(LowerU(tok)) || !EXPECTS_OPERAND.count(out.back())))))
                         break;
                     Take();
                     depth += (tok == "(") - (tok == ")");
@@ -1688,20 +1693,35 @@ namespace w2b::pipeline
                 menus[name] = menu;
                 scripted.push_back(name);
             }
-            for (const auto& name : Closure(menus, stop, scripted))
-                if (std::find(names.begin(), names.end(), name) == names.end())
-                    names.push_back(name);
-            const auto required = Requirements(menus, names, mapname);
-            std::map<std::string, std::string> context{{"mapname", mapname}, {"scriptmenus", mod::Join(scripted, " ")}};
-            for (const auto& [k, v] : engine.items())
-                context["engine:" + k] = v.at("t6_menu").get<std::string>();
-            files::WriteText(project / "zm/waw_menus.csv", CsvText(Encode(menus, names, context), "\n"));
-            Json result{{"source", raw ? mod::Str(*raw) : std::string()}, {"menus", names}, {"mapname", mapname}, {"script_menus", scripted}};
-            for (const auto& [k, v] : required.items())
-                result[k] = v;
-            result["engine_menus"] = std::vector<std::string>(stop.begin(), stop.end());
-            files::WriteText(project / "content_source/waw_menu.json", util::JsonDumps(result, 2) + "\n");
-            return {std::move(result), pauseError};
+            const auto stage = [&](std::vector<std::string> names) {
+                for (const auto& name : Closure(menus, stop, scripted))
+                    if (std::find(names.begin(), names.end(), name) == names.end())
+                        names.push_back(name);
+                const auto required = Requirements(menus, names, mapname);
+                std::map<std::string, std::string> context{{"mapname", mapname}, {"scriptmenus", mod::Join(scripted, " ")}};
+                for (const auto& [k, v] : engine.items())
+                    context["engine:" + k] = v.at("t6_menu").get<std::string>();
+                const auto table = CsvText(Encode(menus, names, context), "\n");
+                files::WriteText(project / "zm/waw_menus.csv", table);
+                Json result{{"source", raw ? mod::Str(*raw) : std::string()}, {"menus", names}, {"mapname", mapname}, {"script_menus", scripted}};
+                for (const auto& [k, v] : required.items())
+                    result[k] = v;
+                result["engine_menus"] = std::vector<std::string>(stop.begin(), stop.end());
+                files::WriteText(project / "content_source/waw_menu.json", util::JsonDumps(result, 2) + "\n");
+                return result;
+            };
+            if (names.empty() || scripted.empty())
+                return {stage(names), pauseError};
+            // a pause menu another mod edited may parse and still not translate (UGX's objective_info.menu):
+            // the map's own script menus stand without it
+            try
+            {
+                return {stage(names), pauseError};
+            }
+            catch (const MenuSourceError& error)
+            {
+                return {stage({}), std::string(error.what())};
+            }
         }
         catch (const MenuSourceError& error)
         {

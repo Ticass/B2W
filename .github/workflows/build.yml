@@ -7,6 +7,11 @@ on:
         description: Exact commit to build
         required: true
         type: string
+      label:
+        description: Which build this is, shown in the launcher and mod.json (Test build #212, Nightly 2026-11-27, Stable 0.2.16)
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -15,6 +20,8 @@ jobs:
   windows:
     runs-on: windows-2022
     timeout-minutes: 120
+    env:
+      W2B_BUILD_LABEL: ${{ inputs.label }}
     defaults:
       run:
         shell: pwsh

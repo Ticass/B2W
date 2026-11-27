@@ -36,6 +36,7 @@ jobs:
       sha: ${{ steps.resolve.outputs.sha }}
       tag: ${{ steps.resolve.outputs.tag }}
       name: ${{ steps.resolve.outputs.name }}
+      label: ${{ steps.resolve.outputs.label }}
       previous: ${{ steps.resolve.outputs.previous }}
       nightly: ${{ steps.resolve.outputs.nightly }}
     steps:
@@ -52,6 +53,7 @@ jobs:
               const tag = context.ref.replace('refs/tags/', '');
               core.setOutput('tag', tag);
               core.setOutput('name', tag);
+              core.setOutput('label', `Stable ${tag.replace(/^v/, '')}`);
               core.setOutput('release', 'true');
               return;
             }
@@ -92,6 +94,7 @@ jobs:
             }
             core.setOutput('tag', tag);
             core.setOutput('name', `Nightly ${tag.slice('nightly-'.length, 'nightly-'.length + 10)}`);
+            core.setOutput('label', `Nightly ${tag.slice('nightly-'.length, 'nightly-'.length + 10)}`);
             core.setOutput('release', 'true');
 
   packages:
@@ -100,6 +103,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ needs.resolve.outputs.sha }}
+      label: ${{ needs.resolve.outputs.label }}
 
   publish:
     needs: [resolve, packages]

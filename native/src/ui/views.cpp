@@ -170,8 +170,8 @@ namespace w2b::ui
     void App::Frame()
     {
         Drain();
-        // the T6 launcher's title: the tool, then the BO2 install it works on
-        if (const auto title = "B2W Mod Tools Launcher" + (settings.bo2.empty() ? std::string() : " - " + settings.bo2); title != windowTitle)
+        // the T6 launcher's title: the tool and which build it is, then the BO2 install it works on
+        if (const auto title = "B2W Mod Tools Launcher (" + l::BuildLabel() + ")" + (settings.bo2.empty() ? std::string() : " - " + settings.bo2); title != windowTitle)
         {
             windowTitle = title;
             SetWindowTextW(window, shell::Wide(title).c_str());
@@ -288,7 +288,7 @@ namespace w2b::ui
                 shell::Open("https://github.com/Ticass/B2W/blob/main/docs/USAGE.md");
             if (ImGui::MenuItem("About"))
                 shell::Info(window, "About",
-                            std::string("B2W Mod Tools ") + l::Version()
+                            "B2W Mod Tools " + l::BuildLabel() + " (version " + l::Version() + ")"
                                 + "\nWorld at War custom-map converter\n\nDevelopment preview. Review the conversion report and playtest the result.\n\n"
                                   "OpenAssetTools: GPL-3.0; Dear ImGui: MIT; see included licenses.");
             ImGui::EndMenu();

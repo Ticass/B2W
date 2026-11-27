@@ -17,6 +17,9 @@
 #ifndef W2B_VERSION
 #define W2B_VERSION "0.0.0"
 #endif
+#ifndef W2B_BUILD_LABEL
+#define W2B_BUILD_LABEL ""
+#endif
 
 namespace w2b::launcher
 {
@@ -109,6 +112,12 @@ namespace w2b::launcher
         return W2B_VERSION;
     }
 
+    std::string BuildLabel()
+    {
+        const std::string label = W2B_BUILD_LABEL;
+        return label.empty() ? std::string("Local build ") + W2B_VERSION : label;
+    }
+
     fs::path CreateBundle(const Settings& settings, const std::string& console, const std::string& error)
     {
         std::error_code ec;
@@ -161,6 +170,7 @@ namespace w2b::launcher
         zip::Writer archive(destination);
         util::Json summary = util::Json::object();
         summary["version"] = Version();
+        summary["build"] = BuildLabel();
         summary["platform"] = Platform();
         summary["error"] = error;
         summary["settings"] = settings.ToJson();
@@ -253,7 +263,7 @@ namespace w2b::launcher
             for (fs::recursive_directory_iterator it(ui, ec), end; !ec && it != end; it.increment(ec))
             {
                 const auto extension = Lower(Utf8(it->path().extension()));
-                if (it->is_regular_file(ec) && (extension == ".txt" || extension == ".menu" || extension == ".inc") && it->file_size(ec) <= 256 * 1024)
+                if (it->is_regular_file(ec) && (extension == ".txt" || extension == ".menu" || extension == ".inc" || extension == ".h") && it->file_size(ec) <= 256 * 1024)
                     include(it->path(), "raw_ui/" + files::Utf8(it->path().lexically_relative(ui).generic_wstring()), 256 * 1024);
             }
             break; // the folder the converter reads first

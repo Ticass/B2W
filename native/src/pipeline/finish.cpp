@@ -27,6 +27,9 @@
 #ifndef W2B_VERSION
 #define W2B_VERSION "0.0.0"
 #endif
+#ifndef W2B_BUILD_LABEL
+#define W2B_BUILD_LABEL ""
+#endif
 
 namespace w2b::pipeline
 {
@@ -540,6 +543,8 @@ namespace w2b::pipeline
         mod["name"] = metadata.contains("title") ? metadata["title"] : util::Json(project + " (B2W)");
         mod["description"] = metadata.contains("description") ? metadata["description"] : util::Json(project + ": World at War custom map converted by waw2bo2");
         mod["version"] = W2B_VERSION;
+        // which converter build made this map: a mod folder people send names it
+        mod["build"] = std::string(W2B_BUILD_LABEL).empty() ? std::string("Local build ") + W2B_VERSION : std::string(W2B_BUILD_LABEL);
         files::WriteText(dest / "mod.json", util::JsonDumps(mod, 2) + "\n");
         return dest;
     }

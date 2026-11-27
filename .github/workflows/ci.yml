@@ -31,3 +31,4 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ github.sha }}
+      label: 'Test build #${{ github.run_number }}'

@@ -410,4 +410,29 @@ TEST_CASE("A map's script menu runs its compiled scripts and keys")
     CHECK(broken.result["script_menus"] == Json::array({"tom"}));
     std::filesystem::remove_all(project);
     std::filesystem::remove_all(raw);
+
+    // UGX's objective_info.menu: "exp forecolor A(x)" then "text" on the next line; the text is the item's, not the expression's
+    const std::string pause = "{\n    menuDef\n    {\n        name \"pausedmenu\"\n        rect 0 0 640 480\n        itemDef\n        {\n"
+                              "            name \"kills\"\n            rect 0 0 100 20\n            exp forecolor A(1 - 0.5)\n"
+                              "            text \"Elemental Kills:\"\n            visible 1\n        }\n";
+    std::filesystem::create_directories(std::filesystem::path(raw) / "ui");
+    files::WriteText(std::filesystem::path(raw) / "ui/ingame.txt", "{\n    loadMenu { \"ui/pause.menu\" }\n}\n");
+    files::WriteText(std::filesystem::path(raw) / "ui/hud.txt", "{\n}\n");
+    files::WriteText(std::filesystem::path(raw) / "ui/pause.menu", pause + "    }\n}\n");
+    const auto ugx = pipeline::StageWawMenus(project, {raw}, "test", {{"tom", pipeline::CompiledMenuSource("tom", menu)}});
+    CHECK(!ugx.error);
+    REQUIRE(!ugx.result.is_null());
+    CHECK(files::ReadText(project / "zm/waw_menus.csv").find("Elemental Kills:") != std::string::npos);
+    std::filesystem::remove_all(project);
+
+    // a pause menu that parses and still does not translate leaves the map's script menus standing
+    files::WriteText(std::filesystem::path(raw) / "ui/pause.menu",
+                     pause + "        itemDef\n        {\n            name \"bad\"\n            forecolor one 1 1 1\n        }\n    }\n}\n");
+    const auto untranslated = pipeline::StageWawMenus(project, {raw}, "test", {{"tom", pipeline::CompiledMenuSource("tom", menu)}});
+    REQUIRE(untranslated.error);
+    REQUIRE(!untranslated.result.is_null());
+    CHECK(untranslated.result["script_menus"] == Json::array({"tom"}));
+    CHECK(untranslated.result["menus"] == Json::array({"tom"}));
+    std::filesystem::remove_all(project);
+    std::filesystem::remove_all(raw);
 }

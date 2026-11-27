@@ -33,7 +33,7 @@ namespace w2b::ui
         Refresh();
         if (!settings.fastfile.empty())
             status = "Map selected. Click Build Map when setup is ready.";
-        Log("B2W Mod Tools ready. Choose your source map, then click Build Map.", Tag::Info);
+        Log("B2W Mod Tools ready (" + l::BuildLabel() + "). Choose your source map, then click Build Map.", Tag::Info);
         LoadReport();
     }
 
