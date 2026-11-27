@@ -628,7 +628,9 @@ namespace w2b::launcher
         const auto boot = pluto / "bin/plutonium-bootstrapper-win32.exe";
         if (!Installed(settings) || !IsFile(boot))
             Fail("Install the built map and configure Plutonium T6 first.");
-        auto line = Widen(process::CommandLine({Utf8(boot), "t6zm", settings.bo2, "-lan", "+set", "fs_game", "mods/" + settings.project, "+devmap", settings.project}));
+        auto line = Widen(process::CommandLine({Utf8(boot), "t6zm", settings.bo2, "-lan", "+set", "fs_game", "mods/" + settings.project,
+                                                           // the game's console log in the mod folder, for Save Diagnostics
+                                                           "+set", "logfile", "2", "+devmap", settings.project}));
         STARTUPINFOW startup{sizeof startup};
         PROCESS_INFORMATION info{};
         const auto cwd = pluto.wstring();

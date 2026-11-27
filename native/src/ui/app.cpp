@@ -251,6 +251,7 @@ namespace w2b::ui
         started = std::chrono::steady_clock::now();
         activeSettings = settings;
         diagnosticsPath.clear();
+        failureError.clear();
         runner = std::make_unique<l::ProcessRunner>(
             [this](const std::string& line)
             {
@@ -350,7 +351,8 @@ namespace w2b::ui
                     std::string text;
                     for (const auto& c : console)
                         text += c.text + "\n";
-                    diagnosticsPath = l::Utf8(l::CreateBundle(*activeSettings, text, error));
+                    failureError = error.empty() ? "Native tool exited with code " + std::to_string(code) + "." : error;
+                    diagnosticsPath = l::Utf8(l::CreateBundle(*activeSettings, text, failureError));
                     Log("Diagnostics ZIP ready: " + diagnosticsPath, Tag::Info);
                     Log("Use Reports \xE2\x86\x92 Save Diagnostics to share the complete failure report.", Tag::Info);
                 }
@@ -526,19 +528,19 @@ namespace w2b::ui
 
     void App::SaveDiagnostics()
     {
-        if (diagnosticsPath.empty() || !IsFile(l::Path(diagnosticsPath)))
-            try
-            {
-                std::string text;
-                for (const auto& c : console)
-                    text += c.text + "\n";
-                diagnosticsPath = l::Utf8(l::CreateBundle(activeSettings.value_or(settings), text));
-            }
-            catch (const std::exception& error)
-            {
-                shell::Error(window, "Diagnostics could not be saved", error.what());
-                return;
-            }
+        // always a fresh bundle: after a build that worked, it carries the game's log of the match played since
+        try
+        {
+            std::string text;
+            for (const auto& c : console)
+                text += c.text + "\n";
+            diagnosticsPath = l::Utf8(l::CreateBundle(activeSettings.value_or(settings), text, failureError));
+        }
+        catch (const std::exception& error)
+        {
+            shell::Error(window, "Diagnostics could not be saved", error.what());
+            return;
+        }
         const auto destination = shell::SaveFile(window, L"Save build diagnostics", {{L"Diagnostics ZIP", L"*.zip"}}, l::Path(diagnosticsPath).filename().wstring(), L"zip");
         if (!destination)
             return;

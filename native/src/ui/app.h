@@ -142,6 +142,7 @@ namespace w2b::ui
         bool scrollConsole = false;
         std::string reportText;
         std::string diagnosticsPath;
+        std::string failureError; // the last failed run's error, kept in later bundles
 
         // artwork preview
         Previews previews;

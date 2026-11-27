@@ -479,7 +479,8 @@ namespace w2b::ui
 
     void App::DrawReports()
     {
-        Muted("Review unsupported features and compatibility decisions after building.");
+        Muted("Review unsupported features and compatibility decisions after building. Something wrong in game? Play the map with Play, "
+              "then Save Diagnostics and post the ZIP: it carries the build's warnings, the game's log and your WaW file list.");
         const float buttons = ImGui::GetFrameHeightWithSpacing() + 4;
         ImGui::InputTextMultiline("##report", reportText.data(), reportText.size() + 1, ImVec2(-1, ImGui::GetContentRegionAvail().y - buttons),
                                   ImGuiInputTextFlags_ReadOnly);
