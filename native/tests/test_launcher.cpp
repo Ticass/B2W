@@ -109,3 +109,25 @@ TEST_CASE("diagnostics carry a built map's warnings, menus and the WaW files it 
     CHECK(files["console.log"] == "console line\n");
     fs::remove_all(root);
 }
+
+TEST_CASE("a warm rebuild knows when an older converter build extracted the map's files")
+{
+    namespace fs = std::filesystem;
+    const auto root = Temp("map_cache");
+    fs::remove_all(root);
+    Settings settings;
+    settings.work = (root / "work").string();
+    settings.project = "zm_cache_test";
+    settings.fastfile = (root / "map/nazi_zombie_cache.ff").string();
+    const auto build = BuildPaths::ForSettings(settings).root;
+    CHECK(OlderMapCache(settings).empty()); // never built
+    fs::create_directories(build);
+    std::ofstream(build / "build.log") << "built";
+    CHECK(OlderMapCache(settings) == std::vector<std::string>{"a converter older than build stamps"});
+    auto stamp = [&](const std::string& json) { std::ofstream(build / "map_cache.json", std::ios::trunc) << json; };
+    stamp(R"({"extracted_by": {"nazi_zombie_cache.ff": ")" + BuildLabel() + R"(", "mod.ff": ")" + BuildLabel() + R"("}})");
+    CHECK(OlderMapCache(settings).empty());
+    stamp(R"({"extracted_by": {"nazi_zombie_cache.ff": ")" + BuildLabel() + R"(", "mod.ff": "Test build #200"}})");
+    CHECK(OlderMapCache(settings) == std::vector<std::string>{"Test build #200"});
+    fs::remove_all(root);
+}

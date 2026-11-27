@@ -11,13 +11,6 @@
 #include <cstdio>
 #include <set>
 
-#ifndef W2B_VERSION
-#define W2B_VERSION "0.0.0"
-#endif
-#ifndef W2B_BUILD_LABEL
-#define W2B_BUILD_LABEL ""
-#endif
-
 namespace w2b::extract
 {
     namespace
@@ -567,7 +560,8 @@ namespace w2b::extract
         return raw;
     }
 
-    std::vector<std::pair<std::string, fs::path>> SourceDumps(const MapSettings& settings, const fs::path& wawCache, const bool refresh)
+    std::vector<std::pair<std::string, fs::path>> SourceDumps(const MapSettings& settings, const fs::path& wawCache, const bool refresh, const std::string& converter,
+                                                              std::map<std::string, std::string>* extractedBy)
     {
         const auto source = Resolve(settings.fastfile);
         const auto folder = source.parent_path();
@@ -597,10 +591,7 @@ namespace w2b::extract
         for (const auto& [_, ff] : selected)
             if (std::none_of(unique.begin(), unique.end(), [&](const fs::path& u) { return SamePath(u, ff); }))
                 unique.push_back(ff);
-        // the map's own zones are dumped again by every converter build: a dump an older build cached is
-        // never reused (a stale Purple Dimension dump held the stock font atlas the map replaces). Stock
-        // zones stay keyed on the tool alone: they are large and the same for every map.
-        const auto toolHash = UnlinkerIdentity(settings.t4Tool) + ":short-staging:" + W2B_VERSION + ":" + W2B_BUILD_LABEL;
+        const auto toolHash = UnlinkerIdentity(settings.t4Tool) + ":short-staging";
         const auto outputs = ParallelZones(
             unique,
             [&](const fs::path& ff)
@@ -608,9 +599,10 @@ namespace w2b::extract
                 Print("Extract All: custom map starting " + files::Utf8(ff.filename()));
                 ZoneRequest request{ff, settings.t4Tool, root / files::FromUtf8(Key(util::Json(Str(ff)))), SearchPaths({folder, settings.waw / "main"}), std::string(WAW_ASSETS),
                                     "DDS", toolHash, dependencies, refresh};
+                request.converter = converter;
                 const auto [output, data] = ExtractZone(request);
                 RequireWorldDumps(ff, output, data, settings.t4Tool);
-                return util::Json(Str(output));
+                return util::Json{{"folder", Str(output)}, {"converter", data.value("converter", std::string())}};
             },
             "custom map");
         std::vector<std::pair<std::string, fs::path>> result;
@@ -618,9 +610,12 @@ namespace w2b::extract
             for (size_t i = 0; i < unique.size(); i++)
                 if (SamePath(unique[i], ff))
                 {
-                    result.emplace_back(role, files::FromUtf8(outputs[i].get<std::string>()));
+                    result.emplace_back(role, files::FromUtf8(outputs[i].at("folder").get<std::string>()));
                     break;
                 }
+        if (extractedBy)
+            for (size_t i = 0; i < unique.size(); i++)
+                (*extractedBy)[files::Utf8(unique[i].filename())] = outputs[i].at("converter").get<std::string>();
         return result;
     }
 } // namespace w2b::extract

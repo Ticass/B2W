@@ -400,6 +400,13 @@ namespace w2b::ui
             if (Button("Build Map", ImVec2(-1, theme::S(30))))
                 Build();
             ImGui::PopFont();
+            ImGui::BeginDisabled(busy);
+            if (ClassicCheckbox("Cold rebuild (extract this map's files again)", &settings.redump))
+                Save();
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Unticked, a rebuild reuses the map's extracted files. Tick it after updating the converter\n"
+                                  "or when a map looks wrong: its files are extracted again (a minute or two longer).");
             if (!busy)
             {
                 ImGui::PushStyleColor(ImGuiCol_Text, failures ? theme::MUTED : theme::GREEN);

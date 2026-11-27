@@ -27,8 +27,8 @@ namespace w2b::ui
     App::App(Gpu& gpu, const HWND window, std::optional<fs::path> path)
         : gpu(gpu), window(window), settingsPath(std::move(path)), settings(l::Discover(l::Settings::Load(settingsPath)))
     {
-        // Refresh source files, Resume and BO2 stock perks are not offered:
-        // a value an older launcher saved must not keep applying unseen.
+        // Resume and BO2 stock perks are not offered: a value an older launcher saved must not keep
+        // applying unseen. Cold rebuild is offered but starts unticked: builds are warm by default.
         settings.redump = settings.resume = settings.bo2_stock_perks = false;
         Refresh();
         if (!settings.fastfile.empty())
@@ -184,10 +184,24 @@ namespace w2b::ui
         if (!settings.fastfile.empty() && l::MapZone(l::Path(settings.fastfile)) != l::Path(settings.fastfile))
             settings.fastfile = l::Utf8(l::MapZone(l::Path(settings.fastfile)));
         Save();
+        auto snapshot = settings;
+        // a warm rebuild reuses the map's extracted files; when an older converter build extracted them, offer
+        // to refresh them first so this build's fixes reach the map
+        if (!snapshot.redump)
+            if (const auto older = l::OlderMapCache(snapshot); !older.empty())
+            {
+                std::string names;
+                for (const auto& by : older)
+                    names += (names.empty() ? "" : ", ") + by;
+                snapshot.redump = shell::AskYesNo(
+                    window, "Refresh this map's cache?",
+                    "This map's extracted source files come from " + names + ", and this is " + l::BuildLabel() +
+                        ".\n\nA cold rebuild extracts them again so the map gets this build's fixes (a minute or two longer).\n\n"
+                        "Yes: cold rebuild.\nNo: warm rebuild with the cached files.");
+            }
         warnings = errors = 0;
         currentStep = -1;
-        Log("\nBuilding " + settings.project + " from " + settings.fastfile, Tag::Info);
-        const auto snapshot = settings;
+        Log(std::string(snapshot.redump ? "\nCold rebuilding " : "\nBuilding ") + settings.project + " from " + settings.fastfile, Tag::Info);
         Start("build", [snapshot](l::ProcessRunner& r) { return l::PerformBuild(snapshot, r); });
     }
 

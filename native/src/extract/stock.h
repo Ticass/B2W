@@ -5,6 +5,8 @@
 
 #include "cache.h"
 
+#include <map>
+
 namespace w2b::extract
 {
     std::string StockAssets(const std::string& engine, const fs::path& ff);
@@ -20,7 +22,10 @@ namespace w2b::extract
         fs::path fastfile, waw, t4Tool;
     };
     // role ("map", "patch", "mod", "extra:<stem>") -> dump folder, in role order
-    std::vector<std::pair<std::string, fs::path>> SourceDumps(const MapSettings& settings, const fs::path& wawCache, bool refresh = false);
+    // converter: the build extracting now, stamped on fresh dumps; extractedBy: zone file -> the build that
+    // extracted the dump in use ("" when it predates the stamps)
+    std::vector<std::pair<std::string, fs::path>> SourceDumps(const MapSettings& settings, const fs::path& wawCache, bool refresh = false,
+                                                              const std::string& converter = "", std::map<std::string, std::string>* extractedBy = nullptr);
     void RequireWawExtractor(const fs::path& tool);
 
     // t6api.build(game, cache, unlinker, stock_dump=dump) from the shipped snapshot

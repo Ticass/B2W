@@ -6,6 +6,7 @@
 #include "core/hash.h"
 #include "core/process.h"
 #include "core/regex.h"
+#include "diagnostics.h"
 #include "images.h"
 
 #include <windows.h>
@@ -292,6 +293,33 @@ namespace w2b::launcher
         std::vector<std::string> command{Utf8(exe)};
         command.insert(command.end(), args.begin(), args.end());
         return command;
+    }
+
+    std::vector<std::string> OlderMapCache(const Settings& settings)
+    {
+        std::set<std::string> older;
+        try
+        {
+            const auto root = BuildPaths::ForSettings(settings).root;
+            const auto stamp = root / "map_cache.json";
+            if (!IsFile(stamp))
+            {
+                // built before builds recorded who extracted the map's files
+                if (IsFile(root / "build.log"))
+                    older.insert("a converter older than build stamps");
+            }
+            else
+            {
+                const auto extractedBy = util::Json::parse(files::ReadText(stamp)).value("extracted_by", util::Json::object());
+                for (const auto& [zone, by] : extractedBy.items())
+                    if (by.get<std::string>() != BuildLabel())
+                        older.insert(by.get<std::string>().empty() ? std::string("a converter older than build stamps") : by.get<std::string>());
+            }
+        }
+        catch (const std::exception&)
+        {
+        }
+        return {older.begin(), older.end()};
     }
 
     std::vector<std::string> BuildCommand(const Settings& settings)

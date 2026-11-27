@@ -274,9 +274,28 @@ namespace w2b::pipeline
             fs::copy_file(stock / "t6api_cache.json", stage / "t6api_cache.json", fs::copy_options::overwrite_existing);
             Say("== 0. reusing shared game assets and preparing cached map sources");
             std::vector<std::pair<std::string, fs::path>> sources;
+            std::map<std::string, std::string> extractedBy;
             {
                 timeline::Span span("0 map source dumps");
-                sources = extract::SourceDumps({l::Path(settings.fastfile), waw, t4}, caches.waw, options.redump);
+                sources = extract::SourceDumps({l::Path(settings.fastfile), waw, t4}, caches.waw, options.redump, l::BuildLabel(), &extractedBy);
+            }
+            {
+                // which converter builds extracted the map's cached files: the launcher offers a cold rebuild when they
+                // are older than this one (a stale dump kept Purple Dimension's stock font atlas)
+                std::set<std::string> older;
+                for (const auto& [zone, by] : extractedBy)
+                    if (by != l::BuildLabel())
+                        older.insert(by.empty() ? std::string("a converter older than build stamps") : by);
+                files::WriteText(paths.root / "map_cache.json",
+                                 util::JsonDumps(util::Json{{"converter", l::BuildLabel()}, {"extracted_by", extractedBy}, {"older", older}}, 2) + "\n");
+                if (!older.empty())
+                {
+                    std::string names;
+                    for (const auto& by : older)
+                        names += (names.empty() ? "" : ", ") + by;
+                    Say("Warning: this map's cached source files were extracted by " + names + ", not " + l::BuildLabel() +
+                        ". Tick Cold rebuild to re-extract them with this build.");
+                }
             }
             const auto source = extract::Resolve(l::Path(settings.fastfile));
             const auto find = [&](const std::string& role) -> std::optional<fs::path>

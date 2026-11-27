@@ -39,6 +39,9 @@ namespace w2b::launcher
     };
 
     std::vector<std::string> BuildCommand(const Settings& settings);
+    // the converter builds, older than this one, that extracted the map's cached source files at its last build
+    // (empty: current, or never built)
+    std::vector<std::string> OlderMapCache(const Settings& settings);
     // waw2bo2n.exe beside the launcher, else the checkout's native/build one
     std::vector<std::string> NativeCommand(const std::vector<std::string>& args);
 

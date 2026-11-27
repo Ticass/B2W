@@ -650,6 +650,11 @@ namespace w2b::extract
         data["files"] = names;
         data["index"] = index;
         data["loaded_index"] = loadedIndex;
+        // files adopted from an earlier generation keep that generation's converter
+        if (base && base->receipt.contains("converter"))
+            data["converter"] = base->receipt["converter"];
+        else if (!base && !r.converter.empty())
+            data["converter"] = r.converter;
         WriteJson(temporary / "extraction.json", data);
         Publish(temporary, folder);
         WriteJson(r.root / files::FromUtf8(key + ".json"), util::Json{{"folder", files::Utf8(folder.filename())}});

@@ -58,7 +58,7 @@ namespace w2b::extract
     struct Extraction
     {
         fs::path folder;
-        util::Json data; // {"inputs", "files", "index", "loaded_index"}
+        util::Json data; // {"inputs", "files", "index", "loaded_index", "converter" (who extracted it, when known)}
     };
 
     struct ZoneRequest
@@ -70,6 +70,9 @@ namespace w2b::extract
         std::optional<std::string> toolDigest;
         util::Json dependencies; // null or an object
         bool refresh = false, list = true;
+        // the converter build extracting it ("Test build #214"), kept in the receipt so a later build can
+        // tell the user these files predate it; empty for dumps nobody asks about
+        std::string converter;
         // an earlier generation of this zone with a subset of `assets`: only
         // the kinds it lacks are extracted, its files and listing are reused
         std::optional<fs::path> base;
