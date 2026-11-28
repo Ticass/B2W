@@ -227,13 +227,15 @@ namespace w2b::launcher
             {
                 manifest.push_back({{"file", "warnings.txt"}, {"read_error", reportError.what()}});
             }
-            // what the build made of the map's menus, HUD, fonts and strings
+            // what the build made of the map's menus, HUD, fonts and strings, and the lobby's map tables
+            // (the frontend Lua sorts every map by them: a bad row breaks the map list)
             for (const auto& folder : {zoneRaw / "content_source", zoneRaw / "zm", zoneRaw / "ui"})
                 for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
                 {
                     const auto name = Lower(Utf8(it->path().filename()));
                     if (it->is_regular_file(ec) && (name.find("menu") != std::string::npos || name.find("hud") != std::string::npos ||
-                                                     name.find("font") != std::string::npos || name.find("locali") != std::string::npos))
+                                                     name.find("font") != std::string::npos || name.find("locali") != std::string::npos ||
+                                                     name.find("table") != std::string::npos))
                         include(it->path(), "build/" + files::Utf8(it->path().lexically_relative(*build).generic_wstring()), 4 * 1024 * 1024);
                 }
         }
