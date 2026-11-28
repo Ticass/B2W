@@ -221,6 +221,9 @@ namespace w2b::pipeline::bridge
                                                 {"animations", weaponReport["animations"].size()},
                                                 {"missing_animations", weaponReport["missing_animations"]},
                                                 {"report", "content_source/weapons.stage.json"}};
+            for (const auto& [name, alternate] : SortedItems(weaponReport.value("absent_alternates", Json::object())))
+                report.Warn("WAW_ASSET_ABSENT weapon " + name + ": its altWeapon " + alternate.get<std::string>() +
+                            " is in none of the map's zones; staged without an alternate weapon");
             const auto& models = weaponReport["models"];
             for (const auto& [name, bones] : SortedItems(models.value("reparented_roots", Json::object())))
                 report.Warn("SKELETON_REPARENTED xmodel " + name + ": root bones " + ListText(bones) +

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Extract maps that carry ported weapon models whose last bone names a parent before the first bone (`bo2_worldmodel_an94`, `bo2_worldmodel_uzi`, `t5_weapon_fal_viewmodel_upgraded`). The extractor read past the model's bone list and crashed (error code -1073741819) on Insel der Toten, Schloss der Toten and Desce pro Play. Such a bone now hangs off the root bone, as its siblings do, with a warning in the zone's log.
+- A weapon whose alternate weapon is in none of the map's zones (Schloss der Toten's `zapgun_dw`) is converted without its alternate and reported as `WAW_ASSET_ABSENT`; the build stopped there.
+
 ## v0.2.16
 
 - Port the menus a map's scripts open (Tom_bmx's music player on Project X, Domik, ZZZ, Yote's Lair and 420; Fortress's gunsmith and deprived menus). The map's own compiled menus run in BO2's LUI as WaW's pause menu does: their open, close and escape scripts, their `execKey` shortcuts (the music player's number keys), and the responses the map's scripts wait for. They draw over the game with the HUD showing, as in WaW (T6 sends these menus to LUI as `popup_script_menu`, which its own HUD ignores). The server's `closeMenu` closes them.

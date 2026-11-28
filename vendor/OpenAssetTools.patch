@@ -1804,3 +1804,38 @@ index 9398f998..fb91a168 100644
          jRoot["$schema"] = "http://openassettools.dev/schema/xmodel.v1.json";
          jRoot["_type"] = "xmodel";
          jRoot["_version"] = 2;
+diff --git a/src/ObjWriting/XModel/XModelToCommonConverter.cpp.template b/src/ObjWriting/XModel/XModelToCommonConverter.cpp.template
+index 4768e3ca..2c9e3776 100644
+--- a/src/ObjWriting/XModel/XModelToCommonConverter.cpp.template
++++ b/src/ObjWriting/XModel/XModelToCommonConverter.cpp.template
+@@ -31,6 +31,7 @@
+ 
+ #include "ObjWriting.h"
+ #include "Utils/DistinctMapper.h"
++#include "Utils/Logging/Log.h"
+ #include "Utils/QuatInt16.h"
+ #include "XModel/XModelWriter.h"
+ 
+@@ -258,7 +259,21 @@ namespace
+                 bone.name = "INVALID_BONE_NAME";
+ 
+             if (boneNum >= model.numRootBones)
+-                bone.parentIndex = static_cast<int>(boneNum - static_cast<unsigned int>(model.parentList[boneNum - model.numRootBones]));
++            {
++                // parentList holds each bone's distance back to its parent. Ported weapon models
++                // (bo2_worldmodel_an94, t5_weapon_fal_viewmodel_upgraded) store numBones for their
++                // last bone, a parent before bone 0; exporting that read past the bone array.
++                // Such a bone hangs off the first root bone, as its siblings do.
++                const auto offset = static_cast<unsigned int>(model.parentList[boneNum - model.numRootBones]);
++                if (offset == 0 || offset > boneNum)
++                {
++                    con::warn("XModel {}: bone {} ({}) has parent offset {}, outside its {} bones; exported under the root bone",
++                              model.name ? model.name : "?", boneNum, bone.name, offset, static_cast<unsigned>(model.numBones));
++                    bone.parentIndex = 0;
++                }
++                else
++                    bone.parentIndex = static_cast<int>(boneNum - offset);
++            }
+             else
+                 bone.parentIndex = std::nullopt;
+ 

@@ -11,7 +11,10 @@ namespace w2b::weapons
 {
     namespace
     {
-        Names SelectWeapons(const Plan& plan, const std::vector<std::string>& requested)
+        // the requested weapons and their alternates; an alternate in none of the
+        // map's zones (zapgun's zapgun_dw in Schloss der Toten) is recorded in
+        // absentAlternates (weapon -> alternate) instead of selected
+        Names SelectWeapons(const Plan& plan, const std::vector<std::string>& requested, std::map<std::string, std::string>& absentAlternates)
         {
             std::map<std::string_view, const Weapon*> byName;
             for (std::size_t i = 0; i < plan.sources.size(); ++i)
@@ -31,10 +34,11 @@ namespace w2b::weapons
                 if (!selected.insert(name).second)
                     continue;
                 const auto weapon = byName.find(name);
-                if (weapon == byName.end())
-                    throw WeaponError("alternate weapon not found: " + name);
-                const auto alternatives = GetDependencies(weapon->second->dependencies, "weapon");
-                pending.insert(pending.end(), alternatives.begin(), alternatives.end());
+                for (const auto& alternate : GetDependencies(weapon->second->dependencies, "weapon"))
+                    if (byName.contains(alternate))
+                        pending.push_back(alternate);
+                    else
+                        absentAlternates[name] = alternate;
             }
             return selected;
         }
@@ -87,27 +91,40 @@ namespace w2b::weapons
     WeaponStage StageWeapons(const std::vector<path>& roots, const path& project, const path& base, const std::vector<std::string>& requested)
     {
         auto plan = PlanWeapons(roots, project, base);
-        const auto selected = SelectWeapons(plan, requested);
+        std::map<std::string, std::string> absentAlternates;
+        const auto selected = SelectWeapons(plan, requested, absentAlternates);
         auto dependencies = Json::object();
         Names outputNames, worldModels;
         std::vector<std::string> zoneWeapons;
         static const std::regex worldModel(R"(^worldModel([2-9]|1[0-6])?$)");
         for (std::size_t i = 0; i < plan.weapons.size(); ++i)
         {
-            if (!selected.contains(plan.sources[i].name))
+            const auto& source = plan.sources[i].name;
+            if (!selected.contains(source))
                 continue;
             const auto& weapon = plan.weapons[i];
             outputNames.insert(weapon.name);
             zoneWeapons.push_back(weapon.name);
+            const auto absent = absentAlternates.find(source);
             for (const auto& [kind, names] : weapon.dependencies.items())
                 for (const auto& asset : names)
-                    AddDependency(dependencies, kind, asset.get_ref<const std::string&>());
+                    if (kind != "weapon" || absent == absentAlternates.end() || asset.get_ref<const std::string&>() != absent->second)
+                        AddDependency(dependencies, kind, asset.get_ref<const std::string&>());
             for (const auto& [key, value] : weapon.fields)
                 if (key.starts_with("worldModel") && std::regex_match(key, worldModel))
                     worldModels.insert(value);
-            files::WriteText(project / "weapons" / files::FromUtf8(weapon.name), WriteInfo(weapon.fields));
+            if (absent == absentAlternates.end())
+                files::WriteText(project / "weapons" / files::FromUtf8(weapon.name), WriteInfo(weapon.fields));
+            else
+            {
+                // the map ships no such weapon: staged without an alternate rather than linking a name T6 cannot find
+                auto fields = weapon.fields;
+                fields.Erase("altWeapon");
+                files::WriteText(project / "weapons" / files::FromUtf8(weapon.name), WriteInfo(fields));
+            }
         }
         auto& report = plan.report;
+        report["absent_alternates"] = absentAlternates;
         auto weapons = Json::array();
         for (auto& entry : report.at("weapons"))
             if (outputNames.contains(entry.at("name").get_ref<const std::string&>()))
