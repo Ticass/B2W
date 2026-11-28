@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Extract maps that carry ported weapon models whose last bone names a parent before the first bone (`bo2_worldmodel_an94`, `bo2_worldmodel_uzi`, `t5_weapon_fal_viewmodel_upgraded`). The extractor read past the model's bone list and crashed (error code -1073741819) on Insel der Toten, Schloss der Toten and Desce pro Play. Such a bone now hangs off the root bone, as its siblings do, with a warning in the zone's log.
+- Link view models over 32767 vertices that the BO2 mod tools linker refused (Schloss der Toten's Honey Badgers, 54,000 and 61,000). Its 16-bit surface vertex bases allow 32767 for skinned surfaces and 65535 for surfaces whose triangles each follow one bone; the model's skinned surfaces now come first in the LOD, so it fits with its geometry unchanged (SURFACES_REORDERED). World models that still don't fit keep the root-bone rebind.
 - A weapon whose alternate weapon is in none of the map's zones (Schloss der Toten's `zapgun_dw`) is converted without its alternate and reported as `WAW_ASSET_ABSENT`; the build stopped there.
 
 ## v0.2.16

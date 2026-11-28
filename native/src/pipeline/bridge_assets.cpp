@@ -225,6 +225,10 @@ namespace w2b::pipeline::bridge
                 report.Warn("WAW_ASSET_ABSENT weapon " + name + ": its altWeapon " + alternate.get<std::string>() +
                             " is in none of the map's zones; staged without an alternate weapon");
             const auto& models = weaponReport["models"];
+            for (const auto& name : models.value("surfaces_reordered", Json::array()))
+                report.Warn("SURFACES_REORDERED xmodel " + name.get<std::string>() +
+                            ": over the mod tools linker's 32767 vertices for skinned surfaces; its skinned surfaces placed first, "
+                            "the one-bone ones after (up to 65535), geometry unchanged");
             for (const auto& [name, bones] : SortedItems(models.value("reparented_roots", Json::object())))
                 report.Warn("SKELETON_REPARENTED xmodel " + name + ": root bones " + ListText(bones) +
                                              " share one bind transform; secondary roots became identity children of the primary (globals unchanged)");

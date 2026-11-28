@@ -179,6 +179,53 @@ TEST_CASE("an animated model keeps several root bones", "[pipeline]")
     CHECK(animated == model());
 }
 
+TEST_CASE("skinned surfaces go first so the mod tools linker's vertex bases fit", "[pipeline]")
+{
+    // mesh 0: one triangle on bone 0 (rigid); mesh 1: a triangle across bones 0 and 1 (skinned)
+    std::string bytes;
+    const auto put = [&](const auto& value) { bytes.append(reinterpret_cast<const char*>(&value), sizeof value); };
+    for (const std::uint16_t index : {0, 1, 2, 3, 4, 5})
+        put(index);
+    for (const std::uint8_t bone : {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0})
+        put(bone);
+    for (int v = 0; v < 6; ++v)
+        for (const float weight : {1.0f, 0.0f, 0.0f, 0.0f})
+            put(weight);
+    static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string encoded;
+    for (std::size_t i = 0; i < bytes.size(); i += 3)
+    {
+        const auto chunk = static_cast<unsigned char>(bytes[i]) << 16 | (i + 1 < bytes.size() ? static_cast<unsigned char>(bytes[i + 1]) << 8 : 0) |
+                           (i + 2 < bytes.size() ? static_cast<unsigned char>(bytes[i + 2]) : 0);
+        encoded += alphabet[chunk >> 18 & 63];
+        encoded += alphabet[chunk >> 12 & 63];
+        encoded += i + 1 < bytes.size() ? alphabet[chunk >> 6 & 63] : '=';
+        encoded += i + 2 < bytes.size() ? alphabet[chunk & 63] : '=';
+    }
+    const auto model = [&] {
+        using Json = w2b::util::Json;
+        const auto primitive = [](int indices) {
+            return Json{{"indices", indices}, {"attributes", {{"POSITION", 4}, {"JOINTS_0", 2}, {"WEIGHTS_0", 3}}}};
+        };
+        return Json{{"buffers", {{{"uri", "data:application/octet-stream;base64," + encoded}}}},
+                    {"bufferViews", {{{"buffer", 0}, {"byteOffset", 0}, {"byteLength", 12}}, {{"buffer", 0}, {"byteOffset", 12}, {"byteLength", 24}},
+                                     {{"buffer", 0}, {"byteOffset", 36}, {"byteLength", 96}}}},
+                    {"accessors", {{{"bufferView", 0}, {"componentType", 5123}, {"type", "SCALAR"}, {"count", 3}},
+                                   {{"bufferView", 0}, {"byteOffset", 6}, {"componentType", 5123}, {"type", "SCALAR"}, {"count", 3}},
+                                   {{"bufferView", 1}, {"componentType", 5121}, {"type", "VEC4"}, {"count", 6}},
+                                   {{"bufferView", 2}, {"componentType", 5126}, {"type", "VEC4"}, {"count", 6}},
+                                   {{"bufferView", 2}, {"componentType", 5126}, {"type", "VEC3"}, {"count", 6}}}},
+                    {"meshes", {{{"primitives", {primitive(0)}}}, {{"primitives", {primitive(1)}}}}},
+                    {"nodes", {{{"name", "skel"}, {"children", {1, 2}}}, {{"name", "surf0"}, {"mesh", 0}}, {{"name", "surf1"}, {"mesh", 1}}}}};
+    };
+    auto fits = model();
+    CHECK(w2b::weapons::OrderSurfacesForLinker(fits, 3, 6));
+    CHECK(fits["nodes"][0]["children"] == w2b::util::Json{2, 1});
+    auto tooMany = model();
+    CHECK_FALSE(w2b::weapons::OrderSurfacesForLinker(tooMany, 2, 6));
+    CHECK(tooMany == model());
+}
+
 TEST_CASE("a non-finite hitbox sphere becomes its box's", "[pipeline]")
 {
     w2b::util::Json model{{"boneInfo",

@@ -10,6 +10,7 @@ namespace w2b::weapons
     namespace
     {
         constexpr std::size_t AnimatedLodVertices = 32767;
+        constexpr std::size_t RigidLodVertices = 65535;
 
         struct Lod
         {
@@ -27,6 +28,7 @@ namespace w2b::weapons
             Json presets = Json::object();
             Json reparented = Json::object();
             Json rebound = Json::array();
+            Json reordered = Json::array();
             Json strippedCollision = Json::array();
         };
 
@@ -92,6 +94,27 @@ namespace w2b::weapons
             return lods;
         }
 
+        // Linker.exe (sub_50AA30) refuses a LOD whose skinned surfaces end past 32767 vertices, rigid ones
+        // past 65535. Surfaces whose triangles each follow one bone are rigid there: a LOD over 32767
+        // fits when its skinned surfaces come first (the Honey Badger viewmodels in Schloss der Toten).
+        bool OrderOversizedLods(std::vector<Lod>& lods)
+        {
+            bool reordered = false;
+            for (auto& lod : lods)
+                if (LodVertices(lod.geometry) > AnimatedLodVertices)
+                {
+                    if (!OrderSurfacesForLinker(lod.geometry, AnimatedLodVertices, RigidLodVertices))
+                        return false;
+                    reordered = true;
+                }
+            return reordered;
+        }
+
+        bool Oversized(const std::vector<Lod>& lods)
+        {
+            return std::ranges::any_of(lods, [](const Lod& lod) { return LodVertices(lod.geometry) > AnimatedLodVertices; });
+        }
+
         bool RebindOversizedLods(std::vector<Lod>& lods)
         {
             if (!std::ranges::any_of(lods, [](const Lod& lod) { return LodVertices(lod.geometry) > AnimatedLodVertices; }))
@@ -127,10 +150,15 @@ namespace w2b::weapons
                 if (const auto preset = model.find("physPreset"); preset != model.end() && Truthy(*preset))
                     model["physPreset"] = StagePhysicsPreset(roots, project, preset->get_ref<const std::string&>(), report.presets);
                 lods = PrepareLods(model, roots, *owner, name, renamed, materials, report);
-                if (worldModels.contains(renamed) && Field(model, "type") == "animated" && RebindOversizedLods(lods))
+                if (Field(model, "type") == "animated" && Oversized(lods))
                 {
-                    model["type"] = "rigid";
-                    report.rebound.push_back(name);
+                    if (OrderOversizedLods(lods))
+                        report.reordered.push_back(name);
+                    else if (worldModels.contains(renamed) && RebindOversizedLods(lods))
+                    {
+                        model["type"] = "rigid";
+                        report.rebound.push_back(name);
+                    }
                 }
             }
             catch (const std::runtime_error& error)
@@ -181,7 +209,7 @@ namespace w2b::weapons
         return {{"status", "source_models_staged_materials_not_translated"}, {"models", std::move(report.models)},
                 {"missing", std::move(report.missing)}, {"unsupported", std::move(report.unsupported)},
                 {"materials", report.materials}, {"physpresets", std::move(report.presets)},
-                {"reparented_roots", std::move(report.reparented)}, {"rebound_to_root", std::move(report.rebound)},
+                {"reparented_roots", std::move(report.reparented)}, {"rebound_to_root", std::move(report.rebound)}, {"surfaces_reordered", std::move(report.reordered)},
                 {"collision_not_carried", std::move(report.strippedCollision)}};
     }
 }
